@@ -83,9 +83,7 @@ pub fn TerminalView(
             let ws_for_open = ws.clone();
             let onopen = Closure::wrap(Box::new(move |_: JsValue| {
                 set_ws_status.set(WsStatus::Open);
-                let msg =
-                    serde_json::to_string(&WsClientMessage::Resize { cols, rows }).unwrap();
-                let _ = ws_for_open.send_with_str(&msg);
+                send_resize(&ws_for_open, cols, rows);
             }) as Box<dyn FnMut(JsValue)>);
             ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
             onopen.forget();
@@ -125,22 +123,39 @@ pub fn TerminalView(
             // Terminal resize events → WS (guard against closed socket)
             let ws_for_resize = ws.clone();
             let on_resize_cb = Closure::wrap(Box::new(move |cols: u16, rows: u16| {
-                if ws_for_resize.ready_state() == WebSocket::OPEN {
-                    let msg =
-                        serde_json::to_string(&WsClientMessage::Resize { cols, rows }).unwrap();
-                    let _ = ws_for_resize.send_with_str(&msg);
-                }
+                send_resize(&ws_for_resize, cols, rows);
             }) as Box<dyn FnMut(u16, u16)>);
             term.on_resize(&on_resize_cb);
             on_resize_cb.forget();
 
-            // TODO: ResizeObserver for container resize
-            // TODO: cleanup on unmount (dispose terminal, close WS)
+            // ResizeObserver: refit terminal when container size changes
+            let term_for_resize = term.clone();
+            let ws_for_observer = ws.clone();
+            let on_observe = Closure::wrap(Box::new(move |_entries: JsValue, _observer: JsValue| {
+                let size = term_for_resize.fit_to_container();
+                let (cols, rows) = extract_size(&size);
+                send_resize(&ws_for_observer, cols, rows);
+            }) as Box<dyn FnMut(JsValue, JsValue)>);
+            let observer = web_sys::ResizeObserver::new(on_observe.as_ref().unchecked_ref()).unwrap();
+            observer.observe(&container);
+            on_observe.forget();
+            // Keep observer alive for the lifetime of the component
+            std::mem::forget(observer);
+
+            // TODO: cleanup on unmount (dispose terminal, close WS, disconnect observer)
         });
     });
 
     view! {
         <div node_ref=container_ref class="w-full h-full"></div>
+    }
+}
+
+/// Send a Resize message over WebSocket if the connection is open.
+fn send_resize(ws: &WebSocket, cols: u16, rows: u16) {
+    if ws.ready_state() == WebSocket::OPEN {
+        let msg = serde_json::to_string(&WsClientMessage::Resize { cols, rows }).unwrap();
+        let _ = ws.send_with_str(&msg);
     }
 }
 

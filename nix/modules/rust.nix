@@ -20,15 +20,14 @@
         ];
       };
 
-      # Fetch ghostty-web npm tarball — no npm needed at Nix build time.
-      ghosttyWebTgz = pkgs.fetchurl {
-        url = "https://registry.npmjs.org/ghostty-web/-/ghostty-web-0.4.0.tgz";
-        hash = "sha256-kL9HO2x/Q6teUu6Y2CleBPscawe5KOl5VInfHoy4gC4=";
-      };
+      # Fetch and unpack ghostty-web npm tarball — no npm needed at Nix build time.
       ghosttyWeb = pkgs.stdenv.mkDerivation {
         pname = "ghostty-web";
         version = "0.4.0";
-        src = ghosttyWebTgz;
+        src = pkgs.fetchurl {
+          url = "https://registry.npmjs.org/ghostty-web/-/ghostty-web-0.4.0.tgz";
+          hash = "sha256-kL9HO2x/Q6teUu6Y2CleBPscawe5KOl5VInfHoy4gC4=";
+        };
         phases = [ "unpackPhase" "installPhase" ];
         unpackPhase = "tar xzf $src";
         installPhase = "cp -r package $out";

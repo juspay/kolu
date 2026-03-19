@@ -24,8 +24,10 @@ fn App() -> impl IntoView {
                 </span>
             </header>
             // Terminal fills remaining space
-            <div class="flex-1 min-h-0">
-                <TerminalView session_id="default".to_string() set_ws_status=set_ws_status />
+            <div class="flex-1 min-h-0 p-2">
+                <div class="w-full h-full border border-slate-600 rounded">
+                    <TerminalView session_id="default".to_string() set_ws_status=set_ws_status />
+                </div>
             </div>
         </div>
     }
