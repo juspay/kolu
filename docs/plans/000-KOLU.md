@@ -327,7 +327,7 @@ test('page loads', async ({ page }) => {
 
 ---
 
-### Phase 1: One terminal in the browser
+### Phase 1: One terminal in the browser ✅
 
 **Goal:** A single PTY rendered via ghostty-web in the Leptos app. Prove
 the full stack works end-to-end: Axum → PTY → broadcast → WebSocket →
