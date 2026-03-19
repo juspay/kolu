@@ -1,9 +1,8 @@
 name: CI
+# Disabled: using `just ci` locally instead for faster feedback.
+# Re-enable when self-hosted runners or caching make this fast enough.
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
+  workflow_dispatch: {}
 jobs:
   # Vira (https://vira.nixos.asia) runs nix builds on self-hosted runners
   # and posts commit statuses. Wait for it before running e2e tests.

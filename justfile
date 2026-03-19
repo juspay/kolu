@@ -29,6 +29,31 @@ test-ui:
         && {{nix_shell}} npm install \
         && {{nix_shell}} npx playwright test --ui
 
+# Run e2e tests locally and post signoff status to GitHub
+ci:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+    SHA=$(git rev-parse HEAD)
+    CONTEXT="signoff/e2e"
+    # Post pending status
+    gh api "repos/$REPO/statuses/$SHA" \
+        -f state=pending -f context="$CONTEXT" \
+        -f description="Running e2e tests locally..." > /dev/null
+    # Run tests
+    if just test; then
+        gh api "repos/$REPO/statuses/$SHA" \
+            -f state=success -f context="$CONTEXT" \
+            -f description="e2e tests passed" > /dev/null
+        echo "✓ e2e passed, signoff posted"
+    else
+        gh api "repos/$REPO/statuses/$SHA" \
+            -f state=failure -f context="$CONTEXT" \
+            -f description="e2e tests failed" > /dev/null
+        echo "✗ e2e failed, failure posted"
+        exit 1
+    fi
+
 # Nix build (server + client WASM)
 build:
     nix build
