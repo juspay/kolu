@@ -15,7 +15,7 @@
         fileset = lib.fileset.unions [
           (craneLib.fileset.commonCargoSources unfilteredRoot)
           (lib.fileset.fileFilter
-            (file: lib.any file.hasExt [ "html" "css" "js" ])
+            (file: lib.any file.hasExt [ "html" "css" "js" "svg" ])
             unfilteredRoot)
         ];
       };

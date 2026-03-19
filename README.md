@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="client/favicon.svg" width="64" alt="kolu icon" />
+</p>
+
 # kolu
 
 > கோலு — the Navaratri tradition of arranging figures on tiered steps.
