@@ -32,11 +32,6 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 
 - Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
-## Gitignore
-
-- Build artifacts, generated files, and editor/tool directories must be gitignored.
-- Never commit secrets, credentials, or node_modules.
-
 ## Comments
 
 - Add comments where the *why* isn't obvious from the code. Don't comment the *what*.
