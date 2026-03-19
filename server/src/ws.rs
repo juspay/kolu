@@ -1,3 +1,10 @@
+//! WebSocket handler that bridges browser clients to the PTY.
+//!
+//! This module is intentionally the "glue" between WebSocket transport
+//! and PTY I/O. It doesn't own either concern — it routes messages
+//! between them. The PTY lifecycle lives in `pty.rs`; WS framing is
+//! handled by axum. This module only does the plumbing.
+
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
