@@ -28,7 +28,14 @@ nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ## CI
 
 - **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
-- **E2E tests**: GitHub Actions on ubuntu-latest, gated on Vira signoff for PRs
+- **E2E tests**: local via `just ci` — runs Playwright and posts `signoff/e2e` commit status to GitHub
+
+```sh
+just ci         # run e2e + post signoff (requires clean worktree)
+just test       # run e2e only, no signoff
+```
+
+Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
 
 ## Architecture
 

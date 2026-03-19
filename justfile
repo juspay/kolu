@@ -33,6 +33,11 @@ test-ui:
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Bail if worktree is dirty
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "✗ Dirty worktree. Commit or stash changes first."
+        exit 1
+    fi
     REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
     SHA=$(git rev-parse HEAD)
     CONTEXT="signoff/e2e"
