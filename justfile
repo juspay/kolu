@@ -23,6 +23,12 @@ test:
         && {{nix_shell}} npm install \
         && {{nix_shell}} npx playwright test
 
+# Run Playwright e2e tests with interactive UI
+test-ui:
+    cd tests \
+        && {{nix_shell}} npm install \
+        && {{nix_shell}} npx playwright test --ui
+
 # Nix build (server + client WASM)
 build:
     nix build
