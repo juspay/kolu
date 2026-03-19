@@ -33,4 +33,4 @@ Three-crate Cargo workspace:
 - `server/` — Axum HTTP server, serves static WASM client
 - `client/` — Leptos CSR app, compiled to WASM via Trunk (dev) or crane (prod)
 
-Styling: [Tailwind CSS](https://tailwindcss.com/) — standalone CLI, no Node dependency for builds.
+Styling: [Tailwind CSS](https://tailwindcss.com/) standalone CLI — no Node required for builds.

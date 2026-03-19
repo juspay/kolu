@@ -30,6 +30,10 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 
 - Aggressively remove unused code. No commented-out blocks, no "just in case" leftovers.
 
+## Styling
+
+- Tailwind utilities only in markup. No custom CSS unless truly impossible with Tailwind.
+
 ## Completeness
 
 - Implement the full spec. Read the plan/requirements and check every deliverable.

@@ -12,7 +12,14 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          args: process.env.CI ? ['--no-sandbox', '--disable-gpu'] : [],
+          args: process.env.CI
+            ? [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+              ]
+            : [],
         },
       },
     },

@@ -1,5 +1,5 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
-nix_shell := if env_var_or_default('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
 # List available recipes
 default:
