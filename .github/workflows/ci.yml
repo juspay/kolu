@@ -13,7 +13,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           statusName: signoff/vira/x86_64-linux
-          timeoutSeconds: 1800
+          timeoutSeconds: 3600
   e2e:
     needs: [wait-for-vira]
     if: always() && (needs.wait-for-vira.result == 'success' || needs.wait-for-vira.result == 'skipped')
