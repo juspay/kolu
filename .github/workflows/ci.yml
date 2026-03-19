@@ -5,6 +5,8 @@ on:
   pull_request:
     branches: [master]
 jobs:
+  # Vira (https://vira.nixos.asia) runs nix builds on self-hosted runners
+  # and posts commit statuses. Wait for it before running e2e tests.
   wait-for-vira:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
