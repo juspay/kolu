@@ -1,0 +1,7 @@
+[package]
+name = "kolu-common"
+version.workspace = true
+edition = "2021"
+description = "kolu common types"
+
+[dependencies]

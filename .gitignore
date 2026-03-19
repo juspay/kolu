@@ -1,0 +1,8 @@
+target/
+result
+dist/
+.direnv/
+.claude/worktrees/
+.pre-commit-config.yaml
+node_modules/
+test-results/

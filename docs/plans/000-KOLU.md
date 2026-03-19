@@ -263,7 +263,7 @@ must pass. e2e tests must pass. Verify before moving on.
 
 ---
 
-### Phase 0: Hello World
+### Phase 0: Hello World ✅
 
 **Goal:** Cargo workspace with three crates, Leptos CSR page that says
 "kolu" served by Axum, Nix build, Playwright smoke test, justfile.

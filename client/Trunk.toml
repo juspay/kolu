@@ -1,0 +1,10 @@
+[serve]
+port = 5173
+
+[[proxy]]
+rewrite = "/api"
+backend = "http://localhost:7681/api"
+
+[[proxy]]
+rewrite = "/ws"
+backend = "ws://localhost:7681/ws"

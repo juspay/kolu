@@ -1,0 +1,9 @@
+[package]
+name = "kolu-client"
+version.workspace = true
+edition = "2021"
+description = "kolu client"
+
+[dependencies]
+kolu-common = { path = "../common" }
+leptos = { version = "0.7", features = ["csr"] }
