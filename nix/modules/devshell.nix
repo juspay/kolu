@@ -15,6 +15,7 @@
         just
         nixd
         trunk
+        tailwindcss
         wasm-bindgen-cli
         cargo-watch
         nodejs

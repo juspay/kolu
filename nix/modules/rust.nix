@@ -49,13 +49,16 @@
         pname = "kolu-client-dist";
         version = "0.1.0";
         src = ../../client;
-        nativeBuildInputs = [ pkgs.coreutils ];
+        nativeBuildInputs = [ pkgs.coreutils pkgs.tailwindcss ];
         phases = [ "unpackPhase" "installPhase" ];
         installPhase = ''
           mkdir -p $out
           cp -r ${clientWasm}/dist/* $out/
-          cp style.css $out/
           cp nix-index.html $out/index.html
+
+          # Generate minified Tailwind CSS by scanning Rust source for class names.
+          # unpackPhase cd's into the client/ source root.
+          tailwindcss -i ./input.css -o $out/tailwind.css --minify
 
           # Hash-rename each asset and rewrite references in index.html
           for f in $out/*.{js,wasm,css}; do
