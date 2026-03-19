@@ -41,16 +41,33 @@
       # Combines wasm-bindgen output (JS + WASM) with static assets
       # (CSS) and a generated index.html that bootstraps the WASM module.
       # Trunk handles this in dev mode; this is the production equivalent.
+      # Step 2b: Hash-rename assets for cache busting.
+      #
+      # Renames JS, WASM, and CSS files to include a content hash,
+      # then rewrites index.html references to match.
       clientDist = pkgs.stdenv.mkDerivation {
         pname = "kolu-client-dist";
         version = "0.1.0";
         src = ../../client;
+        nativeBuildInputs = [ pkgs.coreutils ];
         phases = [ "unpackPhase" "installPhase" ];
         installPhase = ''
           mkdir -p $out
           cp -r ${clientWasm}/dist/* $out/
           cp style.css $out/
           cp nix-index.html $out/index.html
+
+          # Hash-rename each asset and rewrite references in index.html
+          for f in $out/*.{js,wasm,css}; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            ext="''${base##*.}"
+            name="''${base%.*}"
+            hash=$(sha256sum "$f" | cut -c1-8)
+            newname="''${name}-''${hash}.''${ext}"
+            mv "$f" "$out/$newname"
+            substituteInPlace $out/index.html --replace-warn "$base" "$newname"
+          done
         '';
       };
     in

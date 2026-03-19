@@ -21,6 +21,15 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 - But *identical* content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count.
 - Versions, ports, paths — define once, reference everywhere.
 
+## Make invalid states unrepresentable
+
+- Use enums/sum types, not booleans or stringly-typed fields.
+- If two fields can't both be `None` at the same time, model that in the type.
+
+## Dead code
+
+- Aggressively remove unused code. No commented-out blocks, no "just in case" leftovers.
+
 ## Completeness
 
 - Implement the full spec. Read the plan/requirements and check every deliverable.
