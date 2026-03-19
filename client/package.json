@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "ghostty-web": "^0.4.0"
+  }
+}

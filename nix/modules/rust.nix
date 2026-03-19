@@ -20,6 +20,20 @@
         ];
       };
 
+      # Fetch ghostty-web npm tarball — no npm needed at Nix build time.
+      ghosttyWebTgz = pkgs.fetchurl {
+        url = "https://registry.npmjs.org/ghostty-web/-/ghostty-web-0.4.0.tgz";
+        hash = "sha256-kL9HO2x/Q6teUu6Y2CleBPscawe5KOl5VInfHoy4gC4=";
+      };
+      ghosttyWeb = pkgs.stdenv.mkDerivation {
+        pname = "ghostty-web";
+        version = "0.4.0";
+        src = ghosttyWebTgz;
+        phases = [ "unpackPhase" "installPhase" ];
+        unpackPhase = "tar xzf $src";
+        installPhase = "cp -r package $out";
+      };
+
       # Trunk builds the Leptos CSR app: compiles Rust to WASM, runs
       # wasm-bindgen + wasm-opt, processes Tailwind CSS, and hash-renames
       # all assets with cross-reference rewriting. One derivation replaces
@@ -32,10 +46,12 @@
         wasm-bindgen-cli = pkgs.wasm-bindgen-cli;
         nativeBuildInputs = [ pkgs.tailwindcss ];
         # Trunk must run from client/ to find Cargo.toml and index.html.
-        # Move workspace root up one level so Trunk sees the workspace.
+        # Inject ghostty-web into node_modules/ so Trunk's copy-file directives resolve.
         postUnpack = ''
           cd $sourceRoot/client
           sourceRoot="."
+          mkdir -p node_modules/ghostty-web
+          cp -r ${ghosttyWeb}/* node_modules/ghostty-web/
         '';
       };
     in

@@ -5,3 +5,4 @@ edition = "2021"
 description = "kolu common types"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }

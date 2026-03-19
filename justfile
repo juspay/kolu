@@ -17,11 +17,17 @@ server:
 client:
     cd client && {{nix_shell}} trunk serve
 
-# Run Playwright e2e tests
+# Run Playwright e2e tests (starts server via nix run)
 test:
     cd tests \
         && {{nix_shell}} npm install \
         && {{nix_shell}} npx playwright test
+
+# Run Playwright e2e tests against an already-running dev server (just dev)
+test-dev:
+    cd tests \
+        && {{nix_shell}} npm install \
+        && PLAYWRIGHT_REUSE_SERVER=1 {{nix_shell}} npx playwright test
 
 # Run Playwright e2e tests with interactive UI
 test-ui:
