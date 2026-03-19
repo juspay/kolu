@@ -16,9 +16,10 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 - No "for future use" code. Build what's needed now.
 - Prefer plain data over objects with behavior.
 
-## DRY
+## DRY (with Rule of Three)
 
-- Don't duplicate logic, config, or content across files. If two files must stay in sync, extract the shared part.
+- Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction.
+- But *identical* content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count.
 - Versions, ports, paths — define once, reference everywhere.
 
 ## Completeness
