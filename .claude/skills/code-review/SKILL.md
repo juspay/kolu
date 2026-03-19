@@ -1,7 +1,6 @@
 ---
 name: code-review
 description: Review code for quality, simplicity, and common mistakes before declaring work complete.
-user_invocable: true
 ---
 
 # Code Review
