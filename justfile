@@ -42,9 +42,12 @@ ci:
     SHA=$(git rev-parse HEAD)
     CONTEXT="signoff/e2e"
     # Post pending status
+    echo "⏳ Posting pending status for $CONTEXT..."
     gh api "repos/$REPO/statuses/$SHA" \
         -f state=pending -f context="$CONTEXT" \
         -f description="Running e2e tests locally..." > /dev/null
+    # On Ctrl+C, just exit without posting failure
+    trap 'echo " interrupted"; exit 130' INT
     # Run tests
     if just test; then
         gh api "repos/$REPO/statuses/$SHA" \
