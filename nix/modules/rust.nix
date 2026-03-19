@@ -60,16 +60,27 @@
           # unpackPhase cd's into the client/ source root.
           tailwindcss -i ./input.css -o $out/tailwind.css --minify
 
-          # Hash-rename each asset and rewrite references in index.html
+          # Hash-rename each asset and rewrite cross-references.
+          # Build old→new mapping, rewrite references, then rename files.
+          declare -A renames
           for f in $out/*.{js,wasm,css}; do
             [ -f "$f" ] || continue
             base=$(basename "$f")
             ext="''${base##*.}"
             name="''${base%.*}"
             hash=$(sha256sum "$f" | cut -c1-8)
-            newname="''${name}-''${hash}.''${ext}"
-            mv "$f" "$out/$newname"
-            substituteInPlace $out/index.html --replace-warn "$base" "$newname"
+            renames["$base"]="''${name}-''${hash}.''${ext}"
+          done
+          # Rewrite references before renaming (files still have original names)
+          for old in "''${!renames[@]}"; do
+            for target in $out/index.html $out/*.js; do
+              [ -f "$target" ] || continue
+              substituteInPlace "$target" --replace-warn "$old" "''${renames[$old]}" || true
+            done
+          done
+          # Now rename files
+          for old in "''${!renames[@]}"; do
+            mv "$out/$old" "$out/''${renames[$old]}"
           done
         '';
       };
