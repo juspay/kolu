@@ -1,19 +1,20 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
 jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [x86_64-linux, aarch64-darwin]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix profile install github:juspay/vira
-      - run: vira ci
+      - run: nix run github:juspay/vira -- ci
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: x86_64-linux
     steps:
       - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v34
-      - run: nix develop -c bash -c "cd tests && npm install && npx playwright install --with-deps chromium && npx playwright test"
+      - run: just test

@@ -1,3 +1,6 @@
+# Prefix for commands that need a Nix devshell; empty if already inside one.
+nix_shell := if env_var_or_default('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+
 # List available recipes
 default:
     @just --list
@@ -8,15 +11,18 @@ dev:
 
 # Run server with cargo watch (auto-reload)
 server:
-    cd server && cargo watch -x run
+    cd server && {{nix_shell}} cargo watch -x run
 
 # Run client with trunk serve (WASM hot-reload)
 client:
-    cd client && trunk serve
+    cd client && {{nix_shell}} trunk serve
 
 # Run Playwright e2e tests
 test:
-    cd tests && npm install && npx playwright test
+    cd tests \
+        && {{nix_shell}} npm install \
+        && {{nix_shell}} npx playwright install --with-deps chromium \
+        && {{nix_shell}} npx playwright test
 
 # Nix build (server + client WASM)
 build:
