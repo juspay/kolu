@@ -30,6 +30,7 @@ export default defineConfig({
     command: 'nix run ..#default',
     url: 'http://localhost:7681/api/health',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    // nix build can be slow on first run (compiles Rust + WASM)
+    timeout: 600_000,
   },
 });
