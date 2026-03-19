@@ -26,11 +26,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install deps & browsers
+      - name: Install deps
         working-directory: tests
-        run: |
-          npm install
-          npx playwright install --with-deps chromium
+        run: npm install
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ hashFiles('tests/package-lock.json') }}
+      - name: Install Playwright browsers
+        working-directory: tests
+        run: npx playwright install --with-deps chromium
       - name: Run e2e tests
         working-directory: tests
         run: npx playwright test
