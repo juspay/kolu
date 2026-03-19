@@ -21,7 +21,6 @@ client:
 test:
     cd tests \
         && {{nix_shell}} npm install \
-        && {{nix_shell}} npx playwright install --with-deps chromium \
         && {{nix_shell}} npx playwright test
 
 # Nix build (server + client WASM)
