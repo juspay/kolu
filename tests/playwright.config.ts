@@ -1,5 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const ciArgs = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-gpu',
+  '--disable-dev-shm-usage',
+  '--headless=new',
+];
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -12,14 +20,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         launchOptions: {
-          args: process.env.CI
-            ? [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-gpu',
-                '--disable-dev-shm-usage',
-              ]
-            : [],
+          args: process.env.CI ? ciArgs : [],
         },
       },
     },

@@ -16,7 +16,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: nix run github:juspay/vira -- ci
   e2e:
-    runs-on: x86_64-linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: just test
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install deps & browsers
+        working-directory: tests
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Run e2e tests
+        working-directory: tests
+        run: npx playwright test
