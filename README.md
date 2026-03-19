@@ -6,10 +6,10 @@
 
 > கோலு — the Navaratri tradition of arranging figures on tiered steps.
 
-Web-based terminal multiplexer organized around repos and branches. Full-stack Rust (Leptos CSR + Axum).
+Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
 
 > [!IMPORTANT]
-> Work in progress. Not yet usable.
+> Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
 
 ## Development
 
