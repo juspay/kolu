@@ -1,3 +1,4 @@
+mod bridge;
 mod header;
 mod terminal;
 mod terminal_view;
