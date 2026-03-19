@@ -14,11 +14,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           statusName: signoff/vira/x86_64-linux
           timeoutSeconds: 1800
-      - uses: autotelic/action-wait-for-status-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          statusName: signoff/vira/aarch64-darwin
-          timeoutSeconds: 1800
   e2e:
     needs: [wait-for-vira]
     if: always() && (needs.wait-for-vira.result == 'success' || needs.wait-for-vira.result == 'skipped')
