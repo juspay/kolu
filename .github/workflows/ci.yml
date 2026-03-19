@@ -10,7 +10,7 @@ jobs:
       matrix:
         os:
           - x86_64-linux
-          # - aarch64-darwin  # TODO: re-enable once self-hosted macOS runner is faster
+          - aarch64-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
