@@ -4,9 +4,12 @@
 
 Web-based terminal multiplexer organized around repos and branches. Full-stack Rust (Leptos CSR + Axum).
 
+> [!IMPORTANT]
+> Work in progress. Not yet usable.
+
 ## Development
 
-Requires [Nix](https://nixos.org/) with flakes enabled.
+Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 
 ```sh
 nix develop     # enter devshell
