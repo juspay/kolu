@@ -9,30 +9,16 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for Vira signoff
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHA="${{ github.event.pull_request.head.sha }}"
-          REPO="${{ github.repository }}"
-          echo "Waiting for signoff/vira/* statuses on $SHA..."
-          for i in $(seq 1 120); do
-            STATUSES=$(gh api "repos/$REPO/commits/$SHA/statuses" --jq '[.[] | select(.context | startswith("signoff/vira/"))] | group_by(.context) | map(sort_by(.updated_at) | last) | map(.state)')
-            echo "  attempt $i: $STATUSES"
-            # Check if all vira statuses are success
-            if echo "$STATUSES" | jq -e 'length > 0 and all(. == "success")' >/dev/null 2>&1; then
-              echo "All Vira checks passed!"
-              exit 0
-            fi
-            # Fail fast if any errored/failed
-            if echo "$STATUSES" | jq -e 'any(. == "error" or . == "failure")' >/dev/null 2>&1; then
-              echo "Vira check failed!"
-              exit 1
-            fi
-            sleep 30
-          done
-          echo "Timed out waiting for Vira"
-          exit 1
+      - uses: autotelic/action-wait-for-status-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          statusName: signoff/vira/x86_64-linux
+          timeoutSeconds: 1800
+      - uses: autotelic/action-wait-for-status-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          statusName: signoff/vira/aarch64-darwin
+          timeoutSeconds: 1800
   e2e:
     needs: [wait-for-vira]
     if: always() && (needs.wait-for-vira.result == 'success' || needs.wait-for-vira.result == 'skipped')
