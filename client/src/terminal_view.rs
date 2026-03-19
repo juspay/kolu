@@ -3,11 +3,15 @@
 
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
-use web_sys::{BinaryType, MessageEvent, WebSocket};
+use web_sys::{BinaryType, KeyboardEvent, MessageEvent, WebSocket};
 
 use kolu_common::WsClientMessage;
 
 use crate::terminal::GhosttyTerminal;
+
+const MIN_FONT_SIZE: f64 = 8.0;
+const MAX_FONT_SIZE: f64 = 32.0;
+const FONT_SIZE_KEY: &str = "kolu-font-size";
 
 /// WebSocket connection status, exposed as a signal for the UI.
 #[derive(Clone, Copy, PartialEq)]
@@ -69,6 +73,16 @@ pub fn TerminalView(
             }))
             .await
             .unwrap();
+
+            // Restore persisted font size preference
+            if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
+                if let Ok(Some(saved)) = storage.get_item(FONT_SIZE_KEY) {
+                    if let Ok(size) = saved.parse::<f64>() {
+                        let size = size.clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+                        term.set_font_size(size);
+                    }
+                }
+            }
 
             // Fit terminal to container and get initial dimensions
             let size = term.fit_to_container();
@@ -141,6 +155,61 @@ pub fn TerminalView(
             on_observe.forget();
             // Keep observer alive for the lifetime of the component
             std::mem::forget(observer);
+
+            // Expose font size as data attribute for e2e testability
+            let initial_font_size = term.get_font_size();
+            container
+                .set_attribute("data-font-size", &initial_font_size.to_string())
+                .unwrap();
+
+            // Cmd/Ctrl+Plus/Minus: zoom in/out by adjusting font size
+            let term_for_zoom = term.clone();
+            let ws_for_zoom = ws.clone();
+            let container_for_zoom = container.clone();
+            let on_keydown = Closure::wrap(Box::new(move |e: KeyboardEvent| {
+                let is_mod = e.meta_key() || e.ctrl_key();
+                if !is_mod {
+                    return;
+                }
+                let delta: f64 = match e.key().as_str() {
+                    "=" | "+" => 1.0,
+                    "-" => -1.0,
+                    _ => return,
+                };
+                e.prevent_default();
+
+                let current = term_for_zoom.get_font_size();
+                let next = (current + delta).clamp(MIN_FONT_SIZE, MAX_FONT_SIZE);
+                if (next - current).abs() < f64::EPSILON {
+                    return;
+                }
+
+                term_for_zoom.set_font_size(next);
+                let size = term_for_zoom.fit_to_container();
+                let (cols, rows) = extract_size(&size);
+                send_resize(&ws_for_zoom, cols, rows);
+
+                container_for_zoom
+                    .set_attribute("data-font-size", &next.to_string())
+                    .unwrap();
+
+                // Persist preference
+                if let Ok(Some(storage)) = web_sys::window().unwrap().local_storage() {
+                    let _ = storage.set_item(FONT_SIZE_KEY, &next.to_string());
+                }
+            }) as Box<dyn FnMut(KeyboardEvent)>);
+            // Use capture phase to intercept before ghostty-web's input handler
+            let mut opts = web_sys::AddEventListenerOptions::new();
+            opts.capture(true);
+            web_sys::window()
+                .unwrap()
+                .add_event_listener_with_callback_and_add_event_listener_options(
+                    "keydown",
+                    on_keydown.as_ref().unchecked_ref(),
+                    &opts,
+                )
+                .unwrap();
+            on_keydown.forget();
 
             // TODO: cleanup on unmount (dispose terminal, close WS, disconnect observer)
         });

@@ -34,6 +34,14 @@ extern "C" {
     #[wasm_bindgen(method, js_name = "writeString")]
     pub fn write_string(this: &GhosttyTerminal, data: &str);
 
+    /// Get the current font size.
+    #[wasm_bindgen(method, js_name = "getFontSize")]
+    pub fn get_font_size(this: &GhosttyTerminal) -> f64;
+
+    /// Set the font size. Triggers re-measure and re-render.
+    #[wasm_bindgen(method, js_name = "setFontSize")]
+    pub fn set_font_size(this: &GhosttyTerminal, size: f64);
+
     /// Resize the terminal grid to the given dimensions.
     #[wasm_bindgen(method)]
     pub fn resize(this: &GhosttyTerminal, cols: u16, rows: u16);

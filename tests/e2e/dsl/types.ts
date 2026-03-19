@@ -29,6 +29,15 @@ export interface TerminalView {
 
   /** Resize the browser viewport and wait for reflow. */
   resizeViewport(width: number, height: number): Promise<void>;
+
+  /** Send Cmd/Ctrl+= to zoom in. */
+  zoomIn(): Promise<void>;
+
+  /** Send Cmd/Ctrl+- to zoom out. */
+  zoomOut(): Promise<void>;
+
+  /** Read the current font size from the terminal's data attribute. */
+  fontSize(): Promise<number>;
 }
 
 /** App-level view — wraps the full page (header + terminal). */

@@ -89,6 +89,25 @@ export class GhosttyTerminal {
     }
 
     /**
+     * Get the current font size.
+     * @returns {number}
+     */
+    getFontSize() {
+        return this.term.options.fontSize;
+    }
+
+    /**
+     * Set the font size. Triggers ghostty-web's internal re-measure and re-render.
+     * @param {number} size - New font size in pixels
+     */
+    setFontSize(size) {
+        this.term.options.fontSize = size;
+        // Cell dimensions changed — re-measure for fitToContainer math
+        this.cellWidth = 0;
+        this.cellHeight = 0;
+    }
+
+    /**
      * Tear down the terminal and free resources.
      * Call on component unmount or terminal close.
      */

@@ -46,6 +46,25 @@ export class TerminalViewImpl implements TerminalView {
     await this.page.setViewportSize({ width, height });
     await this.page.waitForTimeout(REFLOW_SETTLE_MS);
   }
+
+  async zoomIn() {
+    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await this.page.keyboard.press(`${mod}+Equal`);
+    await this.page.waitForTimeout(300);
+  }
+
+  async zoomOut() {
+    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await this.page.keyboard.press(`${mod}+Minus`);
+    await this.page.waitForTimeout(300);
+  }
+
+  async fontSize() {
+    const container = this.page.locator('[data-font-size]');
+    const val = await container.getAttribute('data-font-size');
+    if (!val) throw new Error('No data-font-size attribute found');
+    return parseFloat(val);
+  }
 }
 
 export class AppViewImpl implements AppView {

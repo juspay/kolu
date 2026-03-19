@@ -27,3 +27,18 @@ scenario('terminal resizes with viewport', async ({ app }) => {
 
   expect(app.errors).toEqual([]);
 });
+
+scenario('Cmd/Ctrl+Plus zooms in, Cmd/Ctrl+Minus zooms out', async ({ app }) => {
+  const initial = await app.terminal.fontSize();
+
+  await app.terminal.zoomIn();
+  const bigger = await app.terminal.fontSize();
+  expect(bigger).toBeGreaterThan(initial);
+
+  await app.terminal.zoomOut();
+  await app.terminal.zoomOut();
+  const smaller = await app.terminal.fontSize();
+  expect(smaller).toBeLessThan(initial);
+
+  expect(app.errors).toEqual([]);
+});
