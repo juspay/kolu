@@ -40,24 +40,25 @@ ci:
     fi
     REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
     SHA=$(git rev-parse HEAD)
+    USER=$(gh api user -q .login)
     CONTEXT="signoff/e2e"
     # Post pending status
     echo "⏳ Posting pending status for $CONTEXT..."
     gh api "repos/$REPO/statuses/$SHA" \
         -f state=pending -f context="$CONTEXT" \
-        -f description="Running e2e tests locally..." > /dev/null
+        -f description="Running e2e tests locally (by $USER)..." > /dev/null
     # On Ctrl+C, just exit without posting failure
     trap 'echo " interrupted"; exit 130' INT
     # Run tests
     if just test; then
         gh api "repos/$REPO/statuses/$SHA" \
             -f state=success -f context="$CONTEXT" \
-            -f description="e2e tests passed" > /dev/null
+            -f description="e2e passed (ran by $USER)" > /dev/null
         echo "✓ e2e passed, signoff posted"
     else
         gh api "repos/$REPO/statuses/$SHA" \
             -f state=failure -f context="$CONTEXT" \
-            -f description="e2e tests failed" > /dev/null
+            -f description="e2e failed (ran by $USER)" > /dev/null
         echo "✗ e2e failed, failure posted"
         exit 1
     fi
