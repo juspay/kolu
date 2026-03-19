@@ -1,54 +1,42 @@
 ---
 name: code-review
-description: Review code for common mistakes caught during development. Run this before declaring any phase complete.
+description: Review code for quality, simplicity, and common mistakes before declaring work complete.
 user_invocable: true
 ---
 
-# Code Review Checklist
+# Code Review
 
-Review the current changes against these lessons learned. Flag any violations.
+Review the current changes against these principles. Flag any violations.
 
-## Completeness
+## Simple, not easy (Rich Hickey)
 
-- **Implement the FULL spec.** Read the plan for the current phase and check every deliverable. Don't skip e2e tests, justfile recipes, or any other "boring" infrastructure item just because the Rust code compiles.
-- **Run `vira ci -b` before declaring done.** Catches rustfmt, clippy, nixpkgs-fmt failures that `nix build` alone won't.
-- **Run Playwright tests.** `cd tests && npx playwright test` must pass.
+Simple means *not interleaved*. Each module does one thing. Data flows through arguments and return values, not shared mutable state or indirection.
 
-## Build & Dev Workflow
-
-- **No GNU parallel.** Use `process-compose-flake` for running multiple dev processes. Ctrl+C must kill everything cleanly.
-- **No background process hacks** (`cmd & cmd & wait`). Process supervision tools exist for a reason.
-- **`.envrc` uses `use flake`**, not `use omnix`.
-- **Pre-commit hooks run in CI.** If rustfmt reformats your code, fix it before committing — don't discover it in CI.
-
-## Nix
-
-- **WASM filenames use hyphens.** Cargo outputs `kolu-client.wasm` (hyphen), not `kolu_client.wasm` (underscore). wasm-bindgen then produces `kolu-client.js` and `kolu-client_bg.wasm`. Get these right in `rust.nix`.
-- **Don't inline HTML in nix.** Use a file (`client/nix-index.html`) that the nix build copies. Avoids DRY violations between Trunk's `index.html` and the nix build.
-- **Add comments to non-obvious nix.** The WASM build pipeline in `rust.nix` (crane → wasm-bindgen → wasm-opt → assemble dist → wrap) deserves explanation.
+- No unnecessary abstractions. If a thing has one implementor, it doesn't need a trait/interface.
+- No "for future use" code. Build what's needed now.
+- Prefer plain data over objects with behavior.
 
 ## DRY
 
-- **Workspace version.** Crate `Cargo.toml`s should use `version.workspace = true`, not repeat the version string.
-- **Don't duplicate nix derivation versions** with hardcoded strings when they can be derived.
+- Don't duplicate logic, config, or content across files. If two files must stay in sync, extract the shared part.
+- Versions, ports, paths — define once, reference everywhere.
+
+## Completeness
+
+- Implement the full spec. Read the plan/requirements and check every deliverable.
+- Run CI locally before declaring done.
+- Run tests.
+
+## Justfile
+
+- Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
 ## Gitignore
 
-Check that these are gitignored:
-- `.claude/worktrees/`
-- `.pre-commit-config.yaml`
-- `node_modules/`
-- `test-results/`
-- `target/`
-- `result`
-- `dist/`
-- `.direnv/`
+- Build artifacts, generated files, and editor/tool directories must be gitignored.
+- Never commit secrets, credentials, or node_modules.
 
-## Simple Made Easy
+## Comments
 
-Per the project principles:
-- No trait objects, `Arc<Mutex>`, manager objects, or builder patterns
-- Plain structs with public fields, no getters/setters
-- Each module does one thing
-- Only `common::` types cross crate boundaries
-- No abstractions "for future use"
+- Add comments where the *why* isn't obvious from the code. Don't comment the *what*.
+- Non-trivial build pipelines (WASM, cross-compilation, multi-stage) deserve step-by-step comments.
