@@ -36,14 +36,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Replay scrollback so reconnecting clients see history
     let scrollback = pty.scrollback_snapshot();
-    if !scrollback.is_empty() {
-        if ws_tx
+    if !scrollback.is_empty()
+        && ws_tx
             .send(Message::Binary(scrollback.into()))
             .await
             .is_err()
-        {
-            return;
-        }
+    {
+        return;
     }
 
     // Subscribe to PTY output broadcast AFTER scrollback replay.

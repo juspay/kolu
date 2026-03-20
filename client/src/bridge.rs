@@ -18,20 +18,18 @@ pub async fn wait_animation_frame() {
 }
 
 /// Extract cols/rows from the JS object returned by `fitToContainer()`.
-/// Falls back to defaults if the value is null/undefined.
-pub fn extract_size(size: &JsValue) -> (u16, u16) {
+/// Returns `None` if the value is null/undefined.
+pub fn extract_size(size: &JsValue) -> Option<(u16, u16)> {
     if size.is_null() || size.is_undefined() {
-        return (kolu_common::DEFAULT_COLS, kolu_common::DEFAULT_ROWS);
+        return None;
     }
     let cols = js_sys::Reflect::get(size, &"cols".into())
         .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(kolu_common::DEFAULT_COLS as f64) as u16;
+        .and_then(|v| v.as_f64())? as u16;
     let rows = js_sys::Reflect::get(size, &"rows".into())
         .ok()
-        .and_then(|v| v.as_f64())
-        .unwrap_or(kolu_common::DEFAULT_ROWS as f64) as u16;
-    (cols, rows)
+        .and_then(|v| v.as_f64())? as u16;
+    Some((cols, rows))
 }
 
 /// Read a value from localStorage.

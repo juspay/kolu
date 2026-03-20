@@ -1,8 +1,10 @@
 # Agents
 
-## Code Review
+## Code Quality
 
 - After making changes, automatically run `/code-review` before declaring work complete.
+- Fix all `cargo clippy --workspace` warnings before declaring done.
+- Run `just pc` (pre-commit hooks) before declaring done.
 
 ## Testing
 

@@ -76,9 +76,9 @@ pub fn TerminalView(
 
         if state == leptos_use::core::ConnectionReadyState::Open {
             if let Some(t) = term_for_open.lock().unwrap().as_ref() {
-                let size = t.fit_to_container();
-                let (cols, rows) = bridge::extract_size(&size);
-                ws_send_for_open(&resize_msg(cols, rows));
+                if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
+                    ws_send_for_open(&resize_msg(cols, rows));
+                }
             }
         }
     });
@@ -153,9 +153,9 @@ pub fn TerminalView(
     let term_for_resize = Arc::clone(&term);
     use_resize_observer(container_ref, move |_entries, _observer| {
         if let Some(t) = term_for_resize.lock().unwrap().as_ref() {
-            let size = t.fit_to_container();
-            let (cols, rows) = bridge::extract_size(&size);
-            ws_send_for_resize(&resize_msg(cols, rows));
+            if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
+                ws_send_for_resize(&resize_msg(cols, rows));
+            }
         }
     });
 
@@ -185,9 +185,9 @@ pub fn TerminalView(
                 }
 
                 t.set_font_size(next);
-                let size = t.fit_to_container();
-                let (cols, rows) = bridge::extract_size(&size);
-                ws_send_for_zoom(&resize_msg(cols, rows));
+                if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
+                    ws_send_for_zoom(&resize_msg(cols, rows));
+                }
 
                 // Update data attribute for e2e tests
                 if let Some(container) = container_ref.get() {
