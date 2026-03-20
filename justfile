@@ -10,6 +10,10 @@ default:
 dev:
     nix run .#dev
 
+# Run cargo watch for continuous clippy feedback (all crates)
+watch:
+    {{ nix_shell }} cargo watch -x 'clippy --workspace --all-targets'
+
 # Run server with cargo watch (auto-reload)
 server:
     cd server && {{ nix_shell }} cargo watch -x run
