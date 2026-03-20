@@ -1,8 +1,11 @@
+mod api;
 mod pty;
 mod state;
+mod terminal;
 mod ws;
 
-use axum::{routing::get, Router};
+use axum::routing::{delete, get, post};
+use axum::Router;
 use clap::Parser;
 use std::net::SocketAddr;
 use tower_http::services::ServeDir;
@@ -30,25 +33,32 @@ async fn main() {
   let client_dist =
     std::env::var("KOLU_CLIENT_DIST").unwrap_or_else(|_| "../client/dist".to_string());
 
-  // Spawn a single PTY running the user's shell
+  let state = AppState::new();
+
+  // Spawn a default terminal so the user lands on a working shell
   let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
   let home = std::env::var("HOME")
     .map(std::path::PathBuf::from)
     .unwrap_or_else(|_| std::env::current_dir().unwrap());
 
-  let pty_handle = pty::spawn(
-    &shell,
+  terminal::create(
+    &state,
+    "default".to_string(),
+    "shell".to_string(),
+    vec![shell.clone()],
     &home,
-    kolu_common::DEFAULT_COLS,
-    kolu_common::DEFAULT_ROWS,
   )
-  .expect("failed to spawn PTY");
-  tracing::info!(shell = %shell, cwd = %home.display(), "PTY spawned");
+  .expect("failed to create default terminal");
+  tracing::info!(shell = %shell, cwd = %home.display(), "default terminal spawned");
 
-  let state = AppState::new(pty_handle);
+  // Start background status sweep
+  terminal::spawn_status_sweep(state.clone());
 
   let app = Router::new()
     .route("/api/health", get(health))
+    .route("/api/terminals", get(api::list_terminals))
+    .route("/api/terminals", post(api::create_terminal))
+    .route("/api/terminals/{id}", delete(api::delete_terminal))
     .route("/ws/{terminal_id}", get(ws::ws_handler))
     .with_state(state)
     .fallback_service(ServeDir::new(client_dist));

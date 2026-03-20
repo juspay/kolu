@@ -8,6 +8,41 @@ pub fn hello() -> &'static str {
 pub const DEFAULT_COLS: u16 = 80;
 pub const DEFAULT_ROWS: u16 = 24;
 
+// ── Terminal Types ──
+
+pub type TerminalId = String;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum TerminalStatus {
+  /// PTY alive, recent output (< 5s).
+  Running,
+  /// PTY alive, no recent output.
+  Idle,
+  /// PTY exited with code.
+  Exited(i32),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Terminal {
+  pub id: TerminalId,
+  pub label: String,
+  pub command: Vec<String>,
+  pub status: TerminalStatus,
+}
+
+// ── API Types ──
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTerminalRequest {
+  pub label: String,
+  #[serde(default = "default_command")]
+  pub command: Vec<String>,
+}
+
+fn default_command() -> Vec<String> {
+  vec![std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())]
+}
+
 /// Messages sent from the browser client to the server over WebSocket.
 /// Binary frames carry raw terminal input (keystrokes).
 /// Text frames carry JSON-encoded control messages like resize.

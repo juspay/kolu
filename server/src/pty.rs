@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc;
@@ -27,7 +28,8 @@ pub struct PtyHandle {
   pub output_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
   /// Scrollback buffer — last 100KB of PTY output for replay on reconnect.
   scrollback: Arc<Mutex<VecDeque<u8>>>,
-  /// Broadcast list of connected WS clients (for the reader task).
+  /// Timestamp of last PTY output — used for Running vs Idle status.
+  pub last_output_at: Arc<Mutex<Instant>>,
   _reader_task: JoinHandle<()>,
   _writer_task: JoinHandle<()>,
 }
@@ -40,11 +42,17 @@ impl PtyHandle {
   }
 }
 
+/// Result of spawning a PTY: the handle for I/O and the child for lifecycle.
+pub struct SpawnResult {
+  pub handle: PtyHandle,
+  pub child: Box<dyn portable_pty::Child + Send + Sync>,
+}
+
 /// Spawn a new PTY running `cmd` in `cwd` with initial size `cols`x`rows`.
 ///
-/// Returns a `PtyHandle` for sending input and subscribing to output.
-/// The PTY reader and writer run as background tokio tasks.
-pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
+/// Returns a `SpawnResult` with the PtyHandle (for I/O) and the Child
+/// (for kill/status polling).
+pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<SpawnResult> {
   let pty_system = native_pty_system();
   let pty_size = PtySize {
     rows,
@@ -58,8 +66,7 @@ pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyH
   let mut cmd_builder = CommandBuilder::new(cmd);
   cmd_builder.cwd(cwd);
 
-  // Child handle dropped — Phase 2 will retain it for kill/status polling.
-  let _child = pair.slave.spawn_command(cmd_builder)?;
+  let child = pair.slave.spawn_command(cmd_builder)?;
   drop(pair.slave); // Only need master from here
 
   let writer = pair.master.take_writer()?;
@@ -68,21 +75,26 @@ pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyH
   let (cmd_tx, cmd_rx) = mpsc::channel::<PtyCommand>(256);
   let (output_tx, _) = tokio::sync::broadcast::channel::<bytes::Bytes>(256);
   let scrollback: Arc<Mutex<VecDeque<u8>>> = Arc::new(Mutex::new(VecDeque::new()));
+  let last_output_at: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
 
-  // Writer task: owns the PTY writer + master (for resize).
-  // Receives commands via channel — no shared mutexes.
   let writer_task = spawn_writer_task(writer, pair.master, cmd_rx);
+  let reader_task = spawn_reader_task(
+    reader,
+    output_tx.clone(),
+    scrollback.clone(),
+    last_output_at.clone(),
+  );
 
-  // Reader task: reads PTY output in a blocking loop,
-  // appends to scrollback, broadcasts to subscribers.
-  let reader_task = spawn_reader_task(reader, output_tx.clone(), scrollback.clone());
-
-  Ok(PtyHandle {
-    cmd_tx,
-    output_tx,
-    scrollback,
-    _reader_task: reader_task,
-    _writer_task: writer_task,
+  Ok(SpawnResult {
+    handle: PtyHandle {
+      cmd_tx,
+      output_tx,
+      scrollback,
+      last_output_at,
+      _reader_task: reader_task,
+      _writer_task: writer_task,
+    },
+    child,
   })
 }
 
@@ -92,6 +104,7 @@ fn spawn_reader_task(
   reader: Box<dyn Read + Send>,
   output_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
   scrollback: Arc<Mutex<VecDeque<u8>>>,
+  last_output_at: Arc<Mutex<Instant>>,
 ) -> JoinHandle<()> {
   tokio::task::spawn_blocking(move || {
     let mut reader = reader;
@@ -111,6 +124,9 @@ fn spawn_reader_task(
               sb.drain(..excess);
             }
           }
+
+          // Update last output timestamp for status tracking
+          *last_output_at.lock().unwrap() = Instant::now();
 
           // Broadcast to all connected WebSocket clients.
           // Ignore errors — means no subscribers right now.
