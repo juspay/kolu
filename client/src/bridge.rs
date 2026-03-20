@@ -49,6 +49,11 @@ pub fn local_storage_set(key: &str, value: &str) {
   }
 }
 
+/// Serialize a Resize message for sending over WS.
+pub fn resize_msg(cols: u16, rows: u16) -> String {
+  serde_json::to_string(&kolu_common::WsClientMessage::Resize { cols, rows }).unwrap()
+}
+
 /// Build a WebSocket URL for the terminal connection.
 ///
 /// Trunk's dev proxy doesn't support WebSocket upgrades, so in dev mode

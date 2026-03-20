@@ -4,7 +4,9 @@ mod header;
 mod new_terminal;
 mod sidebar;
 mod terminal;
+mod terminal_pane;
 mod terminal_view;
+mod ws;
 
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
@@ -14,8 +16,7 @@ use kolu_common::{CreateTerminalRequest, Terminal, TerminalId};
 use new_terminal::NewTerminalDialog;
 use sidebar::Sidebar;
 use terminal_pane::TerminalPane;
-
-mod terminal_pane;
+use ws::WsStatus;
 
 fn main() {
   console_error_panic_hook::set_once();
@@ -28,6 +29,7 @@ fn App() -> impl IntoView {
   let (terminals, set_terminals) = signal(Vec::<Terminal>::new());
   let (active_id, set_active_id) = signal(Option::<TerminalId>::None);
   let (show_dialog, set_show_dialog) = signal(false);
+  let (ws_status, set_ws_status) = signal(WsStatus::Closed);
 
   // Poll terminal list: fire immediately, then every 3s
   {
@@ -89,7 +91,7 @@ fn App() -> impl IntoView {
 
   view! {
     <div class="flex flex-col w-full h-screen bg-slate-900">
-      <Header />
+      <Header ws_status=ws_status />
       <div class="flex flex-1 min-h-0">
         <div class="flex flex-col">
           <Sidebar
@@ -101,7 +103,7 @@ fn App() -> impl IntoView {
           />
         </div>
         <div class="flex-1 min-w-0 min-h-0 p-2 overflow-hidden">
-          <TerminalPane active_id=active_id terminals=terminals />
+          <TerminalPane active_id=active_id terminals=terminals set_ws_status=set_ws_status />
         </div>
       </div>
       {move || show_dialog.get().then(|| view! {

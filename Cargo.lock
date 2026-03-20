@@ -1261,7 +1261,6 @@ dependencies = [
 name = "kolu-client"
 version = "0.1.0"
 dependencies = [
- "codee",
  "console_error_panic_hook",
  "gloo-net",
  "js-sys",
