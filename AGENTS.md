@@ -14,6 +14,10 @@
 
 - Extract reusable UI into Leptos components (one component per file in `client/src/`).
 
+## CI
+
+- Run `just ci` immediately after creating a PR.
+
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
