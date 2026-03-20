@@ -13,7 +13,7 @@ in
   crane.args = {
     nativeBuildInputs = [ pkgs.curl ];
     preBuild = ''
-      cp ${swaggerUiZip} swagger-ui.zip
+      install -m 644 ${swaggerUiZip} swagger-ui.zip
       export SWAGGER_UI_DOWNLOAD_URL="file://$PWD/swagger-ui.zip"
     '';
   };
