@@ -35,10 +35,11 @@ test-ui:
         && {{nix_shell}} npm install \
         && {{nix_shell}} npx playwright test --ui
 
-# Run e2e tests locally and post signoff status to GitHub
+# Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
+    nix run github:juspay/vira ci
     # Bail if worktree is dirty
     if [ -n "$(git status --porcelain)" ]; then
         echo "✗ Dirty worktree. Commit or stash changes first."
