@@ -9,23 +9,23 @@ use crate::pty::PtyHandle;
 /// Currently holds a single terminal — Phase 2 will expand to a map.
 #[derive(Clone)]
 pub struct AppState {
-    inner: Arc<AppStateInner>,
+  inner: Arc<AppStateInner>,
 }
 
 /// The actual owned state behind the Arc.
 struct AppStateInner {
-    /// Handle to the shared PTY process (channels + scrollback).
-    pty: PtyHandle,
+  /// Handle to the shared PTY process (channels + scrollback).
+  pty: PtyHandle,
 }
 
 impl AppState {
-    pub fn new(pty: PtyHandle) -> Self {
-        Self {
-            inner: Arc::new(AppStateInner { pty }),
-        }
+  pub fn new(pty: PtyHandle) -> Self {
+    Self {
+      inner: Arc::new(AppStateInner { pty }),
     }
+  }
 
-    pub fn pty(&self) -> &PtyHandle {
-        &self.inner.pty
-    }
+  pub fn pty(&self) -> &PtyHandle {
+    &self.inner.pty
+  }
 }

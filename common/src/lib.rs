@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub fn hello() -> &'static str {
-    "kolu"
+  "kolu"
 }
 
 /// Default terminal dimensions used as initial size and fallback.
@@ -14,9 +14,9 @@ pub const DEFAULT_ROWS: u16 = 24;
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsClientMessage {
-    /// Client's terminal viewport changed size (e.g. browser window resize).
-    /// Server forwards this to the PTY so programs reflow correctly.
-    Resize { cols: u16, rows: u16 },
+  /// Client's terminal viewport changed size (e.g. browser window resize).
+  /// Server forwards this to the PTY so programs reflow correctly.
+  Resize { cols: u16, rows: u16 },
 }
 
 /// Messages sent from the server to the browser client over WebSocket.
@@ -25,6 +25,6 @@ pub enum WsClientMessage {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsServerMessage {
-    /// The PTY process has exited. Terminal is now read-only.
-    Exit { exit_code: i32 },
+  /// The PTY process has exited. Terminal is now read-only.
+  Exit { exit_code: i32 },
 }

@@ -39,6 +39,7 @@ test-ui:
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
+    nix run github:juspay/vira ci
     # Bail if worktree is dirty
     if [ -n "$(git status --porcelain)" ]; then
         echo "✗ Dirty worktree. Commit or stash changes first."
