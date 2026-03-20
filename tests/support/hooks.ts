@@ -8,7 +8,6 @@ import type { Browser } from 'playwright';
 import { KoluWorld } from './world.ts';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 
@@ -42,7 +41,7 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
 
 BeforeAll(async function () {
   // Start server if not reusing
-  if (!process.env.PLAYWRIGHT_REUSE_SERVER) {
+  if (!process.env.REUSE_SERVER) {
     console.log('Starting server via nix run ..#default ...');
     serverProcess = spawn('nix', ['run', '..#default'], {
       stdio: 'pipe',

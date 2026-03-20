@@ -31,7 +31,7 @@ just test
 Set `HEADLESS=false` to see the browser:
 
 ```bash
-cd tests && PLAYWRIGHT_REUSE_SERVER=1 HEADLESS=false nix develop ..#default -c npx tsx node_modules/.bin/cucumber-js --profile ui
+cd tests && REUSE_SERVER=1 HEADLESS=false nix develop ..#default -c npx tsx node_modules/.bin/cucumber-js --profile ui
 ```
 
 ## How it works

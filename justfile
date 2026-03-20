@@ -27,7 +27,7 @@ test:
 test-dev:
     cd tests \
         && {{nix_shell}} npm install \
-        && PLAYWRIGHT_REUSE_SERVER=1 {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
+        && REUSE_SERVER=1 {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:

@@ -22,7 +22,7 @@ export class KoluWorld extends World {
 
   // Stashed dimensions for comparison across steps
   savedCanvas?: { x: number; y: number; width: number; height: number };
-  savedCanvas2?: { x: number; y: number; width: number; height: number };
+  previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;
 
   // HTTP response from last request

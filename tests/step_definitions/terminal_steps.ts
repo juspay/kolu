@@ -54,14 +54,14 @@ Then('the canvas should be smaller than before', async function (this: KoluWorld
   assert.ok(current.width < this.savedCanvas.width, 'Canvas width should be smaller');
   assert.ok(current.height < this.savedCanvas.height, 'Canvas height should be smaller');
   // Save for next comparison
-  this.savedCanvas2 = current;
+  this.previousCanvas = current;
 });
 
 Then('the canvas should be larger than the {int}x{int} size', async function (this: KoluWorld, _w: number, _h: number) {
   const current = await this.canvasBox();
-  assert.ok(this.savedCanvas2, 'No saved comparison dimensions');
-  assert.ok(current.width > this.savedCanvas2.width, 'Canvas width should be larger');
-  assert.ok(current.height > this.savedCanvas2.height, 'Canvas height should be larger');
+  assert.ok(this.previousCanvas, 'No saved comparison dimensions');
+  assert.ok(current.width > this.previousCanvas.width, 'Canvas width should be larger');
+  assert.ok(current.height > this.previousCanvas.height, 'Canvas height should be larger');
 });
 
 Then('the canvas should fill at least {int}% of its container', async function (this: KoluWorld, pct: number) {
@@ -90,32 +90,25 @@ Then('the font size should be smaller than the original', async function (this: 
 
 // ── WebSocket interception ──
 
+// Monkey-patches WebSocket.send to capture outgoing messages in window.__wsSent.
+function wsInterceptScript() {
+  const origSend = WebSocket.prototype.send;
+  (window as any).__wsSent = [];
+  WebSocket.prototype.send = function (data: any) {
+    if (typeof data === 'string') {
+      (window as any).__wsSent.push(data);
+    }
+    return origSend.call(this, data);
+  };
+}
+
 Given('I intercept WebSocket messages', async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    const origSend = WebSocket.prototype.send;
-    (window as any).__wsSent = [];
-    WebSocket.prototype.send = function (data: any) {
-      if (typeof data === 'string') {
-        (window as any).__wsSent.push(data);
-      }
-      return origSend.call(this, data);
-    };
-  });
-  // Clear
+  await this.page.evaluate(wsInterceptScript);
   await this.page.evaluate(() => { (window as any).__wsSent = []; });
 });
 
 Given('I intercept WebSocket messages from page load', async function (this: KoluWorld) {
-  await this.page.addInitScript(() => {
-    const origSend = WebSocket.prototype.send;
-    (window as any).__wsSent = [];
-    WebSocket.prototype.send = function (data: any) {
-      if (typeof data === 'string') {
-        (window as any).__wsSent.push(data);
-      }
-      return origSend.call(this, data);
-    };
-  });
+  await this.page.addInitScript(wsInterceptScript);
 });
 
 When('the page reloads and the terminal is ready', async function (this: KoluWorld) {
