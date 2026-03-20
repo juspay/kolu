@@ -29,6 +29,9 @@ export class KoluWorld extends World {
   lastResponseText?: string;
   lastResponseOk?: boolean;
 
+  // Last API error status
+  lastApiStatus?: number;
+
   // --- Canvas locator ---
 
   get canvas(): Locator {
@@ -89,6 +92,25 @@ export class KoluWorld extends World {
     const val = await container.getAttribute('data-font-size');
     if (!val) throw new Error('No data-font-size attribute found');
     return parseFloat(val);
+  }
+
+  // --- API helpers ---
+
+  async createTerminalApi(id: string, label: string, command?: string[]): Promise<number> {
+    const resp = await this.page.request.post('/api/terminals', {
+      data: { id, label, command: command ?? null },
+    });
+    return resp.status();
+  }
+
+  async killTerminalApi(id: string): Promise<number> {
+    const resp = await this.page.request.delete(`/api/terminals/${id}`);
+    return resp.status();
+  }
+
+  async listTerminalsApi(): Promise<any[]> {
+    const resp = await this.page.request.get('/api/terminals');
+    return resp.json();
   }
 }
 

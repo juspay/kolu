@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 pub fn hello() -> &'static str {
   "kolu"
@@ -7,6 +8,38 @@ pub fn hello() -> &'static str {
 /// Default terminal dimensions used as initial size and fallback.
 pub const DEFAULT_COLS: u16 = 80;
 pub const DEFAULT_ROWS: u16 = 24;
+
+// ── Terminal types ──
+
+pub type TerminalId = String;
+
+/// Terminal process status, derived from child process state + output activity.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
+pub enum TerminalStatus {
+  Running,
+  Idle,
+  Exited(i32),
+}
+
+/// Terminal metadata returned by the REST API.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct Terminal {
+  pub id: TerminalId,
+  pub label: String,
+  pub command: Vec<String>,
+  pub status: TerminalStatus,
+}
+
+/// Request body for creating a new terminal.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateTerminalRequest {
+  pub id: TerminalId,
+  pub label: String,
+  /// Command to run. None = user's $SHELL.
+  pub command: Option<Vec<String>>,
+}
+
+// ── WebSocket protocol ──
 
 /// Messages sent from the browser client to the server over WebSocket.
 /// Binary frames carry raw terminal input (keystrokes).

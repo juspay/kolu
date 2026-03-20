@@ -2,7 +2,8 @@ Feature: Terminal
   Terminal canvas rendering, resizing, and keyboard shortcuts.
 
   Background:
-    Given the terminal is ready
+    Given I create a terminal with id "default" and label "default"
+    And the terminal is ready
 
   Scenario: Terminal accepts input
     When I run "echo kolu-test"

@@ -1,11 +1,17 @@
+mod api;
 mod pty;
 mod state;
+mod terminal;
 mod ws;
 
-use axum::{routing::get, Router};
+use axum::routing::get;
+use axum::Router;
 use clap::Parser;
 use std::net::SocketAddr;
 use tower_http::services::ServeDir;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_swagger_ui::SwaggerUi;
 
 use state::AppState;
 
@@ -22,6 +28,17 @@ async fn health() -> &'static str {
   kolu_common::hello()
 }
 
+#[derive(OpenApi)]
+#[openapi(
+  info(title = "kolu API", version = "0.1.0"),
+  components(schemas(
+    kolu_common::Terminal,
+    kolu_common::TerminalStatus,
+    kolu_common::CreateTerminalRequest,
+  ))
+)]
+struct ApiDoc;
+
 #[tokio::main]
 async fn main() {
   tracing_subscriber::fmt::init();
@@ -30,25 +47,30 @@ async fn main() {
   let client_dist =
     std::env::var("KOLU_CLIENT_DIST").unwrap_or_else(|_| "../client/dist".to_string());
 
-  // Spawn a single PTY running the user's shell
-  let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-  let home = std::env::var("HOME")
-    .map(std::path::PathBuf::from)
-    .unwrap_or_else(|_| std::env::current_dir().unwrap());
+  let state = AppState::new();
 
-  let pty_handle = pty::spawn(
-    &shell,
-    &home,
-    kolu_common::DEFAULT_COLS,
-    kolu_common::DEFAULT_ROWS,
-  )
-  .expect("failed to spawn PTY");
-  tracing::info!(shell = %shell, cwd = %home.display(), "PTY spawned");
+  // Status sweep: update Running/Idle/Exited every 2s
+  let sweep_state = state.clone();
+  tokio::spawn(async move {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
+    loop {
+      interval.tick().await;
+      terminal::sweep_status(&sweep_state);
+    }
+  });
 
-  let state = AppState::new(pty_handle);
+  let (api_router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+    .route("/api/health", get(health))
+    .routes(utoipa_axum::routes!(
+      api::create_terminal,
+      api::list_terminals
+    ))
+    .routes(utoipa_axum::routes!(api::kill_terminal))
+    .split_for_parts();
 
   let app = Router::new()
-    .route("/api/health", get(health))
+    .merge(api_router)
+    .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api))
     .route("/ws/{terminal_id}", get(ws::ws_handler))
     .with_state(state)
     .fallback_service(ServeDir::new(client_dist));

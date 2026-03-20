@@ -1,15 +1,15 @@
 //! WebSocket handler that bridges browser clients to the PTY.
 //!
-//! This module is intentionally the "glue" between WebSocket transport
-//! and PTY I/O. It doesn't own either concern — it routes messages
-//! between them. The PTY lifecycle lives in `pty.rs`; WS framing is
-//! handled by axum. This module only does the plumbing.
+//! This module routes messages between WebSocket transport and PTY I/O.
+//! The PTY lifecycle lives in `pty.rs`; WS framing is handled by axum.
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, State, WebSocketUpgrade};
-use axum::response::IntoResponse;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use futures::stream::StreamExt;
 use futures::SinkExt;
+use tokio::sync::{broadcast, mpsc};
 
 use kolu_common::WsClientMessage;
 
@@ -20,22 +20,36 @@ use crate::state::AppState;
 /// Route: `GET /ws/:terminal_id`
 pub async fn ws_handler(
   ws: WebSocketUpgrade,
-  Path(_terminal_id): Path<String>,
+  Path(terminal_id): Path<String>,
   State(state): State<AppState>,
-) -> impl IntoResponse {
-  ws.on_upgrade(move |socket| handle_socket(socket, state))
+) -> Response {
+  let entry = match state.terminals().get(&terminal_id) {
+    Some(entry) => entry,
+    None => return StatusCode::NOT_FOUND.into_response(),
+  };
+
+  let cmd_tx = entry.pty.cmd_tx.clone();
+  let output_tx = entry.pty.output_tx.clone();
+  let scrollback = entry.pty.scrollback_snapshot();
+  drop(entry); // Release DashMap ref before upgrade
+
+  ws.on_upgrade(move |socket| handle_socket(socket, cmd_tx, output_tx, scrollback))
+    .into_response()
 }
 
 /// Bidirectional pipe between a WebSocket client and the PTY.
 ///
 /// On connect: replays scrollback so the client sees prior output.
 /// Then: PTY output → WS binary frames, WS input → PTY stdin.
-async fn handle_socket(socket: WebSocket, state: AppState) {
-  let pty = state.pty();
+async fn handle_socket(
+  socket: WebSocket,
+  cmd_tx: mpsc::Sender<PtyCommand>,
+  output_tx: broadcast::Sender<bytes::Bytes>,
+  scrollback: Vec<u8>,
+) {
   let (mut ws_tx, mut ws_rx) = socket.split();
 
   // Replay scrollback so reconnecting clients see history
-  let scrollback = pty.scrollback_snapshot();
   if !scrollback.is_empty()
     && ws_tx
       .send(Message::Binary(scrollback.into()))
@@ -46,9 +60,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
   }
 
   // Subscribe to PTY output broadcast AFTER scrollback replay.
-  // Small window for lost output — acceptable for Phase 1.
-  let mut output_rx = pty.output_tx.subscribe();
-  let cmd_tx = pty.cmd_tx.clone();
+  let mut output_rx = output_tx.subscribe();
 
   // PTY output → WebSocket (binary frames)
   let send_task = tokio::spawn(async move {

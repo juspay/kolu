@@ -30,7 +30,7 @@ const FONT_SIZE_KEY: &str = "kolu-font-size";
 /// to the server PTY, and handles resize/zoom interactions.
 #[component]
 pub fn TerminalView(
-  session_id: String,
+  terminal_id: String,
   #[prop(into)] set_ws_status: WriteSignal<WsStatus>,
 ) -> impl IntoView {
   let container_ref = NodeRef::<leptos::html::Div>::new();
@@ -42,7 +42,7 @@ pub fn TerminalView(
     Arc::new(std::sync::Mutex::new(None));
 
   // --- WebSocket via leptos-use ---
-  let ws_url = bridge::build_ws_url(&session_id);
+  let ws_url = bridge::build_ws_url(&terminal_id);
 
   let term_for_bytes = Arc::clone(&term);
   let term_for_text = Arc::clone(&term);

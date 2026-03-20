@@ -5,7 +5,10 @@ import * as assert from 'node:assert';
 // ── Background ──
 
 Given('the terminal is ready', async function (this: KoluWorld) {
-  await this.page.goto('/');
+  // Navigate if not already on the app
+  if (!this.page.url().includes('localhost')) {
+    await this.page.goto('/');
+  }
   await this.waitForReady();
 });
 

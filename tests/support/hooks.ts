@@ -80,6 +80,17 @@ Before(async function (this: KoluWorld) {
   this.page = await this.context.newPage();
   this.errors = [];
   this.page.on('pageerror', (err) => this.errors.push(err.message));
+
+  // Clean up any terminals from previous scenarios
+  try {
+    const resp = await this.page.request.get(`${BASE_URL}/api/terminals`);
+    const terminals = await resp.json();
+    for (const t of terminals) {
+      await this.page.request.delete(`${BASE_URL}/api/terminals/${t.id}`);
+    }
+  } catch {
+    // Server may not have terminals API yet during smoke tests
+  }
 });
 
 After(async function (this: KoluWorld, scenario) {

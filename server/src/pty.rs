@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use tokio::sync::mpsc;
@@ -27,7 +29,10 @@ pub struct PtyHandle {
   pub output_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
   /// Scrollback buffer — last 100KB of PTY output for replay on reconnect.
   scrollback: Arc<Mutex<VecDeque<u8>>>,
-  /// Broadcast list of connected WS clients (for the reader task).
+  /// Child process handle for status polling and killing.
+  child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+  /// Epoch millis of last PTY output, updated by reader task.
+  pub last_output_at: Arc<AtomicU64>,
   _reader_task: JoinHandle<()>,
   _writer_task: JoinHandle<()>,
 }
@@ -38,13 +43,37 @@ impl PtyHandle {
     let sb = self.scrollback.lock().unwrap();
     sb.iter().copied().collect()
   }
+
+  /// Non-blocking check: has the child exited? Returns exit code if so.
+  pub fn try_wait(&self) -> Option<u32> {
+    self
+      .child
+      .lock()
+      .unwrap()
+      .try_wait()
+      .ok()
+      .flatten()
+      .map(|s| s.exit_code())
+  }
+
+  /// Kill the child process.
+  pub fn kill(&self) {
+    let _ = self.child.lock().unwrap().kill();
+  }
+}
+
+fn now_millis() -> u64 {
+  SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_millis() as u64
 }
 
 /// Spawn a new PTY running `cmd` in `cwd` with initial size `cols`x`rows`.
 ///
 /// Returns a `PtyHandle` for sending input and subscribing to output.
 /// The PTY reader and writer run as background tokio tasks.
-pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
+pub fn spawn(cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
   let pty_system = native_pty_system();
   let pty_size = PtySize {
     rows,
@@ -55,11 +84,13 @@ pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyH
 
   let pair = pty_system.openpty(pty_size)?;
 
-  let mut cmd_builder = CommandBuilder::new(cmd);
+  let mut cmd_builder = CommandBuilder::new(&cmd[0]);
+  for arg in &cmd[1..] {
+    cmd_builder.arg(arg);
+  }
   cmd_builder.cwd(cwd);
 
-  // Child handle dropped — Phase 2 will retain it for kill/status polling.
-  let _child = pair.slave.spawn_command(cmd_builder)?;
+  let child = pair.slave.spawn_command(cmd_builder)?;
   drop(pair.slave); // Only need master from here
 
   let writer = pair.master.take_writer()?;
@@ -68,6 +99,7 @@ pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyH
   let (cmd_tx, cmd_rx) = mpsc::channel::<PtyCommand>(256);
   let (output_tx, _) = tokio::sync::broadcast::channel::<bytes::Bytes>(256);
   let scrollback: Arc<Mutex<VecDeque<u8>>> = Arc::new(Mutex::new(VecDeque::new()));
+  let last_output_at = Arc::new(AtomicU64::new(now_millis()));
 
   // Writer task: owns the PTY writer + master (for resize).
   // Receives commands via channel — no shared mutexes.
@@ -75,12 +107,19 @@ pub fn spawn(cmd: &str, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyH
 
   // Reader task: reads PTY output in a blocking loop,
   // appends to scrollback, broadcasts to subscribers.
-  let reader_task = spawn_reader_task(reader, output_tx.clone(), scrollback.clone());
+  let reader_task = spawn_reader_task(
+    reader,
+    output_tx.clone(),
+    scrollback.clone(),
+    last_output_at.clone(),
+  );
 
   Ok(PtyHandle {
     cmd_tx,
     output_tx,
     scrollback,
+    child: Arc::new(Mutex::new(child)),
+    last_output_at,
     _reader_task: reader_task,
     _writer_task: writer_task,
   })
@@ -92,6 +131,7 @@ fn spawn_reader_task(
   reader: Box<dyn Read + Send>,
   output_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
   scrollback: Arc<Mutex<VecDeque<u8>>>,
+  last_output_at: Arc<AtomicU64>,
 ) -> JoinHandle<()> {
   tokio::task::spawn_blocking(move || {
     let mut reader = reader;
@@ -101,6 +141,9 @@ fn spawn_reader_task(
         Ok(0) => break, // EOF — PTY closed
         Ok(n) => {
           let data = &buf[..n];
+
+          // Track last output time for Running vs Idle status
+          last_output_at.store(now_millis(), Ordering::Relaxed);
 
           // Append to scrollback, trim if over limit
           {
