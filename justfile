@@ -69,6 +69,10 @@ ci:
         exit 1
     fi
 
+# Run pre-commit hooks on all files
+pc:
+    {{nix_shell}} pre-commit run -a
+
 # Nix build (server + client WASM)
 build:
     nix build
