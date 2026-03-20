@@ -96,11 +96,12 @@ export class KoluWorld extends World {
 
   // --- API helpers ---
 
-  async createTerminalApi(id: string, label: string, command?: string[]): Promise<number> {
+  async createTerminalApi(command: string = 'Shell', cwd?: string): Promise<{ status: number; body?: any }> {
     const resp = await this.page.request.post('/api/terminals', {
-      data: { id, label, command: command ?? null },
+      data: { command, cwd: cwd ?? null },
     });
-    return resp.status();
+    const body = resp.ok() ? await resp.json() : undefined;
+    return { status: resp.status(), body };
   }
 
   async killTerminalApi(id: string): Promise<number> {

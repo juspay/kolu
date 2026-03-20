@@ -21,6 +21,32 @@ pub enum TerminalStatus {
   Exited(i32),
 }
 
+/// Predefined terminal commands.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
+pub enum TerminalCommand {
+  Shell,
+  Opencode,
+  Claude,
+}
+
+impl TerminalCommand {
+  pub fn label(&self) -> &'static str {
+    match self {
+      Self::Shell => "shell",
+      Self::Opencode => "opencode",
+      Self::Claude => "claude",
+    }
+  }
+
+  pub fn to_argv(&self, shell: &str) -> Vec<String> {
+    match self {
+      Self::Shell => vec![shell.to_string()],
+      Self::Opencode => vec!["opencode".to_string()],
+      Self::Claude => vec!["claude".to_string()],
+    }
+  }
+}
+
 /// Terminal metadata returned by the REST API.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct Terminal {
@@ -33,10 +59,9 @@ pub struct Terminal {
 /// Request body for creating a new terminal.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct CreateTerminalRequest {
-  pub id: TerminalId,
-  pub label: String,
-  /// Command to run. None = user's $SHELL.
-  pub command: Option<Vec<String>>,
+  pub command: TerminalCommand,
+  /// Working directory. None = $HOME.
+  pub cwd: Option<String>,
 }
 
 // ── WebSocket protocol ──

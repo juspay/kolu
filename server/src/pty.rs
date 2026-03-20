@@ -73,7 +73,7 @@ fn now_millis() -> u64 {
 ///
 /// Returns a `PtyHandle` for sending input and subscribing to output.
 /// The PTY reader and writer run as background tokio tasks.
-pub fn spawn(cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
+pub fn spawn(id: &str, cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
   let pty_system = native_pty_system();
   let pty_size = PtySize {
     rows,
@@ -101,13 +101,16 @@ pub fn spawn(cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result
   let scrollback: Arc<Mutex<VecDeque<u8>>> = Arc::new(Mutex::new(VecDeque::new()));
   let last_output_at = Arc::new(AtomicU64::new(now_millis()));
 
+  let id_owned = id.to_string();
+
   // Writer task: owns the PTY writer + master (for resize).
   // Receives commands via channel — no shared mutexes.
-  let writer_task = spawn_writer_task(writer, pair.master, cmd_rx);
+  let writer_task = spawn_writer_task(id_owned.clone(), writer, pair.master, cmd_rx);
 
   // Reader task: reads PTY output in a blocking loop,
   // appends to scrollback, broadcasts to subscribers.
   let reader_task = spawn_reader_task(
+    id_owned,
     reader,
     output_tx.clone(),
     scrollback.clone(),
@@ -128,6 +131,7 @@ pub fn spawn(cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result
 /// Background task that reads PTY output and broadcasts it.
 /// Runs in `spawn_blocking` because portable_pty's reader is blocking I/O.
 fn spawn_reader_task(
+  id: String,
   reader: Box<dyn Read + Send>,
   output_tx: tokio::sync::broadcast::Sender<bytes::Bytes>,
   scrollback: Arc<Mutex<VecDeque<u8>>>,
@@ -162,13 +166,14 @@ fn spawn_reader_task(
         Err(_) => break,
       }
     }
-    tracing::info!("PTY reader task exited");
+    tracing::info!(terminal_id = %id, "PTY reader task exited");
   })
 }
 
 /// Background task that writes to the PTY.
 /// Owns the writer and master (for resize) — single owner, no mutexes.
 fn spawn_writer_task(
+  id: String,
   mut writer: Box<dyn Write + Send>,
   master: Box<dyn portable_pty::MasterPty + Send>,
   mut cmd_rx: mpsc::Receiver<PtyCommand>,
@@ -189,11 +194,11 @@ fn spawn_writer_task(
             pixel_height: 0,
           };
           if let Err(e) = master.resize(size) {
-            tracing::warn!("PTY resize failed: {}", e);
+            tracing::warn!(terminal_id = %id, "PTY resize failed: {}", e);
           }
         }
       }
     }
-    tracing::info!("PTY writer task exited");
+    tracing::info!(terminal_id = %id, "PTY writer task exited");
   })
 }

@@ -9,38 +9,44 @@ use crate::state::{AppState, LiveTerminal};
 
 const IDLE_THRESHOLD: Duration = Duration::from_secs(5);
 
-/// Create a new terminal. Returns 409 if ID already exists.
+/// Create a new terminal with auto-generated ID.
 pub fn create(state: &AppState, req: CreateTerminalRequest) -> Result<Terminal, StatusCode> {
-  // Use entry API to avoid TOCTOU race between contains_key and insert
-  use dashmap::mapref::entry::Entry;
-  let entry = state.terminals().entry(req.id.clone());
-  match entry {
-    Entry::Occupied(_) => Err(StatusCode::CONFLICT),
-    Entry::Vacant(vacant) => {
-      let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-      let command = req.command.unwrap_or_else(|| vec![shell]);
-      let home = std::env::var("HOME")
+  let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+  let command = req.command.to_argv(&shell);
+  let label = req.command.label().to_string();
+
+  let cwd = req
+    .cwd
+    .map(std::path::PathBuf::from)
+    .unwrap_or_else(|| {
+      std::env::var("HOME")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+        .unwrap_or_else(|_| std::env::current_dir().unwrap())
+    });
 
-      let pty_handle = pty::spawn(&command, &home, DEFAULT_COLS, DEFAULT_ROWS)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+  // Auto-generate unique ID: command-label + counter
+  let count = state.terminals().len();
+  let id = format!("{}-{}", label, count);
 
-      let info = Terminal {
-        id: req.id,
-        label: req.label,
-        command,
-        status: TerminalStatus::Running,
-      };
+  let pty_handle = pty::spawn(&id, &command, &cwd, DEFAULT_COLS, DEFAULT_ROWS)
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-      vacant.insert(LiveTerminal {
-        info: info.clone(),
-        pty: pty_handle,
-      });
+  let info = Terminal {
+    id: id.clone(),
+    label,
+    command,
+    status: TerminalStatus::Running,
+  };
 
-      Ok(info)
-    }
-  }
+  state.terminals().insert(
+    id,
+    LiveTerminal {
+      info: info.clone(),
+      pty: pty_handle,
+    },
+  );
+
+  Ok(info)
 }
 
 /// List all terminals with current status.

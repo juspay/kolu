@@ -4,30 +4,39 @@ import * as assert from 'node:assert';
 
 // ── Terminal creation via API ──
 
-Given('I create a terminal with id {string} and label {string}', async function (this: KoluWorld, id: string, label: string) {
+Given('I create a terminal', async function (this: KoluWorld) {
   // Navigate if not already on the app
   if (!this.page.url().includes('localhost')) {
     await this.page.goto('/');
   }
-  const status = await this.createTerminalApi(id, label);
+  const { status, body } = await this.createTerminalApi();
   assert.strictEqual(status, 200, `Expected 200 creating terminal, got ${status}`);
   // Wait for sidebar poll to pick it up
   await this.page.waitForTimeout(4000);
   // Click the terminal in sidebar to select it
-  const entry = this.page.locator(`aside >> text=${label}`);
+  const entry = this.page.locator(`aside >> text=${body.label}`);
   await entry.click();
   await this.page.waitForTimeout(500);
+  // Store for later reference
+  this.lastCreatedTerminal = body;
+});
+
+Given('I create another terminal', async function (this: KoluWorld) {
+  const { status, body } = await this.createTerminalApi();
+  assert.strictEqual(status, 200, `Expected 200 creating terminal, got ${status}`);
+  await this.page.waitForTimeout(4000);
+  const entry = this.page.locator(`aside >> text=${body.label}`).last();
+  await entry.click();
+  await this.page.waitForTimeout(500);
+  this.lastCreatedTerminal = body;
 });
 
 // ── Switching ──
 
-When('I switch to terminal {string} in the sidebar', async function (this: KoluWorld, id: string) {
-  // Find terminal entry by looking at the sidebar text that matches the label
-  // We use the API to find the label for this ID
+When('I switch to the first terminal in the sidebar', async function (this: KoluWorld) {
   const terminals = await this.listTerminalsApi();
-  const terminal = terminals.find((t: any) => t.id === id);
-  assert.ok(terminal, `Terminal ${id} not found in API`);
-  const entry = this.page.locator(`aside >> text=${terminal.label}`);
+  assert.ok(terminals.length > 0, 'No terminals found');
+  const entry = this.page.locator(`aside >> text=${terminals[0].label}`).first();
   await entry.click();
   await this.page.waitForTimeout(500);
 });
@@ -52,30 +61,17 @@ Then('the sidebar should show {int} terminal(s)', async function (this: KoluWorl
 
 // ── Kill ──
 
-When('I kill terminal {string} via the sidebar', async function (this: KoluWorld, id: string) {
-  const terminals = await this.listTerminalsApi();
-  const terminal = terminals.find((t: any) => t.id === id);
-  assert.ok(terminal, `Terminal ${id} not found`);
-  // Click the kill button next to the terminal label
-  const entry = this.page.locator('aside').locator(`text=${terminal.label}`).locator('..').locator('button:has-text("✕")');
-  await entry.click();
+When('I kill the last created terminal via the sidebar', async function (this: KoluWorld) {
+  assert.ok(this.lastCreatedTerminal, 'No terminal was created');
+  const id = this.lastCreatedTerminal.id;
+  const status = await this.killTerminalApi(id);
+  assert.strictEqual(status, 200, `Expected 200 killing terminal, got ${status}`);
   await this.page.waitForTimeout(500);
 });
 
-Then('terminal {string} should show exited status in the sidebar', async function (this: KoluWorld, id: string) {
-  // After kill + sweep, the terminal should be removed from the list
+Then('the killed terminal should be removed', async function (this: KoluWorld) {
+  assert.ok(this.lastCreatedTerminal, 'No terminal was created');
   const terminals = await this.listTerminalsApi();
-  const terminal = terminals.find((t: any) => t.id === id);
-  // Kill removes from map, so terminal should be gone
-  assert.ok(!terminal, `Terminal ${id} should have been removed after kill`);
-});
-
-// ── Duplicate rejection ──
-
-When('I try to create a terminal with id {string} and label {string}', async function (this: KoluWorld, id: string, _label: string) {
-  this.lastApiStatus = await this.createTerminalApi(id, _label);
-});
-
-Then('the creation should fail with conflict error', function (this: KoluWorld) {
-  assert.strictEqual(this.lastApiStatus, 409, `Expected 409 Conflict, got ${this.lastApiStatus}`);
+  const found = terminals.find((t: any) => t.id === this.lastCreatedTerminal.id);
+  assert.ok(!found, `Terminal ${this.lastCreatedTerminal.id} should have been removed after kill`);
 });

@@ -33,7 +33,7 @@ pub async fn ws_handler(
   let scrollback = entry.pty.scrollback_snapshot();
   drop(entry); // Release DashMap ref before upgrade
 
-  ws.on_upgrade(move |socket| handle_socket(socket, cmd_tx, output_tx, scrollback))
+  ws.on_upgrade(move |socket| handle_socket(socket, terminal_id, cmd_tx, output_tx, scrollback))
     .into_response()
 }
 
@@ -43,6 +43,7 @@ pub async fn ws_handler(
 /// Then: PTY output → WS binary frames, WS input → PTY stdin.
 async fn handle_socket(
   socket: WebSocket,
+  terminal_id: String,
   cmd_tx: mpsc::Sender<PtyCommand>,
   output_tx: broadcast::Sender<bytes::Bytes>,
   scrollback: Vec<u8>,
@@ -110,5 +111,5 @@ async fn handle_socket(
       _ = recv_task => {},
   }
 
-  tracing::debug!("WebSocket connection closed");
+  tracing::debug!(terminal_id = %terminal_id, "WebSocket connection closed");
 }

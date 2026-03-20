@@ -15,7 +15,6 @@ use wasm_bindgen::prelude::*;
 
 use crate::bridge;
 use crate::terminal::GhosttyTerminal;
-use crate::ws::WsStatus;
 
 /// Serialize a Resize message for sending over WS.
 fn resize_msg(cols: u16, rows: u16) -> String {
@@ -29,10 +28,7 @@ const FONT_SIZE_KEY: &str = "kolu-font-size";
 /// Full-screen terminal pane. Initializes ghostty-web, connects a WebSocket
 /// to the server PTY, and handles resize/zoom interactions.
 #[component]
-pub fn TerminalView(
-  terminal_id: String,
-  #[prop(into)] set_ws_status: WriteSignal<WsStatus>,
-) -> impl IntoView {
+pub fn TerminalView(terminal_id: String) -> impl IntoView {
   let container_ref = NodeRef::<leptos::html::Div>::new();
 
   // Shared terminal handle — None until async init completes.
@@ -72,7 +68,6 @@ pub fn TerminalView(
   let ws_send_for_open = ws.send.clone();
   Effect::new(move |_| {
     let state = ready_state.get();
-    set_ws_status.set(WsStatus::from(state));
 
     if state == leptos_use::core::ConnectionReadyState::Open {
       if let Some(t) = term_for_open.lock().unwrap().as_ref() {

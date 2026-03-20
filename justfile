@@ -8,7 +8,8 @@ default:
 
 # Run server + client in parallel via process-compose
 dev:
-    nix run .#dev
+    # This delegates to the process-compose script, which in turn uses cargo/npm (so we must be in nix shell)
+    {{ nix_shell }} nix run .#dev
 
 # Run server with cargo watch (auto-reload)
 server:

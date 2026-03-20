@@ -6,14 +6,13 @@ use kolu_common::*;
 use crate::state::AppState;
 use crate::terminal;
 
-/// Create a new terminal with a user-chosen ID.
+/// Create a new terminal with auto-generated ID.
 #[utoipa::path(
   post,
   path = "/api/terminals",
   request_body = CreateTerminalRequest,
   responses(
     (status = 200, description = "Terminal created", body = Terminal),
-    (status = 409, description = "Terminal ID already exists"),
     (status = 500, description = "Failed to spawn PTY"),
   )
 )]

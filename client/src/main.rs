@@ -5,17 +5,15 @@ mod new_terminal;
 mod sidebar;
 mod terminal;
 mod terminal_view;
-mod ws;
 
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use header::Header;
 use kolu_common::{CreateTerminalRequest, Terminal, TerminalId};
-use new_terminal::NewTerminalForm;
+use new_terminal::NewTerminalDialog;
 use sidebar::Sidebar;
 use terminal_view::TerminalView;
-use ws::WsStatus;
 
 fn main() {
   console_error_panic_hook::set_once();
@@ -27,8 +25,7 @@ fn main() {
 fn App() -> impl IntoView {
   let (terminals, set_terminals) = signal(Vec::<Terminal>::new());
   let (active_id, set_active_id) = signal(Option::<TerminalId>::None);
-  let (show_new_form, set_show_new_form) = signal(false);
-  let (ws_status, set_ws_status) = signal(WsStatus::Connecting);
+  let (show_dialog, set_show_dialog) = signal(false);
 
   // Poll terminal list: fire immediately, then every 3s
   {
@@ -40,7 +37,6 @@ fn App() -> impl IntoView {
       });
     }) as Box<dyn FnMut()>);
 
-    // Fire once now, then on interval
     fetch_terminals
       .as_ref()
       .unchecked_ref::<js_sys::Function>()
@@ -59,21 +55,18 @@ fn App() -> impl IntoView {
   });
 
   let on_new = Callback::new(move |_: ()| {
-    set_show_new_form.set(true);
-  });
-
-  let on_kill = Callback::new(move |id: TerminalId| {
-    wasm_bindgen_futures::spawn_local(async move {
-      let _ = api::kill_terminal(&id).await;
-    });
+    set_show_dialog.set(true);
   });
 
   let on_create = Callback::new(move |req: CreateTerminalRequest| {
+    set_show_dialog.set(false);
     wasm_bindgen_futures::spawn_local(async move {
       match api::create_terminal(&req).await {
         Ok(t) => {
           set_active_id.set(Some(t.id));
-          set_show_new_form.set(false);
+          if let Ok(list) = api::list_terminals().await {
+            set_terminals.set(list);
+          }
         }
         Err(e) => {
           web_sys::console::error_1(&format!("Failed to create terminal: {}", e).into());
@@ -83,23 +76,20 @@ fn App() -> impl IntoView {
   });
 
   let on_cancel = Callback::new(move |_: ()| {
-    set_show_new_form.set(false);
+    set_show_dialog.set(false);
+  });
+
+  let on_kill = Callback::new(move |id: TerminalId| {
+    wasm_bindgen_futures::spawn_local(async move {
+      let _ = api::kill_terminal(&id).await;
+    });
   });
 
   view! {
     <div class="flex flex-col w-full h-screen bg-slate-900">
-      <Header ws_status=ws_status />
+      <Header />
       <div class="flex flex-1 min-h-0">
         <div class="flex flex-col">
-          {move || {
-            if show_new_form.get() {
-              view! {
-                <NewTerminalForm on_create=on_create on_cancel=on_cancel />
-              }.into_any()
-            } else {
-              view! { <div></div> }.into_any()
-            }
-          }}
           <Sidebar
             terminals=terminals
             active_id=active_id
@@ -112,7 +102,7 @@ fn App() -> impl IntoView {
           {move || match active_id.get() {
             Some(id) => view! {
               <div class="w-full h-full border border-slate-600 rounded overflow-hidden">
-                <TerminalView terminal_id=id set_ws_status=set_ws_status />
+                <TerminalView terminal_id=id />
               </div>
             }.into_any(),
             None => view! {
@@ -123,6 +113,9 @@ fn App() -> impl IntoView {
           }}
         </div>
       </div>
+      {move || show_dialog.get().then(|| view! {
+        <NewTerminalDialog on_create=on_create on_cancel=on_cancel />
+      })}
     </div>
   }
 }
