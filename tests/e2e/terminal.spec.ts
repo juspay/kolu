@@ -95,6 +95,35 @@ scenario('zoom shortcuts do not leak keystrokes to terminal', async ({ app }) =>
   expect(app.errors).toEqual([]);
 });
 
+scenario('initial resize is sent to PTY on connect', async ({ app }) => {
+  // Intercept WS messages from the start — addInitScript runs before page JS
+  await app.page.addInitScript(() => {
+    const origSend = WebSocket.prototype.send;
+    (window as any).__wsSent = [];
+    WebSocket.prototype.send = function (data: any) {
+      if (typeof data === 'string') {
+        (window as any).__wsSent.push(data);
+      }
+      return origSend.call(this, data);
+    };
+  });
+  await app.page.reload();
+  await app.terminal.waitForReady();
+  await app.page.waitForTimeout(1000);
+
+  const messages: string[] = await app.page.evaluate(() => (window as any).__wsSent);
+
+  // Find the first Resize message
+  const resizeMsg = messages.find(m => m.includes('"Resize"'));
+  expect(resizeMsg).toBeDefined();
+
+  const parsed = JSON.parse(resizeMsg!);
+  // Default viewport is 1280x720 — cols should be well above default 80
+  expect(parsed.cols).toBeGreaterThan(80);
+
+  expect(app.errors).toEqual([]);
+});
+
 scenario('Cmd/Ctrl+Plus zooms in, Cmd/Ctrl+Minus zooms out', async ({ app }) => {
   const initial = await app.terminal.fontSize();
 

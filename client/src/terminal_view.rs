@@ -65,19 +65,33 @@ pub fn TerminalView(
             }),
     );
 
-    // Map WS ready_state to our WsStatus
+    // Send initial resize when WS connects.
+    // ws_open() is non-blocking — the connection isn't ready immediately,
+    // so we watch ready_state to send the resize at the right moment.
     let ready_state = ws.ready_state;
+    let term_for_open = Arc::clone(&term);
+    let ws_send_for_open = ws.send.clone();
     Effect::new(move |_| {
-        set_ws_status.set(WsStatus::from(ready_state.get()));
+        let state = ready_state.get();
+        set_ws_status.set(WsStatus::from(state));
+
+        if state == leptos_use::core::ConnectionReadyState::Open {
+            if let Some(t) = term_for_open.lock().unwrap().as_ref() {
+                let size = t.fit_to_container();
+                let (cols, rows) = bridge::extract_size(&size);
+                ws_send_for_open(&resize_msg(cols, rows));
+            }
+        }
     });
 
     // Clone send/open for use in closures below
     let ws_send = ws.send.clone();
     let ws_open = ws.open.clone();
+    let ws_send_for_resize = ws_send.clone();
+    let ws_send_for_zoom = ws_send.clone();
 
     // --- Terminal init (async, then open WS) ---
     let term_for_init = Arc::clone(&term);
-    let ws_send_for_init = ws_send.clone();
     Effect::new(move |_| {
         let container = container_ref.get();
         if container.is_none() {
@@ -87,7 +101,7 @@ pub fn TerminalView(
 
         let term_cell = Arc::clone(&term_for_init);
         let ws_open = ws_open.clone();
-        let ws_send = ws_send_for_init.clone();
+        let ws_send = ws_send.clone();
 
         wasm_bindgen_futures::spawn_local(async move {
             let t = GhosttyTerminal::new();
@@ -103,8 +117,7 @@ pub fn TerminalView(
                 }
             }
 
-            let size = t.fit_to_container();
-            let (cols, rows) = bridge::extract_size(&size);
+            t.fit_to_container();
 
             // Set initial font-size data attribute for e2e testability
             container
@@ -132,17 +145,13 @@ pub fn TerminalView(
             // Store terminal handle so WS callbacks and observers can use it
             *term_cell.lock().unwrap() = Some(SendWrapper::new(t));
 
-            // Open WS connection — now that terminal is ready to receive
+            // Open WS — the ready_state effect will send initial resize once connected
             ws_open();
-
-            // Send initial resize so server knows our dimensions
-            ws_send(&resize_msg(cols, rows));
         });
     });
 
     // --- ResizeObserver via leptos-use ---
     let term_for_resize = Arc::clone(&term);
-    let ws_send_for_resize = ws_send.clone();
     use_resize_observer(container_ref, move |_entries, _observer| {
         if let Some(t) = term_for_resize.lock().unwrap().as_ref() {
             let size = t.fit_to_container();
@@ -153,7 +162,6 @@ pub fn TerminalView(
 
     // --- Font zoom via leptos-use event listener ---
     let term_for_zoom = Arc::clone(&term);
-    let ws_send_for_zoom = ws_send.clone();
     // Return value is the cleanup fn (auto-called on unmount by leptos-use)
     let _stop_zoom_listener = use_event_listener_with_options(
         use_window(),
