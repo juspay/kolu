@@ -25,10 +25,12 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
+  // PLAYWRIGHT_REUSE_SERVER=1 skips server startup (for `just test-dev`)
+  webServer: process.env.PLAYWRIGHT_REUSE_SERVER ? undefined : {
     command: 'nix run ..#default',
     url: 'http://localhost:7681/api/health',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    // nix build can be slow on first run (compiles Rust + WASM)
+    timeout: 600_000,
   },
 });

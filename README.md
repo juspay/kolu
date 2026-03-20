@@ -45,8 +45,10 @@ Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `s
 
 Three-crate Cargo workspace:
 
-- `common/` — shared types, no platform-specific deps
-- `server/` — Axum HTTP server, serves static WASM client
-- `client/` — Leptos CSR app, compiled to WASM via Trunk (dev) or crane (prod)
+- `common/` — shared types (WS protocol, terminal defaults), no platform-specific deps
+- `server/` — Axum HTTP server + PTY management (`portable-pty`) + WebSocket bridge
+- `client/` — Leptos CSR app compiled to WASM via Trunk (dev) or crane (prod)
+
+Terminal stack: Axum → PTY → broadcast channel → WebSocket → [ghostty-web](https://ghostty.org) canvas.
 
 Styling: [Tailwind CSS](https://tailwindcss.com/) standalone CLI — no Node required for builds.

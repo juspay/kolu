@@ -44,6 +44,18 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 
 - Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
+## Module structure
+
+- Each module should own one concern. If a module mixes two domains (e.g. WebSocket + PTY), either split it or add a module-level doc comment explaining why it's intentionally glue.
+- UI components get their own file (`client/src/header.rs`, not inlined in `main.rs`).
+- Large async blocks (`spawn_local`, `spawn`) should be extracted into named functions — the name documents what the block does.
+
+## Readability
+
+- Closure-heavy code (e.g. wasm-bindgen callbacks) should be broken into small named functions. Don't nest 5+ closures in one scope.
+- Every public type and every `#[component]` needs a doc comment.
+- Structs with non-obvious fields need field-level comments.
+
 ## Comments
 
 - Add comments where the *why* isn't obvious from the code. Don't comment the *what*.

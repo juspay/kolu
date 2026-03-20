@@ -5,6 +5,7 @@ port = 5173
 rewrite = "/api"
 backend = "http://localhost:7681/api"
 
+# Trunk handles WS upgrade automatically — use http:// not ws://
 [[proxy]]
 rewrite = "/ws"
-backend = "ws://localhost:7681/ws"
+backend = "http://localhost:7681/ws"
