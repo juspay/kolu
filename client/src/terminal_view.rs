@@ -4,12 +4,12 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use codee::string::FromToStringCodec;
 use leptos::prelude::*;
 use leptos_use::{
-    use_event_listener_with_options, use_resize_observer, use_websocket_with_options,
-    use_window, UseEventListenerOptions, UseWebSocketOptions,
+    use_event_listener_with_options, use_resize_observer, use_websocket_with_options, use_window,
+    UseEventListenerOptions, UseWebSocketOptions,
 };
-use codee::string::FromToStringCodec;
 use send_wrapper::SendWrapper;
 use wasm_bindgen::prelude::*;
 
@@ -31,8 +31,7 @@ const FONT_SIZE_KEY: &str = "kolu-font-size";
 #[component]
 pub fn TerminalView(
     session_id: String,
-    #[prop(into)]
-    set_ws_status: WriteSignal<WsStatus>,
+    #[prop(into)] set_ws_status: WriteSignal<WsStatus>,
 ) -> impl IntoView {
     let container_ref = NodeRef::<leptos::html::Div>::new();
 

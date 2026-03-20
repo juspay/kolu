@@ -77,13 +77,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     if let Ok(client_msg) = serde_json::from_str::<WsClientMessage>(&text) {
                         match client_msg {
                             WsClientMessage::Resize { cols, rows } => {
-                                let _ =
-                                    cmd_tx.send(PtyCommand::Resize { cols, rows }).await;
+                                let _ = cmd_tx.send(PtyCommand::Resize { cols, rows }).await;
                             }
                         }
                     } else {
                         // Treat unrecognized text as raw input
-                        let _ = cmd_tx.send(PtyCommand::Write(text.as_bytes().to_vec())).await;
+                        let _ = cmd_tx
+                            .send(PtyCommand::Write(text.as_bytes().to_vec()))
+                            .await;
                     }
                 }
                 Message::Close(_) => break,
