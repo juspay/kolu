@@ -454,7 +454,135 @@ e2e tests (`tests/e2e/session.spec.ts`):
 
 ---
 
-### Phase 3: Repo registry
+### Phase 3: NixOS module
+
+**Goal:** Kolu runs as a NixOS service. Pure deployment infrastructure —
+no auth, no multi-user PTY spawning yet.
+
+**Build:**
+
+NixOS module (`nix/modules/nixos.nix`):
+- `services.kolu.enable = true;`
+- `services.kolu.port = 7681;`
+- `services.kolu.runAs = "kolu";` — Unix user to run the server as
+- Systemd service: runs kolu server as dedicated `kolu` system user
+- Opens firewall port if configured
+
+NixOS VM test (`nix/tests/nixos-vm.nix`):
+- Boots a NixOS config with the kolu module enabled
+- Verifies the systemd service starts
+- Health endpoint (`/api/health`) responds 200
+
+e2e tests:
+- Existing tests continue to work unchanged — this phase adds no server
+  code changes
+
+**Test:** NixOS VM test boots and verifies service → existing e2e tests
+still pass → `just test` passes.
+
+---
+
+### Phase 4: Google auth
+
+**Goal:** Google OAuth2 login restricted to a configured domain. Unix
+username derived from email prefix (`alice@example.com` → `alice`).
+PTYs spawn as the derived Unix user via a setuid helper. Users not in
+the NixOS whitelist (Phase 3) are rejected.
+
+**Build:**
+
+`pty-spawn/` (new crate in workspace):
+- Small setuid binary: `kolu-pty-spawn`
+- Takes args: `--user <unix_user> --cmd <command...> --cwd <path>`
+- Resolves UID/GID for the Unix user via `nix` crate (the Unix API crate,
+  not the package manager)
+- Drops privileges: `setgid()`, `initgroups()`, `setuid()`
+- Sets `HOME`, `USER`, `SHELL` from passwd entry
+- Allocates PTY and execs the command
+
+`server/src/pty.rs` update:
+- `spawn()` now takes an optional `unix_user: Option<&str>` parameter
+- When `Some(user)`: invokes `kolu-pty-spawn --user <user> --cmd <cmd> --cwd <cwd>`
+- When `None`: spawns directly via `portable_pty` (current behavior,
+  for dev mode / single-user use)
+
+Nix update:
+- `kolu-pty-spawn` built as a separate derivation
+- NixOS module updated: installs `kolu-pty-spawn` as setuid wrapper
+  (via `security.wrappers`)
+
+`common/src/lib.rs`:
+- Add `User { email: String, name: String, unix_user: String, picture_url: Option<String> }`
+- Add `AuthError` enum: `DomainNotAllowed`, `UserNotAllowed`, `NotAuthenticated`
+
+`server/src/auth.rs`:
+- Google OAuth2 flow using the `oauth2` crate + `reqwest` for token exchange
+- `GET /auth/login` → redirect to Google consent screen
+  - Scopes: `openid`, `email`, `profile`
+  - Restrict to configured domain via `hd` parameter
+- `GET /auth/callback` → exchange code for ID token, extract email/name/picture
+  - Verify `hd` claim matches `KOLU_GOOGLE_DOMAIN`
+  - Derive Unix user from email prefix: `alice@juspay.in` → `alice`
+  - Check that `alice` exists as a Unix user on the system (via `getpwnam`)
+    — if not, return 403 page ("account not provisioned")
+  - Set signed session cookie (HMAC via `KOLU_SESSION_SECRET` env var)
+- `POST /auth/logout` → clear session cookie
+- `pub fn require_auth(cookies) → Result<AuthenticatedUser>` — Axum extractor
+  that validates the session cookie and returns the user. Used as middleware
+  on all `/api/*` and `/ws/*` routes.
+- `KOLU_DEV_USER` env var: if set, skip OAuth entirely and treat all
+  requests as authenticated with this Unix user. **Dev mode only.** This
+  is what makes e2e tests work without a real Google login.
+
+`server/src/api.rs` update:
+- All `/api/*` and `/ws/*` routes wrapped with `require_auth` extractor
+- `GET /api/me` → returns current user info
+- Terminal creation passes the authenticated user's `unix_user` to
+  `pty::spawn()`
+
+`client/src/login.rs`:
+- Simple page: app title + "Sign in with Google" link to `/auth/login`
+- Shown when `/api/me` returns 401
+
+`client/src/app.rs` update:
+- On mount: check `/api/me`
+  - 401 → render `<LoginPage />`
+  - 200 → render app as before
+- User avatar + name in sidebar header
+- Logout button
+
+Configuration (env vars):
+- `KOLU_GOOGLE_CLIENT_ID` — Google OAuth client ID
+- `KOLU_GOOGLE_CLIENT_SECRET` — Google OAuth client secret
+- `KOLU_GOOGLE_DOMAIN` — allowed email domain (e.g. `juspay.in`)
+- `KOLU_SESSION_SECRET` — HMAC key for signing session cookies
+- `KOLU_DEV_USER` — dev/test bypass: skip OAuth, use this Unix user
+
+E2e test strategy:
+- **Dev/test mode**: server started with `KOLU_DEV_USER=$USER` — all
+  requests are pre-authenticated as the current user. No OAuth flow needed.
+  Existing terminal/smoke tests work unchanged.
+- **Auth-specific tests** (`tests/features/auth.feature`):
+  - Server started *without* `KOLU_DEV_USER`:
+    - `GET /api/terminals` → 401
+    - `GET /auth/login` → 302 redirect to `accounts.google.com`
+    - Verify redirect URL contains correct `client_id` and `hd` params
+  - Server started *with* `KOLU_DEV_USER`:
+    - `GET /api/me` → 200 with user info
+    - All existing scenarios continue to pass
+
+`tests/support/hooks.ts` update:
+- `BeforeAll`: set `KOLU_DEV_USER=<current_user>` in server env by default
+- Auth-specific scenarios tagged `@no-dev-auth` start a separate server
+  without `KOLU_DEV_USER`
+
+**Test:** Without `KOLU_DEV_USER` → login page shown → OAuth redirect works →
+with `KOLU_DEV_USER` → app loads directly → all existing e2e tests pass
+unchanged → `just test` passes.
+
+---
+
+### Phase 5: Repo registry
 
 **Goal:** Register repos (name → clone URL → local path). Persisted as
 JSON. No worktrees yet — just the registry.
@@ -496,7 +624,7 @@ e2e tests (`tests/e2e/registry.spec.ts`):
 
 ---
 
-### Phase 4: Worktrees + worktree terminals
+### Phase 6: Worktrees + worktree terminals
 
 **Goal:** Create worktrees for repos. Spawn terminals inside worktrees.
 The sidebar becomes the three-level tree. Terminal tabs appear.
@@ -567,7 +695,7 @@ worktrees stored inside repos → `just test` passes.
 
 ---
 
-### Phase 5: Git status + activity polish
+### Phase 7: Git status + activity polish
 
 **Goal:** Surface git information. Activity indicators refined.
 
@@ -598,7 +726,7 @@ each has independent status → `just test` passes.
 
 ---
 
-### Phase 6: UX polish
+### Phase 8: UX polish
 
 **Goal:** Keyboard shortcuts, resize handling, error toasts, theme.
 
@@ -665,7 +793,7 @@ Before starting the next phase:
 
 ## Future Milestones
 
-Deferred. Do not build these during Phases 0–6. They can be added later
+Deferred. Do not build these during Phases 0–8. They can be added later
 without changing the architecture.
 
 ### Agent activity detection
@@ -688,9 +816,9 @@ Add as a flake output in `juspay/AI`. Session creation accepts agent
 variants (`opencode-juspay-oneclick`, etc.). `.agents/` skills auto-wired
 via `nix-agent-wire`.
 
-### Multi-user / team features
-Auth layer, session ownership, spectator mode, shared team server,
-remote compute.
+### Multi-user team features
+Spectator mode, shared team server, remote compute. (Auth and user
+mapping are handled in Phase 3.)
 
 ### Notifications
 Slack webhook when agent finishes. Browser notifications when a
