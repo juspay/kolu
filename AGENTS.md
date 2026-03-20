@@ -2,8 +2,8 @@
 
 ## Code Quality
 
+- **Rapid feedback**: Use `/cargo-watch` at the start of any code-editing task for continuous clippy feedback.
 - After making changes, automatically run `/code-review` before declaring work complete.
-- Fix all `cargo clippy --workspace` warnings before declaring done.
 - Run `just pc` (pre-commit hooks) before declaring done.
 
 ## Testing
