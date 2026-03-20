@@ -2,7 +2,7 @@
 
 ## Code Quality
 
-- **Rapid feedback**: At the start of any code-editing task, run `just watch` in the background (Bash with `run_in_background: true`). This launches `cargo watch` which automatically re-runs `cargo clippy --workspace --all-targets` whenever `.rs` files change. Periodically check the background task output (via `TaskOutput`) to catch compilation errors and clippy warnings early, rather than discovering them at the end.
+- **Rapid feedback**: Use `/cargo-watch` at the start of any code-editing task for continuous clippy feedback.
 - After making changes, automatically run `/code-review` before declaring work complete.
 - Run `just pc` (pre-commit hooks) before declaring done.
 
