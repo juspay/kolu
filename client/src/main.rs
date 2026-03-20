@@ -108,10 +108,10 @@ fn App() -> impl IntoView {
             on_kill=on_kill
           />
         </div>
-        <div class="flex-1 min-h-0 p-2">
+        <div class="flex-1 min-w-0 min-h-0 p-2 overflow-hidden">
           {move || match active_id.get() {
             Some(id) => view! {
-              <div class="w-full h-full border border-slate-600 rounded">
+              <div class="w-full h-full border border-slate-600 rounded overflow-hidden">
                 <TerminalView terminal_id=id set_ws_status=set_ws_status />
               </div>
             }.into_any(),
