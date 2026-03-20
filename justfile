@@ -1,4 +1,5 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
+
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
 # List available recipes
@@ -11,23 +12,23 @@ dev:
 
 # Run server with cargo watch (auto-reload)
 server:
-    cd server && {{nix_shell}} cargo watch -x run
+    cd server && {{ nix_shell }} cargo watch -x run
 
 # Run client with trunk serve (WASM hot-reload)
 client:
-    cd client && {{nix_shell}} trunk serve
+    cd client && {{ nix_shell }} trunk serve
 
 # Run Cucumber e2e tests (starts server via nix run)
 test:
     cd tests \
-        && {{nix_shell}} npm install \
-        && {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
+        && {{ nix_shell }} npm install \
+        && {{ nix_shell }} npx tsx node_modules/.bin/cucumber-js --profile ui
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
     cd tests \
-        && {{nix_shell}} npm install \
-        && REUSE_SERVER=1 {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
+        && {{ nix_shell }} npm install \
+        && REUSE_SERVER=1 {{ nix_shell }} npx tsx node_modules/.bin/cucumber-js --profile ui
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
@@ -66,7 +67,7 @@ ci:
 
 # Run pre-commit hooks on all files
 pc:
-    {{nix_shell}} pre-commit run -a
+    {{ nix_shell }} pre-commit run -a
 
 # Nix build (server + client WASM)
 build:
