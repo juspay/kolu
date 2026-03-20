@@ -10,7 +10,9 @@
         processes = {
           server.command = "cd server && cargo watch -x run";
           client = {
-            command = "cd client && trunk serve";
+            # Build first so missing deps (npm) fail fast instead of
+            # trunk silently serving an empty site.
+            command = "cd client && npm install && trunk build && trunk serve";
             is_tty = true;
           };
         };

@@ -6,3 +6,4 @@ dist/
 .pre-commit-config.yaml
 node_modules/
 test-results/
+tests/reports/
