@@ -1,10 +1,10 @@
 ---
-name: nix-rust
-description: Conventions for Rust development workflow in Nix-based projects with cargo-watch.
+name: cargo-watch
+description: Run cargo-watch in the background for continuous clippy feedback during code editing.
 user-invocable: false
 ---
 
-# Rust Dev Workflow (Nix)
+# Cargo Watch
 
 ## Rapid feedback with `just watch`
 
