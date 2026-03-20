@@ -35,7 +35,7 @@ test-ui:
         && {{nix_shell}} npm install \
         && {{nix_shell}} npx playwright test --ui
 
-# Run e2e tests locally and post signoff status to GitHub
+# Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
