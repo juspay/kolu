@@ -52,10 +52,15 @@ Then('there should be no page errors', function (this: KoluWorld) {
 });
 
 Then('the canvas should be smaller than before', async function (this: KoluWorld) {
-  const current = await this.canvasBox();
   assert.ok(this.savedCanvas, 'No saved canvas dimensions');
-  assert.ok(current.width < this.savedCanvas.width, 'Canvas width should be smaller');
-  assert.ok(current.height < this.savedCanvas.height, 'Canvas height should be smaller');
+  // Retry a few times — ghostty-web canvas resize can lag in headless mode
+  let current = await this.canvasBox();
+  for (let i = 0; i < 5 && current.width >= this.savedCanvas!.width; i++) {
+    await this.page.waitForTimeout(1000);
+    current = await this.canvasBox();
+  }
+  assert.ok(current.width < this.savedCanvas.width, `Canvas width should be smaller: ${current.width} >= ${this.savedCanvas.width}`);
+  assert.ok(current.height < this.savedCanvas.height, `Canvas height should be smaller: ${current.height} >= ${this.savedCanvas.height}`);
   // Save for next comparison
   this.previousCanvas = current;
 });
