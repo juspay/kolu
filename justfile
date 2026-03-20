@@ -17,23 +17,17 @@ server:
 client:
     cd client && {{nix_shell}} trunk serve
 
-# Run Playwright e2e tests (starts server via nix run)
+# Run Cucumber e2e tests (starts server via nix run)
 test:
     cd tests \
         && {{nix_shell}} npm install \
-        && {{nix_shell}} npx playwright test
+        && {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
 
-# Run Playwright e2e tests against an already-running dev server (just dev)
+# Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
     cd tests \
         && {{nix_shell}} npm install \
-        && PLAYWRIGHT_REUSE_SERVER=1 {{nix_shell}} npx playwright test
-
-# Run Playwright e2e tests with interactive UI
-test-ui:
-    cd tests \
-        && {{nix_shell}} npm install \
-        && {{nix_shell}} npx playwright test --ui
+        && PLAYWRIGHT_REUSE_SERVER=1 {{nix_shell}} npx tsx node_modules/.bin/cucumber-js --profile ui
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
