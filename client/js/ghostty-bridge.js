@@ -22,6 +22,9 @@ export class GhosttyTerminal {
         this.container = null;
         this.cellWidth = 0;
         this.cellHeight = 0;
+        // Track current grid size for accurate cell measurement after resize
+        this.currentCols = DEFAULT_COLS;
+        this.currentRows = DEFAULT_ROWS;
         this._onDataCb = null;
         this._onResizeCb = null;
     }
@@ -52,14 +55,13 @@ export class GhosttyTerminal {
      * Must be called after open() + a frame delay so the canvas has size.
      * Used by fitToContainer() for cols/rows calculation.
      *
-     * Assumes initial terminal size matches DEFAULT_COLS/DEFAULT_ROWS
-     * from common/src/lib.rs (80x24).
+     * Derives cell size from current canvas size ÷ current grid dimensions.
      */
     measureCells() {
         const canvas = this.container?.querySelector('canvas');
         if (canvas && canvas.clientWidth > 0) {
-            this.cellWidth = canvas.clientWidth / DEFAULT_COLS;
-            this.cellHeight = canvas.clientHeight / DEFAULT_ROWS;
+            this.cellWidth = canvas.clientWidth / this.currentCols;
+            this.cellHeight = canvas.clientHeight / this.currentRows;
         }
     }
 
@@ -85,6 +87,8 @@ export class GhosttyTerminal {
      * @param {number} rows - Number of rows
      */
     resize(cols, rows) {
+        this.currentCols = cols;
+        this.currentRows = rows;
         this.term.resize(cols, rows);
     }
 
@@ -149,7 +153,7 @@ export class GhosttyTerminal {
         const rect = this.container.getBoundingClientRect();
         const cols = Math.max(2, Math.floor(rect.width / this.cellWidth));
         const rows = Math.max(1, Math.floor(rect.height / this.cellHeight));
-        this.term.resize(cols, rows);
+        this.resize(cols, rows);
         return { cols, rows };
     }
 }

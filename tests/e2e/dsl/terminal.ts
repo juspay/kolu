@@ -65,6 +65,13 @@ export class TerminalViewImpl implements TerminalView {
     if (!val) throw new Error('No data-font-size attribute found');
     return parseFloat(val);
   }
+
+  async containerBox() {
+    const container = this.page.locator('[data-font-size]');
+    const box = await container.boundingBox();
+    if (!box) throw new Error('Container has no bounding box');
+    return box;
+  }
 }
 
 export class AppViewImpl implements AppView {

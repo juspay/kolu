@@ -168,6 +168,7 @@ pub fn TerminalView(
                 _ => return,
             };
             e.prevent_default();
+            e.stop_propagation();
 
             if let Some(t) = term_for_zoom.lock().unwrap().as_ref() {
                 let current = t.get_font_size();

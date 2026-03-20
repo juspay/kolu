@@ -38,6 +38,9 @@ export interface TerminalView {
 
   /** Read the current font size from the terminal's data attribute. */
   fontSize(): Promise<number>;
+
+  /** Get the terminal container's bounding box (the parent div, not the canvas). */
+  containerBox(): Promise<{ x: number; y: number; width: number; height: number }>;
 }
 
 /** App-level view — wraps the full page (header + terminal). */
