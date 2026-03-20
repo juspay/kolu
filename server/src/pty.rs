@@ -73,7 +73,13 @@ fn now_millis() -> u64 {
 ///
 /// Returns a `PtyHandle` for sending input and subscribing to output.
 /// The PTY reader and writer run as background tokio tasks.
-pub fn spawn(id: &str, cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<PtyHandle> {
+pub fn spawn(
+  id: &str,
+  cmd: &[String],
+  cwd: &Path,
+  cols: u16,
+  rows: u16,
+) -> anyhow::Result<PtyHandle> {
   let pty_system = native_pty_system();
   let pty_size = PtySize {
     rows,

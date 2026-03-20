@@ -15,14 +15,11 @@ pub fn create(state: &AppState, req: CreateTerminalRequest) -> Result<Terminal, 
   let command = req.command.to_argv(&shell);
   let label = req.command.label().to_string();
 
-  let cwd = req
-    .cwd
-    .map(std::path::PathBuf::from)
-    .unwrap_or_else(|| {
-      std::env::var("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap())
-    });
+  let cwd = req.cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
+    std::env::var("HOME")
+      .map(std::path::PathBuf::from)
+      .unwrap_or_else(|_| std::env::current_dir().unwrap())
+  });
 
   // Auto-generate unique ID: command-label + counter
   let count = state.terminals().len();

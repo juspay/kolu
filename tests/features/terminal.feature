@@ -2,7 +2,7 @@ Feature: Terminal
   Terminal canvas rendering, resizing, and keyboard shortcuts.
 
   Background:
-    Given I create a terminal with id "default" and label "default"
+    Given I create a terminal
     And the terminal is ready
 
   Scenario: Terminal accepts input

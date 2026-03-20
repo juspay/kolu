@@ -26,7 +26,8 @@ pub fn NewTerminalDialog(
     });
   };
 
-  let input_class = "w-full px-3 py-2 text-sm bg-slate-900 border border-slate-600 rounded text-slate-200";
+  let input_class =
+    "w-full px-3 py-2 text-sm bg-slate-900 border border-slate-600 rounded text-slate-200";
 
   view! {
     <div

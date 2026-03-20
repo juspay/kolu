@@ -13,7 +13,9 @@ use header::Header;
 use kolu_common::{CreateTerminalRequest, Terminal, TerminalId};
 use new_terminal::NewTerminalDialog;
 use sidebar::Sidebar;
-use terminal_view::TerminalView;
+use terminal_pane::TerminalPane;
+
+mod terminal_pane;
 
 fn main() {
   console_error_panic_hook::set_once();
@@ -99,18 +101,7 @@ fn App() -> impl IntoView {
           />
         </div>
         <div class="flex-1 min-w-0 min-h-0 p-2 overflow-hidden">
-          {move || match active_id.get() {
-            Some(id) => view! {
-              <div class="w-full h-full border border-slate-600 rounded overflow-hidden">
-                <TerminalView terminal_id=id />
-              </div>
-            }.into_any(),
-            None => view! {
-              <div class="flex items-center justify-center h-full text-slate-500">
-                "No terminal selected. Click '+ new' to create one."
-              </div>
-            }.into_any(),
-          }}
+          <TerminalPane active_id=active_id terminals=terminals />
         </div>
       </div>
       {move || show_dialog.get().then(|| view! {

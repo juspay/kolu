@@ -32,10 +32,14 @@ export class KoluWorld extends World {
   // Last API error status
   lastApiStatus?: number;
 
+  // Last created terminal (for multi-terminal steps)
+  lastCreatedTerminal?: any;
+
+
   // --- Canvas locator ---
 
   get canvas(): Locator {
-    return this.page.locator('canvas');
+    return this.page.locator('canvas').locator('visible=true');
   }
 
   // --- Terminal helpers (same logic as old DSL) ---
