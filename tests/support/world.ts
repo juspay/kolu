@@ -9,7 +9,7 @@ import type { Browser, BrowserContext, Page, Locator } from 'playwright';
 
 setDefaultTimeout(60_000);
 
-const REFLOW_SETTLE_MS = 1000;
+const REFLOW_SETTLE_MS = 2000;
 const READY_TIMEOUT = 15_000;
 
 export class KoluWorld extends World {

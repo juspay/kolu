@@ -116,6 +116,10 @@ Given('I intercept WebSocket messages from page load', async function (this: Kol
 
 When('the page reloads and the terminal is ready', async function (this: KoluWorld) {
   await this.page.reload();
+  // After reload, multi-terminal UI requires selecting a terminal in the sidebar
+  await this.page.waitForTimeout(4000); // wait for sidebar poll
+  const entry = this.page.locator('aside >> text=default');
+  await entry.click();
   await this.waitForReady();
   await this.page.waitForTimeout(1000);
 });
