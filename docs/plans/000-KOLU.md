@@ -103,7 +103,7 @@ Server maintains headless terminal per PTY. On attach, serialize screen
 state (~4KB) instead of replaying raw buffer (~100KB). Race-free: subscribe
 before capture.
 
-#### 2b: Multi-terminal + sidebar (create + switch)
+#### 2b: Multi-terminal + sidebar (create + switch) ✅
 
 Sidebar with create button, terminal list, hide/show switching (not
 mount/unmount — prevents TUI thrashing, preserves frontend scrollback).
