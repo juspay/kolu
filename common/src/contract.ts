@@ -6,7 +6,6 @@
  */
 import { oc, eventIterator } from "@orpc/contract";
 import {
-  TerminalCreateOutputSchema,
   TerminalInfoSchema,
   TerminalResizeInputSchema,
   TerminalSendInputSchema,
@@ -16,21 +15,15 @@ import {
 } from "./index";
 import { z } from "zod";
 
-/** oRPC contract defining all RPC procedures. Used by server (implement) and client (typed calls). */
 export const contract = oc.router({
   terminal: {
-    create: oc.output(TerminalCreateOutputSchema),
-
+    create: oc.output(TerminalInfoSchema),
     list: oc.output(z.array(TerminalInfoSchema)),
-
     resize: oc.input(TerminalResizeInputSchema),
-
     sendInput: oc.input(TerminalSendInputSchema),
-
     attach: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalAttachOutputSchema)),
-
     onExit: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalOnExitOutputSchema)),

@@ -28,29 +28,25 @@ export function spawnPty(opts: {
   onData: (data: Buffer) => void;
   onExit: (exitCode: number) => void;
 }): PtyHandle {
-  const shell = process.env.SHELL || "/bin/bash";
-  const cwd = process.env.HOME || "/";
-
-  const proc = pty.spawn(shell, [], {
+  const proc = pty.spawn(process.env.SHELL || "/bin/bash", [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd,
+    cwd: process.env.HOME || "/",
     env: process.env,
   });
 
+  // Ring buffer: drops oldest chunks when over SCROLLBACK_LIMIT
   let scrollback: Buffer[] = [];
   let scrollbackSize = 0;
 
   const dataDisposable = proc.onData((data: string) => {
     const buf = Buffer.from(data, "utf-8");
-
     scrollback.push(buf);
     scrollbackSize += buf.length;
     while (scrollbackSize > SCROLLBACK_LIMIT && scrollback.length > 0) {
       scrollbackSize -= scrollback.shift()!.length;
     }
-
     opts.onData(buf);
   });
 

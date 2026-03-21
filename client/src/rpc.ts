@@ -12,15 +12,12 @@ import type { contract } from "kolu-common/contract";
 
 type Client = ContractRouterClient<typeof contract>;
 
-function buildWsUrl(): string {
-  const { protocol, host } = window.location;
-  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
-}
+const { protocol, host } = window.location;
+const wsUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
-const websocket = new PartySocket(buildWsUrl());
-
+// Cast: PartySocket is API-compatible with WebSocket but types don't overlap
 const link = new RPCLink({
-  websocket: websocket as unknown as WebSocket,
+  websocket: new PartySocket(wsUrl) as unknown as WebSocket,
 });
 
 export const client = createORPCClient<Client>(link);

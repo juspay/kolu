@@ -1,6 +1,5 @@
 /**
- * Terminal component — owns the full terminal feature:
- * ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
+ * Terminal component — owns ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
  *
  * These concerns share the same volatility (all change together when
  * terminal behavior changes), so they belong in one module.
@@ -14,6 +13,28 @@ import { client } from "./rpc";
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+// Module-level to avoid re-creating on every write callback
+const encoder = new TextEncoder();
+
+/** Run an async iterable to completion, silently ignoring abort errors. */
+function consumeStream<T>(
+  streamFn: () => Promise<AsyncIterable<T>>,
+  onItem: (item: T) => void,
+  label: string,
+  onReady?: () => void,
+) {
+  (async () => {
+    try {
+      const stream = await streamFn();
+      onReady?.();
+      for await (const item of stream) onItem(item);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.error(`${label} error:`, err);
+      }
+    }
+  })();
+}
 
 /** Measure cell dimensions from canvas size and known grid dimensions. */
 function measureCells(el: HTMLElement, cols: number, rows: number) {
@@ -36,6 +57,8 @@ function fitToContainer(
   };
 }
 
+const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
+
 const Terminal: Component<{
   terminalId: string;
   onConnected?: () => void;
@@ -52,34 +75,25 @@ const Terminal: Component<{
     Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
   );
 
-  // AbortController for oRPC streams
   let streamAbort: AbortController | null = null;
 
-  /** Resize terminal to fill its container and notify the server.
-   *  PTY-first: await server resize before frontend resize (prevents output clobbering). */
+  /** Resize PTY first, then frontend (prevents output clobbering). */
   async function fit() {
     if (!terminal || cellWidth === 0) return;
     const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
-    if (
-      cols > 0 &&
-      rows > 0 &&
-      (cols !== currentCols || rows !== currentRows)
-    ) {
-      try {
-        // Resize PTY first
-        await client.terminal.resize({ id: props.terminalId, cols, rows });
-        // Then resize frontend to match
-        currentCols = cols;
-        currentRows = rows;
-        terminal.resize(cols, rows);
-      } catch {
-        // Terminal may have been killed mid-resize; ignore
-      }
+    if (cols <= 0 || rows <= 0) return;
+    if (cols === currentCols && rows === currentRows) return;
+    try {
+      await client.terminal.resize({ id: props.terminalId, cols, rows });
+      currentCols = cols;
+      currentRows = rows;
+      terminal.resize(cols, rows);
+    } catch {
+      // Terminal may have been killed mid-resize
     }
   }
 
-  /** Re-measure cell dimensions after font/layout changes, then re-fit.
-   *  Double rAF ensures ghostty's canvas has re-rendered at the new size. */
+  /** Double rAF ensures ghostty's canvas has re-rendered at the new size. */
   function remeasureAndFit() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -102,16 +116,11 @@ const Terminal: Component<{
   /** Intercept Cmd/Ctrl +/- for zoom. */
   function handleZoomKeys(e: KeyboardEvent) {
     if (!(isMac ? e.metaKey : e.ctrlKey)) return;
-
-    if (e.key === "=" || e.key === "+") {
-      e.preventDefault();
-      e.stopPropagation();
-      updateFontSize(fontSize() + 1);
-    } else if (e.key === "-") {
-      e.preventDefault();
-      e.stopPropagation();
-      updateFontSize(fontSize() - 1);
-    }
+    const delta = ZOOM_KEYS[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    updateFontSize(fontSize() + delta);
   }
 
   onMount(async () => {
@@ -128,58 +137,36 @@ const Terminal: Component<{
     cellWidth = cells.cellWidth;
     cellHeight = cells.cellHeight;
 
-    // --- oRPC streaming: attach to terminal output ---
     streamAbort = new AbortController();
+    const signal = streamAbort.signal;
 
-    // Attach stream: yields scrollback then live output
-    (async () => {
-      try {
-        const stream = await client.terminal.attach(
-          { id: props.terminalId },
-          { signal: streamAbort!.signal },
-        );
-        props.onConnected?.();
-        for await (const data of stream) {
-          if (terminal) {
-            terminal.write(new TextEncoder().encode(data));
-          }
-        }
-      } catch (err) {
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
-          console.error("Terminal attach stream error:", err);
-        }
-      }
-    })();
+    // Attach stream: yields scrollback first, then live PTY output
+    consumeStream(
+      () => client.terminal.attach({ id: props.terminalId }, { signal }),
+      (data) => terminal?.write(encoder.encode(data)),
+      "Terminal attach",
+      () => props.onConnected?.(),
+    );
 
-    // Exit stream: yields exit code once
-    (async () => {
-      try {
-        const stream = await client.terminal.onExit(
-          { id: props.terminalId },
-          { signal: streamAbort!.signal },
-        );
-        for await (const exitCode of stream) {
-          console.log(`PTY exited with code ${exitCode}`);
-          props.onExit?.(exitCode);
-        }
-      } catch (err) {
-        if (!(err instanceof DOMException && err.name === "AbortError")) {
-          console.error("Terminal onExit stream error:", err);
-        }
-      }
-    })();
+    // Exit stream: yields exit code once when PTY process terminates
+    consumeStream(
+      () => client.terminal.onExit({ id: props.terminalId }, { signal }),
+      (exitCode) => {
+        console.log(`PTY exited with code ${exitCode}`);
+        props.onExit?.(exitCode);
+      },
+      "Terminal onExit",
+    );
 
-    // Send initial fit
     await fit();
 
-    // Send input: fire-and-forget for low latency
+    // Send input: fire-and-forget for low latency (don't await server ack)
     terminal.onData((data: string) => {
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
     const observer = new ResizeObserver(() => void fit());
     observer.observe(containerRef);
-
     window.addEventListener("keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {
