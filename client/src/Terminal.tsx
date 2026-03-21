@@ -58,30 +58,32 @@ const Terminal: Component<{
     Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
   );
 
-  function sendResize(cols: number, rows: number) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const msg: WsClientMessage = { type: "Resize", cols, rows };
-    ws.send(JSON.stringify(msg));
+  /** Send a JSON control message to the server. */
+  function sendMessage(msg: WsClientMessage) {
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
 
-  function doFit() {
+  /** Resize terminal to fill its container and notify the server. */
+  function fit() {
     if (!terminal || cellWidth === 0) return;
     const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
     if (cols > 0 && rows > 0) {
       currentCols = cols;
       currentRows = rows;
       terminal.resize(cols, rows);
-      sendResize(cols, rows);
+      sendMessage({ type: "Resize", cols, rows });
     }
   }
 
+  /** Re-measure cell dimensions after font/layout changes, then re-fit.
+   *  Double rAF ensures ghostty's canvas has re-rendered at the new size. */
   function remeasureAndFit() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const cells = measureCells(containerRef, currentCols, currentRows);
         cellWidth = cells.cellWidth;
         cellHeight = cells.cellHeight;
-        doFit();
+        fit();
       });
     });
   }
@@ -94,7 +96,8 @@ const Terminal: Component<{
     remeasureAndFit();
   }
 
-  function handleKeydown(e: KeyboardEvent) {
+  /** Intercept Cmd/Ctrl +/- for zoom. */
+  function handleZoomKeys(e: KeyboardEvent) {
     if (!(isMac ? e.metaKey : e.ctrlKey)) return;
 
     if (e.key === "=" || e.key === "+") {
@@ -119,7 +122,11 @@ const Terminal: Component<{
 
   onMount(async () => {
     const ghostty = await initGhostty();
-    terminal = new ghostty.Terminal({ ...TERMINAL_DEFAULTS, fontSize: fontSize() });
+    // Single terminal for now; multi-terminal will use sessionId to look up PTY
+    terminal = new ghostty.Terminal({
+      ...TERMINAL_DEFAULTS,
+      fontSize: fontSize(),
+    });
     terminal.open(containerRef);
 
     // Measure cell dimensions after first render
@@ -147,7 +154,7 @@ const Terminal: Component<{
 
     ws.onopen = () => {
       props.onWsStatus?.("open");
-      doFit();
+      fit();
     };
 
     ws.onclose = () => props.onWsStatus?.("closed");
@@ -156,13 +163,13 @@ const Terminal: Component<{
       if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     });
 
-    const observer = new ResizeObserver(() => doFit());
+    const observer = new ResizeObserver(() => fit());
     observer.observe(containerRef);
 
-    window.addEventListener("keydown", handleKeydown, { capture: true });
+    window.addEventListener("keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {
-      window.removeEventListener("keydown", handleKeydown, { capture: true });
+      window.removeEventListener("keydown", handleZoomKeys, { capture: true });
       observer.disconnect();
       ws?.close();
       terminal?.dispose();
