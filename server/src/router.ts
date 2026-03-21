@@ -5,7 +5,7 @@
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
-import { once } from "node:events";
+import { on, once } from "node:events";
 import { contract } from "kolu-common/contract";
 import {
   createTerminal,
@@ -24,44 +24,17 @@ function requireTerminal(id: string): TerminalEntry {
   return entry;
 }
 
-/** Bridge an EventEmitter event to an async iterable, yielding until signal aborts. */
+/**
+ * Bridge an EventEmitter event to an async iterable, yielding until signal aborts.
+ * Uses Node's built-in events.on() which handles queue buffering, cleanup, and abort internally.
+ */
 async function* iterateEvent<K extends keyof TerminalEvents>(
   emitter: TerminalEntry["emitter"],
   event: K,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<TerminalEvents[K][0]> {
-  type T = TerminalEvents[K][0];
-  const queue: T[] = [];
-  let resolve: (() => void) | null = null;
-
-  const handler = (data: T) => {
-    queue.push(data);
-    resolve?.();
-    resolve = null;
-  };
-
-  // Wake the consumer loop so it can check signal.aborted and exit
-  const onAbort = () => {
-    resolve?.();
-    resolve = null;
-  };
-
-  emitter.on(event, handler);
-  signal?.addEventListener("abort", onAbort, { once: true });
-
-  try {
-    while (!signal?.aborted) {
-      if (queue.length > 0) {
-        yield queue.shift()!;
-      } else {
-        await new Promise<void>((r) => {
-          resolve = r;
-        });
-      }
-    }
-  } finally {
-    emitter.off(event, handler);
-    signal?.removeEventListener("abort", onAbort);
+  for await (const [data] of on(emitter, event, { signal })) {
+    yield data as TerminalEvents[K][0];
   }
 }
 

@@ -7,12 +7,21 @@ import { z } from "zod";
 
 const TerminalIdSchema = z.string();
 
-export const TerminalInfoSchema = z.object({
-  id: TerminalIdSchema,
-  pid: z.number(),
-  status: z.enum(["running", "exited"]),
-  exitCode: z.number().optional(),
-});
+// Discriminated union: exitCode is required when exited, absent when running.
+// Mirrors the server-side TerminalEntry discriminated union exactly.
+export const TerminalInfoSchema = z.discriminatedUnion("status", [
+  z.object({
+    id: TerminalIdSchema,
+    pid: z.number(),
+    status: z.literal("running"),
+  }),
+  z.object({
+    id: TerminalIdSchema,
+    pid: z.number(),
+    status: z.literal("exited"),
+    exitCode: z.number(),
+  }),
+]);
 
 export const TerminalResizeInputSchema = z.object({
   id: TerminalIdSchema,

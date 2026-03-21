@@ -101,9 +101,11 @@ const Terminal: Component<{
   function remeasureAndFit() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const cells = measureCells(containerRef, currentCols, currentRows);
-        cellWidth = cells.cellWidth;
-        cellHeight = cells.cellHeight;
+        ({ cellWidth, cellHeight } = measureCells(
+          containerRef,
+          currentCols,
+          currentRows,
+        ));
         void fit();
       });
     });
@@ -137,9 +139,11 @@ const Terminal: Component<{
 
     // Wait one frame so ghostty's canvas has rendered and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
-    const cells = measureCells(containerRef, currentCols, currentRows);
-    cellWidth = cells.cellWidth;
-    cellHeight = cells.cellHeight;
+    ({ cellWidth, cellHeight } = measureCells(
+      containerRef,
+      currentCols,
+      currentRows,
+    ));
 
     streamAbort = new AbortController();
     const signal = streamAbort.signal;

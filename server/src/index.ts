@@ -19,13 +19,13 @@ const app = new Hono();
 
 // --- oRPC HTTP handler (non-streaming calls) ---
 const rpcHandler = new RPCHandler(appRouter);
-app.use("/rpc/*", async (c) => {
+app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
     prefix: "/rpc",
     context: {},
   });
   if (matched) return response;
-  return c.notFound();
+  return next();
 });
 
 // --- Health endpoint ---

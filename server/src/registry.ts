@@ -26,12 +26,10 @@ const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  return {
-    id,
-    pid: entry.handle.pid,
-    status: entry.status,
-    exitCode: entry.status === "exited" ? entry.exitCode : undefined,
-  };
+  const base = { id, pid: entry.handle.pid };
+  return entry.status === "exited"
+    ? { ...base, status: "exited", exitCode: entry.exitCode }
+    : { ...base, status: "running" };
 }
 
 /** Create a new terminal, spawn a PTY process. */

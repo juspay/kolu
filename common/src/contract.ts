@@ -19,8 +19,8 @@ export const contract = oc.router({
   terminal: {
     create: oc.output(TerminalInfoSchema),
     list: oc.output(z.array(TerminalInfoSchema)),
-    resize: oc.input(TerminalResizeInputSchema),
-    sendInput: oc.input(TerminalSendInputSchema),
+    resize: oc.input(TerminalResizeInputSchema).output(z.void()),
+    sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     attach: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalAttachOutputSchema)),

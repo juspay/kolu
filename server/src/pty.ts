@@ -9,8 +9,29 @@ import { userInfo } from "node:os";
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-// Cap scrollback to prevent unbounded memory growth from long-running shells
-const SCROLLBACK_LIMIT = 100 * 1024; // 100KB
+
+/** Bounded buffer that drops oldest chunks when over the byte limit. */
+class ScrollbackBuffer {
+  private chunks: Buffer[] = [];
+  private size = 0;
+  // 100KB cap prevents unbounded memory growth from long-running shells
+  constructor(private readonly limit = 100 * 1024) {}
+
+  push(buf: Buffer): void {
+    this.chunks.push(buf);
+    this.size += buf.length;
+    while (this.size > this.limit) this.size -= this.chunks.shift()!.length;
+  }
+
+  snapshot(): Buffer {
+    return Buffer.concat(this.chunks);
+  }
+
+  clear(): void {
+    this.chunks = [];
+    this.size = 0;
+  }
+}
 
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
@@ -56,7 +77,7 @@ function cleanEnv(): Record<string, string> {
   // the user's .bashrc errors on `shopt -s progcomp`.
   // userInfo().shell reads from getpwuid(3) — the OS login shell, not $SHELL.
   if (env.SHELL?.startsWith("/nix/store")) {
-    env.SHELL = userInfo().shell;
+    env.SHELL = userInfo().shell ?? "/bin/sh";
   }
   env.PATH = process.env.PATH ?? "/usr/bin:/bin";
   return env;
@@ -68,7 +89,8 @@ export function spawnPty(opts: {
   onExit: (exitCode: number) => void;
 }): PtyHandle {
   const env = cleanEnv();
-  const proc = pty.spawn(env.SHELL, [], {
+  const shell = env.SHELL ?? "/bin/sh";
+  const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -76,17 +98,11 @@ export function spawnPty(opts: {
     env,
   });
 
-  // Ring buffer: drops oldest chunks when over SCROLLBACK_LIMIT
-  let scrollback: Buffer[] = [];
-  let scrollbackSize = 0;
+  const scrollback = new ScrollbackBuffer();
 
   const dataDisposable = proc.onData((data: string) => {
     const buf = Buffer.from(data, "utf-8");
     scrollback.push(buf);
-    scrollbackSize += buf.length;
-    while (scrollbackSize > SCROLLBACK_LIMIT && scrollback.length > 0) {
-      scrollbackSize -= scrollback.shift()!.length;
-    }
     opts.onData(buf);
   });
 
@@ -98,13 +114,12 @@ export function spawnPty(opts: {
     pid: proc.pid,
     write: (data) => proc.write(data),
     resize: (cols, rows) => proc.resize(cols, rows),
-    getScrollback: () => Buffer.concat(scrollback),
+    getScrollback: () => scrollback.snapshot(),
     dispose() {
       dataDisposable.dispose();
       exitDisposable.dispose();
       proc.kill();
-      scrollback = [];
-      scrollbackSize = 0;
+      scrollback.clear();
     },
   };
 }
