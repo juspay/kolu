@@ -6,9 +6,40 @@
  */
 
 // ghostty-web doesn't ship TS types, so we declare what we use
+interface GhosttyTheme {
+  foreground?: string;
+  background?: string;
+  cursor?: string;
+  cursorAccent?: string;
+  selectionBackground?: string;
+  selectionForeground?: string;
+  black?: string;
+  red?: string;
+  green?: string;
+  yellow?: string;
+  blue?: string;
+  magenta?: string;
+  cyan?: string;
+  white?: string;
+  brightBlack?: string;
+  brightRed?: string;
+  brightGreen?: string;
+  brightYellow?: string;
+  brightBlue?: string;
+  brightMagenta?: string;
+  brightCyan?: string;
+  brightWhite?: string;
+}
+
+interface GhosttyOptions {
+  fontSize?: number;
+  fontFamily?: string;
+  theme?: GhosttyTheme;
+}
+
 interface GhosttyModule {
   init(): Promise<void>;
-  Terminal: new (opts?: { fontSize?: number }) => GhosttyTerminal;
+  Terminal: new (opts?: GhosttyOptions) => GhosttyTerminal;
 }
 
 interface GhosttyTerminal {
@@ -32,10 +63,41 @@ export async function initGhostty(): Promise<void> {
   ghosttyModule = mod;
 }
 
+const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
+
+export const GHOSTTY_THEME: GhosttyTheme = {
+  foreground: "#ffffff",
+  background: "#292c33",
+  cursor: "#ffffff",
+  cursorAccent: "#363a43",
+  selectionBackground: "#ffffff",
+  selectionForeground: "#ffffff",
+  black: "#1d1f21",
+  red: "#bf6b69",
+  green: "#b7bd73",
+  yellow: "#e9c880",
+  blue: "#88a1bb",
+  magenta: "#ad95b8",
+  cyan: "#95bdb7",
+  white: "#c5c8c6",
+  brightBlack: "#666666",
+  brightRed: "#c55757",
+  brightGreen: "#bcc95f",
+  brightYellow: "#e1c65e",
+  brightBlue: "#83a5d6",
+  brightMagenta: "#bc99d4",
+  brightCyan: "#83beb1",
+  brightWhite: "#eaeaea",
+};
+
 /** Create a new terminal instance. Call initGhostty() first. */
 export function createTerminal(fontSize?: number): GhosttyTerminal {
   if (!ghosttyModule) throw new Error("ghostty-web not initialized");
-  return new ghosttyModule.Terminal(fontSize ? { fontSize } : undefined);
+  return new ghosttyModule.Terminal({
+    fontSize,
+    fontFamily: FONT_FAMILY,
+    theme: GHOSTTY_THEME,
+  });
 }
 
 /** Measure cell dimensions by dividing canvas size by known grid size. */
