@@ -128,6 +128,63 @@ Then(
   },
 );
 
+// ── Zoom keystroke leak detection (intercept oRPC sendInput via WebSocket.send) ──
+
+Given(
+  "I intercept oRPC sendInput calls",
+  async function (this: KoluWorld) {
+    // Monkey-patch WebSocket.send to capture outgoing frames.
+    // oRPC sends JSON-encoded messages over WS.
+    await this.page.evaluate(() => {
+      const origSend = WebSocket.prototype.send;
+      (window as any).__wsSent = [];
+      WebSocket.prototype.send = function (data: any) {
+        if (typeof data === "string") {
+          (window as any).__wsSent.push(data);
+        }
+        return origSend.call(this, data);
+      };
+    });
+  },
+);
+
+Then(
+  "no sendInput call should contain {string} {string} {string}",
+  async function (this: KoluWorld, k1: string, k2: string, k3: string) {
+    const messages: string[] = await this.page.evaluate(
+      () => (window as any).__wsSent ?? [],
+    );
+    // Look for sendInput calls whose data field contains zoom key chars
+    for (const msg of messages) {
+      if (!msg.includes("sendInput")) continue;
+      for (const key of [k1, k2, k3]) {
+        // Check if the raw keystroke char appears as the data payload
+        assert.ok(
+          !msg.includes(`"data":"${key}"`),
+          `Zoom keystroke "${key}" leaked via sendInput: ${msg}`,
+        );
+      }
+    }
+  },
+);
+
+// ── Resize detection (read PTY $COLUMNS via file) ──
+
+Then(
+  "the file {string} should contain a number greater than {int}",
+  async function (this: KoluWorld, filePath: string, min: number) {
+    // Wait for the echo command to write the file
+    await this.page.waitForTimeout(1500);
+    const fs = await import("node:fs/promises");
+    const content = (await fs.readFile(filePath, "utf-8")).trim();
+    const cols = Number(content);
+    assert.ok(
+      !isNaN(cols) && cols > min,
+      `Expected ${filePath} to contain a number > ${min}, got: "${content}"`,
+    );
+  },
+);
+
 // ── Font size assertions ──
 
 Then(

@@ -35,7 +35,19 @@ Feature: Terminal
     Then the canvas should fill at least 90% of its container
     And there should be no page errors
 
-Scenario: Zoom changes font size
+  Scenario: Zoom shortcuts do not leak keystrokes
+    Given I intercept oRPC sendInput calls
+    When I zoom in 1 time
+    And I zoom out 1 time
+    Then no sendInput call should contain "=" "-" "+"
+    And there should be no page errors
+
+  Scenario: Initial resize is sent to PTY on connect
+    When I run "echo $COLUMNS > /tmp/kolu-test-cols"
+    Then the file "/tmp/kolu-test-cols" should contain a number greater than 80
+    And there should be no page errors
+
+  Scenario: Zoom changes font size
     Given I note the font size
     When I zoom in 1 time
     Then the font size should be larger than before
