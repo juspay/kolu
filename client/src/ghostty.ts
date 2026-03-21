@@ -2,34 +2,28 @@
  * Typed wrapper around ghostty-web terminal emulator.
  *
  * ghostty-web is dynamically imported to avoid blocking initial page load.
- * The Terminal renders onto an HTML canvas inside the target element.
  */
 
-import type {
-  Terminal,
-  ITheme,
-  ITerminalOptions,
-} from "ghostty-web";
+import type { Terminal, ITheme, ITerminalOptions } from "ghostty-web";
 
-// ghostty-web's dynamic import shape
+// Dynamic import shape (ghostty-web exports these at runtime)
 interface GhosttyModule {
   init(): Promise<void>;
   Terminal: new (opts?: ITerminalOptions) => Terminal;
 }
 
-let ghosttyModule: GhosttyModule | null = null;
+let mod: GhosttyModule | null = null;
 
 /** Initialize ghostty-web WASM. Idempotent. */
 export async function initGhostty(): Promise<void> {
-  if (ghosttyModule) return;
-  const mod = (await import("ghostty-web")) as unknown as GhosttyModule;
+  if (mod) return;
+  mod = (await import("ghostty-web")) as unknown as GhosttyModule;
   await mod.init();
-  ghosttyModule = mod;
 }
 
 const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-export const GHOSTTY_THEME: ITheme = {
+export const THEME: ITheme = {
   foreground: "#ffffff",
   background: "#292c33",
   cursor: "#ffffff",
@@ -56,51 +50,35 @@ export const GHOSTTY_THEME: ITheme = {
 
 /** Create a new terminal instance. Call initGhostty() first. */
 export function createTerminal(fontSize?: number): Terminal {
-  if (!ghosttyModule) throw new Error("ghostty-web not initialized");
-  return new ghosttyModule.Terminal({
-    fontSize,
-    fontFamily: FONT_FAMILY,
-    theme: GHOSTTY_THEME,
-  });
+  if (!mod) throw new Error("ghostty-web not initialized");
+  return new mod.Terminal({ fontSize, fontFamily: FONT_FAMILY, theme: THEME });
 }
 
-/** Measure cell dimensions by dividing canvas size by known grid size. */
-export function measureCells(
-  el: HTMLElement,
-  cols: number,
-  rows: number,
-): {
-  cellWidth: number;
-  cellHeight: number;
-} {
+/** Measure cell dimensions from canvas size and known grid dimensions. */
+export function measureCells(el: HTMLElement, cols: number, rows: number) {
   const canvas = el.querySelector("canvas");
   if (!canvas) throw new Error("No canvas found in terminal element");
-  const rect = canvas.getBoundingClientRect();
-  return {
-    cellWidth: rect.width / cols,
-    cellHeight: rect.height / rows,
-  };
+  const { width, height } = canvas.getBoundingClientRect();
+  return { cellWidth: width / cols, cellHeight: height / rows };
 }
 
-/** Calculate cols/rows to fill a container, given cell dimensions. */
+/** Calculate cols/rows to fill a container given cell dimensions. */
 export function fitToContainer(
   container: HTMLElement,
   cellWidth: number,
   cellHeight: number,
-): { cols: number; rows: number } {
-  const rect = container.getBoundingClientRect();
+) {
+  const { width, height } = container.getBoundingClientRect();
   return {
-    cols: Math.floor(rect.width / cellWidth),
-    rows: Math.floor(rect.height / cellHeight),
+    cols: Math.floor(width / cellWidth),
+    rows: Math.floor(height / cellHeight),
   };
 }
 
 /** Build WebSocket URL for a terminal session. */
 export function buildWsUrl(sessionId: string): string {
-  const loc = window.location;
-  // In dev mode (Vite), the proxy handles /ws
-  const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${loc.host}/ws/${sessionId}`;
+  const { protocol, host } = window.location;
+  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
 }
 
 export type { Terminal };

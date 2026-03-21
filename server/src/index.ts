@@ -2,29 +2,26 @@ import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { hello } from "kolu-common";
 import { spawnPty } from "./pty.ts";
 import { handleWs } from "./ws.ts";
-import * as path from "node:path";
+import { resolve } from "node:path";
+import { parseArgs } from "node:util";
+
+const { values: opts } = parseArgs({
+  options: {
+    host: { type: "string", default: "0.0.0.0" },
+    port: { type: "string", default: "7681" },
+  },
+});
 
 const app = new Hono();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-// Parse CLI args
-const args = process.argv.slice(2);
-const hostIdx = args.indexOf("--host");
-const portIdx = args.indexOf("--port");
-const host = hostIdx >= 0 ? args[hostIdx + 1] : "0.0.0.0";
-const port = Number(portIdx >= 0 ? args[portIdx + 1] : 7681);
-
-// Spawn single PTY (Phase 1)
 const ptyHandle = spawnPty();
 console.log(`PTY spawned (pid ${ptyHandle.process.pid})`);
 
-// Health check
-app.get("/api/health", (c) => c.text(hello()));
+app.get("/api/health", (c) => c.text("kolu"));
 
-// WebSocket endpoint
 app.get(
   "/ws/:terminalId",
   upgradeWebSocket(() => handleWs(ptyHandle)),
@@ -33,14 +30,15 @@ app.get(
 // Static file serving (production)
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  const absRoot = path.resolve(clientDist);
-  app.use("/*", serveStatic({ root: absRoot }));
-  // SPA fallback: serve index.html for unmatched routes
-  app.get("/*", serveStatic({ root: absRoot, path: "index.html" }));
+  const root = resolve(clientDist);
+  app.use("/*", serveStatic({ root }));
+  app.get("/*", serveStatic({ root, path: "index.html" }));
 }
 
-const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
-  console.log(`kolu server listening on http://${info.address}:${info.port}`);
-});
+const port = Number(opts.port);
+const server = serve(
+  { fetch: app.fetch, hostname: opts.host, port },
+  (info) => console.log(`kolu listening on http://${info.address}:${info.port}`),
+);
 
 injectWebSocket(server);

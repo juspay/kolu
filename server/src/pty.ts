@@ -1,18 +1,25 @@
 import * as pty from "node-pty";
+import type { WsServerMessage } from "kolu-common";
 import { DEFAULT_COLS, DEFAULT_ROWS, SCROLLBACK_LIMIT } from "kolu-common";
 
+export interface PtyClient {
+  send(data: Buffer | string): void;
+}
+
 export interface PtyHandle {
-  process: pty.IPty;
-  scrollback: Buffer[];
-  scrollbackSize: number;
-  clients: Set<{ send: (data: Buffer | string) => void }>;
+  readonly process: pty.IPty;
+  readonly clients: Set<PtyClient>;
+  write(data: string): void;
+  resize(cols: number, rows: number): void;
+  getScrollback(): Buffer;
+  dispose(): void;
 }
 
 export function spawnPty(): PtyHandle {
   const shell = process.env.SHELL || "/bin/bash";
   const cwd = process.env.HOME || "/";
 
-  const ptyProcess = pty.spawn(shell, [], {
+  const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -20,46 +27,40 @@ export function spawnPty(): PtyHandle {
     env: { ...process.env } as Record<string, string>,
   });
 
-  const handle: PtyHandle = {
-    process: ptyProcess,
-    scrollback: [],
-    scrollbackSize: 0,
-    clients: new Set(),
-  };
+  let scrollback: Buffer[] = [];
+  let scrollbackSize = 0;
+  const clients = new Set<PtyClient>();
 
-  ptyProcess.onData((data: string) => {
+  const dataDisposable = proc.onData((data: string) => {
     const buf = Buffer.from(data, "utf-8");
 
-    // Append to scrollback
-    handle.scrollback.push(buf);
-    handle.scrollbackSize += buf.length;
-
-    // Trim scrollback if over limit
-    while (
-      handle.scrollbackSize > SCROLLBACK_LIMIT &&
-      handle.scrollback.length > 0
-    ) {
-      const removed = handle.scrollback.shift()!;
-      handle.scrollbackSize -= removed.length;
+    scrollback.push(buf);
+    scrollbackSize += buf.length;
+    while (scrollbackSize > SCROLLBACK_LIMIT && scrollback.length > 0) {
+      scrollbackSize -= scrollback.shift()!.length;
     }
 
-    // Broadcast to all connected clients
-    for (const client of handle.clients) {
-      client.send(buf);
-    }
+    for (const client of clients) client.send(buf);
   });
 
-  return handle;
-}
+  const exitDisposable = proc.onExit(({ exitCode }) => {
+    const msg: WsServerMessage = { type: "Exit", exit_code: exitCode };
+    const json = JSON.stringify(msg);
+    for (const client of clients) client.send(json);
+  });
 
-export function writePty(handle: PtyHandle, data: string): void {
-  handle.process.write(data);
-}
-
-export function resizePty(handle: PtyHandle, cols: number, rows: number): void {
-  handle.process.resize(cols, rows);
-}
-
-export function getScrollbackSnapshot(handle: PtyHandle): Buffer {
-  return Buffer.concat(handle.scrollback);
+  return {
+    process: proc,
+    clients,
+    write: (data) => proc.write(data),
+    resize: (cols, rows) => proc.resize(cols, rows),
+    getScrollback: () => Buffer.concat(scrollback),
+    dispose() {
+      dataDisposable.dispose();
+      exitDisposable.dispose();
+      proc.kill();
+      scrollback = [];
+      scrollbackSize = 0;
+    },
+  };
 }

@@ -1,20 +1,25 @@
 import type { WSContext } from "hono/ws";
-import type { PtyHandle } from "./pty.ts";
-import { getScrollbackSnapshot, writePty, resizePty } from "./pty.ts";
+import type { PtyHandle, PtyClient } from "./pty.ts";
 import type { WsClientMessage } from "kolu-common";
+
+const clientMap = new WeakMap<WSContext, PtyClient>();
+
+function removeClient(handle: PtyHandle, ws: WSContext) {
+  const client = clientMap.get(ws);
+  if (client) {
+    handle.clients.delete(client);
+    clientMap.delete(ws);
+  }
+}
 
 export function handleWs(handle: PtyHandle) {
   return {
     onOpen(_event: Event, ws: WSContext) {
-      // Replay scrollback
-      const snapshot = getScrollbackSnapshot(handle);
-      if (snapshot.length > 0) {
-        ws.send(snapshot);
-      }
+      const snapshot = handle.getScrollback();
+      if (snapshot.length > 0) ws.send(snapshot);
 
-      // Register for broadcast
-      const client = {
-        send: (data: Buffer | string) => {
+      const client: PtyClient = {
+        send: (data) => {
           try {
             ws.send(data);
           } catch {
@@ -23,46 +28,36 @@ export function handleWs(handle: PtyHandle) {
         },
       };
       handle.clients.add(client);
-
-      // Store client ref for cleanup
-      (ws as any).__client = client;
+      clientMap.set(ws, client);
     },
 
-    onMessage(event: MessageEvent, ws: WSContext) {
-      const data = event.data;
+    onMessage(event: MessageEvent) {
+      const { data } = event;
 
-      if (typeof data === "string") {
-        // Try to parse as JSON control message
-        try {
-          const msg: WsClientMessage = JSON.parse(data);
-          if (msg.type === "Resize") {
-            resizePty(handle, msg.cols, msg.rows);
-            return;
-          }
-        } catch {
-          // Not JSON, treat as raw input
-        }
-        // Forward as raw PTY input
-        writePty(handle, data);
-      } else if (data instanceof ArrayBuffer) {
-        writePty(handle, Buffer.from(data).toString("utf-8"));
-      } else if (data instanceof Uint8Array) {
-        writePty(handle, Buffer.from(data).toString("utf-8"));
+      if (typeof data !== "string") {
+        handle.write(Buffer.from(data as ArrayBuffer).toString("utf-8"));
+        return;
       }
+
+      try {
+        const msg: WsClientMessage = JSON.parse(data);
+        switch (msg.type) {
+          case "Resize":
+            handle.resize(msg.cols, msg.rows);
+            return;
+        }
+      } catch {
+        // Not JSON — raw terminal input
+      }
+      handle.write(data);
     },
 
     onClose(_event: CloseEvent, ws: WSContext) {
-      const client = (ws as any).__client;
-      if (client) {
-        handle.clients.delete(client);
-      }
+      removeClient(handle, ws);
     },
 
     onError(_event: Event, ws: WSContext) {
-      const client = (ws as any).__client;
-      if (client) {
-        handle.clients.delete(client);
-      }
+      removeClient(handle, ws);
     },
   };
 }

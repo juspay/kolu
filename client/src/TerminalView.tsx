@@ -7,12 +7,12 @@ import {
   buildWsUrl,
   type Terminal,
 } from "./ghostty";
-import type { WsClientMessage } from "kolu-common";
+import type { WsClientMessage, WsServerMessage } from "kolu-common";
 import type { WsStatus } from "./Header";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
-const FONT_STEP = 1;
+const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 const TerminalView: Component<{
   sessionId: string;
@@ -25,7 +25,6 @@ const TerminalView: Component<{
   let cellHeight = 0;
   let currentCols = 80;
   let currentRows = 24;
-  let resizeObserver: ResizeObserver | null = null;
 
   const [fontSize, setFontSize] = createSignal(
     Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
@@ -48,13 +47,7 @@ const TerminalView: Component<{
     }
   }
 
-  function updateFontSize(newSize: number) {
-    if (!terminal) return;
-    setFontSize(newSize);
-    localStorage.setItem(FONT_SIZE_KEY, String(newSize));
-    terminal.options.fontSize = newSize;
-
-    // Wait for ghostty to re-render at new font size, then recalculate
+  function remeasureAndFit() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const cells = measureCells(containerRef, currentCols, currentRows);
@@ -65,23 +58,38 @@ const TerminalView: Component<{
     });
   }
 
+  function updateFontSize(newSize: number) {
+    if (!terminal) return;
+    setFontSize(newSize);
+    localStorage.setItem(FONT_SIZE_KEY, String(newSize));
+    terminal.options.fontSize = newSize;
+    remeasureAndFit();
+  }
+
   function handleKeydown(e: KeyboardEvent) {
-    const mod = navigator.platform.includes("Mac") ? e.metaKey : e.ctrlKey;
-    if (!mod) return;
+    if (!(isMac ? e.metaKey : e.ctrlKey)) return;
 
     if (e.key === "=" || e.key === "+") {
       e.preventDefault();
       e.stopPropagation();
-      updateFontSize(fontSize() + FONT_STEP);
+      updateFontSize(fontSize() + 1);
     } else if (e.key === "-") {
       e.preventDefault();
       e.stopPropagation();
-      updateFontSize(fontSize() - FONT_STEP);
+      updateFontSize(fontSize() - 1);
+    }
+  }
+
+  function handleServerMessage(msg: WsServerMessage) {
+    switch (msg.type) {
+      case "Exit":
+        console.log(`PTY exited with code ${msg.exit_code}`);
+        props.onWsStatus?.("closed");
+        break;
     }
   }
 
   onMount(async () => {
-    // Init ghostty-web WASM
     await initGhostty();
     terminal = createTerminal(fontSize());
     terminal.open(containerRef);
@@ -92,9 +100,8 @@ const TerminalView: Component<{
     cellWidth = cells.cellWidth;
     cellHeight = cells.cellHeight;
 
-    // Connect WebSocket
-    const url = buildWsUrl(props.sessionId);
-    ws = new WebSocket(url);
+    // WebSocket
+    ws = new WebSocket(buildWsUrl(props.sessionId));
     ws.binaryType = "arraybuffer";
 
     ws.onmessage = (event) => {
@@ -102,12 +109,9 @@ const TerminalView: Component<{
       if (event.data instanceof ArrayBuffer) {
         terminal.write(new Uint8Array(event.data));
       } else if (typeof event.data === "string") {
-        // JSON control message (e.g., Exit)
         try {
-          JSON.parse(event.data);
-          // Handle server messages if needed
+          handleServerMessage(JSON.parse(event.data));
         } catch {
-          // Not JSON, write as text
           terminal.write(new TextEncoder().encode(event.data));
         }
       }
@@ -118,36 +122,23 @@ const TerminalView: Component<{
       doFit();
     };
 
-    ws.onclose = () => {
-      props.onWsStatus?.("closed");
-    };
+    ws.onclose = () => props.onWsStatus?.("closed");
 
-    // Terminal input → WebSocket
     terminal.onData((data: string) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     });
 
-    // ResizeObserver for container
-    resizeObserver = new ResizeObserver(() => doFit());
-    resizeObserver.observe(containerRef);
+    const observer = new ResizeObserver(() => doFit());
+    observer.observe(containerRef);
 
-    // Keyboard shortcuts
     window.addEventListener("keydown", handleKeydown, { capture: true });
-  });
 
-  onCleanup(() => {
-    window.removeEventListener("keydown", handleKeydown, { capture: true });
-    resizeObserver?.disconnect();
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
-    if (terminal) {
-      terminal.dispose();
-      terminal = null;
-    }
+    onCleanup(() => {
+      window.removeEventListener("keydown", handleKeydown, { capture: true });
+      observer.disconnect();
+      ws?.close();
+      terminal?.dispose();
+    });
   });
 
   return (
