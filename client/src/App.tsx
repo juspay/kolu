@@ -28,11 +28,13 @@ const App: Component = () => {
       const ids = existing.map((t) => t.id);
       setTerminalIds(ids);
       const running = existing.find((t) => t.status === "running");
+      // Prefer a running terminal; fall back to first (which may be exited)
       setActiveId(running?.id ?? ids[0]);
     }
     setLoaded(true);
   });
 
+  /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate() {
     const info = await client.terminal.create();
     setTerminalIds((prev) => [...prev, info.id]);
