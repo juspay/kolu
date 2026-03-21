@@ -4,8 +4,12 @@
  * One instance per scenario. Browser context created in hooks.ts.
  */
 
-import { World, setWorldConstructor, setDefaultTimeout } from '@cucumber/cucumber';
-import type { Browser, BrowserContext, Page, Locator } from 'playwright';
+import {
+  World,
+  setWorldConstructor,
+  setDefaultTimeout,
+} from "@cucumber/cucumber";
+import type { Browser, BrowserContext, Page, Locator } from "playwright";
 
 setDefaultTimeout(60_000);
 
@@ -32,13 +36,13 @@ export class KoluWorld extends World {
   // --- Canvas locator ---
 
   get canvas(): Locator {
-    return this.page.locator('canvas');
+    return this.page.locator("canvas");
   }
 
   // --- Terminal helpers (same logic as old DSL) ---
 
   async waitForReady(timeout = READY_TIMEOUT) {
-    await this.canvas.waitFor({ state: 'visible', timeout });
+    await this.canvas.waitFor({ state: "visible", timeout });
   }
 
   async terminalType(text: string) {
@@ -46,7 +50,7 @@ export class KoluWorld extends World {
   }
 
   async terminalEnter() {
-    await this.page.keyboard.press('Enter');
+    await this.page.keyboard.press("Enter");
   }
 
   async terminalRun(command: string) {
@@ -56,14 +60,14 @@ export class KoluWorld extends World {
 
   async canvasBox() {
     const box = await this.canvas.boundingBox();
-    if (!box) throw new Error('Canvas has no bounding box');
+    if (!box) throw new Error("Canvas has no bounding box");
     return box;
   }
 
   async containerBox() {
-    const container = this.page.locator('[data-font-size]');
+    const container = this.page.locator("[data-font-size]");
     const box = await container.boundingBox();
-    if (!box) throw new Error('Container has no bounding box');
+    if (!box) throw new Error("Container has no bounding box");
     return box;
   }
 
@@ -73,21 +77,21 @@ export class KoluWorld extends World {
   }
 
   async zoomIn() {
-    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${mod}+Equal`);
     await this.page.waitForTimeout(300);
   }
 
   async zoomOut() {
-    const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const mod = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${mod}+Minus`);
     await this.page.waitForTimeout(300);
   }
 
   async fontSize(): Promise<number> {
-    const container = this.page.locator('[data-font-size]');
-    const val = await container.getAttribute('data-font-size');
-    if (!val) throw new Error('No data-font-size attribute found');
+    const container = this.page.locator("[data-font-size]");
+    const val = await container.getAttribute("data-font-size");
+    if (!val) throw new Error("No data-font-size attribute found");
     return parseFloat(val);
   }
 }

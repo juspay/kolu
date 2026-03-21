@@ -4,7 +4,6 @@
     devShells.default = pkgs.mkShell {
       name = "kolu-shell";
       inputsFrom = [
-        self'.devShells.rust
         config.pre-commit.devShell
       ];
       shellHook = ''
@@ -14,11 +13,9 @@
       packages = with pkgs; [
         just
         nixd
-        trunk
-        tailwindcss
-        wasm-bindgen-cli
-        cargo-watch
         nodejs
+        pnpm
+        tsx
       ];
     };
   };

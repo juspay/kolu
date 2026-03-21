@@ -4,7 +4,7 @@
 
 # kolu
 
-> [கோலு](https://en.wikipedia.org/wiki/Golu_(festival)) — the Navaratri tradition of arranging figures on tiered steps.
+> [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>) — the Navaratri tradition of arranging figures on tiered steps.
 
 Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
 

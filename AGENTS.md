@@ -2,7 +2,6 @@
 
 ## Code Quality
 
-- **Rapid feedback**: Use `/cargo-watch` at the start of any code-editing task for continuous clippy feedback.
 - After making changes, automatically run `/code-review` before declaring work complete.
 - Run `just pc` (pre-commit hooks) before declaring done.
 
@@ -12,7 +11,7 @@
 
 ## UI
 
-- Extract reusable UI into Leptos components (one component per file in `client/src/`).
+- Extract reusable UI into SolidJS components (one component per file in `client/src/`).
 
 ## Git
 

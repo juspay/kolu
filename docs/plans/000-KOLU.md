@@ -15,12 +15,13 @@ them at the start of each phase.
 
 ### 1. Simple, not easy
 
-From Rich Hickey's "Simple Made Easy": simple means *not interleaved*.
+From Rich Hickey's "Simple Made Easy": simple means _not interleaved_.
 Each module does one thing. Modules don't reach into each other's internals.
 Data flows through function arguments and return values, not through shared
 mutable state or trait-object indirection.
 
 **Concretely:**
+
 - No trait objects (`Box<dyn ...>`) unless genuinely needed for polymorphism.
   Prefer enums for closed sets of variants.
 - No `Arc<Mutex<...>>` for shared state. Use `DashMap` or message passing
@@ -208,6 +209,7 @@ pub enum WsServerMessage {
 ### Terminal ID Convention
 
 Terminal IDs are human-readable and globally unique:
+
 - Worktree terminal: `"{repo}/{branch}/{label}"` — e.g. `"payment-gateway/feat-auth/opencode"`
 - Plain terminal: `"{label}"` — e.g. `"scratch"`
 
@@ -217,6 +219,7 @@ must pick a different label. No auto-numbering.
 ### Worktree Storage
 
 Worktrees are stored **inside the repo clone**:
+
 ```
 ~/repos/payment-gateway/           ← Repo.local_path
 ├── .git/
@@ -250,6 +253,7 @@ Plain
 ```
 
 Navigation:
+
 - Click **Worktree** → show its terminals as tabs, activate the first
 - Click **Terminal** leaf → switch directly to that tab
 - Collapsed worktree → aggregate status: green if any child Running
@@ -271,6 +275,7 @@ must pass. e2e tests must pass. Verify before moving on.
 **Build:**
 
 Workspace setup:
+
 - `Cargo.toml` workspace with `common`, `server`, `client`
 - `rust-toolchain.toml` pinning stable + `wasm32-unknown-unknown` target
 - `common/src/lib.rs` — empty, just `pub fn hello() -> &'static str { "kolu" }`
@@ -281,6 +286,7 @@ Workspace setup:
 - `client/index.html` — minimal HTML shell for Trunk
 
 Nix:
+
 - `flake.nix` using flake-parts + rust-flake (crane)
 - Client: crane + wasm-bindgen build, output is static dist directory
 - Server: crane build, output is native binary
@@ -288,6 +294,7 @@ Nix:
 - `nix build` produces the combined artifact
 
 Dev workflow (`justfile`):
+
 ```just
 dev:
     # Runs server (cargo watch) + client (trunk serve) in parallel
@@ -313,10 +320,11 @@ install:
 ```
 
 e2e test (`tests/e2e/smoke.spec.ts`):
+
 ```typescript
-test('page loads', async ({ page }) => {
-  await page.goto('http://localhost:7681');
-  await expect(page.locator('h1')).toContainText('kolu');
+test("page loads", async ({ page }) => {
+  await page.goto("http://localhost:7681");
+  await expect(page.locator("h1")).toContainText("kolu");
 });
 ```
 
@@ -336,9 +344,11 @@ ghostty-bridge.js → ghostty-web canvas.
 **Build:**
 
 `common/src/lib.rs`:
+
 - Add `WsClientMessage`, `WsServerMessage` enums (from Data Model above)
 
 `server/src/pty.rs`:
+
 - `pub fn spawn(cmd: &[String], cwd: &Path, cols: u16, rows: u16) -> Result<PtyHandle>`
 - `PtyHandle`: the `portable_pty` master writer, a `broadcast::Sender<Bytes>`,
   a tokio task handle for the reader loop, a `VecDeque<u8>` scrollback
@@ -350,6 +360,7 @@ ghostty-bridge.js → ghostty-web canvas.
 - `pub fn kill(handle: &PtyHandle)`
 
 `server/src/ws.rs`:
+
 - Axum handler at `GET /ws/:terminal_id`
 - On connect: send scrollback as initial binary frame(s)
 - Subscribe to broadcast channel: forward PTY output → WS binary frames
@@ -357,35 +368,41 @@ ghostty-bridge.js → ghostty-web canvas.
 - Handle `WsClientMessage::Resize` JSON messages
 
 `server/src/main.rs`:
+
 - On startup: spawn one hardcoded PTY (`["bash"]` in `$HOME`)
 - Store `PtyHandle` in Axum state
 - Mount WS route + static file serving
 
 `client/js/ghostty-bridge.js`:
+
 - `initGhostty()` — dynamically imports ghostty-web, calls `init()`
 - `createTerminal(elementId, wsUrl, config)` — creates Terminal, opens WS,
   wires onData/onmessage, sets up ResizeObserver
 - `destroyTerminal(handle)` — closes WS, disconnects observer, disposes
 
 `client/src/terminal.rs`:
+
 - `wasm-bindgen` extern declarations for `ghostty-bridge.js` functions
 
 `client/src/terminal_view.rs`:
+
 - Leptos component `<TerminalView id=... />`
 - On mount: calls `initGhostty()` then `createTerminal()`
 - Renders a `<div id="terminal-{id}">` that ghostty-web fills
 
 `client/src/app.rs`:
+
 - Renders just `<TerminalView id="default" />`
 
 e2e test (`tests/e2e/terminal.spec.ts`):
+
 ```typescript
-test('terminal renders and accepts input', async ({ page }) => {
-  await page.goto('http://localhost:7681');
+test("terminal renders and accepts input", async ({ page }) => {
+  await page.goto("http://localhost:7681");
   // Wait for terminal canvas to appear
-  await expect(page.locator('canvas')).toBeVisible();
+  await expect(page.locator("canvas")).toBeVisible();
   // Type a command
-  await page.keyboard.type('echo hello\n');
+  await page.keyboard.type("echo hello\n");
   // Verify output appears (check terminal content or just no errors)
 });
 ```
@@ -403,11 +420,13 @@ with status indicators. This is the "tmux replacement" moment.
 **Build:**
 
 `common/src/lib.rs`:
+
 - Add `Terminal`, `TerminalId`, `TerminalStatus` types
 - API request/response types: `CreateTerminalRequest { label, command }`,
   `TerminalList(Vec<Terminal>)`, etc.
 
 `server/src/terminal.rs`:
+
 - `AppState` with `DashMap<TerminalId, LiveTerminal>`
 - `LiveTerminal` holds: `Terminal` info, `PtyHandle`, `last_output_at: Instant`
 - `pub fn create(state, id, label, command, cwd) → Result<Terminal>`
@@ -419,11 +438,13 @@ with status indicators. This is the "tmux replacement" moment.
   `last_output_at` and `child.try_wait()`
 
 `server/src/api.rs`:
+
 - `POST /api/terminals` — create terminal
 - `GET /api/terminals` — list all
 - `DELETE /api/terminals/:id` — kill
 
 `client/src/sidebar.rs`:
+
 - Fetches terminal list (polling every 2s via `set_interval`)
 - Flat list with status indicators:
   - `●` green pulse = Running
@@ -433,18 +454,22 @@ with status indicators. This is the "tmux replacement" moment.
 - "+ new" button
 
 `client/src/new_session.rs`:
+
 - Form: label + command (default "bash")
 - Calls `POST /api/terminals`
 - Auto-selects the new terminal
 
 `client/src/terminal_view.rs` update:
+
 - Reacts to `active_terminal_id` signal
 - On change: destroy old terminal, create new one
 
 `client/src/app.rs` update:
+
 - Layout: sidebar (fixed 260px) + terminal pane (flex)
 
 e2e tests (`tests/e2e/session.spec.ts`):
+
 - Create 3 terminals, switch between them
 - Kill one, verify it shows as exited
 - Verify no duplicate IDs accepted
@@ -462,10 +487,12 @@ JSON. No worktrees yet — just the registry.
 **Build:**
 
 `common/src/lib.rs`:
+
 - Add `Repo` type
 - API types: `AddRepoRequest { name, clone_url, local_path }`
 
 `server/src/registry.rs`:
+
 - `pub fn load(config_dir: &Path) → Vec<Repo>`
 - `pub fn save(config_dir: &Path, repos: &[Repo])`
 - `pub fn add(repos: &mut Vec<Repo>, name, clone_url, local_path) → Result<Repo>`
@@ -476,19 +503,23 @@ JSON. No worktrees yet — just the registry.
 - File: `~/.config/kolu/repos.json`
 
 `server/src/api.rs` additions:
+
 - `GET /api/repos` — list repos
 - `POST /api/repos` — add repo
 - `DELETE /api/repos/:name` — remove repo
 
 `client/src/sidebar.rs` update:
+
 - Two sections: "Repos" (just names, not expandable yet) and "Plain"
   (terminals from Phase 2)
 - "+ repo" button
 
 `client/src/add_repo.rs`:
+
 - Form: name + clone URL + local path
 
 e2e tests (`tests/e2e/registry.spec.ts`):
+
 - Add a repo → appears in sidebar → restart → persisted → remove → gone
 - Reject duplicate repo name
 
@@ -504,11 +535,13 @@ The sidebar becomes the three-level tree. Terminal tabs appear.
 **Build:**
 
 `common/src/lib.rs`:
+
 - Add `Worktree` type
 - Extend `Terminal` with `worktree: Option<(String, String)>` (repo, branch)
 - API types: `CreateWorktreeRequest`, `CreateWorktreeTerminalRequest`
 
 `server/src/worktree.rs`:
+
 - All operations shell out to `git` (no git2 crate)
 - `pub fn create(repo_local_path: &Path, branch: &str) → Result<PathBuf>`
   - Sanitizes branch name for directory: `feat/auth` → `feat-auth`
@@ -522,24 +555,28 @@ The sidebar becomes the three-level tree. Terminal tabs appear.
   - Runs: `git worktree remove .worktrees/<sanitized>`
 
 `server/src/terminal.rs` update:
+
 - `create` now accepts optional `(repo_name, branch)` — if provided, looks
   up worktree path and uses it as cwd
 - Terminal ID for worktree terminals: `"{repo}/{branch}/{label}"`
 - Maintains a `DashMap<(String, String), Worktree>` for worktree state
 
 `server/src/api.rs` additions:
+
 - `POST /api/repos/:name/worktrees` — create worktree
 - `GET /api/repos/:name/worktrees` — list worktrees for a repo
 - `DELETE /api/repos/:name/worktrees/:branch` — remove worktree
 - `POST /api/repos/:name/worktrees/:branch/terminals` — create terminal in worktree
 
 `client/src/sidebar.rs` — rewrite to three-level tree:
+
 - Repos → Worktrees → Terminals (as shown in mockup)
 - Collapsible nodes
 - Aggregate status on collapsed worktrees
 - Click worktree → show its terminals as tabs
 
 `client/src/terminal_tabs.rs`:
+
 - Tab bar above terminal pane
 - One tab per terminal in the active worktree
 - Status dot per tab
@@ -547,15 +584,18 @@ The sidebar becomes the three-level tree. Terminal tabs appear.
 - Close button per tab (kills terminal, with confirm if Running)
 
 `client/src/new_session.rs` update:
+
 - Two modes: "worktree terminal" (pick repo → enter branch → label + command)
   and "plain terminal" (label + command)
 - Auto-creates worktree if it doesn't exist
 
 `client/src/app.rs` update:
+
 - Breadcrumb bar: `repo / branch / terminal` (or just `terminal` for plain)
 - Layout: sidebar | (breadcrumb + tabs + terminal pane)
 
 e2e tests (`tests/e2e/worktree.spec.ts`):
+
 - Add repo → create worktree → create terminal in it → verify cwd is correct
 - Create two terminals in same worktree → switch via tabs
 - Create two worktrees in same repo → switch via sidebar
@@ -574,6 +614,7 @@ worktrees stored inside repos → `just test` passes.
 **Build:**
 
 `server/src/worktree.rs` additions:
+
 - `pub fn status(worktree_path: &Path) → Result<WorktreeStatus>`
   - `git status --porcelain` for dirty count
   - `git rev-list --left-right --count HEAD...@{upstream}` for ahead/behind
@@ -581,13 +622,16 @@ worktrees stored inside repos → `just test` passes.
   - `git diff --stat`
 
 `common/src/lib.rs`:
+
 - Add `WorktreeStatus { branch, dirty_files, ahead, behind }`
 
 `server/src/api.rs` additions:
+
 - `GET /api/repos/:name/worktrees/:branch/status`
 - `GET /api/repos/:name/worktrees/:branch/diff`
 
 UI additions:
+
 - Worktree nodes show dirty file count badge
 - Breadcrumb bar shows `+N -M dirty` badge
 - Conflict indicator: if two worktrees in the same repo modify overlapping
@@ -669,36 +713,44 @@ Deferred. Do not build these during Phases 0–6. They can be added later
 without changing the architecture.
 
 ### Agent activity detection
+
 Distinguish "agent is actively coding" vs "agent is waiting for input"
 vs "agent is waiting for compilation". Currently we use a 5-second output
 heuristic. Future: parse terminal output for known agent prompts, or
 integrate with agent-specific status APIs.
 
 ### PTY detachment / survival across server restarts
+
 Currently, server restart = all terminals exited. To survive restarts,
 we'd need Unix socket-based PTY detachment (like tmux/abduco). This is
 complex and only needed when the server is not long-running.
 
 ### Split panes
+
 Side-by-side terminals within the terminal pane. For now, use multiple
 browser windows or tabs. Avoids enormous UI complexity.
 
 ### juspay/AI integration
+
 Add as a flake output in `juspay/AI`. Session creation accepts agent
 variants (`opencode-juspay-oneclick`, etc.). `.agents/` skills auto-wired
 via `nix-agent-wire`.
 
 ### Multi-user / team features
+
 Auth layer, session ownership, spectator mode, shared team server,
 remote compute.
 
 ### Notifications
+
 Slack webhook when agent finishes. Browser notifications when a
 background session needs input.
 
 ### Metrics
+
 Tokens used per session, time-to-completion, CI pass rate per agent
 variant.
 
 ### Auto-PR pipeline
+
 Session completes → auto-create PR with diff + session transcript.

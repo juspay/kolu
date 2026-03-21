@@ -1,3 +1,0 @@
-{
-  autoWire = [ "crate" "clippy" ];
-}

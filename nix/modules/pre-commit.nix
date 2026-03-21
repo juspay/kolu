@@ -7,7 +7,10 @@
     pre-commit.settings = {
       hooks = {
         nixpkgs-fmt.enable = true;
-        rustfmt.enable = true;
+        prettier = {
+          enable = true;
+          excludes = [ "pnpm-lock.yaml" ];
+        };
       };
     };
   };
