@@ -51,9 +51,15 @@
 
         buildPhase = ''
           runHook preBuild
-          # Rebuild node-pty native addon from source so it matches the
-          # target platform (prebuilds only cover the fetching host's OS).
-          pnpm rebuild node-pty
+
+          # Build node-pty native addon from source. The npm tarball ships
+          # prebuilds for darwin/win only — linux needs compilation.
+          # pnpm rebuild doesn't reliably invoke node-gyp, so we call it
+          # directly in the pnpm virtual store.
+          pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
+          node-gyp rebuild
+          popd
+
           pnpm --filter kolu-client build
           runHook postBuild
         '';
