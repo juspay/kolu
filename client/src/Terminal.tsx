@@ -1,11 +1,18 @@
+/**
+ * Terminal component — owns the full terminal feature:
+ * ghostty lifecycle, WebSocket connection, resize fitting, keyboard zoom.
+ *
+ * These concerns share the same volatility (all change together when
+ * terminal behavior changes), so they belong in one module.
+ */
+
 import { type Component, onMount, onCleanup, createSignal } from "solid-js";
 import {
   initGhostty,
   createTerminal,
   measureCells,
   fitToContainer,
-  buildWsUrl,
-  type Terminal,
+  type Terminal as GhosttyTerminal,
 } from "./ghostty";
 import type { WsClientMessage, WsServerMessage } from "kolu-common";
 import type { WsStatus } from "./Header";
@@ -14,12 +21,18 @@ const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-const TerminalView: Component<{
+/** Build WebSocket URL for a terminal session. */
+function buildWsUrl(sessionId: string): string {
+  const { protocol, host } = window.location;
+  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
+}
+
+const Terminal: Component<{
   sessionId: string;
   onWsStatus?: (status: WsStatus) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
-  let terminal: Terminal | null = null;
+  let terminal: GhosttyTerminal | null = null;
   let ws: WebSocket | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
@@ -150,4 +163,4 @@ const TerminalView: Component<{
   );
 };
 
-export default TerminalView;
+export default Terminal;

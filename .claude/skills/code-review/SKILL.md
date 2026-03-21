@@ -44,10 +44,13 @@ Simple means _not interleaved_. Each module does one thing. Data flows through a
 
 - Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
-## Module structure
+## Module structure — volatility-based decomposition
 
-- Each module should own one concern. If a module mixes two domains, either split it or add a module-level doc comment explaining why it's intentionally glue.
+Group code by _rate of change_, not by technical layer. Things that change together live together; things that change independently get separate modules.
+
+- Each module should own one volatility zone. If a module mixes concerns with different change-rates, split it.
 - UI components get their own file (`client/src/Header.tsx`, not inlined in `App.tsx`).
+- Shared constants used by multiple modules (e.g., theme colors) get their own file to avoid coupling unrelated modules.
 
 ## Readability
 

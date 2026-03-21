@@ -1,7 +1,7 @@
 import { type Component, createSignal } from "solid-js";
 import Header, { type WsStatus } from "./Header";
-import TerminalView from "./TerminalView";
-import { THEME } from "./ghostty";
+import Terminal from "./Terminal";
+import { THEME } from "./theme";
 
 const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
@@ -14,7 +14,7 @@ const App: Component = () => {
           class="h-full rounded border border-slate-700 overflow-hidden p-2"
           style={{ "background-color": THEME.background }}
         >
-          <TerminalView sessionId="default" onWsStatus={setWsStatus} />
+          <Terminal sessionId="default" onWsStatus={setWsStatus} />
         </div>
       </div>
     </div>

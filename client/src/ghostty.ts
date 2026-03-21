@@ -1,10 +1,14 @@
 /**
- * Typed wrapper around ghostty-web terminal emulator.
+ * Pure wrapper around ghostty-web WASM terminal emulator.
  *
- * ghostty-web is dynamically imported to avoid blocking initial page load.
+ * Low volatility — only changes when ghostty-web API changes.
+ * Dynamically imported to avoid blocking initial page load.
  */
 
-import type { Terminal, ITheme, ITerminalOptions } from "ghostty-web";
+import type { Terminal, ITerminalOptions } from "ghostty-web";
+import { THEME } from "./theme";
+
+const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
 // Dynamic import shape (ghostty-web exports these at runtime)
 interface GhosttyModule {
@@ -20,33 +24,6 @@ export async function initGhostty(): Promise<void> {
   mod = (await import("ghostty-web")) as unknown as GhosttyModule;
   await mod.init();
 }
-
-const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
-
-export const THEME: ITheme = {
-  foreground: "#ffffff",
-  background: "#292c33",
-  cursor: "#ffffff",
-  cursorAccent: "#363a43",
-  selectionBackground: "#ffffff",
-  selectionForeground: "#ffffff",
-  black: "#1d1f21",
-  red: "#bf6b69",
-  green: "#b7bd73",
-  yellow: "#e9c880",
-  blue: "#88a1bb",
-  magenta: "#ad95b8",
-  cyan: "#95bdb7",
-  white: "#c5c8c6",
-  brightBlack: "#666666",
-  brightRed: "#c55757",
-  brightGreen: "#bcc95f",
-  brightYellow: "#e1c65e",
-  brightBlue: "#83a5d6",
-  brightMagenta: "#bc99d4",
-  brightCyan: "#83beb1",
-  brightWhite: "#eaeaea",
-};
 
 /** Create a new terminal instance. Call initGhostty() first. */
 export function createTerminal(fontSize?: number): Terminal {
@@ -73,12 +50,6 @@ export function fitToContainer(
     cols: Math.floor(width / cellWidth),
     rows: Math.floor(height / cellHeight),
   };
-}
-
-/** Build WebSocket URL for a terminal session. */
-export function buildWsUrl(sessionId: string): string {
-  const { protocol, host } = window.location;
-  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
 }
 
 export type { Terminal };
