@@ -103,8 +103,8 @@ const Terminal: Component<{
   }
 
   onMount(async () => {
-    await initGhostty();
-    terminal = createTerminal(fontSize());
+    const ghostty = await initGhostty();
+    terminal = createTerminal(ghostty, fontSize());
     terminal.open(containerRef);
 
     // Measure cell dimensions after first render

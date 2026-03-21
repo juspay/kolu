@@ -16,18 +16,22 @@ interface GhosttyModule {
   Terminal: new (opts?: ITerminalOptions) => Terminal;
 }
 
-let mod: GhosttyModule | null = null;
+let initPromise: Promise<GhosttyModule> | null = null;
 
-/** Initialize ghostty-web WASM. Idempotent. */
-export async function initGhostty(): Promise<void> {
-  if (mod) return;
-  mod = (await import("ghostty-web")) as unknown as GhosttyModule;
-  await mod.init();
+/** Initialize ghostty-web WASM. Idempotent and race-safe. */
+export function initGhostty(): Promise<GhosttyModule> {
+  return (initPromise ??= (async () => {
+    const mod = (await import("ghostty-web")) as unknown as GhosttyModule;
+    await mod.init();
+    return mod;
+  })());
 }
 
-/** Create a new terminal instance. Call initGhostty() first. */
-export function createTerminal(fontSize?: number): Terminal {
-  if (!mod) throw new Error("ghostty-web not initialized");
+/** Create a new terminal instance from an initialized module. */
+export function createTerminal(
+  mod: GhosttyModule,
+  fontSize?: number,
+): Terminal {
   return new mod.Terminal({ fontSize, fontFamily: FONT_FAMILY, theme: THEME });
 }
 
