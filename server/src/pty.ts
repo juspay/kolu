@@ -1,6 +1,9 @@
 import * as pty from "node-pty";
 import type { WsServerMessage } from "kolu-common";
-import { DEFAULT_COLS, DEFAULT_ROWS, SCROLLBACK_LIMIT } from "kolu-common";
+
+const DEFAULT_COLS = 80;
+const DEFAULT_ROWS = 24;
+const SCROLLBACK_LIMIT = 100 * 1024; // 100KB
 
 export interface PtyClient {
   send(data: Buffer | string): void;

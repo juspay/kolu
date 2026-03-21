@@ -49,9 +49,7 @@ export class KoluWorld extends World {
   }
 
   async containerBox() {
-    const box = await this.page
-      .locator("[data-font-size]")
-      .boundingBox();
+    const box = await this.page.locator("[data-font-size]").boundingBox();
     if (!box) throw new Error("Container has no bounding box");
     return box;
   }

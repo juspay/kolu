@@ -36,9 +36,8 @@ if (clientDist) {
 }
 
 const port = Number(opts.port);
-const server = serve(
-  { fetch: app.fetch, hostname: opts.host, port },
-  (info) => console.log(`kolu listening on http://${info.address}:${info.port}`),
+const server = serve({ fetch: app.fetch, hostname: opts.host, port }, (info) =>
+  console.log(`kolu listening on http://${info.address}:${info.port}`),
 );
 
 injectWebSocket(server);
