@@ -36,9 +36,13 @@ test-dev:
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
+    nix run github:juspay/vira ci
+    just signoff signoff/e2e just test
+
+# Post GitHub commit status (pending → success/failure) around any command
+signoff context +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
-    nix run github:juspay/vira ci
     # Bail if worktree is dirty
     if [ -n "$(git status --porcelain)" ]; then
         echo "✗ Dirty worktree. Commit or stash changes first."
@@ -47,25 +51,25 @@ ci:
     REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
     SHA=$(git rev-parse HEAD)
     USER=$(gh api user -q .login)
-    CONTEXT="signoff/e2e"
+    CONTEXT="{{ context }}"
     # Post pending status
     echo "⏳ Posting pending status for $CONTEXT..."
     gh api "repos/$REPO/statuses/$SHA" \
         -f state=pending -f context="$CONTEXT" \
-        -f description="Running e2e tests locally (by $USER)..." > /dev/null
+        -f description="Running locally (by $USER)..." > /dev/null
     # On Ctrl+C, just exit without posting failure
     trap 'echo " interrupted"; exit 130' INT
-    # Run tests
-    if just test; then
+    # Run command
+    if {{ cmd }}; then
         gh api "repos/$REPO/statuses/$SHA" \
             -f state=success -f context="$CONTEXT" \
-            -f description="e2e passed (ran by $USER)" > /dev/null
-        echo "✓ e2e passed, signoff posted"
+            -f description="Passed (ran by $USER)" > /dev/null
+        echo "✓ $CONTEXT passed, signoff posted"
     else
         gh api "repos/$REPO/statuses/$SHA" \
             -f state=failure -f context="$CONTEXT" \
-            -f description="e2e failed (ran by $USER)" > /dev/null
-        echo "✗ e2e failed, failure posted"
+            -f description="Failed (ran by $USER)" > /dev/null
+        echo "✗ $CONTEXT failed, failure posted"
         exit 1
     fi
 
