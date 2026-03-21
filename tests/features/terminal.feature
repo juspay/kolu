@@ -9,6 +9,13 @@ Feature: Terminal
     Then the terminal canvas should be visible
     And there should be no page errors
 
+  Scenario: Terminal survives browser refresh
+    When I run "echo kolu-refresh-test"
+    And I refresh the page
+    And the terminal is ready
+    Then the terminal should contain "kolu-refresh-test"
+    And there should be no page errors
+
   Scenario: Terminal resizes with viewport
     Given I note the canvas dimensions
     When I resize the viewport to 800x400

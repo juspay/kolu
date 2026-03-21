@@ -8,14 +8,16 @@ const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
   const [terminalId, setTerminalId] = createSignal<string | null>(null);
 
-  // Phase 2a: auto-create one terminal on mount to match Phase 1 UX.
-  // Phase 2b will replace this with sidebar-driven creation.
+  // Reuse an existing running terminal if one exists (e.g. after browser refresh),
+  // otherwise create a new one. Phase 2b will replace this with sidebar-driven creation.
   (async () => {
     try {
-      const info = await client.terminal.create();
+      const existing = await client.terminal.list();
+      const running = existing.find((t) => t.status === "running");
+      const info = running ?? (await client.terminal.create());
       setTerminalId(info.id);
     } catch (err) {
-      console.error("Failed to create terminal:", err);
+      console.error("Failed to get/create terminal:", err);
       setWsStatus("closed");
     }
   })();

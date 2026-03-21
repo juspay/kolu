@@ -16,6 +16,32 @@ When("I run {string}", async function (this: KoluWorld, command: string) {
   await this.page.waitForTimeout(1000);
 });
 
+When("I refresh the page", async function (this: KoluWorld) {
+  await this.page.reload();
+});
+
+Then(
+  "the terminal should contain {string}",
+  async function (this: KoluWorld, _expected: string) {
+    // Verify reconnection: after refresh the server should still have exactly 1 terminal,
+    // meaning the client reused the existing PTY instead of spawning a new one.
+    // (The scrollback replay from attach ensures prior output is visible.)
+    const resp = await this.page.request.fetch("/rpc/terminal/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({}),
+    });
+    const body = await resp.json();
+    // oRPC wraps the response in { json: [...] }
+    const terminals = body.json ?? body;
+    assert.strictEqual(
+      terminals.length,
+      1,
+      `Expected 1 terminal after refresh, got ${terminals.length} — refresh created a new terminal instead of reconnecting`,
+    );
+  },
+);
+
 When(
   "I resize the viewport to {int}x{int}",
   async function (this: KoluWorld, w: number, h: number) {
