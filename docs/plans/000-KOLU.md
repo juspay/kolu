@@ -80,7 +80,7 @@ rendering, resize handling, scrollback replay.
 oRPC migration, multi-terminal support, sidebar with status indicators.
 Prior art: [coder/mux](https://github.com/coder/mux) (ghostty-web + oRPC).
 
-#### 2a: Migrate to oRPC (single terminal)
+#### 2a: Migrate to oRPC (single terminal) ✅
 
 Replace raw WebSocket handling with oRPC procedures over single WS.
 Same Phase 1 UX, new transport. Server starts empty; client auto-creates
@@ -96,7 +96,7 @@ one terminal on mount.
 - PTY-first resize: await server resize before frontend resize
 - Fire-and-forget sendInput for low-latency keystrokes
 
-#### 2a.1: @xterm/headless screen state serialization
+#### 2a.1: @xterm/headless screen state serialization ✅
 
 Replace raw scrollback buffer with `@xterm/headless` + `@xterm/addon-serialize`.
 Server maintains headless terminal per PTY. On attach, serialize screen

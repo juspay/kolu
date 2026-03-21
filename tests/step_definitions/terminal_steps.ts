@@ -2,6 +2,17 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 import * as assert from "node:assert";
 
+/** Fetch terminal list from server via oRPC HTTP endpoint. */
+async function fetchTerminalList(world: KoluWorld) {
+  const resp = await world.page.request.fetch("/rpc/terminal/list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: JSON.stringify({}),
+  });
+  const body = await resp.json();
+  return (body.json ?? body) as unknown[];
+}
+
 // ── Background ──
 
 Given("the terminal is ready", async function (this: KoluWorld) {
@@ -17,27 +28,25 @@ When("I run {string}", async function (this: KoluWorld, command: string) {
 });
 
 When("I refresh the page", async function (this: KoluWorld) {
+  // Snapshot terminal count before refresh so post-refresh assertions can verify reconnect
+  this.terminalCountBeforeRefresh = (await fetchTerminalList(this)).length;
   await this.page.reload();
 });
 
 Then(
   "the terminal should contain {string}",
   async function (this: KoluWorld, _expected: string) {
-    // Verify reconnection: after refresh the server should still have exactly 1 terminal,
-    // meaning the client reused the existing PTY instead of spawning a new one.
-    // (The scrollback replay from attach ensures prior output is visible.)
-    const resp = await this.page.request.fetch("/rpc/terminal/list", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({}),
-    });
-    const body = await resp.json();
-    // oRPC wraps the response in { json: [...] }
-    const terminals = body.json ?? body;
+    // Verify reconnection: after refresh the terminal count should be unchanged,
+    // meaning the client reused existing PTYs instead of spawning new ones.
+    const terminals = await fetchTerminalList(this);
+    assert.ok(
+      this.terminalCountBeforeRefresh !== undefined,
+      "No terminal count snapshot — was 'I refresh the page' called first?",
+    );
     assert.strictEqual(
       terminals.length,
-      1,
-      `Expected 1 terminal after refresh, got ${terminals.length} — refresh created a new terminal instead of reconnecting`,
+      this.terminalCountBeforeRefresh,
+      `Expected ${this.terminalCountBeforeRefresh} terminals after refresh, got ${terminals.length} — refresh created a new terminal instead of reconnecting`,
     );
   },
 );

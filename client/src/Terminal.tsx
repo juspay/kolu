@@ -5,7 +5,14 @@
  * terminal behavior changes), so they belong in one module.
  */
 
-import { type Component, onMount, onCleanup, createSignal } from "solid-js";
+import {
+  type Component,
+  onMount,
+  onCleanup,
+  createSignal,
+  createEffect,
+  on,
+} from "solid-js";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
 import { client } from "./rpc";
@@ -17,21 +24,15 @@ const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 
-/**
- * Run an async iterable to completion, silently ignoring AbortErrors.
- * AbortErrors are expected on unmount — the component aborts in-flight streams via AbortController.
- */
+/** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
   onItem: (item: T) => void,
   label: string,
-  onReady?: () => void,
 ) {
-  (async () => {
+  void (async () => {
     try {
-      const stream = await streamFn();
-      onReady?.();
-      for await (const item of stream) onItem(item);
+      for await (const item of await streamFn()) onItem(item);
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
         console.error(`${label} error:`, err);
@@ -65,8 +66,7 @@ const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 
 const Terminal: Component<{
   terminalId: string;
-  onConnected?: () => void;
-  onExit?: (exitCode: number) => void;
+  visible: boolean;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
@@ -80,6 +80,19 @@ const Terminal: Component<{
   );
 
   let streamAbort: AbortController | null = null;
+
+  // Re-measure and fit when terminal becomes visible (display:none → visible).
+  // defer: true skips the initial run (onMount handles first fit).
+  // Placed at component body level for proper SolidJS reactive scope.
+  createEffect(
+    on(
+      () => props.visible,
+      (visible) => {
+        if (visible) remeasureAndFit();
+      },
+      { defer: true },
+    ),
+  );
 
   /** Resize PTY first, then frontend (prevents output clobbering). */
   async function fit() {
@@ -99,6 +112,7 @@ const Terminal: Component<{
 
   /** Double rAF ensures ghostty's canvas has re-rendered at the new size. */
   function remeasureAndFit() {
+    if (!terminal) return;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         ({ cellWidth, cellHeight } = measureCells(
@@ -119,8 +133,9 @@ const Terminal: Component<{
     remeasureAndFit();
   }
 
-  /** Intercept Cmd/Ctrl +/- for zoom. */
+  /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
   function handleZoomKeys(e: KeyboardEvent) {
+    if (!props.visible) return;
     if (!(isMac ? e.metaKey : e.ctrlKey)) return;
     const delta = ZOOM_KEYS[e.key];
     if (!delta) return;
@@ -153,16 +168,12 @@ const Terminal: Component<{
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
       (data) => terminal?.write(encoder.encode(data)),
       "Terminal attach",
-      () => props.onConnected?.(),
     );
 
     // Exit stream: yields exit code once when PTY process terminates
     consumeStream(
       () => client.terminal.onExit({ id: props.terminalId }, { signal }),
-      (exitCode) => {
-        console.log(`PTY exited with code ${exitCode}`);
-        props.onExit?.(exitCode);
-      },
+      (exitCode) => console.log(`PTY exited with code ${exitCode}`),
       "Terminal onExit",
     );
 
@@ -190,6 +201,9 @@ const Terminal: Component<{
     <div
       ref={containerRef}
       class="w-full h-full overflow-hidden"
+      style={{ display: props.visible ? undefined : "none" }}
+      data-terminal-id={props.terminalId}
+      data-visible={props.visible ? "" : undefined}
       data-font-size={fontSize()}
     />
   );
