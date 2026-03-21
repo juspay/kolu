@@ -98,7 +98,7 @@ export function spawnPty(opts: {
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
   const headlessOnDataDisposable = headless.onData((data: string) => {
-    if (data) proc.write(data);
+    proc.write(data);
   });
 
   const dataDisposable = proc.onData((data: string) => {
@@ -106,9 +106,7 @@ export function spawnPty(opts: {
     opts.onData(data);
   });
 
-  const exitDisposable = proc.onExit(({ exitCode }) => {
-    opts.onExit(exitCode);
-  });
+  const exitDisposable = proc.onExit(({ exitCode }) => opts.onExit(exitCode));
 
   return {
     pid: proc.pid,

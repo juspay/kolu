@@ -1,7 +1,7 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming uses async generators (eventIterator) over WebSocket.
+ * Streaming handlers (attach, onExit) use async generators over WebSocket.
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
