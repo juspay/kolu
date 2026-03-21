@@ -26,7 +26,18 @@ export interface PtyHandle {
 }
 
 /** Env vars safe to forward to the PTY shell. */
-const KEEP_ENV = ["HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL", "LOGNAME", "DISPLAY", "COLORTERM", "TERM_PROGRAM"] as const;
+const KEEP_ENV = [
+  "HOME",
+  "USER",
+  "SHELL",
+  "TERM",
+  "LANG",
+  "LC_ALL",
+  "LOGNAME",
+  "DISPLAY",
+  "COLORTERM",
+  "TERM_PROGRAM",
+] as const;
 
 /**
  * Build a minimal env for the PTY shell.
