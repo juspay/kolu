@@ -5,12 +5,14 @@
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
+import { once } from "node:events";
 import { contract } from "kolu-common/contract";
 import {
   createTerminal,
   getTerminal,
   listTerminals,
   type TerminalEntry,
+  type TerminalEvents,
 } from "./registry.ts";
 
 const t = implement(contract);
@@ -23,11 +25,12 @@ function requireTerminal(id: string): TerminalEntry {
 }
 
 /** Bridge an EventEmitter event to an async iterable, yielding until signal aborts. */
-async function* iterateEvent<T>(
+async function* iterateEvent<K extends keyof TerminalEvents>(
   emitter: TerminalEntry["emitter"],
-  event: string,
+  event: K,
   signal: AbortSignal | undefined,
-): AsyncGenerator<T> {
+): AsyncGenerator<TerminalEvents[K][0]> {
+  type T = TerminalEvents[K][0];
   const queue: T[] = [];
   let resolve: (() => void) | null = null;
 
@@ -37,8 +40,14 @@ async function* iterateEvent<T>(
     resolve = null;
   };
 
+  // Wake the consumer loop so it can check signal.aborted and exit
+  const onAbort = () => {
+    resolve?.();
+    resolve = null;
+  };
+
   emitter.on(event, handler);
-  signal?.addEventListener("abort", () => emitter.off(event, handler));
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   try {
     while (!signal?.aborted) {
@@ -52,6 +61,7 @@ async function* iterateEvent<T>(
     }
   } finally {
     emitter.off(event, handler);
+    signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -76,7 +86,7 @@ export const appRouter = t.router({
       if (scrollback.length > 0) yield scrollback.toString("utf-8");
 
       // Then stream live output via queue-based async iteration
-      yield* iterateEvent<string>(entry.emitter, "data", signal);
+      yield* iterateEvent(entry.emitter, "data", signal);
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
@@ -88,14 +98,10 @@ export const appRouter = t.router({
         return;
       }
 
-      // Wait for exit event (can't reuse iterateEvent — this is a one-shot "once")
-      const exitCode = await new Promise<number>((resolveExit) => {
-        const onExit = (code: number) => resolveExit(code);
-        entry.emitter.once("exit", onExit);
-        signal?.addEventListener("abort", () =>
-          entry.emitter.off("exit", onExit),
-        );
-      });
+      // events.once() handles abort cleanup internally — no manual listener wiring needed
+      const [exitCode] = (await once(entry.emitter, "exit", {
+        signal,
+      })) as [number];
 
       if (!signal?.aborted) yield exitCode;
     }),

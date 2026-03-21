@@ -12,11 +12,15 @@ import { client } from "./rpc";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
+// Includes iPad/iPhone because browser keyboard events use metaKey on all Apple devices
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 
-/** Run an async iterable to completion, silently ignoring abort errors. */
+/**
+ * Run an async iterable to completion, silently ignoring AbortErrors.
+ * AbortErrors are expected on unmount — the component aborts in-flight streams via AbortController.
+ */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
   onItem: (item: T) => void,
@@ -131,7 +135,7 @@ const Terminal: Component<{
     });
     terminal.open(containerRef);
 
-    // Measure cell dimensions after first render
+    // Wait one frame so ghostty's canvas has rendered and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
     const cells = measureCells(containerRef, currentCols, currentRows);
     cellWidth = cells.cellWidth;
@@ -167,6 +171,7 @@ const Terminal: Component<{
 
     const observer = new ResizeObserver(() => void fit());
     observer.observe(containerRef);
+    // Capture phase: intercept before ghostty's own keydown handler in bubble phase
     window.addEventListener("keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {

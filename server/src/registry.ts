@@ -6,9 +6,15 @@ import { spawnPty, type PtyHandle } from "./pty.ts";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import { EventEmitter } from "node:events";
 
+/** Typed event map — eliminates stringly-typed emit/on/off calls. */
+export interface TerminalEvents {
+  data: [data: string];
+  exit: [exitCode: number];
+}
+
 interface TerminalBase {
   handle: PtyHandle;
-  emitter: EventEmitter;
+  emitter: EventEmitter<TerminalEvents>;
 }
 
 /** Discriminated union so exitCode is only accessible when status === "exited". */
@@ -31,7 +37,7 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
 /** Create a new terminal, spawn a PTY process. */
 export function createTerminal(): TerminalInfo {
   const id = `term-${nextId++}`;
-  const emitter = new EventEmitter();
+  const emitter = new EventEmitter<TerminalEvents>();
 
   const handle = spawnPty({
     onData: (data) => emitter.emit("data", data.toString("utf-8")),

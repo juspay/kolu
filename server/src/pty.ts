@@ -8,6 +8,7 @@ import * as pty from "node-pty";
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
+// Cap scrollback to prevent unbounded memory growth from long-running shells
 const SCROLLBACK_LIMIT = 100 * 1024; // 100KB
 
 export interface PtyHandle {
