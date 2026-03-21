@@ -20,12 +20,25 @@ Feature: Sidebar
     Then the active terminal should show "first-terminal"
     And there should be no page errors
 
+  Scenario: Switching terminals auto-focuses the terminal
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    When I select terminal 1 in the sidebar
+    Then the terminal should have keyboard focus
+
   Scenario: Terminals survive browser refresh
     When I open the app
     Given I note the sidebar entry count
     And I create a terminal
+    And I run "echo refresh-aaa"
     And I create a terminal
+    And I run "echo refresh-bbb"
     And I refresh the page
     Then the sidebar should have 2 more terminal entries
     And the terminal canvas should be visible
+    When I select terminal 2 in the sidebar
+    Then the active terminal should show "refresh-bbb"
+    When I select terminal 1 in the sidebar
+    Then the active terminal should show "refresh-aaa"
     And there should be no page errors

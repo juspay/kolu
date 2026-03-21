@@ -60,6 +60,21 @@ Then(
 );
 
 Then(
+  "the terminal should have keyboard focus",
+  async function (this: KoluWorld) {
+    // Ghostty uses a hidden textarea for keyboard input.
+    // Verify focus is inside the active terminal container (data-visible), not the sidebar.
+    const hasFocus = await this.page.evaluate(
+      () => !!document.activeElement?.closest("[data-visible]"),
+    );
+    assert.ok(
+      hasFocus,
+      "Expected keyboard focus inside the active terminal, but focus is elsewhere",
+    );
+  },
+);
+
+Then(
   "the active terminal should show {string}",
   async function (this: KoluWorld, expected: string) {
     // Get the active terminal's ID from the visible data-terminal-id element

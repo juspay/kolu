@@ -36,8 +36,14 @@ export class KoluWorld extends World {
     return this.page.locator("[data-visible] canvas");
   }
 
-  /** Click the sidebar "+" button to create a terminal, then wait for its canvas. Returns terminal ID. */
+  /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
+    // Wait for app to settle (onMount may still be restoring terminals from server)
+    const settled = this.page.locator(
+      '[data-visible] canvas, [data-testid="empty-state"]',
+    );
+    await settled.first().waitFor({ state: "visible", timeout });
+
     // Note the last sidebar entry before creating, so we can identify the new one
     const entries = this.page.locator(
       '[data-testid="sidebar"] [data-terminal-id]',
@@ -52,6 +58,11 @@ export class KoluWorld extends World {
     if (!id) throw new Error("Created terminal has no data-terminal-id");
 
     await this.canvas.waitFor({ state: "visible", timeout });
+    // Wait for ghostty's textarea to receive focus (auto-focus in Terminal.tsx onMount)
+    await this.page.waitForFunction(
+      () => !!document.activeElement?.closest("[data-visible]"),
+      { timeout: 5000 },
+    );
     return id;
   }
 
@@ -70,10 +81,6 @@ export class KoluWorld extends World {
   }
 
   async terminalRun(command: string) {
-    // Click the active terminal container to ensure keyboard focus reaches ghostty's canvas
-    const container = this.page.locator("[data-visible][data-terminal-id]");
-    await container.waitFor({ state: "visible" });
-    await container.click();
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
