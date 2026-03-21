@@ -39,7 +39,10 @@ export function createTerminal(fontSize?: number): GhosttyTerminal {
 }
 
 /** Measure cell dimensions by dividing canvas size by grid size. */
-export function measureCells(el: HTMLElement): { cellWidth: number; cellHeight: number } {
+export function measureCells(el: HTMLElement): {
+  cellWidth: number;
+  cellHeight: number;
+} {
   const canvas = el.querySelector("canvas");
   if (!canvas) throw new Error("No canvas found in terminal element");
   const rect = canvas.getBoundingClientRect();

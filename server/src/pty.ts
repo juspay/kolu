@@ -35,7 +35,10 @@ export function spawnPty(): PtyHandle {
     handle.scrollbackSize += buf.length;
 
     // Trim scrollback if over limit
-    while (handle.scrollbackSize > SCROLLBACK_LIMIT && handle.scrollback.length > 0) {
+    while (
+      handle.scrollbackSize > SCROLLBACK_LIMIT &&
+      handle.scrollback.length > 0
+    ) {
       const removed = handle.scrollback.shift()!;
       handle.scrollbackSize -= removed.length;
     }

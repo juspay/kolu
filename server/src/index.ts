@@ -25,7 +25,10 @@ console.log(`PTY spawned (pid ${ptyHandle.process.pid})`);
 app.get("/api/health", (c) => c.text(hello()));
 
 // WebSocket endpoint
-app.get("/ws/:terminalId", upgradeWebSocket(() => handleWs(ptyHandle)));
+app.get(
+  "/ws/:terminalId",
+  upgradeWebSocket(() => handleWs(ptyHandle)),
+);
 
 // Static file serving (production)
 const clientDist = process.env.KOLU_CLIENT_DIST;

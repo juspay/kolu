@@ -3,6 +3,8 @@
   perSystem = { config, self', pkgs, lib, ... }:
     let
       nodejs = pkgs.nodejs;
+      pnpm = pkgs.pnpm;
+
       src = lib.fileset.toSource {
         root = ../..;
         fileset = lib.fileset.unions [
@@ -16,30 +18,47 @@
         ];
       };
 
-      # Single build that produces client dist + server bundle
-      kolu = pkgs.buildNpmPackage {
+      pnpmDeps = pkgs.fetchPnpmDeps {
         pname = "kolu";
         version = "0.1.0";
         inherit src;
-        npmDepsHash = lib.fakeHash;
-        nativeBuildInputs = with pkgs; [ python3 ];
-        makeCacheWritable = true;
-        NODE_OPTIONS = "--max-old-space-size=4096";
+        hash = "sha256-KbGxccOU0NxRr4hShK6i2ugcFYjixxEHRUUEeOHtT60=";
+        fetcherVersion = 3;
+      };
+
+      # Single derivation: installs deps, builds client, bundles server
+      kolu = pkgs.stdenv.mkDerivation {
+        pname = "kolu";
+        version = "0.1.0";
+        inherit src;
+
+        nativeBuildInputs = [
+          nodejs
+          pnpm
+          pkgs.pnpmConfigHook
+          pkgs.python3
+        ];
+
+        inherit pnpmDeps;
 
         buildPhase = ''
           runHook preBuild
-          npx pnpm --filter kolu-client build
+          pnpm --filter kolu-client build
           runHook postBuild
         '';
 
         installPhase = ''
           runHook preInstall
-          mkdir -p $out/{server,common,client-dist}
-          cp -r node_modules $out/
-          cp -r common/src $out/common/
-          cp package.json $out/
-          cp -r server/src $out/server/
-          cp -r client/dist/* $out/client-dist/
+
+          # Copy entire workspace (preserves pnpm symlink structure)
+          cp -r . $out
+
+          # Remove build artifacts that aren't needed
+          rm -rf $out/client/src $out/client/node_modules
+
+          # Fix spawn-helper permissions (node-pty prebuild)
+          chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
+
           runHook postInstall
         '';
       };
@@ -47,13 +66,13 @@
     {
       packages = {
         inherit kolu;
+
         default = pkgs.writeShellApplication {
           name = "kolu";
           runtimeInputs = [ nodejs pkgs.tsx ];
           text = ''
-            export KOLU_CLIENT_DIST="${kolu}/client-dist"
-            export NODE_PATH="${kolu}/node_modules"
-            exec node --import tsx "${kolu}/server/src/index.ts" "$@"
+            export KOLU_CLIENT_DIST="${kolu}/client/dist"
+            exec tsx "${kolu}/server/src/index.ts" "$@"
           '';
         };
       };

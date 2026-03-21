@@ -22,7 +22,7 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
   let resizeObserver: ResizeObserver | null = null;
 
   const [fontSize, setFontSize] = createSignal(
-    Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE
+    Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
   );
 
   function sendResize(cols: number, rows: number) {
