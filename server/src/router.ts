@@ -23,6 +23,49 @@ function requireTerminal(id: string): TerminalEntry {
   return entry;
 }
 
+/**
+ * Subscribe to an emitter event and yield items as an async iterable.
+ *
+ * Subscribes BEFORE returning so callers can capture a snapshot between
+ * subscription and first yield — any events firing in that gap are queued.
+ * Terminates when the AbortSignal fires.
+ */
+async function* subscribeAndYield(
+  emitter: TerminalEntry["emitter"],
+  signal: AbortSignal | undefined,
+): AsyncGenerator<string> {
+  const queue: string[] = [];
+  let resolveNext: (() => void) | null = null;
+
+  const listener = (data: string) => {
+    queue.push(data);
+    resolveNext?.();
+  };
+  emitter.on("data", listener);
+
+  const cleanup = () => {
+    emitter.off("data", listener);
+    resolveNext?.();
+  };
+  signal?.addEventListener("abort", cleanup, { once: true });
+
+  try {
+    while (!signal?.aborted) {
+      if (queue.length > 0) {
+        yield queue.shift()!;
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        resolveNext = resolve;
+      });
+      resolveNext = null;
+    }
+  } finally {
+    cleanup();
+    signal?.removeEventListener("abort", cleanup);
+  }
+}
+
 export const appRouter = t.router({
   terminal: {
     create: t.terminal.create.handler(async () => createTerminal()),
@@ -36,48 +79,24 @@ export const appRouter = t.router({
       requireTerminal(input.id).handle.write(input.data);
     }),
 
+    /**
+     * Attach to a terminal's output stream.
+     *
+     * Yields serialized screen state first (for late-joining clients),
+     * then streams live output. Subscribe-before-serialize ordering
+     * guarantees no output is lost between snapshot and live stream.
+     */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 
-      // Race-free ordering: subscribe to live output FIRST, then capture
-      // screen state. Any output arriving during/after getScreenState() is
-      // queued and yielded after the screen state.
-      const queue: string[] = [];
-      let resolveNext: (() => void) | null = null;
+      // Subscribe FIRST, then serialize — any output between these two
+      // steps is queued inside the generator, not lost.
+      const live = subscribeAndYield(entry.emitter, signal);
 
-      const listener = (data: string) => {
-        queue.push(data);
-        resolveNext?.();
-      };
-      entry.emitter.on("data", listener);
+      const screenState = entry.handle.getScreenState();
+      if (screenState) yield screenState;
 
-      const cleanup = () => {
-        entry.emitter.off("data", listener);
-        // Unblock the await below so the loop exits on abort
-        resolveNext?.();
-      };
-      signal?.addEventListener("abort", cleanup, { once: true });
-
-      try {
-        // Capture screen state AFTER subscription — guarantees no missed output
-        const screenState = entry.handle.getScreenState();
-        if (screenState) yield screenState;
-
-        // Drain queued output then continue with live stream
-        while (!signal?.aborted) {
-          if (queue.length > 0) {
-            yield queue.shift()!;
-            continue;
-          }
-          await new Promise<void>((resolve) => {
-            resolveNext = resolve;
-          });
-          resolveNext = null;
-        }
-      } finally {
-        cleanup();
-        signal?.removeEventListener("abort", cleanup);
-      }
+      yield* live;
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
