@@ -9,22 +9,22 @@ Review the current changes against these principles. Flag any violations.
 
 ## Simple, not easy (Rich Hickey)
 
-Simple means *not interleaved*. Each module does one thing. Data flows through arguments and return values, not shared mutable state or indirection.
+Simple means _not interleaved_. Each module does one thing. Data flows through arguments and return values, not shared mutable state or indirection.
 
-- No unnecessary abstractions. If a thing has one implementor, it doesn't need a trait/interface.
+- No unnecessary abstractions. If a thing has one implementor, it doesn't need an interface/base class.
 - No "for future use" code. Build what's needed now.
 - Prefer plain data over objects with behavior.
 
 ## DRY (with Rule of Three)
 
 - Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction.
-- But *identical* content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count.
+- But _identical_ content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count.
 - Versions, ports, paths — define once, reference everywhere.
 
 ## Make invalid states unrepresentable
 
-- Use enums/sum types, not booleans or stringly-typed fields.
-- If two fields can't both be `None` at the same time, model that in the type.
+- Use discriminated unions, not booleans or stringly-typed fields.
+- If two fields can't both be `undefined` at the same time, model that in the type.
 
 ## Dead code
 
@@ -44,19 +44,19 @@ Simple means *not interleaved*. Each module does one thing. Data flows through a
 
 - Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
-## Module structure
+## Module structure — volatility-based decomposition
 
-- Each module should own one concern. If a module mixes two domains (e.g. WebSocket + PTY), either split it or add a module-level doc comment explaining why it's intentionally glue.
-- UI components get their own file (`client/src/header.rs`, not inlined in `main.rs`).
-- Large async blocks (`spawn_local`, `spawn`) should be extracted into named functions — the name documents what the block does.
+Group code by _rate of change_, not by technical layer. Things that change together live together; things that change independently get separate modules.
+
+- Each module should own one volatility zone. If a module mixes concerns with different change-rates, split it.
+- UI components get their own file (`client/src/Header.tsx`, not inlined in `App.tsx`).
+- Shared constants used by multiple modules (e.g., theme colors) get their own file to avoid coupling unrelated modules.
 
 ## Readability
 
-- Closure-heavy code (e.g. wasm-bindgen callbacks) should be broken into small named functions. Don't nest 5+ closures in one scope.
-- Every public type and every `#[component]` needs a doc comment.
-- Structs with non-obvious fields need field-level comments.
+- Every exported type and every component needs a doc comment.
+- Avoid deeply nested callbacks. Extract into named functions.
 
 ## Comments
 
-- Add comments where the *why* isn't obvious from the code. Don't comment the *what*.
-- Non-trivial build pipelines (WASM, cross-compilation, multi-stage) deserve step-by-step comments.
+- Add comments where the _why_ isn't obvious from the code. Don't comment the _what_.

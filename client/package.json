@@ -1,6 +1,23 @@
 {
+  "name": "kolu-client",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
+    "solid-js": "^1.9.0",
     "ghostty-web": "^0.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0",
+    "vite-plugin-solid": "^2.11.0",
+    "tailwindcss": "^4.1.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "kolu-common": "workspace:*"
   }
 }

@@ -1,0 +1,80 @@
+{ inputs, ... }:
+{
+  perSystem = { config, self', pkgs, lib, ... }:
+    let
+      nodejs = pkgs.nodejs;
+      pnpm = pkgs.pnpm;
+
+      src = lib.fileset.toSource {
+        root = ../..;
+        fileset = lib.fileset.unions [
+          ../../package.json
+          ../../pnpm-workspace.yaml
+          ../../pnpm-lock.yaml
+          ../../tsconfig.base.json
+          ../../common
+          ../../server
+          ../../client
+        ];
+      };
+
+      pnpmDeps = pkgs.fetchPnpmDeps {
+        pname = "kolu";
+        version = "0.1.0";
+        inherit src;
+        hash = "sha256-KbGxccOU0NxRr4hShK6i2ugcFYjixxEHRUUEeOHtT60=";
+        fetcherVersion = 3;
+      };
+
+      # Single derivation: installs deps, builds client, bundles server
+      kolu = pkgs.stdenv.mkDerivation {
+        pname = "kolu";
+        version = "0.1.0";
+        inherit src;
+
+        nativeBuildInputs = [
+          nodejs
+          pnpm
+          pkgs.pnpmConfigHook
+          pkgs.python3
+        ];
+
+        inherit pnpmDeps;
+
+        buildPhase = ''
+          runHook preBuild
+          pnpm --filter kolu-client build
+          runHook postBuild
+        '';
+
+        installPhase = ''
+          runHook preInstall
+
+          # Copy entire workspace (preserves pnpm symlink structure)
+          cp -r . $out
+
+          # Remove build artifacts that aren't needed
+          rm -rf $out/client/src $out/client/node_modules
+
+          # Fix spawn-helper permissions (node-pty prebuild)
+          chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
+
+          runHook postInstall
+        '';
+      };
+    in
+    {
+      packages = {
+        inherit kolu;
+
+        default = pkgs.writeShellApplication {
+          name = "kolu";
+          runtimeInputs = [ nodejs pkgs.tsx ];
+          text = ''
+            export KOLU_CLIENT_DIST="${kolu}/client/dist"
+            exec tsx "${kolu}/server/src/index.ts" "$@"
+          '';
+        };
+      };
+    };
+}

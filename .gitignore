@@ -1,9 +1,9 @@
-target/
-result
+node_modules/
 dist/
+result
 .direnv/
 .claude/worktrees/
+.claude/settings.local.json
 .pre-commit-config.yaml
-node_modules/
 test-results/
 tests/reports/

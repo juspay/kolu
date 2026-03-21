@@ -7,6 +7,6 @@
     "tsx": "^4.19.0"
   },
   "scripts": {
-    "test": "tsx node_modules/.bin/cucumber-js --profile ui"
+    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui"
   }
 }

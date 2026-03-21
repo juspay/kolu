@@ -10,29 +10,29 @@ default:
 dev:
     nix run .#dev
 
-# Run cargo watch for continuous clippy feedback (all crates)
+# Run TypeScript type checking across all packages
 watch:
-    {{ nix_shell }} cargo watch -x 'clippy --workspace --all-targets'
+    {{ nix_shell }} pnpm typecheck
 
-# Run server with cargo watch (auto-reload)
+# Run server with auto-reload
 server:
-    cd server && {{ nix_shell }} cargo watch -x run
+    cd server && {{ nix_shell }} pnpm dev
 
-# Run client with trunk serve (WASM hot-reload)
+# Run client with Vite dev server (HMR)
 client:
-    cd client && {{ nix_shell }} trunk serve
+    cd client && {{ nix_shell }} pnpm dev
 
 # Run Cucumber e2e tests (starts server via nix run)
 test:
     cd tests \
-        && {{ nix_shell }} npm install \
-        && {{ nix_shell }} npx tsx node_modules/.bin/cucumber-js --profile ui
+        && {{ nix_shell }} pnpm install \
+        && {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
     cd tests \
-        && {{ nix_shell }} npm install \
-        && REUSE_SERVER=1 {{ nix_shell }} npx tsx node_modules/.bin/cucumber-js --profile ui
+        && {{ nix_shell }} pnpm install \
+        && REUSE_SERVER=1 {{ nix_shell }} pnpm test
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
@@ -73,7 +73,7 @@ ci:
 pc:
     {{ nix_shell }} pre-commit run -a
 
-# Nix build (server + client WASM)
+# Nix build (server + client)
 build:
     nix build
 
