@@ -8,8 +8,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": "http://localhost:7681",
-      "/ws": {
-        target: "ws://localhost:7681",
+      "/rpc": {
+        target: "http://localhost:7681",
         ws: true,
       },
     },

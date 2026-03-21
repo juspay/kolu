@@ -1,6 +1,6 @@
 /**
  * Terminal component — owns the full terminal feature:
- * ghostty lifecycle, WebSocket connection, resize fitting, keyboard zoom.
+ * ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
  *
  * These concerns share the same volatility (all change together when
  * terminal behavior changes), so they belong in one module.
@@ -9,17 +9,11 @@
 import { type Component, onMount, onCleanup, createSignal } from "solid-js";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
-import type { WsClientMessage, WsServerMessage } from "kolu-common";
-import type { WsStatus } from "./Header";
+import { client } from "./rpc";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-
-function buildWsUrl(sessionId: string): string {
-  const { protocol, host } = window.location;
-  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
-}
 
 /** Measure cell dimensions from canvas size and known grid dimensions. */
 function measureCells(el: HTMLElement, cols: number, rows: number) {
@@ -43,12 +37,12 @@ function fitToContainer(
 }
 
 const Terminal: Component<{
-  sessionId: string;
-  onWsStatus?: (status: WsStatus) => void;
+  terminalId: string;
+  onConnected?: () => void;
+  onExit?: (exitCode: number) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
-  let ws: WebSocket | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
   let currentCols = 80;
@@ -58,20 +52,29 @@ const Terminal: Component<{
     Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
   );
 
-  /** Send a JSON control message to the server. */
-  function sendMessage(msg: WsClientMessage) {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-  }
+  // AbortController for oRPC streams
+  let streamAbort: AbortController | null = null;
 
-  /** Resize terminal to fill its container and notify the server. */
-  function fit() {
+  /** Resize terminal to fill its container and notify the server.
+   *  PTY-first: await server resize before frontend resize (prevents output clobbering). */
+  async function fit() {
     if (!terminal || cellWidth === 0) return;
     const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
-    if (cols > 0 && rows > 0) {
-      currentCols = cols;
-      currentRows = rows;
-      terminal.resize(cols, rows);
-      sendMessage({ type: "Resize", cols, rows });
+    if (
+      cols > 0 &&
+      rows > 0 &&
+      (cols !== currentCols || rows !== currentRows)
+    ) {
+      try {
+        // Resize PTY first
+        await client.terminal.resize({ id: props.terminalId, cols, rows });
+        // Then resize frontend to match
+        currentCols = cols;
+        currentRows = rows;
+        terminal.resize(cols, rows);
+      } catch {
+        // Terminal may have been killed mid-resize; ignore
+      }
     }
   }
 
@@ -83,7 +86,7 @@ const Terminal: Component<{
         const cells = measureCells(containerRef, currentCols, currentRows);
         cellWidth = cells.cellWidth;
         cellHeight = cells.cellHeight;
-        fit();
+        void fit();
       });
     });
   }
@@ -111,18 +114,8 @@ const Terminal: Component<{
     }
   }
 
-  function handleServerMessage(msg: WsServerMessage) {
-    switch (msg.type) {
-      case "Exit":
-        console.log(`PTY exited with code ${msg.exit_code}`);
-        props.onWsStatus?.("closed");
-        break;
-    }
-  }
-
   onMount(async () => {
     const ghostty = await initGhostty();
-    // Single terminal for now; multi-terminal will use sessionId to look up PTY
     terminal = new ghostty.Terminal({
       ...TERMINAL_DEFAULTS,
       fontSize: fontSize(),
@@ -135,35 +128,56 @@ const Terminal: Component<{
     cellWidth = cells.cellWidth;
     cellHeight = cells.cellHeight;
 
-    // WebSocket
-    ws = new WebSocket(buildWsUrl(props.sessionId));
-    ws.binaryType = "arraybuffer";
+    // --- oRPC streaming: attach to terminal output ---
+    streamAbort = new AbortController();
 
-    ws.onmessage = (event) => {
-      if (!terminal) return;
-      if (event.data instanceof ArrayBuffer) {
-        terminal.write(new Uint8Array(event.data));
-      } else if (typeof event.data === "string") {
-        try {
-          handleServerMessage(JSON.parse(event.data));
-        } catch {
-          terminal.write(new TextEncoder().encode(event.data));
+    // Attach stream: yields scrollback then live output
+    (async () => {
+      try {
+        const stream = await client.terminal.attach(
+          { id: props.terminalId },
+          { signal: streamAbort!.signal },
+        );
+        props.onConnected?.();
+        for await (const data of stream) {
+          if (terminal) {
+            terminal.write(new TextEncoder().encode(data));
+          }
+        }
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          console.error("Terminal attach stream error:", err);
         }
       }
-    };
+    })();
 
-    ws.onopen = () => {
-      props.onWsStatus?.("open");
-      fit();
-    };
+    // Exit stream: yields exit code once
+    (async () => {
+      try {
+        const stream = await client.terminal.onExit(
+          { id: props.terminalId },
+          { signal: streamAbort!.signal },
+        );
+        for await (const exitCode of stream) {
+          console.log(`PTY exited with code ${exitCode}`);
+          props.onExit?.(exitCode);
+        }
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          console.error("Terminal onExit stream error:", err);
+        }
+      }
+    })();
 
-    ws.onclose = () => props.onWsStatus?.("closed");
+    // Send initial fit
+    await fit();
 
+    // Send input: fire-and-forget for low latency
     terminal.onData((data: string) => {
-      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
+      void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
-    const observer = new ResizeObserver(() => fit());
+    const observer = new ResizeObserver(() => void fit());
     observer.observe(containerRef);
 
     window.addEventListener("keydown", handleZoomKeys, { capture: true });
@@ -171,7 +185,7 @@ const Terminal: Component<{
     onCleanup(() => {
       window.removeEventListener("keydown", handleZoomKeys, { capture: true });
       observer.disconnect();
-      ws?.close();
+      streamAbort?.abort();
       terminal?.dispose();
     });
   });

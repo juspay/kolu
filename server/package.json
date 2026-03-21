@@ -9,15 +9,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.7.0",
     "@hono/node-server": "^1.14.0",
     "@hono/node-ws": "^1.1.0",
+    "@orpc/server": "^1.13.9",
+    "hono": "^4.7.0",
+    "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
-    "kolu-common": "workspace:*"
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.8.0"
   }
 }
