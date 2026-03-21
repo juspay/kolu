@@ -1,5 +1,8 @@
-//! Leptos component that mounts a ghostty-web terminal and wires it
-//! to the server via WebSocket.
+//! Terminal pane: renders all terminals, shows only the active one via CSS.
+//!
+//! Each terminal gets its own container div, GhosttyTerminal instance, and
+//! WebSocket connection. Switching is pure CSS visibility toggle — no
+//! destroy/recreate, no scrollback replay, instant.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,11 +16,11 @@ use leptos_use::{
 use send_wrapper::SendWrapper;
 use wasm_bindgen::prelude::*;
 
+use kolu_common::TerminalId;
+
 use crate::bridge;
 use crate::terminal::GhosttyTerminal;
-use crate::ws::WsStatus;
 
-/// Serialize a Resize message for sending over WS.
 fn resize_msg(cols: u16, rows: u16) -> String {
   serde_json::to_string(&kolu_common::WsClientMessage::Resize { cols, rows }).unwrap()
 }
@@ -26,23 +29,42 @@ const MIN_FONT_SIZE: f64 = 8.0;
 const MAX_FONT_SIZE: f64 = 32.0;
 const FONT_SIZE_KEY: &str = "kolu-font-size";
 
-/// Full-screen terminal pane. Initializes ghostty-web, connects a WebSocket
-/// to the server PTY, and handles resize/zoom interactions.
+/// Renders all known terminals, only the active one visible.
 #[component]
-pub fn TerminalView(
-  session_id: String,
-  #[prop(into)] set_ws_status: WriteSignal<WsStatus>,
+pub fn TerminalPane(
+  terminal_ids: Memo<Vec<TerminalId>>,
+  active_id: ReadSignal<Option<TerminalId>>,
 ) -> impl IntoView {
-  let container_ref = NodeRef::<leptos::html::Div>::new();
+  view! {
+      <div class="w-full h-full relative overflow-hidden">
+          <For
+              each=move || terminal_ids.get()
+              key=|id| id.clone()
+              let:id
+          >
+              {
+                  let id_clone = id.clone();
+                  view! {
+                      <TerminalInstance id=id_clone active_id=active_id />
+                  }
+              }
+          </For>
+      </div>
+  }
+}
 
-  // Shared terminal handle — None until async init completes.
-  // SendWrapper is needed because JS objects aren't Send+Sync,
-  // but leptos-use callbacks require it (single-threaded WASM, so safe).
+/// A single terminal instance: container + ghostty-web + WebSocket.
+/// Hidden via CSS when not active. Stays alive for instant switching.
+#[component]
+fn TerminalInstance(id: TerminalId, active_id: ReadSignal<Option<TerminalId>>) -> impl IntoView {
+  let container_ref = NodeRef::<leptos::html::Div>::new();
+  let id_for_visibility = id.clone();
+
   let term: Arc<std::sync::Mutex<Option<SendWrapper<Rc<GhosttyTerminal>>>>> =
     Arc::new(std::sync::Mutex::new(None));
 
-  // --- WebSocket via leptos-use ---
-  let ws_url = bridge::build_ws_url(&session_id);
+  // --- WebSocket ---
+  let ws_url = bridge::build_ws_url(&id);
 
   let term_for_bytes = Arc::clone(&term);
   let term_for_text = Arc::clone(&term);
@@ -64,16 +86,12 @@ pub fn TerminalView(
       }),
   );
 
-  // Send initial resize when WS connects.
-  // ws_open() is non-blocking — the connection isn't ready immediately,
-  // so we watch ready_state to send the resize at the right moment.
+  // Send initial resize when WS connects
   let ready_state = ws.ready_state;
   let term_for_open = Arc::clone(&term);
   let ws_send_for_open = ws.send.clone();
   Effect::new(move |_| {
     let state = ready_state.get();
-    set_ws_status.set(WsStatus::from(state));
-
     if state == leptos_use::core::ConnectionReadyState::Open {
       if let Some(t) = term_for_open.lock().unwrap().as_ref() {
         if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
@@ -83,13 +101,12 @@ pub fn TerminalView(
     }
   });
 
-  // Clone send/open for use in closures below
   let ws_send = ws.send.clone();
   let ws_open = ws.open.clone();
   let ws_send_for_resize = ws_send.clone();
   let ws_send_for_zoom = ws_send.clone();
 
-  // --- Terminal init (async, then open WS) ---
+  // --- Terminal init ---
   let term_for_init = Arc::clone(&term);
   Effect::new(move |_| {
     let container = container_ref.get();
@@ -118,7 +135,6 @@ pub fn TerminalView(
 
       t.fit_to_container();
 
-      // Set initial font-size data attribute for e2e testability
       container
         .set_attribute("data-font-size", &t.get_font_size().to_string())
         .unwrap();
@@ -141,15 +157,13 @@ pub fn TerminalView(
       t.on_resize(&on_resize);
       on_resize.forget();
 
-      // Store terminal handle so WS callbacks and observers can use it
       *term_cell.lock().unwrap() = Some(SendWrapper::new(t));
 
-      // Open WS — the ready_state effect will send initial resize once connected
       ws_open();
     });
   });
 
-  // --- ResizeObserver via leptos-use ---
+  // --- ResizeObserver ---
   let term_for_resize = Arc::clone(&term);
   use_resize_observer(container_ref, move |_entries, _observer| {
     if let Some(t) = term_for_resize.lock().unwrap().as_ref() {
@@ -159,13 +173,17 @@ pub fn TerminalView(
     }
   });
 
-  // --- Font zoom via leptos-use event listener ---
+  // --- Font zoom ---
   let term_for_zoom = Arc::clone(&term);
-  // Return value is the cleanup fn (auto-called on unmount by leptos-use)
+  let id_for_zoom = id.clone();
   let _stop_zoom_listener = use_event_listener_with_options(
     use_window(),
     leptos::ev::keydown,
     move |e: web_sys::KeyboardEvent| {
+      // Only handle zoom for the active terminal
+      if active_id.get_untracked().as_deref() != Some(id_for_zoom.as_str()) {
+        return;
+      }
       if !(e.meta_key() || e.ctrl_key()) {
         return;
       }
@@ -183,26 +201,45 @@ pub fn TerminalView(
         if (next - current).abs() < f64::EPSILON {
           return;
         }
-
         t.set_font_size(next);
         if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
           ws_send_for_zoom(&resize_msg(cols, rows));
         }
-
-        // Update data attribute for e2e tests
         if let Some(container) = container_ref.get() {
           let el: web_sys::HtmlElement = container.into();
           let _ = el.set_attribute("data-font-size", &next.to_string());
         }
-
         bridge::local_storage_set(FONT_SIZE_KEY, &next.to_string());
       }
     },
-    // Capture phase to intercept before ghostty-web's input handler
     UseEventListenerOptions::default().capture(true),
   );
 
-  // --- Cleanup on unmount ---
+  // --- Fit on becoming visible ---
+  let term_for_fit = Arc::clone(&term);
+  let ws_send_for_fit = ws.send.clone();
+  Effect::new(move |prev: Option<bool>| {
+    let is_active = active_id.get().as_deref() == Some(id_for_visibility.as_str());
+    let was_active = prev.unwrap_or(false);
+    if is_active && !was_active {
+      // Just became visible — wait one frame for layout, then re-measure
+      // and refit. Cells may have been 0 when terminal opened while invisible.
+      let term = Arc::clone(&term_for_fit);
+      let ws_send = ws_send_for_fit.clone();
+      wasm_bindgen_futures::spawn_local(async move {
+        bridge::wait_animation_frame().await;
+        if let Some(t) = term.lock().unwrap().as_ref() {
+          t.measure_cells();
+          if let Some((cols, rows)) = bridge::extract_size(&t.fit_to_container()) {
+            ws_send(&resize_msg(cols, rows));
+          }
+        }
+      });
+    }
+    is_active
+  });
+
+  // --- Cleanup ---
   let term_for_cleanup = Arc::clone(&term);
   let ws_close = ws.close.clone();
   on_cleanup(move || {
@@ -213,6 +250,16 @@ pub fn TerminalView(
   });
 
   view! {
-      <div node_ref=container_ref class="w-full h-full"></div>
+      <div
+          node_ref=container_ref
+          class=move || {
+              let active = active_id.get().as_deref() == Some(id.as_str());
+              if active {
+                  "w-full h-full min-w-0 min-h-0 overflow-hidden"
+              } else {
+                  "w-full h-full hidden"
+              }
+          }
+      />
   }
 }

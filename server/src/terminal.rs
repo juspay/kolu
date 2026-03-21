@@ -3,7 +3,7 @@
 //! Plain functions operating on AppState. No manager objects.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use kolu_common::{Terminal, TerminalId, TerminalStatus};
 
@@ -64,14 +64,6 @@ pub fn list(state: &AppState) -> Vec<Terminal> {
     .iter()
     .map(|entry| entry.value().info.clone())
     .collect()
-}
-
-/// Get a single terminal's metadata.
-pub fn get(state: &AppState, id: &str) -> Option<Terminal> {
-  state
-    .terminals()
-    .get(id)
-    .map(|entry| entry.value().info.clone())
 }
 
 /// Kill a terminal: sends SIGHUP, removes from registry.

@@ -32,7 +32,9 @@ export class KoluWorld extends World {
   // --- Canvas locator ---
 
   get canvas(): Locator {
-    return this.page.locator('canvas');
+    // With multi-terminal, multiple canvases may exist. Target only the
+    // visible one (inactive terminals use display:none via Tailwind `hidden`).
+    return this.page.locator('canvas:visible').first();
   }
 
   // --- Terminal helpers (same logic as old DSL) ---
@@ -61,7 +63,7 @@ export class KoluWorld extends World {
   }
 
   async containerBox() {
-    const container = this.page.locator('[data-font-size]');
+    const container = this.page.locator('[data-font-size]:visible').first();
     const box = await container.boundingBox();
     if (!box) throw new Error('Container has no bounding box');
     return box;
@@ -85,7 +87,7 @@ export class KoluWorld extends World {
   }
 
   async fontSize(): Promise<number> {
-    const container = this.page.locator('[data-font-size]');
+    const container = this.page.locator('[data-font-size]:visible').first();
     const val = await container.getAttribute('data-font-size');
     if (!val) throw new Error('No data-font-size attribute found');
     return parseFloat(val);

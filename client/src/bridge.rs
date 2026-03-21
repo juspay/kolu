@@ -51,9 +51,8 @@ pub fn local_storage_set(key: &str, value: &str) {
 
 /// Build a WebSocket URL for the terminal connection.
 ///
-/// Trunk's dev proxy doesn't support WebSocket upgrades, so in dev mode
-/// (port 5173) we connect directly to the backend (port 7681).
-/// In production the server serves everything on one port.
+/// Uses the current page's host, so both Trunk's dev proxy (which forwards
+/// `/ws` to the backend) and production (single-origin) work transparently.
 pub fn build_ws_url(session_id: &str) -> String {
   let window = web_sys::window().unwrap();
   let location = window.location();
@@ -62,12 +61,6 @@ pub fn build_ws_url(session_id: &str) -> String {
   } else {
     "ws:"
   };
-  let hostname = location.hostname().unwrap();
-  let port = location.port().unwrap();
-  let host = if port == "5173" {
-    format!("{}:7681", hostname)
-  } else {
-    location.host().unwrap()
-  };
+  let host = location.host().unwrap();
   format!("{}//{}/ws/{}", protocol, host, session_id)
 }

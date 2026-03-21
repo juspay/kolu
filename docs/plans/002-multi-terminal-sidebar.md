@@ -66,13 +66,13 @@ instant, stateful switching. This is the "tmux replacement" moment.
 ## Phases
 
 1. **Phase 2a: Server-side multi-terminal** — replace single PtyHandle with DashMap registry, CRUD API, status sweep
-   - [ ] `common/src/lib.rs`: add `Terminal`, `TerminalId`, `TerminalStatus`, `CreateTerminalRequest` types
-   - [ ] `server/src/terminal.rs`: `LiveTerminal` struct, `create`/`list`/`get`/`kill` functions, status sweep task
-   - [ ] `server/src/state.rs`: `AppState` wraps `DashMap<TerminalId, LiveTerminal>`
-   - [ ] `server/src/api.rs`: `POST /api/terminals`, `GET /api/terminals`, `DELETE /api/terminals/:id`
-   - [ ] `server/src/ws.rs`: lookup terminal by ID in DashMap, return 404 if missing
-   - [ ] `server/src/main.rs`: no hardcoded PTY spawn at startup; create default terminal via `terminal::create`; mount API routes
-   - [ ] Existing e2e tests still pass (default terminal serves as before)
+   - [x] `common/src/lib.rs`: add `Terminal`, `TerminalId`, `TerminalStatus`, `CreateTerminalRequest` types
+   - [x] `server/src/terminal.rs`: `LiveTerminal` struct, `create`/`list`/`get`/`kill` functions, status sweep task
+   - [x] `server/src/state.rs`: `AppState` wraps `DashMap<TerminalId, LiveTerminal>`
+   - [x] `server/src/api.rs`: `POST /api/terminals`, `GET /api/terminals`, `DELETE /api/terminals/:id`
+   - [x] `server/src/ws.rs`: lookup terminal by ID in DashMap, return 404 if missing
+   - [x] `server/src/main.rs`: no hardcoded PTY spawn at startup; create default terminal via `terminal::create`; mount API routes
+   - [x] Existing e2e tests still pass (default terminal serves as before)
 
 2. **Phase 2b: Client-side multi-terminal + sidebar** — sidebar UI, terminal switching, new-session dialog
    - [ ] `client/src/sidebar.rs`: flat terminal list with status dots (● Running, ○ Idle, ✕ Exited), click to switch, "+ new" button

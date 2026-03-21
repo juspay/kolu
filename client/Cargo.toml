@@ -21,3 +21,5 @@ web-sys = { version = "0.3", features = [
 ] }
 js-sys = "0.3"
 console_error_panic_hook = "0.1"
+gloo-net = "0.6"
+gloo-timers = "0.3"
