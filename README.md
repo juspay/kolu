@@ -24,7 +24,7 @@ just test       # e2e tests (Playwright)
 ## Production
 
 ```sh
-nix build       # build server + WASM client
+nix build       # build server + client
 nix run         # serve on 0.0.0.0:7681
 nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ```
@@ -43,12 +43,10 @@ Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `s
 
 ## Architecture
 
-Three-crate Cargo workspace:
+pnpm workspace with three packages:
 
-- `common/` — shared types (WS protocol, terminal defaults), no platform-specific deps
-- `server/` — Axum HTTP server + PTY management (`portable-pty`) + WebSocket bridge
-- `client/` — Leptos CSR app compiled to WASM via Trunk (dev) or crane (prod)
+- `common/` — shared types (WS protocol messages, terminal defaults)
+- `server/` — [Hono](https://hono.dev/) + `node-pty` WebSocket bridge
+- `client/` — [SolidJS](https://www.solidjs.com/) + [ghostty-web](https://ghostty.org) terminal
 
-Terminal stack: Axum → PTY → broadcast channel → WebSocket → [ghostty-web](https://ghostty.org) canvas.
-
-Styling: [Tailwind CSS](https://tailwindcss.com/) standalone CLI — no Node required for builds.
+Stack: Hono → PTY → WebSocket → ghostty-web canvas. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
