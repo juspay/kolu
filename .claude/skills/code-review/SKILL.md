@@ -60,3 +60,4 @@ Group code by _rate of change_, not by technical layer. Things that change toget
 ## Comments
 
 - Add comments where the _why_ isn't obvious from the code. Don't comment the _what_.
+- Also add comments where the _what_ isn't obvious — e.g. non-obvious guards, CSS workarounds, platform-specific behavior.
