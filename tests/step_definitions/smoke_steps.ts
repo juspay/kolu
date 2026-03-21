@@ -32,3 +32,17 @@ Then(
     assert.strictEqual(this.lastResponseText, expected);
   },
 );
+
+Then(
+  "the connection status should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    const indicator = this.page.locator("[data-ws-status]");
+    await indicator.waitFor({ state: "visible" });
+    const status = await indicator.getAttribute("data-ws-status");
+    assert.strictEqual(
+      status,
+      expected,
+      `Expected WS status "${expected}" but got "${status}"`,
+    );
+  },
+);

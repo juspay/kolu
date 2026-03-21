@@ -14,9 +14,12 @@ const Header: Component<{ status?: WsStatus }> = (props) => {
 
   return (
     <header class="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
-      <span class="text-lg">🪔</span>
+      <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm">kolu</span>
-      <span class={`ml-auto text-xs ${statusColors[status()]}`}>
+      <span
+        class={`ml-auto text-xs ${statusColors[status()]}`}
+        data-ws-status={status()}
+      >
         ● {status()}
       </span>
     </header>

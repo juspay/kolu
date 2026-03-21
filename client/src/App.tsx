@@ -1,14 +1,16 @@
-import type { Component } from "solid-js";
-import Header from "./Header";
+import { type Component, createSignal } from "solid-js";
+import Header, { type WsStatus } from "./Header";
 import TerminalView from "./TerminalView";
 
 const App: Component = () => {
+  const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
+
   return (
     <div class="flex flex-col h-screen bg-slate-900 text-white">
-      <Header />
+      <Header status={wsStatus()} />
       <div class="flex-1 min-h-0 p-2">
         <div class="h-full rounded border border-slate-700 overflow-hidden">
-          <TerminalView sessionId="default" />
+          <TerminalView sessionId="default" onWsStatus={setWsStatus} />
         </div>
       </div>
     </div>

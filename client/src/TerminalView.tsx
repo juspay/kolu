@@ -8,12 +8,16 @@ import {
   type GhosttyTerminal,
 } from "./ghostty";
 import type { WsClientMessage } from "kolu-common";
+import type { WsStatus } from "./Header";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
 const FONT_STEP = 1;
 
-const TerminalView: Component<{ sessionId: string }> = (props) => {
+const TerminalView: Component<{
+  sessionId: string;
+  onWsStatus?: (status: WsStatus) => void;
+}> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
   let ws: WebSocket | null = null;
@@ -110,8 +114,12 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
     };
 
     ws.onopen = () => {
-      // Send initial resize
+      props.onWsStatus?.("open");
       doFit();
+    };
+
+    ws.onclose = () => {
+      props.onWsStatus?.("closed");
     };
 
     // Terminal input → WebSocket
