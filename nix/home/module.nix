@@ -1,4 +1,3 @@
-# Home-manager module for kolu web terminal multiplexer
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.kolu;
@@ -32,10 +31,10 @@ in
         After = [ "network.target" ];
       };
       Service = {
-        ExecStart = "${cfg.package}/bin/kolu --host ${cfg.host} --port ${toString cfg.port}";
+        ExecStart = "${lib.getExe cfg.package} --host ${cfg.host} --port ${toString cfg.port}";
         Restart = "on-failure";
         Environment = [
-          "SHELL=${pkgs.bashInteractive}/bin/bash"
+          "SHELL=${lib.getExe pkgs.bashInteractive}"
         ];
       };
       Install = {
