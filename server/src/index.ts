@@ -3,7 +3,7 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { spawnPty } from "./pty.ts";
-import { handleWs } from "./ws.ts";
+import { broadcast, broadcastExit, handleWs } from "./ws.ts";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -17,8 +17,11 @@ const { values: opts } = parseArgs({
 const app = new Hono();
 const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
-const ptyHandle = spawnPty();
-console.log(`PTY spawned (pid ${ptyHandle.process.pid})`);
+const ptyHandle = spawnPty({
+  onData: (data) => broadcast(data),
+  onExit: (code) => broadcastExit(code),
+});
+console.log(`PTY spawned (pid ${ptyHandle.pid})`);
 
 app.get("/api/health", (c) => c.text("kolu"));
 

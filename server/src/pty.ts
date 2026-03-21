@@ -1,24 +1,21 @@
 import * as pty from "node-pty";
-import type { WsServerMessage } from "kolu-common";
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const SCROLLBACK_LIMIT = 100 * 1024; // 100KB
 
-export interface PtyClient {
-  send(data: Buffer | string): void;
-}
-
 export interface PtyHandle {
-  readonly process: pty.IPty;
-  readonly clients: Set<PtyClient>;
+  readonly pid: number;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   getScrollback(): Buffer;
   dispose(): void;
 }
 
-export function spawnPty(): PtyHandle {
+export function spawnPty(opts: {
+  onData: (data: Buffer) => void;
+  onExit: (exitCode: number) => void;
+}): PtyHandle {
   const shell = process.env.SHELL || "/bin/bash";
   const cwd = process.env.HOME || "/";
 
@@ -32,7 +29,6 @@ export function spawnPty(): PtyHandle {
 
   let scrollback: Buffer[] = [];
   let scrollbackSize = 0;
-  const clients = new Set<PtyClient>();
 
   const dataDisposable = proc.onData((data: string) => {
     const buf = Buffer.from(data, "utf-8");
@@ -43,18 +39,15 @@ export function spawnPty(): PtyHandle {
       scrollbackSize -= scrollback.shift()!.length;
     }
 
-    for (const client of clients) client.send(buf);
+    opts.onData(buf);
   });
 
   const exitDisposable = proc.onExit(({ exitCode }) => {
-    const msg: WsServerMessage = { type: "Exit", exit_code: exitCode };
-    const json = JSON.stringify(msg);
-    for (const client of clients) client.send(json);
+    opts.onExit(exitCode);
   });
 
   return {
-    process: proc,
-    clients,
+    pid: proc.pid,
     write: (data) => proc.write(data),
     resize: (cols, rows) => proc.resize(cols, rows),
     getScrollback: () => Buffer.concat(scrollback),

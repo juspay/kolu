@@ -1,14 +1,29 @@
 import type { WSContext } from "hono/ws";
-import type { PtyHandle, PtyClient } from "./pty.ts";
-import type { WsClientMessage } from "kolu-common";
+import type { PtyHandle } from "./pty.ts";
+import type { WsClientMessage, WsServerMessage } from "kolu-common";
 
-const clientMap = new WeakMap<WSContext, PtyClient>();
+interface WsClient {
+  send(data: Buffer | string): void;
+}
 
-function removeClient(handle: PtyHandle, ws: WSContext) {
-  const client = clientMap.get(ws);
+const wsMap = new WeakMap<WSContext, WsClient>();
+
+export const clients = new Set<WsClient>();
+
+export function broadcast(data: Buffer | string) {
+  for (const client of clients) client.send(data);
+}
+
+export function broadcastExit(exitCode: number) {
+  const msg: WsServerMessage = { type: "Exit", exit_code: exitCode };
+  broadcast(JSON.stringify(msg));
+}
+
+function removeClient(ws: WSContext) {
+  const client = wsMap.get(ws);
   if (client) {
-    handle.clients.delete(client);
-    clientMap.delete(ws);
+    clients.delete(client);
+    wsMap.delete(ws);
   }
 }
 
@@ -18,7 +33,7 @@ export function handleWs(handle: PtyHandle) {
       const snapshot = handle.getScrollback();
       if (snapshot.length > 0) ws.send(snapshot);
 
-      const client: PtyClient = {
+      const client: WsClient = {
         send: (data) => {
           try {
             ws.send(data);
@@ -27,8 +42,8 @@ export function handleWs(handle: PtyHandle) {
           }
         },
       };
-      handle.clients.add(client);
-      clientMap.set(ws, client);
+      clients.add(client);
+      wsMap.set(ws, client);
     },
 
     onMessage(event: MessageEvent) {
@@ -53,11 +68,11 @@ export function handleWs(handle: PtyHandle) {
     },
 
     onClose(_event: CloseEvent, ws: WSContext) {
-      removeClient(handle, ws);
+      removeClient(ws);
     },
 
     onError(_event: Event, ws: WSContext) {
-      removeClient(handle, ws);
+      removeClient(ws);
     },
   };
 }
