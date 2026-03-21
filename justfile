@@ -8,7 +8,7 @@ default:
 
 # Run server + client in parallel via process-compose
 dev:
-    nix run .#dev
+    {{ nix_shell }} nix run .#dev
 
 # Run TypeScript type checking across all packages
 watch:
