@@ -33,11 +33,10 @@ app.get(
 // Static file serving (production)
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
-  // serveStatic root must be relative to CWD, so we compute the relative path
-  const relRoot = path.relative(process.cwd(), clientDist);
-  app.use("/*", serveStatic({ root: relRoot }));
+  const absRoot = path.resolve(clientDist);
+  app.use("/*", serveStatic({ root: absRoot }));
   // SPA fallback: serve index.html for unmatched routes
-  app.get("/*", serveStatic({ root: relRoot, path: "index.html" }));
+  app.get("/*", serveStatic({ root: absRoot, path: "index.html" }));
 }
 
 const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
