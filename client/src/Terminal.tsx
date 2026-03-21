@@ -9,9 +9,7 @@
 import { type Component, onMount, onCleanup, createSignal } from "solid-js";
 import {
   initGhostty,
-  createTerminal,
-  measureCells,
-  fitToContainer,
+  TERMINAL_DEFAULTS,
   type Terminal as GhosttyTerminal,
 } from "./ghostty";
 import type { WsClientMessage, WsServerMessage } from "kolu-common";
@@ -21,10 +19,30 @@ const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
-/** Build WebSocket URL for a terminal session. */
 function buildWsUrl(sessionId: string): string {
   const { protocol, host } = window.location;
   return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
+}
+
+/** Measure cell dimensions from canvas size and known grid dimensions. */
+function measureCells(el: HTMLElement, cols: number, rows: number) {
+  const canvas = el.querySelector("canvas");
+  if (!canvas) throw new Error("No canvas found in terminal element");
+  const { width, height } = canvas.getBoundingClientRect();
+  return { cellWidth: width / cols, cellHeight: height / rows };
+}
+
+/** Calculate cols/rows to fill a container given cell dimensions. */
+function fitToContainer(
+  container: HTMLElement,
+  cellWidth: number,
+  cellHeight: number,
+) {
+  const { width, height } = container.getBoundingClientRect();
+  return {
+    cols: Math.floor(width / cellWidth),
+    rows: Math.floor(height / cellHeight),
+  };
 }
 
 const Terminal: Component<{
@@ -104,7 +122,7 @@ const Terminal: Component<{
 
   onMount(async () => {
     const ghostty = await initGhostty();
-    terminal = createTerminal(ghostty, fontSize());
+    terminal = new ghostty.Terminal({ ...TERMINAL_DEFAULTS, fontSize: fontSize() });
     terminal.open(containerRef);
 
     // Measure cell dimensions after first render
