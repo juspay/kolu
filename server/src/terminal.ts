@@ -1,12 +1,11 @@
 /**
- * WebSocket ↔ PTY bridge.
+ * Terminal session: PTY lifecycle + WebSocket client management.
  *
- * Manages connected WS clients, broadcasts PTY output,
- * and routes client input (keystrokes, resize) to the PTY.
+ * Bridges PTY I/O to connected WebSocket clients.
  */
 import type { WSContext } from "hono/ws";
-import type { PtyHandle } from "./pty.ts";
-import type { WsClientMessage } from "kolu-common";
+import { spawnPty, type PtyHandle } from "./pty.ts";
+import type { WsClientMessage, WsServerMessage } from "kolu-common";
 
 /** A connected WebSocket client that can receive data. */
 interface WsClient {
@@ -16,11 +15,9 @@ interface WsClient {
 /** Maps WSContext → WsClient for cleanup on disconnect. */
 const wsMap = new WeakMap<WSContext, WsClient>();
 
-/** All currently connected clients. */
-export const clients = new Set<WsClient>();
+const clients = new Set<WsClient>();
 
-/** Send data to all connected clients. */
-export function broadcast(data: Buffer | string) {
+function broadcast(data: Buffer | string) {
   for (const client of clients) client.send(data);
 }
 
@@ -30,6 +27,17 @@ function removeClient(ws: WSContext) {
     clients.delete(client);
     wsMap.delete(ws);
   }
+}
+
+/** Spawn a PTY and wire its output to connected WS clients. */
+export function createTerminalSession(): PtyHandle {
+  return spawnPty({
+    onData: (data) => broadcast(data),
+    onExit: (code) => {
+      const msg: WsServerMessage = { type: "Exit", exit_code: code };
+      broadcast(JSON.stringify(msg));
+    },
+  });
 }
 
 /** Hono WebSocket handler: replays scrollback, bridges I/O to PTY. */
