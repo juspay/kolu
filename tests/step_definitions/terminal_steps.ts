@@ -130,23 +130,20 @@ Then(
 
 // ── Zoom keystroke leak detection (intercept oRPC sendInput via WebSocket.send) ──
 
-Given(
-  "I intercept oRPC sendInput calls",
-  async function (this: KoluWorld) {
-    // Monkey-patch WebSocket.send to capture outgoing frames.
-    // oRPC sends JSON-encoded messages over WS.
-    await this.page.evaluate(() => {
-      const origSend = WebSocket.prototype.send;
-      (window as any).__wsSent = [];
-      WebSocket.prototype.send = function (data: any) {
-        if (typeof data === "string") {
-          (window as any).__wsSent.push(data);
-        }
-        return origSend.call(this, data);
-      };
-    });
-  },
-);
+Given("I intercept oRPC sendInput calls", async function (this: KoluWorld) {
+  // Monkey-patch WebSocket.send to capture outgoing frames.
+  // oRPC sends JSON-encoded messages over WS.
+  await this.page.evaluate(() => {
+    const origSend = WebSocket.prototype.send;
+    (window as any).__wsSent = [];
+    WebSocket.prototype.send = function (data: any) {
+      if (typeof data === "string") {
+        (window as any).__wsSent.push(data);
+      }
+      return origSend.call(this, data);
+    };
+  });
+});
 
 Then(
   "no sendInput call should contain {string} {string} {string}",
