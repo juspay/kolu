@@ -5,52 +5,16 @@
  * The Terminal renders onto an HTML canvas inside the target element.
  */
 
-// ghostty-web doesn't ship TS types, so we declare what we use
-interface GhosttyTheme {
-  foreground?: string;
-  background?: string;
-  cursor?: string;
-  cursorAccent?: string;
-  selectionBackground?: string;
-  selectionForeground?: string;
-  black?: string;
-  red?: string;
-  green?: string;
-  yellow?: string;
-  blue?: string;
-  magenta?: string;
-  cyan?: string;
-  white?: string;
-  brightBlack?: string;
-  brightRed?: string;
-  brightGreen?: string;
-  brightYellow?: string;
-  brightBlue?: string;
-  brightMagenta?: string;
-  brightCyan?: string;
-  brightWhite?: string;
-}
+import type {
+  Terminal,
+  ITheme,
+  ITerminalOptions,
+} from "ghostty-web";
 
-interface GhosttyOptions {
-  fontSize?: number;
-  fontFamily?: string;
-  theme?: GhosttyTheme;
-}
-
+// ghostty-web's dynamic import shape
 interface GhosttyModule {
   init(): Promise<void>;
-  Terminal: new (opts?: GhosttyOptions) => GhosttyTerminal;
-}
-
-interface GhosttyTerminal {
-  open(element: HTMLElement): void;
-  write(data: Uint8Array): void;
-  resize(cols: number, rows: number): void;
-  dispose(): void;
-  onData(cb: (data: string) => void): void;
-  onResize(cb: (size: { cols: number; rows: number }) => void): void;
-  get fontSize(): number;
-  set fontSize(size: number);
+  Terminal: new (opts?: ITerminalOptions) => Terminal;
 }
 
 let ghosttyModule: GhosttyModule | null = null;
@@ -58,14 +22,14 @@ let ghosttyModule: GhosttyModule | null = null;
 /** Initialize ghostty-web WASM. Idempotent. */
 export async function initGhostty(): Promise<void> {
   if (ghosttyModule) return;
-  const mod = (await import("ghostty-web")) as GhosttyModule;
+  const mod = (await import("ghostty-web")) as unknown as GhosttyModule;
   await mod.init();
   ghosttyModule = mod;
 }
 
 const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-export const GHOSTTY_THEME: GhosttyTheme = {
+export const GHOSTTY_THEME: ITheme = {
   foreground: "#ffffff",
   background: "#292c33",
   cursor: "#ffffff",
@@ -91,7 +55,7 @@ export const GHOSTTY_THEME: GhosttyTheme = {
 };
 
 /** Create a new terminal instance. Call initGhostty() first. */
-export function createTerminal(fontSize?: number): GhosttyTerminal {
+export function createTerminal(fontSize?: number): Terminal {
   if (!ghosttyModule) throw new Error("ghostty-web not initialized");
   return new ghosttyModule.Terminal({
     fontSize,
@@ -139,4 +103,4 @@ export function buildWsUrl(sessionId: string): string {
   return `${protocol}//${loc.host}/ws/${sessionId}`;
 }
 
-export type { GhosttyTerminal };
+export type { Terminal };

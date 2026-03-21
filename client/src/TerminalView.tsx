@@ -5,7 +5,7 @@ import {
   measureCells,
   fitToContainer,
   buildWsUrl,
-  type GhosttyTerminal,
+  type Terminal,
 } from "./ghostty";
 import type { WsClientMessage } from "kolu-common";
 import type { WsStatus } from "./Header";
@@ -19,7 +19,7 @@ const TerminalView: Component<{
   onWsStatus?: (status: WsStatus) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
-  let terminal: GhosttyTerminal | null = null;
+  let terminal: Terminal | null = null;
   let ws: WebSocket | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
@@ -52,7 +52,7 @@ const TerminalView: Component<{
     if (!terminal) return;
     setFontSize(newSize);
     localStorage.setItem(FONT_SIZE_KEY, String(newSize));
-    terminal.fontSize = newSize;
+    terminal.options.fontSize = newSize;
 
     // Wait for ghostty to re-render at new font size, then recalculate
     requestAnimationFrame(() => {
