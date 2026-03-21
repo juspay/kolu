@@ -8,6 +8,10 @@
 
 Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
 
+<p align="center">
+  <img src="./docs/demo.gif" alt="kolu demo" width="640">
+</p>
+
 > [!IMPORTANT]
 > Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
 

@@ -73,6 +73,18 @@ signoff context +cmd:
         exit 1
     fi
 
+# Record GIF demo (starts its own server, no prerequisites)
+demo:
+    rm -rf docs/demo/tmp
+    cd docs/demo && nix develop . -c npm install
+    nix develop ./docs/demo -c tsx docs/demo/record.ts
+    nix develop ./docs/demo -c ffmpeg -y \
+        -framerate 10 -i docs/demo/tmp/frame-%05d.png \
+        -vf "scale=640:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
+        -loop 0 docs/demo.gif
+    @ls -lh docs/demo.gif | awk '{print "✅ docs/demo.gif (" $$5 ")"}'
+    rm -rf docs/demo/tmp
+
 # Run pre-commit hooks on all files
 pc:
     {{ nix_shell }} pre-commit run -a
