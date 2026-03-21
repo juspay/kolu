@@ -99,6 +99,10 @@ export const appRouter = t.router({
       yield* live;
     }),
 
+    screenState: t.terminal.screenState.handler(async ({ input }) => {
+      return requireTerminal(input.id).handle.getScreenState();
+    }),
+
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 
