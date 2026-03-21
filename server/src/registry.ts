@@ -43,7 +43,7 @@ export function createTerminal(): TerminalInfo {
   const emitter = new EventEmitter<TerminalEvents>();
 
   const handle = spawnPty({
-    onData: (data) => emitter.emit("data", data.toString("utf-8")),
+    onData: (data) => emitter.emit("data", data),
     // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
     onExit: (exitCode) => {
       const entry = terminals.get(id);

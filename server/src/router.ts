@@ -1,18 +1,17 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming uses async generators (eventIterator) over WebSocket.
+ * Streaming handlers (attach, onExit) use async generators over WebSocket.
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
-import { on, once } from "node:events";
+import { once } from "node:events";
 import { contract } from "kolu-common/contract";
 import {
   createTerminal,
   getTerminal,
   listTerminals,
   type TerminalEntry,
-  type TerminalEvents,
 } from "./registry.ts";
 
 const t = implement(contract);
@@ -25,16 +24,45 @@ function requireTerminal(id: string): TerminalEntry {
 }
 
 /**
- * Bridge an EventEmitter event to an async iterable, yielding until signal aborts.
- * Uses Node's built-in events.on() which handles queue buffering, cleanup, and abort internally.
+ * Subscribe to an emitter event and yield items as an async iterable.
+ *
+ * Subscribes BEFORE returning so callers can capture a snapshot between
+ * subscription and first yield — any events firing in that gap are queued.
+ * Terminates when the AbortSignal fires.
  */
-async function* iterateEvent<K extends keyof TerminalEvents>(
+async function* subscribeAndYield(
   emitter: TerminalEntry["emitter"],
-  event: K,
   signal: AbortSignal | undefined,
-): AsyncGenerator<TerminalEvents[K][0]> {
-  for await (const [data] of on(emitter, event, { signal })) {
-    yield data as TerminalEvents[K][0];
+): AsyncGenerator<string> {
+  const queue: string[] = [];
+  let resolveNext: (() => void) | null = null;
+
+  const listener = (data: string) => {
+    queue.push(data);
+    resolveNext?.();
+  };
+  emitter.on("data", listener);
+
+  const cleanup = () => {
+    emitter.off("data", listener);
+    resolveNext?.();
+  };
+  signal?.addEventListener("abort", cleanup, { once: true });
+
+  try {
+    while (!signal?.aborted) {
+      if (queue.length > 0) {
+        yield queue.shift()!;
+        continue;
+      }
+      await new Promise<void>((resolve) => {
+        resolveNext = resolve;
+      });
+      resolveNext = null;
+    }
+  } finally {
+    cleanup();
+    signal?.removeEventListener("abort", cleanup);
   }
 }
 
@@ -51,15 +79,24 @@ export const appRouter = t.router({
       requireTerminal(input.id).handle.write(input.data);
     }),
 
+    /**
+     * Attach to a terminal's output stream.
+     *
+     * Yields serialized screen state first (for late-joining clients),
+     * then streams live output. Subscribe-before-serialize ordering
+     * guarantees no output is lost between snapshot and live stream.
+     */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 
-      // Replay scrollback first so late-joining clients see prior output
-      const scrollback = entry.handle.getScrollback();
-      if (scrollback.length > 0) yield scrollback.toString("utf-8");
+      // Subscribe FIRST, then serialize — any output between these two
+      // steps is queued inside the generator, not lost.
+      const live = subscribeAndYield(entry.emitter, signal);
 
-      // Then stream live output via queue-based async iteration
-      yield* iterateEvent(entry.emitter, "data", signal);
+      const screenState = entry.handle.getScreenState();
+      if (screenState) yield screenState;
+
+      yield* live;
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
