@@ -5,14 +5,13 @@
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
-import { on, once } from "node:events";
+import { once } from "node:events";
 import { contract } from "kolu-common/contract";
 import {
   createTerminal,
   getTerminal,
   listTerminals,
   type TerminalEntry,
-  type TerminalEvents,
 } from "./registry.ts";
 
 const t = implement(contract);
@@ -22,20 +21,6 @@ function requireTerminal(id: string): TerminalEntry {
   const entry = getTerminal(id);
   if (!entry) throw new Error(`Terminal ${id} not found`);
   return entry;
-}
-
-/**
- * Bridge an EventEmitter event to an async iterable, yielding until signal aborts.
- * Uses Node's built-in events.on() which handles queue buffering, cleanup, and abort internally.
- */
-async function* iterateEvent<K extends keyof TerminalEvents>(
-  emitter: TerminalEntry["emitter"],
-  event: K,
-  signal: AbortSignal | undefined,
-): AsyncGenerator<TerminalEvents[K][0]> {
-  for await (const [data] of on(emitter, event, { signal })) {
-    yield data as TerminalEvents[K][0];
-  }
 }
 
 export const appRouter = t.router({
@@ -54,12 +39,45 @@ export const appRouter = t.router({
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 
-      // Replay scrollback first so late-joining clients see prior output
-      const scrollback = entry.handle.getScrollback();
-      if (scrollback.length > 0) yield scrollback.toString("utf-8");
+      // Race-free ordering: subscribe to live output FIRST, then capture
+      // screen state. Any output arriving during/after getScreenState() is
+      // queued and yielded after the screen state.
+      const queue: string[] = [];
+      let resolveNext: (() => void) | null = null;
 
-      // Then stream live output via queue-based async iteration
-      yield* iterateEvent(entry.emitter, "data", signal);
+      const listener = (data: string) => {
+        queue.push(data);
+        resolveNext?.();
+      };
+      entry.emitter.on("data", listener);
+
+      const cleanup = () => {
+        entry.emitter.off("data", listener);
+        // Unblock the await below so the loop exits on abort
+        resolveNext?.();
+      };
+      signal?.addEventListener("abort", cleanup, { once: true });
+
+      try {
+        // Capture screen state AFTER subscription — guarantees no missed output
+        const screenState = entry.handle.getScreenState();
+        if (screenState) yield screenState;
+
+        // Drain queued output then continue with live stream
+        while (!signal?.aborted) {
+          if (queue.length > 0) {
+            yield queue.shift()!;
+            continue;
+          }
+          await new Promise<void>((resolve) => {
+            resolveNext = resolve;
+          });
+          resolveNext = null;
+        }
+      } finally {
+        cleanup();
+        signal?.removeEventListener("abort", cleanup);
+      }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
