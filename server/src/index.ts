@@ -3,7 +3,8 @@ import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { spawnPty } from "./pty.ts";
-import { broadcast, broadcastExit, handleWs } from "./ws.ts";
+import { broadcast, handleWs } from "./ws.ts";
+import type { WsServerMessage } from "kolu-common";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -19,7 +20,10 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 const ptyHandle = spawnPty({
   onData: (data) => broadcast(data),
-  onExit: (code) => broadcastExit(code),
+  onExit: (code) => {
+    const msg: WsServerMessage = { type: "Exit", exit_code: code };
+    broadcast(JSON.stringify(msg));
+  },
 });
 console.log(`PTY spawned (pid ${ptyHandle.pid})`);
 
