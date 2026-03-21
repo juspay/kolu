@@ -16,6 +16,11 @@ const REFLOW_SETTLE_MS = 2000;
 const READY_TIMEOUT = 15_000;
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
+/** Locator for the app's settled state: either a visible terminal canvas or the empty state tip. */
+const SETTLED_SELECTOR = '[data-visible] canvas, [data-testid="empty-state"]';
+export const SIDEBAR_ENTRY_SELECTOR =
+  '[data-testid="sidebar"] [data-terminal-id]';
+
 export class KoluWorld extends World {
   browser!: Browser;
   context!: BrowserContext;
@@ -39,15 +44,11 @@ export class KoluWorld extends World {
   /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
     // Wait for app to settle (onMount may still be restoring terminals from server)
-    const settled = this.page.locator(
-      '[data-visible] canvas, [data-testid="empty-state"]',
-    );
+    const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
     // Note the last sidebar entry before creating, so we can identify the new one
-    const entries = this.page.locator(
-      '[data-testid="sidebar"] [data-terminal-id]',
-    );
+    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     const countBefore = await entries.count();
 
     await this.page.locator('[data-testid="create-terminal"]').click();
@@ -69,9 +70,7 @@ export class KoluWorld extends World {
   /** Wait for the app to settle: either a restored terminal canvas or the empty state tip. */
   async waitForReady(timeout = READY_TIMEOUT) {
     // Wait for the app to reach a stable state (restored terminals or empty state)
-    const settled = this.page.locator(
-      '[data-visible] canvas, [data-testid="empty-state"]',
-    );
+    const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
     // If the empty state is visible, create a terminal

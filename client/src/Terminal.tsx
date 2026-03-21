@@ -81,6 +81,11 @@ const Terminal: Component<{
 
   let streamAbort: AbortController | null = null;
 
+  /** Focus ghostty's hidden textarea so keyboard input reaches this terminal. */
+  function focusInput() {
+    containerRef.querySelector("textarea")?.focus();
+  }
+
   // Re-measure, fit, and auto-focus when terminal becomes visible (display:none → visible).
   // defer: true skips the initial run (onMount handles first fit + focus).
   // Placed at component body level for proper SolidJS reactive scope.
@@ -90,8 +95,7 @@ const Terminal: Component<{
       (visible) => {
         if (!visible) return;
         remeasureAndFit();
-        // Focus ghostty's hidden textarea so keyboard input reaches this terminal
-        containerRef.querySelector("textarea")?.focus();
+        focusInput();
       },
       { defer: true },
     ),
@@ -155,11 +159,10 @@ const Terminal: Component<{
       fontSize: fontSize(),
     });
     terminal.open(containerRef);
-    // Auto-focus ghostty's textarea so the terminal is immediately typeable
-    if (props.visible) containerRef.querySelector("textarea")?.focus();
 
-    // Wait one frame so ghostty's canvas has rendered and getBoundingClientRect returns real values
+    // Wait one frame so ghostty's canvas + textarea exist and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
+    if (props.visible) focusInput();
     ({ cellWidth, cellHeight } = measureCells(
       containerRef,
       currentCols,

@@ -1,5 +1,5 @@
 import { Given, When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
 
 When("I create a terminal", async function (this: KoluWorld) {
@@ -32,10 +32,9 @@ Then(
 );
 
 Given("I note the sidebar entry count", async function (this: KoluWorld) {
-  const buttons = this.page.locator(
-    '[data-testid="sidebar"] [data-terminal-id]',
-  );
-  this.savedSidebarCount = await buttons.count();
+  this.savedSidebarCount = await this.page
+    .locator(SIDEBAR_ENTRY_SELECTOR)
+    .count();
 });
 
 Then(
@@ -43,9 +42,7 @@ Then(
   async function (this: KoluWorld, delta: number) {
     const expected = (this.savedSidebarCount ?? 0) + delta;
     // Wait for entries to appear (onMount restores terminals asynchronously after refresh)
-    const buttons = this.page.locator(
-      '[data-testid="sidebar"] [data-terminal-id]',
-    );
+    const buttons = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     await buttons
       .nth(expected - 1)
       .waitFor({ state: "visible", timeout: 5000 });
