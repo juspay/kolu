@@ -7,6 +7,7 @@
     "tsx": "^4.19.0"
   },
   "scripts": {
-    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui"
+    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui",
+    "demo": "REUSE_SERVER=1 node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile demo"
   }
 }

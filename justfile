@@ -73,17 +73,23 @@ signoff context +cmd:
         exit 1
     fi
 
-# Record GIF demo (starts its own server, no prerequisites)
-demo:
-    rm -rf docs/demo/tmp
-    cd docs/demo && nix develop . -c npm install
-    nix develop ./docs/demo -c tsx docs/demo/record.ts
+# Record GIF + MP4 demo (requires running server, e.g. just dev or just run)
+demo base_url="http://localhost:7681":
+    rm -rf tests/demo-frames
+    cd tests \
+        && {{ nix_shell }} pnpm install \
+        && BASE_URL={{ base_url }} {{ nix_shell }} pnpm demo
     nix develop ./docs/demo -c ffmpeg -y \
-        -framerate 10 -i docs/demo/tmp/frame-%05d.png \
+        -framerate 10 -i tests/demo-frames/frame-%05d.png \
+        -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \
+        -vf "scale=1280:-2" -movflags +faststart \
+        docs/demo.mp4
+    nix develop ./docs/demo -c ffmpeg -y \
+        -framerate 10 -i tests/demo-frames/frame-%05d.png \
         -vf "scale=640:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" \
         -loop 0 docs/demo.gif
-    @ls -lh docs/demo.gif | awk '{print "✅ docs/demo.gif (" $$5 ")"}'
-    rm -rf docs/demo/tmp
+    @echo "✅ docs/demo.mp4 + docs/demo.gif"
+    rm -rf tests/demo-frames
 
 # Run pre-commit hooks on all files
 pc:

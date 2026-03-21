@@ -7,5 +7,4 @@ result
 .pre-commit-config.yaml
 test-results/
 tests/reports/
-docs/demo/tmp/
-docs/demo/package-lock.json
+tests/demo-frames/
