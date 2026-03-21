@@ -19,6 +19,8 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
   let ws: WebSocket | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
+  let currentCols = 80;
+  let currentRows = 24;
   let resizeObserver: ResizeObserver | null = null;
 
   const [fontSize, setFontSize] = createSignal(
@@ -35,6 +37,8 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
     if (!terminal || cellWidth === 0) return;
     const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
     if (cols > 0 && rows > 0) {
+      currentCols = cols;
+      currentRows = rows;
       terminal.resize(cols, rows);
       sendResize(cols, rows);
     }
@@ -46,12 +50,14 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
     localStorage.setItem(FONT_SIZE_KEY, String(newSize));
     terminal.fontSize = newSize;
 
-    // Recalculate cell dimensions after font change
+    // Wait for ghostty to re-render at new font size, then recalculate
     requestAnimationFrame(() => {
-      const cells = measureCells(containerRef);
-      cellWidth = cells.cellWidth;
-      cellHeight = cells.cellHeight;
-      doFit();
+      requestAnimationFrame(() => {
+        const cells = measureCells(containerRef, currentCols, currentRows);
+        cellWidth = cells.cellWidth;
+        cellHeight = cells.cellHeight;
+        doFit();
+      });
     });
   }
 
@@ -78,7 +84,7 @@ const TerminalView: Component<{ sessionId: string }> = (props) => {
 
     // Measure cell dimensions after first render
     await new Promise((r) => requestAnimationFrame(r));
-    const cells = measureCells(containerRef);
+    const cells = measureCells(containerRef, currentCols, currentRows);
     cellWidth = cells.cellWidth;
     cellHeight = cells.cellHeight;
 

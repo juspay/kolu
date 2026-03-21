@@ -38,17 +38,18 @@ export function createTerminal(fontSize?: number): GhosttyTerminal {
   return new ghosttyModule.Terminal(fontSize ? { fontSize } : undefined);
 }
 
-/** Measure cell dimensions by dividing canvas size by grid size. */
-export function measureCells(el: HTMLElement): {
+/** Measure cell dimensions by dividing canvas size by known grid size. */
+export function measureCells(
+  el: HTMLElement,
+  cols: number,
+  rows: number,
+): {
   cellWidth: number;
   cellHeight: number;
 } {
   const canvas = el.querySelector("canvas");
   if (!canvas) throw new Error("No canvas found in terminal element");
   const rect = canvas.getBoundingClientRect();
-  // Default grid is 80x24 if no resize has happened yet
-  const cols = 80;
-  const rows = 24;
   return {
     cellWidth: rect.width / cols,
     cellHeight: rect.height / rows,
