@@ -31,21 +31,24 @@ Then(
   },
 );
 
-Given(
-  "I note the sidebar entry count",
-  async function (this: KoluWorld) {
-    const buttons = this.page.locator('[data-testid="sidebar"] [data-terminal-id]');
-    this.savedSidebarCount = await buttons.count();
-  },
-);
+Given("I note the sidebar entry count", async function (this: KoluWorld) {
+  const buttons = this.page.locator(
+    '[data-testid="sidebar"] [data-terminal-id]',
+  );
+  this.savedSidebarCount = await buttons.count();
+});
 
 Then(
   "the sidebar should have {int} more terminal entry/entries",
   async function (this: KoluWorld, delta: number) {
     const expected = (this.savedSidebarCount ?? 0) + delta;
     // Wait for entries to appear (onMount restores terminals asynchronously after refresh)
-    const buttons = this.page.locator('[data-testid="sidebar"] [data-terminal-id]');
-    await buttons.nth(expected - 1).waitFor({ state: "visible", timeout: 5000 });
+    const buttons = this.page.locator(
+      '[data-testid="sidebar"] [data-terminal-id]',
+    );
+    await buttons
+      .nth(expected - 1)
+      .waitFor({ state: "visible", timeout: 5000 });
     const current = await buttons.count();
     const baseline = this.savedSidebarCount ?? 0;
     assert.strictEqual(
@@ -60,7 +63,9 @@ Then(
   "the active terminal should show {string}",
   async function (this: KoluWorld, expected: string) {
     // Get the active terminal's ID from the visible data-terminal-id element
-    const activeContainer = this.page.locator("[data-visible][data-terminal-id]");
+    const activeContainer = this.page.locator(
+      "[data-visible][data-terminal-id]",
+    );
     const terminalId = await activeContainer.getAttribute("data-terminal-id");
     assert.ok(terminalId, "No active terminal found");
 
@@ -73,7 +78,8 @@ Then(
         data: JSON.stringify({ json: { id: terminalId } }),
       });
       const body = await resp.json();
-      screenState = typeof body.json === "string" ? body.json : JSON.stringify(body);
+      screenState =
+        typeof body.json === "string" ? body.json : JSON.stringify(body);
       if (screenState.includes(expected)) return;
       await this.page.waitForTimeout(300);
     }

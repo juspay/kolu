@@ -112,6 +112,7 @@ const Terminal: Component<{
 
   /** Double rAF ensures ghostty's canvas has re-rendered at the new size. */
   function remeasureAndFit() {
+    // Guard: createEffect may fire before onMount finishes ghostty init
     if (!terminal) return;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -201,6 +202,7 @@ const Terminal: Component<{
     <div
       ref={containerRef}
       class="w-full h-full overflow-hidden"
+      // Hide via display:none (not unmount) to preserve ghostty canvas state and scrollback
       style={{ display: props.visible ? undefined : "none" }}
       data-terminal-id={props.terminalId}
       data-visible={props.visible ? "" : undefined}
