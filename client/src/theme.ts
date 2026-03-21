@@ -1,6 +1,8 @@
-/** Terminal color theme (GhosttyDark). Shared between terminal and app chrome. */
+/** Terminal appearance config. Shared between terminal and app chrome. */
 
 import type { ITheme } from "ghostty-web";
+
+export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
 export const THEME: ITheme = {
   foreground: "#ffffff",
@@ -26,3 +28,6 @@ export const THEME: ITheme = {
   brightCyan: "#83beb1",
   brightWhite: "#eaeaea",
 };
+
+/** Default options applied to every terminal instance. */
+export const TERMINAL_DEFAULTS = { fontFamily: FONT_FAMILY, theme: THEME };

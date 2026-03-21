@@ -7,11 +7,8 @@
  */
 
 import { type Component, onMount, onCleanup, createSignal } from "solid-js";
-import {
-  initGhostty,
-  TERMINAL_DEFAULTS,
-  type Terminal as GhosttyTerminal,
-} from "./ghostty";
+import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
+import { TERMINAL_DEFAULTS } from "./theme";
 import type { WsClientMessage, WsServerMessage } from "kolu-common";
 import type { WsStatus } from "./Header";
 
