@@ -11,7 +11,7 @@ import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
-const BASE_URL = "http://localhost:7681";
+const BASE_URL = process.env.BASE_URL || "http://localhost:7681";
 const HEALTH_URL = `${BASE_URL}/api/health`;
 
 let browser: Browser;

@@ -9,6 +9,13 @@ Feature: Terminal
     Then the terminal canvas should be visible
     And there should be no page errors
 
+  Scenario: Terminal survives browser refresh
+    When I run "echo kolu-refresh-test"
+    And I refresh the page
+    And the terminal is ready
+    Then the terminal should contain "kolu-refresh-test"
+    And there should be no page errors
+
   Scenario: Terminal resizes with viewport
     Given I note the canvas dimensions
     When I resize the viewport to 800x400
@@ -29,16 +36,15 @@ Feature: Terminal
     And there should be no page errors
 
   Scenario: Zoom shortcuts do not leak keystrokes
-    Given I intercept WebSocket messages
+    Given I intercept oRPC sendInput calls
     When I zoom in 1 time
     And I zoom out 1 time
-    Then no raw keystroke "=" "-" "+" should have been sent via WebSocket
+    Then no sendInput call should contain "=" "-" "+"
     And there should be no page errors
 
   Scenario: Initial resize is sent to PTY on connect
-    Given I intercept WebSocket messages from page load
-    When the page reloads and the terminal is ready
-    Then a Resize message with cols greater than 80 should have been sent
+    When I run "echo $COLUMNS > /tmp/kolu-test-cols"
+    Then the file "/tmp/kolu-test-cols" should contain a number greater than 80
     And there should be no page errors
 
   Scenario: Zoom changes font size

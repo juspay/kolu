@@ -1,6 +1,5 @@
 /**
- * Terminal component — owns the full terminal feature:
- * ghostty lifecycle, WebSocket connection, resize fitting, keyboard zoom.
+ * Terminal component — owns ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
  *
  * These concerns share the same volatility (all change together when
  * terminal behavior changes), so they belong in one module.
@@ -9,16 +8,36 @@
 import { type Component, onMount, onCleanup, createSignal } from "solid-js";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
-import type { WsClientMessage, WsServerMessage } from "kolu-common";
-import type { WsStatus } from "./Header";
+import { client } from "./rpc";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
+// Includes iPad/iPhone because browser keyboard events use metaKey on all Apple devices
 const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+// Module-level to avoid re-creating on every write callback
+const encoder = new TextEncoder();
 
-function buildWsUrl(sessionId: string): string {
-  const { protocol, host } = window.location;
-  return `${protocol === "https:" ? "wss:" : "ws:"}//${host}/ws/${sessionId}`;
+/**
+ * Run an async iterable to completion, silently ignoring AbortErrors.
+ * AbortErrors are expected on unmount — the component aborts in-flight streams via AbortController.
+ */
+function consumeStream<T>(
+  streamFn: () => Promise<AsyncIterable<T>>,
+  onItem: (item: T) => void,
+  label: string,
+  onReady?: () => void,
+) {
+  (async () => {
+    try {
+      const stream = await streamFn();
+      onReady?.();
+      for await (const item of stream) onItem(item);
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        console.error(`${label} error:`, err);
+      }
+    }
+  })();
 }
 
 /** Measure cell dimensions from canvas size and known grid dimensions. */
@@ -42,13 +61,15 @@ function fitToContainer(
   };
 }
 
+const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
+
 const Terminal: Component<{
-  sessionId: string;
-  onWsStatus?: (status: WsStatus) => void;
+  terminalId: string;
+  onConnected?: () => void;
+  onExit?: (exitCode: number) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
-  let ws: WebSocket | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
   let currentCols = 80;
@@ -58,32 +79,34 @@ const Terminal: Component<{
     Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
   );
 
-  /** Send a JSON control message to the server. */
-  function sendMessage(msg: WsClientMessage) {
-    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-  }
+  let streamAbort: AbortController | null = null;
 
-  /** Resize terminal to fill its container and notify the server. */
-  function fit() {
+  /** Resize PTY first, then frontend (prevents output clobbering). */
+  async function fit() {
     if (!terminal || cellWidth === 0) return;
     const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
-    if (cols > 0 && rows > 0) {
+    if (cols <= 0 || rows <= 0) return;
+    if (cols === currentCols && rows === currentRows) return;
+    try {
+      await client.terminal.resize({ id: props.terminalId, cols, rows });
       currentCols = cols;
       currentRows = rows;
       terminal.resize(cols, rows);
-      sendMessage({ type: "Resize", cols, rows });
+    } catch {
+      // Terminal may have been killed mid-resize
     }
   }
 
-  /** Re-measure cell dimensions after font/layout changes, then re-fit.
-   *  Double rAF ensures ghostty's canvas has re-rendered at the new size. */
+  /** Double rAF ensures ghostty's canvas has re-rendered at the new size. */
   function remeasureAndFit() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        const cells = measureCells(containerRef, currentCols, currentRows);
-        cellWidth = cells.cellWidth;
-        cellHeight = cells.cellHeight;
-        fit();
+        ({ cellWidth, cellHeight } = measureCells(
+          containerRef,
+          currentCols,
+          currentRows,
+        ));
+        void fit();
       });
     });
   }
@@ -99,79 +122,66 @@ const Terminal: Component<{
   /** Intercept Cmd/Ctrl +/- for zoom. */
   function handleZoomKeys(e: KeyboardEvent) {
     if (!(isMac ? e.metaKey : e.ctrlKey)) return;
-
-    if (e.key === "=" || e.key === "+") {
-      e.preventDefault();
-      e.stopPropagation();
-      updateFontSize(fontSize() + 1);
-    } else if (e.key === "-") {
-      e.preventDefault();
-      e.stopPropagation();
-      updateFontSize(fontSize() - 1);
-    }
-  }
-
-  function handleServerMessage(msg: WsServerMessage) {
-    switch (msg.type) {
-      case "Exit":
-        console.log(`PTY exited with code ${msg.exit_code}`);
-        props.onWsStatus?.("closed");
-        break;
-    }
+    const delta = ZOOM_KEYS[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    updateFontSize(fontSize() + delta);
   }
 
   onMount(async () => {
     const ghostty = await initGhostty();
-    // Single terminal for now; multi-terminal will use sessionId to look up PTY
     terminal = new ghostty.Terminal({
       ...TERMINAL_DEFAULTS,
       fontSize: fontSize(),
     });
     terminal.open(containerRef);
 
-    // Measure cell dimensions after first render
+    // Wait one frame so ghostty's canvas has rendered and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
-    const cells = measureCells(containerRef, currentCols, currentRows);
-    cellWidth = cells.cellWidth;
-    cellHeight = cells.cellHeight;
+    ({ cellWidth, cellHeight } = measureCells(
+      containerRef,
+      currentCols,
+      currentRows,
+    ));
 
-    // WebSocket
-    ws = new WebSocket(buildWsUrl(props.sessionId));
-    ws.binaryType = "arraybuffer";
+    streamAbort = new AbortController();
+    const signal = streamAbort.signal;
 
-    ws.onmessage = (event) => {
-      if (!terminal) return;
-      if (event.data instanceof ArrayBuffer) {
-        terminal.write(new Uint8Array(event.data));
-      } else if (typeof event.data === "string") {
-        try {
-          handleServerMessage(JSON.parse(event.data));
-        } catch {
-          terminal.write(new TextEncoder().encode(event.data));
-        }
-      }
-    };
+    // Attach stream: yields scrollback first, then live PTY output
+    consumeStream(
+      () => client.terminal.attach({ id: props.terminalId }, { signal }),
+      (data) => terminal?.write(encoder.encode(data)),
+      "Terminal attach",
+      () => props.onConnected?.(),
+    );
 
-    ws.onopen = () => {
-      props.onWsStatus?.("open");
-      fit();
-    };
+    // Exit stream: yields exit code once when PTY process terminates
+    consumeStream(
+      () => client.terminal.onExit({ id: props.terminalId }, { signal }),
+      (exitCode) => {
+        console.log(`PTY exited with code ${exitCode}`);
+        props.onExit?.(exitCode);
+      },
+      "Terminal onExit",
+    );
 
-    ws.onclose = () => props.onWsStatus?.("closed");
+    await fit();
 
+    // Send input: fire-and-forget for low latency (don't await server ack)
     terminal.onData((data: string) => {
-      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
+      void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
-    const observer = new ResizeObserver(() => fit());
+    const observer = new ResizeObserver(() => void fit());
     observer.observe(containerRef);
-
+    // Capture phase: intercept before ghostty's own keydown handler in bubble phase
     window.addEventListener("keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {
       window.removeEventListener("keydown", handleZoomKeys, { capture: true });
       observer.disconnect();
-      ws?.close();
+      streamAbort?.abort();
       terminal?.dispose();
     });
   });

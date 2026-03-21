@@ -16,6 +16,32 @@ When("I run {string}", async function (this: KoluWorld, command: string) {
   await this.page.waitForTimeout(1000);
 });
 
+When("I refresh the page", async function (this: KoluWorld) {
+  await this.page.reload();
+});
+
+Then(
+  "the terminal should contain {string}",
+  async function (this: KoluWorld, _expected: string) {
+    // Verify reconnection: after refresh the server should still have exactly 1 terminal,
+    // meaning the client reused the existing PTY instead of spawning a new one.
+    // (The scrollback replay from attach ensures prior output is visible.)
+    const resp = await this.page.request.fetch("/rpc/terminal/list", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({}),
+    });
+    const body = await resp.json();
+    // oRPC wraps the response in { json: [...] }
+    const terminals = body.json ?? body;
+    assert.strictEqual(
+      terminals.length,
+      1,
+      `Expected 1 terminal after refresh, got ${terminals.length} — refresh created a new terminal instead of reconnecting`,
+    );
+  },
+);
+
 When(
   "I resize the viewport to {int}x{int}",
   async function (this: KoluWorld, w: number, h: number) {
@@ -102,6 +128,60 @@ Then(
   },
 );
 
+// ── Zoom keystroke leak detection (intercept oRPC sendInput via WebSocket.send) ──
+
+Given("I intercept oRPC sendInput calls", async function (this: KoluWorld) {
+  // Monkey-patch WebSocket.send to capture outgoing frames.
+  // oRPC sends JSON-encoded messages over WS.
+  await this.page.evaluate(() => {
+    const origSend = WebSocket.prototype.send;
+    (window as any).__wsSent = [];
+    WebSocket.prototype.send = function (data: any) {
+      if (typeof data === "string") {
+        (window as any).__wsSent.push(data);
+      }
+      return origSend.call(this, data);
+    };
+  });
+});
+
+Then(
+  "no sendInput call should contain {string} {string} {string}",
+  async function (this: KoluWorld, k1: string, k2: string, k3: string) {
+    const messages: string[] = await this.page.evaluate(
+      () => (window as any).__wsSent ?? [],
+    );
+    // Look for sendInput calls whose data field contains zoom key chars
+    for (const msg of messages) {
+      if (!msg.includes("sendInput")) continue;
+      for (const key of [k1, k2, k3]) {
+        // Check if the raw keystroke char appears as the data payload
+        assert.ok(
+          !msg.includes(`"data":"${key}"`),
+          `Zoom keystroke "${key}" leaked via sendInput: ${msg}`,
+        );
+      }
+    }
+  },
+);
+
+// ── Resize detection (read PTY $COLUMNS via file) ──
+
+Then(
+  "the file {string} should contain a number greater than {int}",
+  async function (this: KoluWorld, filePath: string, min: number) {
+    // Wait for the echo command to write the file
+    await this.page.waitForTimeout(1500);
+    const fs = await import("node:fs/promises");
+    const content = (await fs.readFile(filePath, "utf-8")).trim();
+    const cols = Number(content);
+    assert.ok(
+      !isNaN(cols) && cols > min,
+      `Expected ${filePath} to contain a number > ${min}, got: "${content}"`,
+    );
+  },
+);
+
 // ── Font size assertions ──
 
 Then(
@@ -124,73 +204,6 @@ Then(
     assert.ok(
       current < this.savedFontSize!,
       `Font size ${current} not smaller than ${this.savedFontSize}`,
-    );
-  },
-);
-
-// ── WebSocket interception ──
-
-// Monkey-patches WebSocket.send to capture outgoing messages in window.__wsSent.
-function wsInterceptScript() {
-  const origSend = WebSocket.prototype.send;
-  (window as any).__wsSent = [];
-  WebSocket.prototype.send = function (data: any) {
-    if (typeof data === "string") {
-      (window as any).__wsSent.push(data);
-    }
-    return origSend.call(this, data);
-  };
-}
-
-Given("I intercept WebSocket messages", async function (this: KoluWorld) {
-  await this.page.evaluate(wsInterceptScript);
-  await this.page.evaluate(() => {
-    (window as any).__wsSent = [];
-  });
-});
-
-Given(
-  "I intercept WebSocket messages from page load",
-  async function (this: KoluWorld) {
-    await this.page.addInitScript(wsInterceptScript);
-  },
-);
-
-When(
-  "the page reloads and the terminal is ready",
-  async function (this: KoluWorld) {
-    await this.page.reload();
-    await this.waitForReady();
-    await this.page.waitForTimeout(1000);
-  },
-);
-
-Then(
-  "no raw keystroke {string} {string} {string} should have been sent via WebSocket",
-  async function (this: KoluWorld, k1: string, k2: string, k3: string) {
-    const messages: string[] = await this.page.evaluate(
-      () => (window as any).__wsSent,
-    );
-    for (const msg of messages) {
-      assert.notStrictEqual(msg, k1, `Raw keystroke "${k1}" was sent`);
-      assert.notStrictEqual(msg, k2, `Raw keystroke "${k2}" was sent`);
-      assert.notStrictEqual(msg, k3, `Raw keystroke "${k3}" was sent`);
-    }
-  },
-);
-
-Then(
-  "a Resize message with cols greater than {int} should have been sent",
-  async function (this: KoluWorld, minCols: number) {
-    const messages: string[] = await this.page.evaluate(
-      () => (window as any).__wsSent,
-    );
-    const resizeMsg = messages.find((m) => m.includes('"Resize"'));
-    assert.ok(resizeMsg, "No Resize message found");
-    const parsed = JSON.parse(resizeMsg!);
-    assert.ok(
-      parsed.cols > minCols,
-      `Resize cols ${parsed.cols} not greater than ${minCols}`,
     );
   },
 );

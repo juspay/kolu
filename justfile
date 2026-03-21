@@ -8,7 +8,7 @@ default:
 
 # Run server + client in parallel via process-compose
 dev:
-    nix run .#dev
+    {{ nix_shell }} kolu-dev
 
 # Run TypeScript type checking across all packages
 watch:
@@ -32,7 +32,7 @@ test:
 test-dev:
     cd tests \
         && {{ nix_shell }} pnpm install \
-        && REUSE_SERVER=1 {{ nix_shell }} pnpm test
+        && BASE_URL=http://localhost:5173 REUSE_SERVER=1 {{ nix_shell }} pnpm test
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:

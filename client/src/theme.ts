@@ -4,7 +4,7 @@ import type { ITheme } from "ghostty-web";
 
 export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-export const THEME: ITheme = {
+export const THEME = {
   foreground: "#ffffff",
   background: "#292c33",
   cursor: "#ffffff",
@@ -27,7 +27,7 @@ export const THEME: ITheme = {
   brightMagenta: "#bc99d4",
   brightCyan: "#83beb1",
   brightWhite: "#eaeaea",
-};
+} satisfies ITheme; // satisfies (not `:`) preserves narrow literal types for color strings
 
 /** Default options applied to every terminal instance. */
 export const TERMINAL_DEFAULTS = { fontFamily: FONT_FAMILY, theme: THEME };

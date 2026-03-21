@@ -18,7 +18,8 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 ```sh
 nix develop     # enter devshell
 just dev        # run server + client with hot reload
-just test       # e2e tests (Playwright)
+just test       # e2e tests (full nix build)
+just test-dev   # e2e tests against running dev server (faster)
 ```
 
 ## Production
@@ -45,8 +46,8 @@ Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `s
 
 pnpm workspace with three packages:
 
-- `common/` — shared types (WS protocol messages, terminal defaults)
-- `server/` — [Hono](https://hono.dev/) + `node-pty` WebSocket bridge
+- `common/` — [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas (shared types between server and client)
+- `server/` — [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) with oRPC over WebSocket
 - `client/` — [SolidJS](https://www.solidjs.com/) + [ghostty-web](https://ghostty.org) terminal
 
-Stack: Hono → PTY → WebSocket → ghostty-web canvas. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
+Stack: Hono → oRPC (WebSocket) → PTY → ghostty-web canvas. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
