@@ -8,7 +8,6 @@ import { z } from "zod";
 const TerminalIdSchema = z.string();
 
 // Discriminated union: exitCode is required when exited, absent when running.
-// Mirrors the server-side TerminalEntry discriminated union exactly.
 export const TerminalInfoSchema = z.discriminatedUnion("status", [
   z.object({
     id: TerminalIdSchema,
@@ -43,3 +42,7 @@ export const TerminalOnExitOutputSchema = z.number();
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 export type TerminalStatus = TerminalInfo["status"];
+
+/** Extract the status discriminant from TerminalInfo for reuse (e.g. server-side TerminalEntry). */
+export type TerminalRunning = Extract<TerminalInfo, { status: "running" }>;
+export type TerminalExited = Extract<TerminalInfo, { status: "exited" }>;

@@ -3,7 +3,12 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalRunning,
+  TerminalExited,
+} from "kolu-common";
 import { EventEmitter } from "node:events";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
@@ -17,10 +22,10 @@ interface TerminalBase {
   emitter: EventEmitter<TerminalEvents>;
 }
 
-/** Discriminated union so exitCode is only accessible when status === "exited". */
+/** Server-side terminal state. Status discriminant derived from common TerminalInfo. */
 export type TerminalEntry =
-  | (TerminalBase & { status: "running" })
-  | (TerminalBase & { status: "exited"; exitCode: number });
+  | (TerminalBase & Pick<TerminalRunning, "status">)
+  | (TerminalBase & Pick<TerminalExited, "status" | "exitCode">);
 
 const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
