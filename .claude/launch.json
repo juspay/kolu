@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "just",
+      "runtimeArgs": ["dev"],
+      "port": 5173
+    }
+  ]
+}

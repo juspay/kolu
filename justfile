@@ -8,7 +8,7 @@ default:
 
 # Run server + client in parallel via process-compose
 dev:
-    {{ nix_shell }} nix run .#dev
+    {{ nix_shell }} kolu-dev
 
 # Run TypeScript type checking across all packages
 watch:

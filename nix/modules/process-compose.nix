@@ -4,7 +4,7 @@
     inputs.process-compose-flake.flakeModule
   ];
   perSystem = {
-    process-compose."dev" = {
+    process-compose."kolu-dev" = {
       cli.environment.PC_DISABLE_TUI = true;
       settings = {
         processes = {

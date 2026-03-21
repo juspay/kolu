@@ -10,13 +10,15 @@
         export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
         export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
       '';
-      packages = with pkgs; [
+      packages = [
+        self'.packages.kolu-dev
+      ] ++ (with pkgs; [
         just
         nixd
         nodejs
         pnpm
         tsx
-      ];
+      ]);
     };
   };
 }
