@@ -1,3 +1,9 @@
+/**
+ * Pure PTY lifecycle wrapper around node-pty.
+ *
+ * Transport-agnostic: communicates via onData/onExit callbacks.
+ * Maintains a scrollback buffer for late-joining clients.
+ */
 import * as pty from "node-pty";
 
 const DEFAULT_COLS = 80;
@@ -5,13 +11,19 @@ const DEFAULT_ROWS = 24;
 const SCROLLBACK_LIMIT = 100 * 1024; // 100KB
 
 export interface PtyHandle {
+  /** OS process ID of the spawned shell. */
   readonly pid: number;
+  /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
+  /** Resize the PTY grid. */
   resize(cols: number, rows: number): void;
+  /** Concatenated scrollback buffer for replay on late-joining clients. */
   getScrollback(): Buffer;
+  /** Kill the PTY process and release resources. */
   dispose(): void;
 }
 
+/** Spawn a shell in a PTY, calling back on data and exit. */
 export function spawnPty(opts: {
   onData: (data: Buffer) => void;
   onExit: (exitCode: number) => void;
@@ -24,7 +36,7 @@ export function spawnPty(opts: {
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     cwd,
-    env: { ...process.env } as Record<string, string>,
+    env: process.env,
   });
 
   let scrollback: Buffer[] = [];
