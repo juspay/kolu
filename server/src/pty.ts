@@ -5,6 +5,7 @@
  * Maintains a scrollback buffer for late-joining clients.
  */
 import * as pty from "node-pty";
+import { userInfo } from "node:os";
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -24,17 +25,44 @@ export interface PtyHandle {
   dispose(): void;
 }
 
+/** Env vars safe to forward to the PTY shell. */
+const KEEP_ENV = ["HOME", "USER", "SHELL", "TERM", "LANG", "LC_ALL", "LOGNAME", "DISPLAY", "COLORTERM", "TERM_PROGRAM"] as const;
+
+/**
+ * Build a minimal env for the PTY shell.
+ *
+ * The server may run inside nix/direnv which pollutes the env with
+ * NIX_*, DIRENV_*, BASH_ENV, etc. — these break the user's shell
+ * (wrong PS1, shopt errors, direnv unloading). We only forward the
+ * essentials so the spawned shell starts clean.
+ */
+function cleanEnv(): Record<string, string> {
+  const env = Object.fromEntries(
+    KEEP_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : [])),
+  );
+  // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
+  // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
+  // the user's .bashrc errors on `shopt -s progcomp`.
+  // userInfo().shell reads from getpwuid(3) — the OS login shell, not $SHELL.
+  if (env.SHELL?.startsWith("/nix/store")) {
+    env.SHELL = userInfo().shell;
+  }
+  env.PATH = process.env.PATH ?? "/usr/bin:/bin";
+  return env;
+}
+
 /** Spawn a shell in a PTY, calling back on data and exit. */
 export function spawnPty(opts: {
   onData: (data: Buffer) => void;
   onExit: (exitCode: number) => void;
 }): PtyHandle {
-  const proc = pty.spawn(process.env.SHELL || "/bin/bash", [], {
+  const env = cleanEnv();
+  const proc = pty.spawn(env.SHELL, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd: process.env.HOME || "/",
-    env: process.env,
+    cwd: env.HOME || "/",
+    env,
   });
 
   // Ring buffer: drops oldest chunks when over SCROLLBACK_LIMIT
