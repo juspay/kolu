@@ -3,7 +3,7 @@
   imports = [
     inputs.process-compose-flake.flakeModule
   ];
-  perSystem = { config, pkgs, lib, ... }: {
+  perSystem = {
     process-compose."dev" = {
       cli.environment.PC_DISABLE_TUI = true;
       settings = {

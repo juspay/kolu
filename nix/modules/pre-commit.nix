@@ -3,7 +3,7 @@
   imports = [
     (inputs.git-hooks + /flake-module.nix)
   ];
-  perSystem = { config, self', pkgs, lib, ... }: {
+  perSystem = {
     pre-commit.settings = {
       hooks = {
         nixpkgs-fmt.enable = true;
