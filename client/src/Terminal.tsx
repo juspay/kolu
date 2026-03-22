@@ -161,6 +161,25 @@ const Terminal: Component<{
     });
     terminal.open(containerRef);
 
+    // On macOS, stop Cmd+... shortcuts from reaching ghostty so they pass
+    // through to the browser (e.g. Cmd+1 switches browser tabs, not "1" to PTY).
+    // We intercept in capture phase on the container and stopPropagation so
+    // ghostty's bubble-phase keydown listener never fires. Copy/paste are
+    // excluded so the terminal keeps handling them.
+    // Note: ghostty's attachCustomKeyEventHandler can't be used here because
+    // it calls preventDefault() internally, which blocks the browser too.
+    makeEventListener(
+      containerRef,
+      "keydown",
+      (e: KeyboardEvent) => {
+        if (!e.metaKey) return;
+        const key = e.key.toLowerCase();
+        if (key === "c" || key === "v") return; // keep copy/paste in terminal
+        e.stopPropagation(); // prevent ghostty from capturing this event
+      },
+      { capture: true },
+    );
+
     // Wait one frame so ghostty's canvas + textarea exist and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
     if (props.visible) focusInput();
