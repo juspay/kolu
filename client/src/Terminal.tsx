@@ -162,6 +162,17 @@ const Terminal: Component<{
     });
     terminal.open(containerRef);
 
+    // On macOS, pass Cmd+... shortcuts through to the browser instead of
+    // capturing them in the terminal (e.g. Cmd+1 should switch browser tabs,
+    // not send "1" to the PTY). Copy/paste stay with the terminal.
+    // Inspired by coder/mux's minimal terminal key interception approach.
+    terminal.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      if (!e.metaKey) return false; // no Cmd — let terminal handle normally
+      const key = e.key.toLowerCase();
+      if (key === "c" || key === "v") return false; // keep copy/paste
+      return true; // pass everything else to browser
+    });
+
     // Wait one frame so ghostty's canvas + textarea exist and getBoundingClientRect returns real values
     await new Promise((r) => requestAnimationFrame(r));
     if (props.visible) focusInput();
