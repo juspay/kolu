@@ -1,3 +1,4 @@
+import { cli } from "cleye";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
@@ -5,14 +6,25 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
-import { parseArgs } from "node:util";
 import { appRouter } from "./router.ts";
+import pkg from "../package.json" with { type: "json" };
 
-const { values: opts } = parseArgs({
-  options: {
-    host: { type: "string", default: "0.0.0.0" },
-    port: { type: "string", default: "7681" },
+const argv = cli({
+  name: "kolu",
+  version: pkg.version,
+  flags: {
+    host: {
+      type: String,
+      description: "Address to listen on",
+      default: "0.0.0.0",
+    },
+    port: {
+      type: Number,
+      description: "Port to listen on",
+      default: 7681,
+    },
   },
+  strictFlags: true,
 });
 
 const app = new Hono();
@@ -40,8 +52,8 @@ if (clientDist) {
 }
 
 // --- Start server ---
-const port = Number(opts.port);
-const server = serve({ fetch: app.fetch, hostname: opts.host, port }, (info) =>
+const { host, port } = argv.flags;
+const server = serve({ fetch: app.fetch, hostname: host, port }, (info) =>
   console.log(`kolu listening on http://${info.address}:${info.port}`),
 );
 
