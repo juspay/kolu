@@ -32,17 +32,14 @@ const App: Component = () => {
     return terminalThemes()[id] ?? DEFAULT_THEME_NAME;
   }
 
-  /** The active terminal's resolved theme (for container background). */
-  const activeTheme = createMemo(() => {
-    const id = activeId();
-    return getThemeByName(id ? getTerminalThemeName(id) : undefined);
-  });
-
-  /** The active terminal's theme name (for header display). */
+  /** The active terminal's theme name (for header + palette filter). */
   const activeThemeName = createMemo(() => {
     const id = activeId();
     return id ? getTerminalThemeName(id) : DEFAULT_THEME_NAME;
   });
+
+  /** The active terminal's resolved theme (for container background). */
+  const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
   // Restore existing terminals on page load (e.g. after browser refresh).
   // A successful list() call proves the WebSocket is connected.

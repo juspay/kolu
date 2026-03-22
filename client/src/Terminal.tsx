@@ -109,12 +109,14 @@ const Terminal: Component<{
   // after open()). We set the options (so buildWasmConfig reads them), update the
   // renderer palette, then reset() to rebuild the WASM terminal. Reset clears the
   // screen, so we re-stream the screen state from the server to restore content.
+  let themeVersion = 0;
   createEffect(
     on(
       () => props.theme,
       async (theme) => {
         if (!terminal?.renderer) return;
-        // Fetch screen state BEFORE reset to minimize the blank-screen gap
+        // Guard against rapid theme switches: only apply the latest one
+        const version = ++themeVersion;
         let state: string | undefined;
         try {
           state = await client.terminal.screenState({
@@ -123,6 +125,8 @@ const Terminal: Component<{
         } catch {
           // Terminal may have been killed
         }
+        // Stale: a newer theme switch started while we were fetching
+        if (version !== themeVersion) return;
         terminal.options.theme = theme;
         terminal.renderer.setTheme(theme);
         terminal.reset();

@@ -86,7 +86,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 /** Set the theme name for a terminal. */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
-  if (entry) entry.themeName = themeName;
+  if (entry) terminals.set(id, { ...entry, themeName });
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
