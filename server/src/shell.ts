@@ -41,8 +41,7 @@ export function cleanEnv(): Record<string, string> {
     env.SHELL = userInfo().shell ?? "/bin/sh";
   }
   env.PATH = process.env.PATH ?? "/usr/bin:/bin";
-  // Enable VTE integration (OSC 7 CWD reporting) in bash/zsh.
-  // Without this, vte.sh's guard `[ "${VTE_VERSION:-0}" -ge 3405 ]` bails out.
+  // Enable VTE integration in bash/zsh (some tools like direnv check this).
   env.VTE_VERSION = process.env.VTE_VERSION ?? "7603";
   return env;
 }

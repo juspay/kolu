@@ -7,6 +7,9 @@
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import { cleanEnv } from "./shell.ts";
 
@@ -40,7 +43,26 @@ export function spawnPty(opts: {
 }): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
-  const proc = pty.spawn(shell, [], {
+
+  // Build shell args to inject OSC 7 CWD reporting after user's rc files.
+  // We can't set PROMPT_COMMAND in env because .bashrc/starship/etc overwrite it.
+  // Instead, use --rcfile with a wrapper that sources the user's .bashrc first,
+  // then appends our hook to whatever PROMPT_COMMAND ended up being.
+  const shellArgs: string[] = [];
+  let rcFile: string | undefined;
+  const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
+  if (isBash && env.HOME) {
+    rcFile = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
+    const rcContent = [
+      `[ -f "${env.HOME}/.bashrc" ] && . "${env.HOME}/.bashrc"`,
+      `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`,
+      `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+    ].join("\n");
+    writeFileSync(rcFile, rcContent);
+    shellArgs.push("--rcfile", rcFile);
+  }
+
+  const proc = pty.spawn(shell, shellArgs, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -110,6 +132,12 @@ export function spawnPty(opts: {
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
+      if (rcFile)
+        try {
+          unlinkSync(rcFile);
+        } catch {
+          /* already cleaned up */
+        }
     },
   };
 }
