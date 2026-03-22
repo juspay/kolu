@@ -19,21 +19,22 @@ When(
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The terminal container div uses inline style background-color from the active theme.
+    // The terminal area's parent container div has inline background-color from the active theme.
     // Poll since the theme change involves an async reset + screen state restore.
-    const container = this.page.locator("[data-visible]");
+    const r = parseInt(expectedColor.slice(1, 3), 16);
+    const g = parseInt(expectedColor.slice(3, 5), 16);
+    const b = parseInt(expectedColor.slice(5, 7), 16);
+    const expectedRgb = `rgb(${r}, ${g}, ${b})`;
     let bgColor = "";
     for (let i = 0; i < 20; i++) {
-      bgColor = await container.evaluate((el) => {
-        // Walk up to find the container with inline background-color
-        const parent = el.closest("[style]");
-        return parent ? getComputedStyle(parent).backgroundColor : "";
+      // Find the container div with inline style that wraps the terminal area
+      bgColor = await this.page.evaluate(() => {
+        const el = document.querySelector("[data-visible]");
+        if (!el) return "";
+        // The parent with inline background-color is the rounded container div
+        const container = el.parentElement?.closest("[style]");
+        return container ? getComputedStyle(container).backgroundColor : "";
       });
-      // Convert expected hex to rgb for comparison
-      const r = parseInt(expectedColor.slice(1, 3), 16);
-      const g = parseInt(expectedColor.slice(3, 5), 16);
-      const b = parseInt(expectedColor.slice(5, 7), 16);
-      const expectedRgb = `rgb(${r}, ${g}, ${b})`;
       if (bgColor === expectedRgb) return;
       await this.page.waitForTimeout(300);
     }
