@@ -114,18 +114,19 @@ const Terminal: Component<{
       () => props.theme,
       async (theme) => {
         if (!terminal?.renderer) return;
-        terminal.options.theme = theme;
-        terminal.renderer.setTheme(theme);
-        terminal.reset();
-        // Restore screen content from server after reset
+        // Fetch screen state BEFORE reset to minimize the blank-screen gap
+        let state: string | undefined;
         try {
-          const state = await client.terminal.screenState({
+          state = await client.terminal.screenState({
             id: props.terminalId,
           });
-          if (state) terminal.write(encoder.encode(state));
         } catch {
           // Terminal may have been killed
         }
+        terminal.options.theme = theme;
+        terminal.renderer.setTheme(theme);
+        terminal.reset();
+        if (state) terminal.write(encoder.encode(state));
       },
       { defer: true },
     ),
