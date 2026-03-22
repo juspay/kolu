@@ -2,6 +2,27 @@ import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
 
+/** Poll until a condition is met, returning the last value on timeout. */
+async function pollUntil<T>(
+  page: KoluWorld["page"],
+  fn: () => Promise<T>,
+  check: (val: T) => boolean,
+  { attempts = 10, intervalMs = 300 } = {},
+): Promise<T> {
+  let val = await fn();
+  for (let i = 1; i < attempts && !check(val); i++) {
+    await page.waitForTimeout(intervalMs);
+    val = await fn();
+  }
+  return val;
+}
+
+/** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
+}
+
 /** Select a terminal by its position in the sidebar (1-based), regardless of createdTerminalIds. */
 When(
   "I select sidebar entry {int}",
@@ -19,27 +40,24 @@ When(
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The terminal area's parent container div has inline background-color from the active theme.
-    // Poll since the theme change involves an async reset + screen state restore.
-    const r = parseInt(expectedColor.slice(1, 3), 16);
-    const g = parseInt(expectedColor.slice(3, 5), 16);
-    const b = parseInt(expectedColor.slice(5, 7), 16);
-    const expectedRgb = `rgb(${r}, ${g}, ${b})`;
-    let bgColor = "";
-    for (let i = 0; i < 20; i++) {
-      // Find the container div with inline style that wraps the terminal area
-      bgColor = await this.page.evaluate(() => {
-        const el = document.querySelector("[data-visible]");
-        if (!el) return "";
-        // The parent with inline background-color is the rounded container div
-        const container = el.parentElement?.closest("[style]");
-        return container ? getComputedStyle(container).backgroundColor : "";
-      });
-      if (bgColor === expectedRgb) return;
-      await this.page.waitForTimeout(300);
-    }
-    assert.fail(
-      `Expected terminal background ${expectedColor} but got ${bgColor}`,
+    // The terminal area's parent container div has inline background-color.
+    // Poll since theme change involves async reset + screen state restore.
+    const expectedRgb = hexToRgb(expectedColor);
+    const bgColor = await pollUntil(
+      this.page,
+      () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector("[data-visible]");
+          const container = el?.parentElement?.closest("[style]");
+          return container ? getComputedStyle(container).backgroundColor : "";
+        }),
+      (bg) => bg === expectedRgb,
+      { attempts: 20 },
+    );
+    assert.strictEqual(
+      bgColor,
+      expectedRgb,
+      `Expected terminal background ${expectedColor}`,
     );
   },
 );
@@ -49,13 +67,11 @@ Then(
   async function (this: KoluWorld, expectedTheme: string) {
     const header = this.page.locator("header");
     await header.waitFor({ state: "visible", timeout: 5_000 });
-    // Poll for theme text to appear (may take a moment after palette action)
-    let text = "";
-    for (let i = 0; i < 10; i++) {
-      text = (await header.textContent()) ?? "";
-      if (text.includes(expectedTheme)) return;
-      await this.page.waitForTimeout(300);
-    }
+    const text = await pollUntil(
+      this.page,
+      async () => (await header.textContent()) ?? "",
+      (t) => t.includes(expectedTheme),
+    );
     assert.ok(
       text.includes(expectedTheme),
       `Expected header to contain "${expectedTheme}" but got "${text}"`,

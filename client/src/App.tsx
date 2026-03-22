@@ -53,11 +53,11 @@ const App: Component = () => {
       // Prefer a running terminal; fall back to first (which may be exited)
       setActiveId(running?.id ?? ids[0]);
       // Restore per-terminal themes from server
-      const themes: Record<string, string> = {};
-      for (const t of existing) {
-        if (t.themeName) themes[t.id] = t.themeName;
-      }
-      setTerminalThemes(themes);
+      setTerminalThemes(
+        Object.fromEntries(
+          existing.filter((t) => t.themeName).map((t) => [t.id, t.themeName!]),
+        ),
+      );
     }
     return existing;
   });

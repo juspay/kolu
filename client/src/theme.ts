@@ -48,10 +48,10 @@ export const availableThemes: NamedTheme[] = [
   ...availableThemesJson.filter((t) => t.name !== DEFAULT_THEME_NAME),
 ];
 
+// O(1) lookup by name, built once at module load
+const themesByName = new Map(availableThemes.map((t) => [t.name, t.theme]));
+
 /** Look up a theme by name, falling back to DEFAULT_THEME. */
 export function getThemeByName(name: string | undefined): ITheme {
-  if (!name || name === DEFAULT_THEME_NAME) return DEFAULT_THEME;
-  return (
-    availableThemesJson.find((t) => t.name === name)?.theme ?? DEFAULT_THEME
-  );
+  return (name && themesByName.get(name)) ?? DEFAULT_THEME;
 }
