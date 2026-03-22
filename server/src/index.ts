@@ -1,4 +1,4 @@
-import { defineCommand, runMain, showUsage } from "citty";
+import { cli } from "cleye";
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
@@ -13,48 +13,25 @@ const pkg = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
 ) as { version: string };
 
-const main = defineCommand({
-  meta: {
-    name: "kolu",
-    version: pkg.version,
-    description: "Web-based terminal multiplexer",
-  },
-  args: {
+const argv = cli({
+  name: "kolu",
+  version: pkg.version,
+  flags: {
     host: {
-      type: "string",
-      default: "0.0.0.0",
+      type: String,
       description: "Address to listen on",
+      default: "0.0.0.0",
     },
     port: {
-      type: "string",
-      default: "7681",
+      type: Number,
       description: "Port to listen on",
+      default: 7681,
     },
   },
-  run({ args }) {
-    startServer(args.host, Number(args.port));
-  },
+  strictFlags: true,
 });
 
-// Reject unknown flags (citty silently ignores them)
-const knownFlags = new Set([
-  "--host",
-  "--port",
-  "--help",
-  "-h",
-  "--version",
-  "-v",
-]);
-const unknownFlag = process.argv
-  .slice(2)
-  .find((a) => a.startsWith("-") && !knownFlags.has(a.split("=")[0]!));
-if (unknownFlag) {
-  console.error(`Unknown option: ${unknownFlag}\n`);
-  await showUsage(main);
-  process.exit(1);
-}
-
-runMain(main);
+startServer(argv.flags.host, argv.flags.port);
 
 function startServer(host: string, port: number) {
   const app = new Hono();
