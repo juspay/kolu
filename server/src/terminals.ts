@@ -1,5 +1,5 @@
 /**
- * Terminal registry: manages PTY lifecycle and tracks terminal state.
+ * Terminal state management: PTY lifecycle and per-terminal metadata.
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";

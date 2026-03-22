@@ -1,14 +1,13 @@
 import { type Component, mergeProps } from "solid-js";
 import { isMac } from "./platform";
+import type { WsStatus } from "./rpc";
 
 /** WS connection status indicator colors. */
-const statusColors = {
+const statusColors: Record<WsStatus, string> = {
   connecting: "text-yellow-400",
   open: "text-green-400",
   closed: "text-red-400",
-} as const;
-
-export type WsStatus = keyof typeof statusColors;
+};
 
 const Header: Component<{
   status?: WsStatus;

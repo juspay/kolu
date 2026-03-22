@@ -14,7 +14,7 @@ import {
   killAllTerminals,
   setTerminalTheme,
   type TerminalEntry,
-} from "./registry.ts";
+} from "./terminals.ts";
 
 const t = implement(contract);
 

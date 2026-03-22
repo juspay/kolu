@@ -1,0 +1,101 @@
+/** Terminal session state: manages terminal list, active selection, and per-terminal themes. */
+
+import { createSignal, createResource, createMemo } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
+import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import { client } from "./rpc";
+import type { TerminalInfo } from "kolu-common";
+
+export function useTerminals() {
+  const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
+  const [activeId, setActiveId] = createSignal<string | null>(null);
+
+  // Per-terminal theme name (terminal ID → theme name).
+  // createStore gives fine-grained reactivity per key — changing one terminal's
+  // theme doesn't cause other terminals to re-evaluate their theme prop.
+  const [terminalThemes, setTerminalThemes] = createStore<
+    Record<string, string>
+  >({});
+
+  /** Get the theme name for a terminal, falling back to default. */
+  function getTerminalThemeName(id: string): string {
+    return terminalThemes[id] ?? DEFAULT_THEME_NAME;
+  }
+
+  /** The active terminal's theme name (for header + palette filter). */
+  const activeThemeName = createMemo(() => {
+    const id = activeId();
+    return id ? getTerminalThemeName(id) : DEFAULT_THEME_NAME;
+  });
+
+  /** The active terminal's resolved theme (for container background). */
+  const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
+
+  // Restore existing terminals on page load (e.g. after browser refresh).
+  const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
+    const existing = await client.terminal.list();
+    if (existing.length > 0) {
+      const ids = existing.map((t) => t.id);
+      setTerminalIds(ids);
+      const running = existing.find((t) => t.status === "running");
+      // Prefer a running terminal; fall back to first (which may be exited)
+      setActiveId(running?.id ?? ids[0]);
+      // Restore per-terminal themes from server (reconcile replaces entire store)
+      setTerminalThemes(
+        reconcile(
+          Object.fromEntries(
+            existing
+              .filter((t) => t.themeName)
+              .map((t) => [t.id, t.themeName!]),
+          ),
+        ),
+      );
+    }
+    return existing;
+  });
+
+  /** Create a new terminal on the server, add it to the list, and make it active. */
+  async function handleCreate() {
+    const info = await client.terminal.create();
+    setTerminalIds((prev) => [...prev, info.id]);
+    setActiveId(info.id);
+  }
+
+  /** Set the theme for the active terminal, persisting to server. */
+  async function handleSetTheme(themeName: string) {
+    const id = activeId();
+    if (!id) return;
+    setTerminalThemes(id, themeName);
+    void client.terminal.setTheme({ id, themeName });
+  }
+
+  /** Command palette entries for terminal + theme actions. */
+  const commands = createMemo(() => [
+    {
+      name: "Create new terminal",
+      onSelect: () => void handleCreate(),
+    },
+    ...terminalIds().map((id, i) => ({
+      name: `Switch to Terminal ${i + 1}`,
+      onSelect: () => setActiveId(id),
+    })),
+    ...availableThemes
+      .filter((t) => t.name !== activeThemeName())
+      .map((t) => ({
+        name: `Theme: ${t.name}`,
+        onSelect: () => void handleSetTheme(t.name),
+      })),
+  ]);
+
+  return {
+    terminalIds,
+    activeId,
+    setActiveId,
+    activeThemeName,
+    activeTheme,
+    existingTerminals,
+    handleCreate,
+    getTerminalThemeName,
+    commands,
+  };
+}
