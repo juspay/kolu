@@ -20,6 +20,8 @@ const { SerializeAddon } =
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
+  /** Current working directory (from OSC 7), initially $HOME. */
+  cwd: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -30,10 +32,11 @@ export interface PtyHandle {
   dispose(): void;
 }
 
-/** Spawn a shell in a PTY, calling back on data and exit. */
+/** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
 export function spawnPty(opts: {
   onData: (data: string) => void;
   onExit: (exitCode: number) => void;
+  onCwd?: (cwd: string) => void;
 }): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
@@ -55,6 +58,26 @@ export function spawnPty(opts: {
   const serializeAddon = new SerializeAddon();
   headless.loadAddon(serializeAddon);
 
+  // OSC 7: shell reports CWD as file://hostname/path
+  // Modern shells (zsh, fish) emit this by default; bash needs config.
+  const initialCwd = env.HOME || "/";
+  let currentCwd = initialCwd;
+  const oscDisposable = headless.parser.registerOscHandler(
+    7,
+    (data: string) => {
+      try {
+        const url = new URL(data);
+        if (url.protocol === "file:") {
+          currentCwd = decodeURIComponent(url.pathname);
+          opts.onCwd?.(currentCwd);
+        }
+      } catch {
+        // Ignore malformed OSC 7 data
+      }
+      return true;
+    },
+  );
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
@@ -71,6 +94,9 @@ export function spawnPty(opts: {
 
   return {
     pid: proc.pid,
+    get cwd() {
+      return currentCwd;
+    },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
@@ -78,6 +104,7 @@ export function spawnPty(opts: {
     },
     getScreenState: () => serializeAddon.serialize(),
     dispose() {
+      oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();

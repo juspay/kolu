@@ -13,6 +13,7 @@ import {
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
+  TerminalCwdOutputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -31,6 +32,10 @@ export const contract = oc.router({
       .output(eventIterator(TerminalOnExitOutputSchema)),
     // Snapshot of headless xterm screen state (VT sequences) for a terminal
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
+    // Stream CWD changes for a terminal (OSC 7). Yields current CWD immediately.
+    onCwdChange: oc
+      .input(TerminalAttachInputSchema)
+      .output(eventIterator(TerminalCwdOutputSchema)),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

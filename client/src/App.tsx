@@ -23,6 +23,7 @@ const App: Component = () => {
     setActiveId,
     activeThemeName,
     activeTheme,
+    activeCwd,
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
@@ -43,6 +44,7 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => setPaletteOpen(true)}
         themeName={activeThemeName()}
+        cwd={activeCwd()}
       />
       <div class="flex flex-1 min-h-0">
         <Sidebar

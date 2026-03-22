@@ -1,4 +1,4 @@
-import { type Component, mergeProps } from "solid-js";
+import { type Component, Show, mergeProps } from "solid-js";
 import { isMac } from "./platform";
 import type { WsStatus } from "./rpc";
 
@@ -9,10 +9,26 @@ const statusColors: Record<WsStatus, string> = {
   closed: "text-red-400",
 };
 
+/** Replace $HOME prefix with ~ for compact display. */
+function shortenCwd(cwd: string): string {
+  const home = typeof window !== "undefined" ? undefined : undefined;
+  // We don't have $HOME on the client, but the server sends absolute paths.
+  // Use a simple heuristic: /home/user/... → ~/...
+  const match = cwd.match(/^\/home\/[^/]+\/(.*)/);
+  if (match) return `~/${match[1]}`;
+  // Also handle /root/...
+  const rootMatch = cwd.match(/^\/root\/(.*)/);
+  if (rootMatch) return `~/${rootMatch[1]}`;
+  // Exact home dir match
+  if (/^\/home\/[^/]+\/?$/.test(cwd) || cwd === "/root") return "~";
+  return cwd;
+}
+
 const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
   themeName?: string;
+  cwd?: string | null;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
@@ -20,6 +36,17 @@ const Header: Component<{
     <header class="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm">kolu</span>
+      <Show when={props.cwd}>
+        {(cwd) => (
+          <span
+            class="text-xs text-slate-400 truncate max-w-[300px]"
+            title={cwd()}
+            data-testid="header-cwd"
+          >
+            {shortenCwd(cwd())}
+          </span>
+        )}
+      </Show>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
