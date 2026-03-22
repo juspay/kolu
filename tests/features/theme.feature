@@ -13,6 +13,7 @@ Feature: Theme switching
     And I type "Theme: Dracula" in the palette
     And I press Enter
     Then the header should show theme "Dracula"
+    And the terminal background should be "#282a36"
     And there should be no page errors
 
   Scenario: Theme persists after page refresh

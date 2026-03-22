@@ -105,20 +105,27 @@ const Terminal: Component<{
   );
 
   // Apply theme changes at runtime.
-  // ghostty-web's options.theme setter warns "not yet fully supported" and does nothing,
-  // so we bypass it and call the renderer directly.
+  // ghostty-web doesn't support runtime theme changes (options.theme setter is a no-op
+  // after open()). We set the options (so buildWasmConfig reads them), update the
+  // renderer palette, then reset() to rebuild the WASM terminal. Reset clears the
+  // screen, so we re-stream the screen state from the server to restore content.
   createEffect(
     on(
       () => props.theme,
-      (theme) => {
-        if (!terminal?.renderer || !terminal.wasmTerm) return;
+      async (theme) => {
+        if (!terminal?.renderer) return;
+        terminal.options.theme = theme;
         terminal.renderer.setTheme(theme);
-        terminal.renderer.render(
-          terminal.wasmTerm,
-          true,
-          terminal.viewportY,
-          terminal,
-        );
+        terminal.reset();
+        // Restore screen content from server after reset
+        try {
+          const state = await client.terminal.screenState({
+            id: props.terminalId,
+          });
+          if (state) terminal.write(encoder.encode(state));
+        } catch {
+          // Terminal may have been killed
+        }
       },
       { defer: true },
     ),
