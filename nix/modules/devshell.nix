@@ -18,6 +18,9 @@
         nodejs
         pnpm
         tsx
+        # node-gyp needs python3 + pkg-config for native addons (node-pty)
+        python3
+        pkg-config
       ]);
     };
   };
