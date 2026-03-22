@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import { DEFAULT_PORT } from "kolu-common/config";
 
 const themesJsonPath = process.env.KOLU_THEMES_JSON;
 if (!themesJsonPath) {
@@ -19,9 +20,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:7681",
+      "/api": `http://localhost:${DEFAULT_PORT}`,
       "/rpc": {
-        target: "http://localhost:7681",
+        target: `http://localhost:${DEFAULT_PORT}`,
         ws: true,
       },
     },

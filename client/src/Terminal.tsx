@@ -20,10 +20,15 @@ import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import type { ITheme } from "ghostty-web";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
-import { isMac } from "./platform";
+import {
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  DEFAULT_FONT_SIZE,
+} from "kolu-common/config";
+import { measureCells, fitToContainer } from "./resize";
+import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
 const FONT_SIZE_KEY = "kolu-font-size";
-const DEFAULT_FONT_SIZE = 14;
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 
@@ -44,29 +49,6 @@ function consumeStream<T>(
   })();
 }
 
-/** Measure cell dimensions from canvas size and known grid dimensions. */
-function measureCells(el: HTMLElement, cols: number, rows: number) {
-  const canvas = el.querySelector("canvas");
-  if (!canvas) throw new Error("No canvas found in terminal element");
-  const { width, height } = canvas.getBoundingClientRect();
-  return { cellWidth: width / cols, cellHeight: height / rows };
-}
-
-/** Calculate cols/rows to fill a container given cell dimensions. */
-function fitToContainer(
-  container: HTMLElement,
-  cellWidth: number,
-  cellHeight: number,
-) {
-  const { width, height } = container.getBoundingClientRect();
-  return {
-    cols: Math.floor(width / cellWidth),
-    rows: Math.floor(height / cellHeight),
-  };
-}
-
-const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
-
 const Terminal: Component<{
   terminalId: string;
   visible: boolean;
@@ -76,8 +58,8 @@ const Terminal: Component<{
   let terminal: GhosttyTerminal | null = null;
   let cellWidth = 0;
   let cellHeight = 0;
-  let currentCols = 80;
-  let currentRows = 24;
+  let currentCols = DEFAULT_COLS;
+  let currentRows = DEFAULT_ROWS;
 
   const [fontSize, setFontSize] = makePersisted(
     createSignal(DEFAULT_FONT_SIZE),
@@ -192,7 +174,7 @@ const Terminal: Component<{
   /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
   function handleZoomKeys(e: KeyboardEvent) {
     if (!props.visible) return;
-    if (!(isMac ? e.metaKey : e.ctrlKey)) return;
+    if (!isPlatformModifier(e)) return;
     const delta = ZOOM_KEYS[e.key];
     if (!delta) return;
     e.preventDefault();
