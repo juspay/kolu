@@ -17,6 +17,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
+import { currentTheme } from "./themes";
 import { client } from "./rpc";
 import { isMac } from "./platform";
 
@@ -97,6 +98,19 @@ const Terminal: Component<{
         if (!visible) return;
         remeasureAndFit();
         focusInput();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Apply theme changes at runtime via ghostty's renderer
+  createEffect(
+    on(
+      () => currentTheme(),
+      (named) => {
+        if (!terminal) return;
+        // renderer.setTheme() is the supported way to update colors after open()
+        (terminal as any).renderer?.setTheme(named.theme);
       },
       { defer: true },
     ),
