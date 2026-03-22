@@ -18,11 +18,10 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
 import { client } from "./rpc";
+import { isMac } from "./platform";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 const DEFAULT_FONT_SIZE = 14;
-// Includes iPad/iPhone because browser keyboard events use metaKey on all Apple devices
-const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 

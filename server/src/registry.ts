@@ -81,3 +81,12 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   terminals.set(id, killed);
   return toInfo(id, killed);
 }
+
+/** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
+export function killAllTerminals(): void {
+  for (const entry of terminals.values()) {
+    if (entry.status === "running") entry.handle.dispose();
+  }
+  terminals.clear();
+  nextId = 1;
+}

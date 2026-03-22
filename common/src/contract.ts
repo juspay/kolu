@@ -29,5 +29,7 @@ export const contract = oc.router({
       .output(eventIterator(TerminalOnExitOutputSchema)),
     // Snapshot of headless xterm screen state (VT sequences) for a terminal
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
+    // Kill and remove all terminals (test-only: reset server state between scenarios)
+    killAll: oc.output(z.void()),
   },
 });

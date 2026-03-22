@@ -11,6 +11,7 @@ import {
   createTerminal,
   getTerminal,
   listTerminals,
+  killAllTerminals,
   type TerminalEntry,
 } from "./registry.ts";
 
@@ -101,6 +102,10 @@ export const appRouter = t.router({
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
       return requireTerminal(input.id).handle.getScreenState();
+    }),
+
+    killAll: t.terminal.killAll.handler(async () => {
+      killAllTerminals();
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
