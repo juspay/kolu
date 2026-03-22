@@ -77,7 +77,7 @@ const App: Component = () => {
           onClose={() => setPaletteOpen(false)}
         />
       </Show>
-      <Header status={wsStatus()} />
+      <Header status={wsStatus()} onOpenPalette={() => setPaletteOpen(true)} />
       <div class="flex flex-1 min-h-0">
         <Sidebar
           terminalIds={terminalIds()}
