@@ -104,13 +104,21 @@ const Terminal: Component<{
     ),
   );
 
-  // Apply theme changes at runtime via ghostty's options proxy
+  // Apply theme changes at runtime.
+  // ghostty-web's options.theme setter warns "not yet fully supported" and does nothing,
+  // so we bypass it and call the renderer directly.
   createEffect(
     on(
       () => props.theme,
       (theme) => {
-        if (!terminal) return;
-        terminal.options.theme = theme;
+        if (!terminal?.renderer || !terminal.wasmTerm) return;
+        terminal.renderer.setTheme(theme);
+        terminal.renderer.render(
+          terminal.wasmTerm,
+          true,
+          terminal.viewportY,
+          terminal,
+        );
       },
       { defer: true },
     ),
