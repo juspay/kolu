@@ -23,6 +23,12 @@ Feature: Theme switching
     And I refresh the page
     Then the header should show theme "Nord"
 
+  Scenario: Click theme name opens palette with prefix
+    When I click the theme name in the header
+    Then the command palette should be visible
+    And the palette input should contain "Theme: "
+    And there should be no page errors
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I type "Theme: Dracula" in the palette
