@@ -1,6 +1,20 @@
-import { Then } from "@cucumber/cucumber";
-import type { KoluWorld } from "../support/world.ts";
+import { When, Then } from "@cucumber/cucumber";
+import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
+
+/** Select a terminal by its position in the sidebar (1-based), regardless of createdTerminalIds. */
+When(
+  "I select sidebar entry {int}",
+  async function (this: KoluWorld, position: number) {
+    const entry = this.page.locator(SIDEBAR_ENTRY_SELECTOR).nth(position - 1);
+    await entry.click();
+    const id = await entry.getAttribute("data-terminal-id");
+    assert.ok(id, `Sidebar entry ${position} has no terminal ID`);
+    await this.page
+      .locator(`[data-terminal-id="${id}"][data-visible]`)
+      .waitFor({ state: "attached", timeout: 5000 });
+  },
+);
 
 Then(
   "the header should show theme {string}",
