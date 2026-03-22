@@ -37,6 +37,7 @@ export function spawnPty(opts: {
 }): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
+  console.log(`[pty] spawning ${shell} cwd=${env.HOME || "/"}`);
   const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
@@ -44,6 +45,7 @@ export function spawnPty(opts: {
     cwd: env.HOME || "/",
     env,
   });
+  console.log(`[pty] spawned pid=${proc.pid}`);
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.

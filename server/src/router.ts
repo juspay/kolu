@@ -42,6 +42,7 @@ export const appRouter = t.router({
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
       requireTerminal(input.id); // validate terminal exists
+      console.log(`[terminal] ${input.id} theme → ${input.themeName}`);
       setTerminalTheme(input.id, input.themeName);
     }),
 
@@ -54,6 +55,7 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
+      console.log(`[stream] attach ${input.id} started`);
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the generator, not lost.
@@ -62,7 +64,11 @@ export const appRouter = t.router({
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      yield* live;
+      try {
+        yield* live;
+      } finally {
+        console.log(`[stream] attach ${input.id} ended`);
+      }
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -75,6 +81,9 @@ export const appRouter = t.router({
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
+      console.log(
+        `[stream] onExit ${input.id} started (status=${entry.status})`,
+      );
 
       // If already exited, yield immediately
       if (entry.status === "exited") {
