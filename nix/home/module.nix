@@ -1,6 +1,7 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.kolu;
+  ports = import ../ports.nix;
 in
 {
   options.services.kolu = {
@@ -19,7 +20,7 @@ in
 
     port = lib.mkOption {
       type = lib.types.port;
-      default = 7682;
+      default = ports.prod;
       description = "Port to listen on.";
     };
   };

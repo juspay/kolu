@@ -1,4 +1,7 @@
 { inputs, ... }:
+let
+  ports = import ../ports.nix;
+in
 {
   perSystem = { config, self', pkgs, lib, ... }:
     let
@@ -89,7 +92,7 @@
           runtimeInputs = [ nodejs pkgs.tsx ];
           text = ''
             export KOLU_CLIENT_DIST="${kolu}/client/dist"
-            exec tsx "${kolu}/server/src/index.ts" --port 7682 "$@"
+            exec tsx "${kolu}/server/src/index.ts" --port ${toString ports.prod} "$@"
           '';
         };
       };
