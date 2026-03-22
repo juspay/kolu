@@ -133,6 +133,16 @@ const Terminal: Component<{
         terminal.renderer.setTheme(theme);
         terminal.reset();
         if (state) terminal.write(encoder.encode(state));
+        // Force full canvas repaint — the render loop only redraws dirty lines,
+        // which can leave stale content after a theme switch + screen restore.
+        if (terminal.wasmTerm) {
+          terminal.renderer.render(
+            terminal.wasmTerm,
+            true,
+            terminal.viewportY,
+            terminal,
+          );
+        }
         // reset() recreates ghostty's textarea, so re-focus it
         focusInput();
       },
