@@ -4,7 +4,7 @@
     let
       nodejs = pkgs.nodejs;
       pnpm = pkgs.pnpm;
-      ghosttyThemes = import ../ghostty-themes { inherit pkgs; };
+      ghosttyThemes = pkgs.callPackage ../ghostty-themes { };
 
       src = lib.fileset.toSource {
         root = ../..;
@@ -84,7 +84,7 @@
     in
     {
       packages = {
-        inherit kolu;
+        inherit kolu ghosttyThemes;
 
         default = pkgs.writeShellApplication {
           name = "kolu";

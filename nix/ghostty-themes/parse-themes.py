@@ -1,7 +1,7 @@
-"""Parse Ghostty theme files (INI-like) into a JSON array of { name, theme } objects.
+"""Parse all Ghostty theme files from a directory into a JSON array.
 
-Usage: python parse-themes.py <ghostty-themes-dir> <theme1> <theme2> ...
-Output: JSON array on stdout.
+Usage: python parse-themes.py <ghostty-themes-dir>
+Output: JSON array of { name, theme } objects on stdout, sorted by name.
 """
 
 import json
@@ -47,21 +47,17 @@ def parse_theme(path: Path) -> dict:
 
 
 def main():
-    if len(sys.argv) < 3:
-        print(f"Usage: {sys.argv[0]} <themes-dir> <theme1> [theme2 ...]", file=sys.stderr)
+    if len(sys.argv) != 2:
+        print(f"Usage: {sys.argv[0]} <themes-dir>", file=sys.stderr)
         sys.exit(1)
 
     themes_dir = Path(sys.argv[1])
-    theme_names = sys.argv[2:]
     result = []
 
-    for name in theme_names:
-        path = themes_dir / name
-        if not path.exists():
-            print(f"Warning: theme '{name}' not found at {path}", file=sys.stderr)
-            continue
-        theme = parse_theme(path)
-        result.append({"name": name, "theme": theme})
+    for path in sorted(themes_dir.iterdir()):
+        if path.is_file():
+            theme = parse_theme(path)
+            result.append({"name": path.name, "theme": theme})
 
     json.dump(result, sys.stdout, indent=2)
     print()  # trailing newline
