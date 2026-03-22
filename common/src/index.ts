@@ -13,12 +13,14 @@ export const TerminalInfoSchema = z.discriminatedUnion("status", [
     id: TerminalIdSchema,
     pid: z.number(),
     status: z.literal("running"),
+    themeName: z.string().optional(),
   }),
   z.object({
     id: TerminalIdSchema,
     pid: z.number(),
     status: z.literal("exited"),
     exitCode: z.number(),
+    themeName: z.string().optional(),
   }),
 ]);
 
@@ -31,6 +33,11 @@ export const TerminalResizeInputSchema = z.object({
 export const TerminalSendInputSchema = z.object({
   id: TerminalIdSchema,
   data: z.string(),
+});
+
+export const TerminalSetThemeInputSchema = z.object({
+  id: TerminalIdSchema,
+  themeName: z.string(),
 });
 
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });

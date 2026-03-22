@@ -12,6 +12,7 @@ import {
   getTerminal,
   listTerminals,
   killAllTerminals,
+  setTerminalTheme,
   type TerminalEntry,
 } from "./registry.ts";
 
@@ -78,6 +79,11 @@ export const appRouter = t.router({
 
     sendInput: t.terminal.sendInput.handler(async ({ input }) => {
       requireTerminal(input.id).handle.write(input.data);
+    }),
+
+    setTheme: t.terminal.setTheme.handler(async ({ input }) => {
+      requireTerminal(input.id); // validate terminal exists
+      setTerminalTheme(input.id, input.themeName);
     }),
 
     /**

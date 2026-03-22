@@ -1,16 +1,29 @@
-/** Terminal appearance config. Shared between terminal and app chrome. */
+/** Terminal theme management.
+ *
+ * Themes are loaded from a Nix-generated JSON file (ghostty-themes virtual module).
+ * The hardcoded DEFAULT_THEME is always available as a fallback.
+ */
 
 import type { ITheme } from "ghostty-web";
+import availableThemesJson from "ghostty-themes";
+
+export interface NamedTheme {
+  name: string;
+  theme: ITheme;
+}
 
 export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-export const THEME = {
+export const DEFAULT_THEME_NAME = "Tomorrow Night";
+
+/** Hardcoded default theme (Tomorrow Night variant). */
+export const DEFAULT_THEME: ITheme = {
   foreground: "#ffffff",
   background: "#292c33",
   cursor: "#ffffff",
   cursorAccent: "#363a43",
-  selectionBackground: "#ffffff",
-  selectionForeground: "#ffffff",
+  selectionBackground: "#44475a",
+  selectionForeground: "#c5c8c6",
   black: "#1d1f21",
   red: "#bf6b69",
   green: "#b7bd73",
@@ -27,7 +40,18 @@ export const THEME = {
   brightMagenta: "#bc99d4",
   brightCyan: "#83beb1",
   brightWhite: "#eaeaea",
-} satisfies ITheme; // satisfies (not `:`) preserves narrow literal types for color strings
+};
 
-/** Default options applied to every terminal instance. */
-export const TERMINAL_DEFAULTS = { fontFamily: FONT_FAMILY, theme: THEME };
+/** All available themes: Nix-generated themes + hardcoded default. */
+export const availableThemes: NamedTheme[] = [
+  { name: DEFAULT_THEME_NAME, theme: DEFAULT_THEME },
+  ...availableThemesJson.filter((t) => t.name !== DEFAULT_THEME_NAME),
+];
+
+/** Look up a theme by name, falling back to DEFAULT_THEME. */
+export function getThemeByName(name: string | undefined): ITheme {
+  if (!name || name === DEFAULT_THEME_NAME) return DEFAULT_THEME;
+  return (
+    availableThemesJson.find((t) => t.name === name)?.theme ?? DEFAULT_THEME
+  );
+}

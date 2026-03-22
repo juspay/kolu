@@ -4,6 +4,7 @@
     let
       nodejs = pkgs.nodejs;
       pnpm = pkgs.pnpm;
+      ghosttyThemes = import ../ghostty-themes { inherit pkgs; };
 
       src = lib.fileset.toSource {
         root = ../..;
@@ -48,6 +49,7 @@
         # it, which breaks node-gyp's distutils resolution (nixpkgs#385035).
         env.npm_config_nodedir = nodejs;
         env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
+        env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
 
         buildPhase = ''
           runHook preBuild

@@ -13,7 +13,7 @@ import Header, { type WsStatus } from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
-import { THEME } from "./theme";
+import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
 import { isMac } from "./platform";
@@ -22,6 +22,27 @@ const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
   const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
   const [activeId, setActiveId] = createSignal<string | null>(null);
+  // Per-terminal theme name (terminal ID → theme name)
+  const [terminalThemes, setTerminalThemes] = createSignal<
+    Record<string, string>
+  >({});
+
+  /** Get the theme name for a terminal, falling back to default. */
+  function getTerminalThemeName(id: string): string {
+    return terminalThemes()[id] ?? DEFAULT_THEME_NAME;
+  }
+
+  /** The active terminal's resolved theme (for container background). */
+  const activeTheme = createMemo(() => {
+    const id = activeId();
+    return getThemeByName(id ? getTerminalThemeName(id) : undefined);
+  });
+
+  /** The active terminal's theme name (for header display). */
+  const activeThemeName = createMemo(() => {
+    const id = activeId();
+    return id ? getTerminalThemeName(id) : DEFAULT_THEME_NAME;
+  });
 
   // Restore existing terminals on page load (e.g. after browser refresh).
   // A successful list() call proves the WebSocket is connected.
@@ -34,6 +55,12 @@ const App: Component = () => {
       const running = existing.find((t) => t.status === "running");
       // Prefer a running terminal; fall back to first (which may be exited)
       setActiveId(running?.id ?? ids[0]);
+      // Restore per-terminal themes from server
+      const themes: Record<string, string> = {};
+      for (const t of existing) {
+        if (t.themeName) themes[t.id] = t.themeName;
+      }
+      setTerminalThemes(themes);
     }
     return existing;
   });
@@ -47,6 +74,14 @@ const App: Component = () => {
     setActiveId(info.id);
   }
 
+  /** Set the theme for the active terminal, persisting to server. */
+  async function handleSetTheme(themeName: string) {
+    const id = activeId();
+    if (!id) return;
+    setTerminalThemes((prev) => ({ ...prev, [id]: themeName }));
+    void client.terminal.setTheme({ id, themeName });
+  }
+
   const commands = createMemo(() => [
     {
       name: "Create new terminal",
@@ -56,6 +91,13 @@ const App: Component = () => {
       name: `Switch to Terminal ${i + 1}`,
       onSelect: () => setActiveId(id),
     })),
+    // Theme switching commands for the active terminal
+    ...availableThemes
+      .filter((t) => t.name !== activeThemeName())
+      .map((t) => ({
+        name: `Theme: ${t.name}`,
+        onSelect: () => void handleSetTheme(t.name),
+      })),
   ]);
 
   // Cmd/Ctrl+K to toggle command palette
@@ -80,7 +122,11 @@ const App: Component = () => {
           onClose={() => setPaletteOpen(false)}
         />
       </Show>
-      <Header status={wsStatus()} onOpenPalette={() => setPaletteOpen(true)} />
+      <Header
+        status={wsStatus()}
+        onOpenPalette={() => setPaletteOpen(true)}
+        themeName={activeThemeName()}
+      />
       <div class="flex flex-1 min-h-0">
         <Sidebar
           terminalIds={terminalIds()}
@@ -92,7 +138,7 @@ const App: Component = () => {
         <div class="flex-1 min-h-0 min-w-0 p-2">
           <div
             class="h-full rounded border border-slate-700 overflow-hidden p-2"
-            style={{ "background-color": THEME.background }}
+            style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary
               fallback={(err) => (
@@ -120,7 +166,11 @@ const App: Component = () => {
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
-                    <Terminal terminalId={id} visible={activeId() === id} />
+                    <Terminal
+                      terminalId={id}
+                      visible={activeId() === id}
+                      theme={getThemeByName(getTerminalThemeName(id))}
+                    />
                   )}
                 </For>
               </Suspense>

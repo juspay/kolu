@@ -16,7 +16,8 @@ import {
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
-import { TERMINAL_DEFAULTS } from "./theme";
+import type { ITheme } from "ghostty-web";
+import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import { isMac } from "./platform";
 
@@ -68,6 +69,7 @@ const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 const Terminal: Component<{
   terminalId: string;
   visible: boolean;
+  theme: ITheme;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
@@ -97,6 +99,18 @@ const Terminal: Component<{
         if (!visible) return;
         remeasureAndFit();
         focusInput();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Apply theme changes at runtime via ghostty's options proxy
+  createEffect(
+    on(
+      () => props.theme,
+      (theme) => {
+        if (!terminal) return;
+        terminal.options.theme = theme;
       },
       { defer: true },
     ),
@@ -156,7 +170,8 @@ const Terminal: Component<{
   onMount(async () => {
     const ghostty = await initGhostty();
     terminal = new ghostty.Terminal({
-      ...TERMINAL_DEFAULTS,
+      fontFamily: FONT_FAMILY,
+      theme: props.theme,
       fontSize: fontSize(),
     });
     terminal.open(containerRef);
