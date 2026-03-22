@@ -58,29 +58,31 @@
       "inputs": {
         "flake-parts": "flake-parts",
         "git-hooks": "git-hooks",
-        "nixpkgs": [
-          "nixpkgs"
-        ],
+        "nixpkgs": "nixpkgs",
         "process-compose-flake": "process-compose-flake",
         "systems": "systems"
       },
       "locked": {
-        "path": "../../..",
-        "type": "path"
+        "lastModified": 1774136103,
+        "narHash": "sha256-EujawtsKFOdPZ7RyFXj4s2+qhVqAn3cSgUlERfSLHZM=",
+        "owner": "juspay",
+        "repo": "kolu",
+        "rev": "cb42d2f422272e5a3188220b74a8004ed1887b4b",
+        "type": "github"
       },
       "original": {
-        "path": "../../..",
-        "type": "path"
-      },
-      "parent": []
+        "owner": "juspay",
+        "repo": "kolu",
+        "type": "github"
+      }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1773840656,
-        "narHash": "sha256-9tpvMGFteZnd3gRQZFlRCohVpqooygFuy9yjuyRL2C0=",
+        "lastModified": 1773628058,
+        "narHash": "sha256-hpXH0z3K9xv0fHaje136KY872VT2T5uwxtezlAskQgY=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "9cf7092bdd603554bd8b63c216e8943cf9b12512",
+        "rev": "f8573b9c935cfaa162dd62cc9e75ae2db86f85df",
         "type": "github"
       },
       "original": {
@@ -124,7 +126,10 @@
       "inputs": {
         "home-manager": "home-manager",
         "kolu": "kolu",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": [
+          "kolu",
+          "nixpkgs"
+        ]
       }
     },
     "systems": {

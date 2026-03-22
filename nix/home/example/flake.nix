@@ -3,11 +3,11 @@
 # Also provides a VM test that verifies the service actually starts.
 {
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+    # In CI, vira overrides this to the repo root via overrideInputs.
+    kolu.url = "github:juspay/kolu";
+    nixpkgs.follows = "kolu/nixpkgs";
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
-    kolu.url = "path:../../..";
-    kolu.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs = { nixpkgs, home-manager, kolu, ... }:
