@@ -1,5 +1,5 @@
 /**
- * Terminal registry: manages PTY lifecycle and tracks terminal state.
+ * Terminal state management: PTY lifecycle and per-terminal metadata.
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
@@ -20,6 +20,7 @@ export interface TerminalEvents {
 interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
+  themeName?: string;
 }
 
 /** Server-side terminal state. Status discriminant derived from common TerminalInfo. */
@@ -31,7 +32,7 @@ const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  const base = { id, pid: entry.handle.pid };
+  const base = { id, pid: entry.handle.pid, themeName: entry.themeName };
   return entry.status === "exited"
     ? { ...base, status: "exited", exitCode: entry.exitCode }
     : { ...base, status: "running" };
@@ -80,6 +81,12 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   };
   terminals.set(id, killed);
   return toInfo(id, killed);
+}
+
+/** Set the theme name for a terminal. */
+export function setTerminalTheme(id: TerminalId, themeName: string): void {
+  const entry = terminals.get(id);
+  if (entry) terminals.set(id, { ...entry, themeName });
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */

@@ -15,8 +15,10 @@ import {
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { makePersisted } from "@solid-primitives/storage";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
-import { TERMINAL_DEFAULTS } from "./theme";
+import type { ITheme } from "ghostty-web";
+import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import { isMac } from "./platform";
 
@@ -68,6 +70,7 @@ const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 const Terminal: Component<{
   terminalId: string;
   visible: boolean;
+  theme: ITheme;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: GhosttyTerminal | null = null;
@@ -76,8 +79,9 @@ const Terminal: Component<{
   let currentCols = 80;
   let currentRows = 24;
 
-  const [fontSize, setFontSize] = createSignal(
-    Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
+  const [fontSize, setFontSize] = makePersisted(
+    createSignal(DEFAULT_FONT_SIZE),
+    { name: FONT_SIZE_KEY, serialize: String, deserialize: Number },
   );
 
   let streamAbort: AbortController | null = null;
@@ -96,6 +100,50 @@ const Terminal: Component<{
       (visible) => {
         if (!visible) return;
         remeasureAndFit();
+        focusInput();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Apply theme changes at runtime.
+  // ghostty-web doesn't support runtime theme changes (options.theme setter is a no-op
+  // after open()). We set the options (so buildWasmConfig reads them), update the
+  // renderer palette, then reset() to rebuild the WASM terminal. Reset clears the
+  // screen, so we re-stream the screen state from the server to restore content.
+  let themeVersion = 0;
+  createEffect(
+    on(
+      () => props.theme,
+      async (theme) => {
+        if (!terminal?.renderer) return;
+        // Guard against rapid theme switches: only apply the latest one
+        const version = ++themeVersion;
+        let state: string | undefined;
+        try {
+          state = await client.terminal.screenState({
+            id: props.terminalId,
+          });
+        } catch {
+          // Terminal may have been killed
+        }
+        // Stale: a newer theme switch started while we were fetching
+        if (version !== themeVersion) return;
+        terminal.options.theme = theme;
+        terminal.renderer.setTheme(theme);
+        terminal.reset();
+        if (state) terminal.write(encoder.encode(state));
+        // Force full canvas repaint — the render loop only redraws dirty lines,
+        // which can leave stale content after a theme switch + screen restore.
+        if (terminal.wasmTerm) {
+          terminal.renderer.render(
+            terminal.wasmTerm,
+            true,
+            terminal.viewportY,
+            terminal,
+          );
+        }
+        // reset() recreates ghostty's textarea, so re-focus it
         focusInput();
       },
       { defer: true },
@@ -136,8 +184,7 @@ const Terminal: Component<{
 
   function updateFontSize(newSize: number) {
     if (!terminal) return;
-    setFontSize(newSize);
-    localStorage.setItem(FONT_SIZE_KEY, String(newSize));
+    setFontSize(newSize); // makePersisted auto-syncs to localStorage
     terminal.options.fontSize = newSize;
     remeasureAndFit();
   }
@@ -156,7 +203,8 @@ const Terminal: Component<{
   onMount(async () => {
     const ghostty = await initGhostty();
     terminal = new ghostty.Terminal({
-      ...TERMINAL_DEFAULTS,
+      fontFamily: FONT_FAMILY,
+      theme: props.theme,
       fontSize: fontSize(),
     });
     terminal.open(containerRef);

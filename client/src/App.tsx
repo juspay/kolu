@@ -1,86 +1,49 @@
+/** App shell: layout + wiring. State lives in useTerminals, behavior in components. */
+
 import {
   type Component,
   createSignal,
-  createResource,
-  createMemo,
   Show,
   For,
   Suspense,
   ErrorBoundary,
 } from "solid-js";
-import { makeEventListener } from "@solid-primitives/event-listener";
-import Header, { type WsStatus } from "./Header";
+import Header from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
-import { THEME } from "./theme";
-import { client } from "./rpc";
-import type { TerminalInfo } from "kolu-common";
-import { isMac } from "./platform";
+import { getThemeByName } from "./theme";
+import { wsStatus } from "./rpc";
+import { useTerminals } from "./useTerminals";
 
 const App: Component = () => {
-  const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
-  const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
-  const [activeId, setActiveId] = createSignal<string | null>(null);
+  const {
+    terminalIds,
+    activeId,
+    setActiveId,
+    activeThemeName,
+    activeTheme,
+    existingTerminals,
+    handleCreate,
+    getTerminalThemeName,
+    commands,
+  } = useTerminals();
 
-  // Restore existing terminals on page load (e.g. after browser refresh).
-  // A successful list() call proves the WebSocket is connected.
-  const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const existing = await client.terminal.list();
-    setWsStatus("open");
-    if (existing.length > 0) {
-      const ids = existing.map((t) => t.id);
-      setTerminalIds(ids);
-      const running = existing.find((t) => t.status === "running");
-      // Prefer a running terminal; fall back to first (which may be exited)
-      setActiveId(running?.id ?? ids[0]);
-    }
-    return existing;
-  });
-
+  // Shared open state: CommandPalette owns it, Header can trigger it
   const [paletteOpen, setPaletteOpen] = createSignal(false);
-
-  /** Create a new terminal on the server, add it to the list, and make it active. */
-  async function handleCreate() {
-    const info = await client.terminal.create();
-    setTerminalIds((prev) => [...prev, info.id]);
-    setActiveId(info.id);
-  }
-
-  const commands = createMemo(() => [
-    {
-      name: "Create new terminal",
-      onSelect: () => void handleCreate(),
-    },
-    ...terminalIds().map((id, i) => ({
-      name: `Switch to Terminal ${i + 1}`,
-      onSelect: () => setActiveId(id),
-    })),
-  ]);
-
-  // Cmd/Ctrl+K to toggle command palette
-  makeEventListener(
-    window,
-    "keydown",
-    (e: KeyboardEvent) => {
-      if ((isMac ? e.metaKey : e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        e.stopPropagation();
-        setPaletteOpen((prev) => !prev);
-      }
-    },
-    { capture: true },
-  );
 
   return (
     <div class="flex flex-col h-dvh bg-slate-900 text-white">
-      <Show when={paletteOpen()}>
-        <CommandPalette
-          commands={commands()}
-          onClose={() => setPaletteOpen(false)}
-        />
-      </Show>
-      <Header status={wsStatus()} onOpenPalette={() => setPaletteOpen(true)} />
+      <CommandPalette
+        commands={commands}
+        open={paletteOpen()}
+        onOpenChange={setPaletteOpen}
+      />
+      <Header
+        status={wsStatus()}
+        onOpenPalette={() => setPaletteOpen(true)}
+        themeName={activeThemeName()}
+      />
       <div class="flex flex-1 min-h-0">
         <Sidebar
           terminalIds={terminalIds()}
@@ -92,7 +55,7 @@ const App: Component = () => {
         <div class="flex-1 min-h-0 min-w-0 p-2">
           <div
             class="h-full rounded border border-slate-700 overflow-hidden p-2"
-            style={{ "background-color": THEME.background }}
+            style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary
               fallback={(err) => (
@@ -120,7 +83,11 @@ const App: Component = () => {
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
-                    <Terminal terminalId={id} visible={activeId() === id} />
+                    <Terminal
+                      terminalId={id}
+                      visible={activeId() === id}
+                      theme={getThemeByName(getTerminalThemeName(id))}
+                    />
                   )}
                 </For>
               </Suspense>

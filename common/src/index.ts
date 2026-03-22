@@ -7,16 +7,18 @@ import { z } from "zod";
 
 const TerminalIdSchema = z.string();
 
+// Shared fields spread into each discriminant variant
+const terminalBaseFields = {
+  id: TerminalIdSchema,
+  pid: z.number(),
+  themeName: z.string().optional(),
+};
+
 // Discriminated union: exitCode is required when exited, absent when running.
 export const TerminalInfoSchema = z.discriminatedUnion("status", [
+  z.object({ ...terminalBaseFields, status: z.literal("running") }),
   z.object({
-    id: TerminalIdSchema,
-    pid: z.number(),
-    status: z.literal("running"),
-  }),
-  z.object({
-    id: TerminalIdSchema,
-    pid: z.number(),
+    ...terminalBaseFields,
     status: z.literal("exited"),
     exitCode: z.number(),
   }),
@@ -31,6 +33,11 @@ export const TerminalResizeInputSchema = z.object({
 export const TerminalSendInputSchema = z.object({
   id: TerminalIdSchema,
   data: z.string(),
+});
+
+export const TerminalSetThemeInputSchema = z.object({
+  id: TerminalIdSchema,
+  themeName: z.string(),
 });
 
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });

@@ -1,0 +1,80 @@
+import { When, Then } from "@cucumber/cucumber";
+import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import * as assert from "node:assert";
+
+/** Poll until a condition is met, returning the last value on timeout. */
+async function pollUntil<T>(
+  page: KoluWorld["page"],
+  fn: () => Promise<T>,
+  check: (val: T) => boolean,
+  { attempts = 10, intervalMs = 300 } = {},
+): Promise<T> {
+  let val = await fn();
+  for (let i = 1; i < attempts && !check(val); i++) {
+    await page.waitForTimeout(intervalMs);
+    val = await fn();
+  }
+  return val;
+}
+
+/** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
+}
+
+/** Select a terminal by its position in the sidebar (1-based), regardless of createdTerminalIds. */
+When(
+  "I select sidebar entry {int}",
+  async function (this: KoluWorld, position: number) {
+    const entry = this.page.locator(SIDEBAR_ENTRY_SELECTOR).nth(position - 1);
+    await entry.click();
+    const id = await entry.getAttribute("data-terminal-id");
+    assert.ok(id, `Sidebar entry ${position} has no terminal ID`);
+    await this.page
+      .locator(`[data-terminal-id="${id}"][data-visible]`)
+      .waitFor({ state: "attached", timeout: 5000 });
+  },
+);
+
+Then(
+  "the terminal background should be {string}",
+  async function (this: KoluWorld, expectedColor: string) {
+    // The terminal area's parent container div has inline background-color.
+    // Poll since theme change involves async reset + screen state restore.
+    const expectedRgb = hexToRgb(expectedColor);
+    const bgColor = await pollUntil(
+      this.page,
+      () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector("[data-visible]");
+          const container = el?.parentElement?.closest("[style]");
+          return container ? getComputedStyle(container).backgroundColor : "";
+        }),
+      (bg) => bg === expectedRgb,
+      { attempts: 20 },
+    );
+    assert.strictEqual(
+      bgColor,
+      expectedRgb,
+      `Expected terminal background ${expectedColor}`,
+    );
+  },
+);
+
+Then(
+  "the header should show theme {string}",
+  async function (this: KoluWorld, expectedTheme: string) {
+    const header = this.page.locator("header");
+    await header.waitFor({ state: "visible", timeout: 5_000 });
+    const text = await pollUntil(
+      this.page,
+      async () => (await header.textContent()) ?? "",
+      (t) => t.includes(expectedTheme),
+    );
+    assert.ok(
+      text.includes(expectedTheme),
+      `Expected header to contain "${expectedTheme}" but got "${text}"`,
+    );
+  },
+);
