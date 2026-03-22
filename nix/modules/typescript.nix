@@ -37,12 +37,29 @@
           pnpm
           pkgs.pnpmConfigHook
           pkgs.python3
+          pkgs.node-gyp
+          pkgs.pkg-config
         ];
 
         inherit pnpmDeps;
 
+        # Point node-gyp at Nix's Node headers (avoids download in sandbox).
+        # NIX_NODEJS_BUILDNPMPACKAGE works around pnpmConfigHook not setting
+        # it, which breaks node-gyp's distutils resolution (nixpkgs#385035).
+        env.npm_config_nodedir = nodejs;
+        env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
+
         buildPhase = ''
           runHook preBuild
+
+          # Build node-pty native addon from source. The npm tarball ships
+          # prebuilds for darwin/win only — linux needs compilation.
+          # pnpm rebuild doesn't reliably invoke node-gyp, so we call it
+          # directly in the pnpm virtual store.
+          pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
+          node-gyp rebuild
+          popd
+
           pnpm --filter kolu-client build
           runHook postBuild
         '';

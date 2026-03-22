@@ -6,6 +6,10 @@
         [ "x86_64-linux"
         , "aarch64-darwin"
         ]
+    , build.flakes =
+        [ "."
+        , "./nix/home/example" { overrideInputs = [("kolu", ".")] }
+        ]
     , signoff.enable = True
     , cache.url = Just "https://cache.nixos.asia/oss"
     }
