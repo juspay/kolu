@@ -21,6 +21,15 @@ Feature: Theme Switching
     Then the terminal background should be "#2e3440"
     And there should be no page errors
 
+  Scenario: Terminal accepts input after theme switch
+    When I open the command palette
+    And I type "Theme: Dracula" in the palette
+    And I press Enter
+    Then the command palette should not be visible
+    When I run "echo theme-input-test"
+    Then the terminal should contain "theme-input-test"
+    And there should be no page errors
+
   Scenario: Filter theme commands
     When I open the command palette
     And I type "Theme:" in the palette
