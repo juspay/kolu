@@ -6,14 +6,47 @@ import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { readFileSync } from "node:fs";
 import { appRouter } from "./router.ts";
 
-const { values: opts } = parseArgs({
-  options: {
-    host: { type: "string", default: "0.0.0.0" },
-    port: { type: "string", default: "7681" },
-  },
-});
+const VERSION = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+).version as string;
+
+const HELP = `kolu v${VERSION} — web-based terminal multiplexer
+
+Usage: kolu [options]
+
+Options:
+  --host <addr>   Address to listen on (default: 0.0.0.0)
+  --port <port>   Port to listen on (default: 7681)
+  --help          Show this help message
+  --version       Show version number`;
+
+let opts: { host?: string; port?: string; help?: boolean; version?: boolean };
+try {
+  ({ values: opts } = parseArgs({
+    options: {
+      host: { type: "string", default: "0.0.0.0" },
+      port: { type: "string", default: "7681" },
+      help: { type: "boolean", short: "h" },
+      version: { type: "boolean", short: "v" },
+    },
+  }));
+} catch (e) {
+  console.error(e instanceof Error ? e.message : e);
+  console.error(`\n${HELP}`);
+  process.exit(1);
+}
+
+if (opts.help) {
+  console.log(HELP);
+  process.exit(0);
+}
+if (opts.version) {
+  console.log(VERSION);
+  process.exit(0);
+}
 
 const app = new Hono();
 
