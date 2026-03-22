@@ -12,10 +12,11 @@
     "@hono/node-server": "^1.14.0",
     "@hono/node-ws": "^1.1.0",
     "@orpc/server": "^1.13.9",
-    "hono": "^4.7.0",
-    "kolu-common": "workspace:*",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
+    "citty": "^0.2.1",
+    "hono": "^4.7.0",
+    "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
     "ws": "^8.19.0",
     "zod": "^4.3.6"
