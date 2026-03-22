@@ -75,7 +75,7 @@
 
           # Verify kolu is listening on the default port
           machine.succeed(
-              "curl --fail --silent http://127.0.0.1:7681/ > /dev/null"
+              "curl --fail --silent http://127.0.0.1:7682/ > /dev/null"
           )
         '';
       };
