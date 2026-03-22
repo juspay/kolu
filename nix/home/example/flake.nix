@@ -64,11 +64,15 @@
           machine.wait_for_unit("multi-user.target")
           # Wait for alice's user session to come up
           machine.wait_for_unit("user@1000.service")
-          # The home-manager service should activate kolu
-          machine.succeed("sleep 5")  # give the user service time to start
+
+          # Use machinectl shell to get a proper user session with
+          # DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR set.
+          # Plain `su` doesn't set these, so systemctl --user fails.
+          machine.succeed("sleep 5")
           machine.succeed(
-              "su - alice -c 'systemctl --user status kolu.service'"
+              "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user is-active kolu.service"
           )
+
           # Verify kolu is listening on the default port
           machine.succeed(
               "curl --fail --silent http://127.0.0.1:7681/ > /dev/null"
