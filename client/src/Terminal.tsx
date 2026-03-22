@@ -127,6 +127,8 @@ const Terminal: Component<{
         terminal.renderer.setTheme(theme);
         terminal.reset();
         if (state) terminal.write(encoder.encode(state));
+        // reset() recreates ghostty's textarea, so re-focus it
+        focusInput();
       },
       { defer: true },
     ),
