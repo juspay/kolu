@@ -73,6 +73,13 @@ AfterAll(async function () {
 });
 
 Before(async function (this: KoluWorld) {
+  // Kill leftover terminals from previous scenarios so each starts with a clean slate
+  await fetch(`${BASE_URL}/rpc/terminal/killAll`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+
   this.browser = browser;
   this.context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
