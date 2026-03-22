@@ -124,7 +124,7 @@ const App: Component = () => {
 
   return (
     <div
-      class="flex flex-col h-screen"
+      class="flex flex-col h-dvh"
       style={{
         "background-color": chrome().bg,
         color: chrome().text,
