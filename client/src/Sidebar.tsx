@@ -32,13 +32,11 @@ const Sidebar: Component<{
         data-testid="sidebar"
         class="flex flex-col w-48 bg-slate-800 border-r border-slate-700 transition-transform duration-200 z-40"
         classList={{
-          // Mobile: absolute overlay
+          // Mobile: fixed overlay; desktop: in-flow
           "fixed inset-y-0 left-0 sm:relative sm:inset-auto": true,
-          // Hidden when closed
-          "-translate-x-full sm:translate-x-0": !props.open,
+          // Mobile closed: slide off-screen; desktop closed: display:none
+          "-translate-x-full sm:hidden": !props.open,
           "translate-x-0": props.open,
-          // When closed on desktop, hide completely
-          "sm:-translate-x-full sm:hidden": !props.open,
         }}
       >
         <button
