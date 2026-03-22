@@ -137,6 +137,21 @@ Then(
   },
 );
 
+// ── Click-to-focus (mobile tap-to-focus) ──
+
+When("I click the terminal canvas", async function (this: KoluWorld) {
+  // Click the body first to blur any focused element, then click the terminal
+  await this.page.locator("body").click({ position: { x: 0, y: 0 } });
+  await this.canvas.click();
+});
+
+Then("the terminal input should be focused", async function (this: KoluWorld) {
+  const focused = await this.page.evaluate(
+    () => !!document.activeElement?.closest("[data-visible]"),
+  );
+  assert.ok(focused, "Terminal input is not focused after clicking canvas");
+});
+
 // ── Zoom keystroke leak detection (intercept oRPC sendInput via WebSocket.send) ──
 
 Given("I intercept oRPC sendInput calls", async function (this: KoluWorld) {
