@@ -8,7 +8,7 @@
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
-import { cleanEnv, getLoginShell } from "./shell.ts";
+import { cleanEnv } from "./shell.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -36,7 +36,7 @@ export function spawnPty(opts: {
   onExit: (exitCode: number) => void;
 }): PtyHandle {
   const env = cleanEnv();
-  const shell = getLoginShell(env);
+  const shell = env.SHELL ?? "/bin/sh";
   const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,

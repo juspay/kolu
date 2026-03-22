@@ -5,12 +5,10 @@
  * beyond the measurement inputs.
  */
 
-import { ElementNotFoundError } from "kolu-common/errors";
-
 /** Measure cell dimensions from canvas size and known grid dimensions. */
 export function measureCells(el: HTMLElement, cols: number, rows: number) {
   const canvas = el.querySelector("canvas");
-  if (!canvas) throw new ElementNotFoundError("canvas", "terminal element");
+  if (!canvas) throw new Error("No canvas found in terminal element");
   const { width, height } = canvas.getBoundingClientRect();
   return { cellWidth: width / cols, cellHeight: height / rows };
 }

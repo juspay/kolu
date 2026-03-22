@@ -14,16 +14,3 @@ export class TerminalNotFoundError extends Error {
     this.name = "TerminalNotFoundError";
   }
 }
-
-/** A required DOM element was missing (e.g. ghostty canvas). */
-export class ElementNotFoundError extends Error {
-  readonly code = "ELEMENT_NOT_FOUND" as const;
-
-  constructor(selector: string, context?: string) {
-    const msg = context
-      ? `${selector} not found in ${context}`
-      : `${selector} not found`;
-    super(msg);
-    this.name = "ElementNotFoundError";
-  }
-}

@@ -44,7 +44,3 @@ export function cleanEnv(): Record<string, string> {
   return env;
 }
 
-/** Get the login shell from the clean env, with /bin/sh fallback. */
-export function getLoginShell(env: Record<string, string>): string {
-  return env.SHELL ?? "/bin/sh";
-}

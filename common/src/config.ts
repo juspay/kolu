@@ -14,6 +14,3 @@ export const DEFAULT_PORT = 7681;
 
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;
-
-/** localStorage key for persisted font size. */
-export const FONT_SIZE_KEY = "kolu-font-size";
