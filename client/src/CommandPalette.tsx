@@ -21,6 +21,7 @@ const CommandPalette: Component<{
   onClose: () => void;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
+  let panelRef!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
 
@@ -30,24 +31,30 @@ const CommandPalette: Component<{
     return props.commands.filter((cmd) => cmd.name.toLowerCase().includes(q));
   });
 
+  function execute(cmd: Command) {
+    cmd.onSelect();
+    props.onClose();
+  }
+
   function handleKeyDown(e: KeyboardEvent) {
     const items = filtered();
     switch (e.key) {
       case "ArrowDown":
+        if (items.length === 0) return;
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
         break;
       case "ArrowUp":
+        if (items.length === 0) return;
         e.preventDefault();
         setSelectedIndex((i) => Math.max(i - 1, 0));
         break;
-      case "Enter":
+      case "Enter": {
         e.preventDefault();
-        if (items[selectedIndex()]) {
-          items[selectedIndex()].onSelect();
-          props.onClose();
-        }
+        const selected = items[selectedIndex()];
+        if (selected) execute(selected);
         break;
+      }
       case "Escape":
         e.preventDefault();
         props.onClose();
@@ -66,8 +73,7 @@ const CommandPalette: Component<{
 
   // Close on click outside the palette panel
   makeEventListener(document, "mousedown", (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest("[data-testid='command-palette']")) {
+    if (!panelRef.contains(e.target as Node)) {
       props.onClose();
     }
   });
@@ -79,6 +85,7 @@ const CommandPalette: Component<{
     <div class="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]">
       <div class="fixed inset-0 bg-black/50" />
       <div
+        ref={panelRef}
         data-testid="command-palette"
         class="relative z-10 w-full max-w-md bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-hidden"
       >
@@ -109,10 +116,7 @@ const CommandPalette: Component<{
                       selectedIndex() !== i(),
                   }}
                   onMouseEnter={() => setSelectedIndex(i())}
-                  onClick={() => {
-                    cmd.onSelect();
-                    props.onClose();
-                  }}
+                  onClick={() => execute(cmd)}
                 >
                   {cmd.name}
                 </li>

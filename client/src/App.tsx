@@ -47,13 +47,18 @@ const App: Component = () => {
     setActiveId(info.id);
   }
 
-  const commands = createMemo<Command[]>(() =>
-    terminalIds().map((id, i) => ({
+  const commands = createMemo<Command[]>(() => [
+    {
+      id: "create-terminal",
+      name: "Create new terminal",
+      onSelect: () => void handleCreate(),
+    },
+    ...terminalIds().map((id, i) => ({
       id: `switch-terminal-${id}`,
       name: `Switch to Terminal ${i + 1}`,
       onSelect: () => setActiveId(id),
     })),
-  );
+  ]);
 
   // Cmd/Ctrl+K to toggle command palette
   makeEventListener(

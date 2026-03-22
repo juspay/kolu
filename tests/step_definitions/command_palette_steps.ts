@@ -10,24 +10,9 @@ When("I open the command palette", async function (this: KoluWorld) {
   await this.page.waitForTimeout(200);
 });
 
-When("I press Escape", async function (this: KoluWorld) {
-  await this.page.keyboard.press("Escape");
+When("I press {word}", async function (this: KoluWorld, key: string) {
+  await this.page.keyboard.press(key);
   await this.page.waitForTimeout(200);
-});
-
-When("I press Enter", async function (this: KoluWorld) {
-  await this.page.keyboard.press("Enter");
-  await this.page.waitForTimeout(200);
-});
-
-When("I press ArrowDown", async function (this: KoluWorld) {
-  await this.page.keyboard.press("ArrowDown");
-  await this.page.waitForTimeout(100);
-});
-
-When("I press ArrowUp", async function (this: KoluWorld) {
-  await this.page.keyboard.press("ArrowUp");
-  await this.page.waitForTimeout(100);
 });
 
 When("I click outside the command palette", async function (this: KoluWorld) {

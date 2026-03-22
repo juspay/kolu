@@ -59,6 +59,17 @@ Feature: Command Palette
     Then palette item 1 should be selected
     And there should be no page errors
 
+  Scenario: Create terminal via command palette
+    Given I note the sidebar entry count
+    When I open the command palette
+    And I type "Create" in the palette
+    Then the command palette should show 1 result
+    When I press Enter
+    Then the command palette should not be visible
+    And the sidebar should have 1 more terminal entry
+    And the terminal canvas should be visible
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette
