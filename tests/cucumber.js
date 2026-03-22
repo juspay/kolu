@@ -5,4 +5,11 @@ export const ui = {
   formatOptions: { snippetInterface: "async-await" },
 };
 
+/** Demo recording profile — runs only @demo scenarios. */
+export const demo = {
+  ...ui,
+  tags: "@demo",
+  format: ["progress-bar"],
+};
+
 export default {};

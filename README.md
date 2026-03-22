@@ -8,6 +8,8 @@
 
 Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
 
+https://github.com/juspay/kolu/raw/master/docs/demo.mp4
+
 > [!IMPORTANT]
 > Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
 
