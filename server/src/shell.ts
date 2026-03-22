@@ -43,4 +43,3 @@ export function cleanEnv(): Record<string, string> {
   env.PATH = process.env.PATH ?? "/usr/bin:/bin";
   return env;
 }
-

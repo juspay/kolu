@@ -20,11 +20,15 @@ import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import type { ITheme } from "ghostty-web";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
-import { DEFAULT_COLS, DEFAULT_ROWS, DEFAULT_FONT_SIZE } from "kolu-common/config";
-
-const FONT_SIZE_KEY = "kolu-font-size";
+import {
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  DEFAULT_FONT_SIZE,
+} from "kolu-common/config";
 import { measureCells, fitToContainer } from "./resize";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
+
+const FONT_SIZE_KEY = "kolu-font-size";
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 
