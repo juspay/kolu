@@ -2,17 +2,22 @@ import {
   type Component,
   createSignal,
   createResource,
+  createMemo,
   Show,
   For,
   Suspense,
   ErrorBoundary,
 } from "solid-js";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import Header, { type WsStatus } from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
+import CommandPalette, { type Command } from "./CommandPalette";
 import { THEME } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
+
+const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 
 const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
@@ -34,6 +39,8 @@ const App: Component = () => {
     return existing;
   });
 
+  const [paletteOpen, setPaletteOpen] = createSignal(false);
+
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate() {
     const info = await client.terminal.create();
@@ -41,8 +48,36 @@ const App: Component = () => {
     setActiveId(info.id);
   }
 
+  const commands = createMemo<Command[]>(() =>
+    terminalIds().map((id, i) => ({
+      id: `switch-terminal-${id}`,
+      name: `Switch to Terminal ${i + 1}`,
+      onSelect: () => setActiveId(id),
+    })),
+  );
+
+  // Cmd/Ctrl+K to toggle command palette
+  makeEventListener(
+    window,
+    "keydown",
+    (e: KeyboardEvent) => {
+      if ((isMac ? e.metaKey : e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        e.stopPropagation();
+        setPaletteOpen((prev) => !prev);
+      }
+    },
+    { capture: true },
+  );
+
   return (
     <div class="flex flex-col h-screen bg-slate-900 text-white">
+      <Show when={paletteOpen()}>
+        <CommandPalette
+          commands={commands()}
+          onClose={() => setPaletteOpen(false)}
+        />
+      </Show>
       <Header status={wsStatus()} />
       <div class="flex flex-1 min-h-0">
         <Sidebar
