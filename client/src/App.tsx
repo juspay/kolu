@@ -3,6 +3,7 @@ import {
   createSignal,
   createResource,
   Show,
+  Suspense,
   ErrorBoundary,
 } from "solid-js";
 import Header, { type WsStatus } from "./Header";
@@ -30,23 +31,27 @@ const App: Component = () => {
           class="h-full rounded border border-slate-700 overflow-hidden p-2"
           style={{ "background-color": THEME.background }}
         >
-          <ErrorBoundary
-            fallback={(err) => (
-              <div class="text-red-400 p-4">
-                Failed to connect: {String(err)}
-              </div>
-            )}
+          <Suspense
+            fallback={<div class="text-slate-400 p-4">Connecting...</div>}
           >
-            <Show when={terminalId()}>
-              {(id) => (
-                <Terminal
-                  terminalId={id()}
-                  onConnected={() => setWsStatus("open")}
-                  onExit={() => setWsStatus("closed")}
-                />
+            <ErrorBoundary
+              fallback={(err) => (
+                <div class="text-red-400 p-4">
+                  Failed to connect: {String(err)}
+                </div>
               )}
-            </Show>
-          </ErrorBoundary>
+            >
+              <Show when={terminalId()}>
+                {(id) => (
+                  <Terminal
+                    terminalId={id()}
+                    onConnected={() => setWsStatus("open")}
+                    onExit={() => setWsStatus("closed")}
+                  />
+                )}
+              </Show>
+            </ErrorBoundary>
+          </Suspense>
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import type { Component } from "solid-js";
+import { type Component, mergeProps } from "solid-js";
 
 /** WS connection status indicator colors. */
 const statusColors = {
@@ -9,18 +9,18 @@ const statusColors = {
 
 export type WsStatus = keyof typeof statusColors;
 
-const Header: Component<{ status?: WsStatus }> = (props) => {
-  const status = () => props.status ?? "connecting";
+const Header: Component<{ status?: WsStatus }> = (rawProps) => {
+  const props = mergeProps({ status: "connecting" as WsStatus }, rawProps);
 
   return (
     <header class="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm">kolu</span>
       <span
-        class={`ml-auto text-xs ${statusColors[status()]}`}
-        data-ws-status={status()}
+        class={`ml-auto text-xs ${statusColors[props.status]}`}
+        data-ws-status={props.status}
       >
-        ● {status()}
+        ● {props.status}
       </span>
     </header>
   );
