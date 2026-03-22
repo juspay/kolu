@@ -47,7 +47,7 @@
       };
 
       # VM test: boots the config and verifies kolu listens on its port
-      checks.${system}.vm-test = pkgs.nixosTest {
+      checks.${system}.vm-test = pkgs.testers.nixosTest {
         name = "kolu-service";
 
         nodes.machine = { ... }: {
