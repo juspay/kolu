@@ -201,6 +201,10 @@ const Terminal: Component<{
     );
     // Capture phase: intercept before ghostty's own keydown handler in bubble phase
     makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
+    // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
+    makeEventListener(containerRef, "contextmenu", (e: Event) =>
+      e.preventDefault(),
+    );
 
     onCleanup(() => {
       streamAbort?.abort();
