@@ -47,6 +47,11 @@ Feature: Terminal
     Then the file "/tmp/kolu-test-cols" should contain a number greater than 80
     And there should be no page errors
 
+  Scenario: Clicking terminal focuses input
+    When I click the terminal canvas
+    Then the terminal input should be focused
+    And there should be no page errors
+
   Scenario: Zoom changes font size
     Given I note the font size
     When I zoom in 1 time

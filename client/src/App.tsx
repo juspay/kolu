@@ -73,7 +73,7 @@ const App: Component = () => {
   );
 
   return (
-    <div class="flex flex-col h-screen bg-slate-900 text-white">
+    <div class="flex flex-col h-dvh bg-slate-900 text-white">
       <Show when={paletteOpen()}>
         <CommandPalette
           commands={commands()}

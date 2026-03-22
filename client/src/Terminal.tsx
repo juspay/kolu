@@ -233,12 +233,14 @@ const Terminal: Component<{
   return (
     <div
       ref={containerRef}
-      class="w-full h-full overflow-hidden"
+      // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
+      class="w-full h-full overflow-hidden touch-manipulation"
       // Hide via display:none (not unmount) to preserve ghostty canvas state and scrollback
       style={{ display: props.visible ? undefined : "none" }}
       data-terminal-id={props.terminalId}
       data-visible={props.visible ? "" : undefined}
       data-font-size={fontSize()}
+      onClick={() => focusInput()}
     />
   );
 };
