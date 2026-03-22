@@ -17,7 +17,7 @@ import {
   Show,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { isMac } from "./platform";
+import { isPlatformModifier } from "./keyboard";
 
 /** A command that can be executed from the palette. */
 export interface Command {
@@ -52,7 +52,7 @@ const CommandPalette: Component<{
     window,
     "keydown",
     (e: KeyboardEvent) => {
-      if ((isMac ? e.metaKey : e.ctrlKey) && e.key === "k") {
+      if (isPlatformModifier(e) && e.key === "k") {
         e.preventDefault();
         e.stopPropagation();
         props.onOpenChange(!props.open);

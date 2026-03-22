@@ -7,6 +7,7 @@
 import { implement } from "@orpc/server";
 import { once } from "node:events";
 import { contract } from "kolu-common/contract";
+import { TerminalNotFoundError } from "kolu-common/errors";
 import {
   createTerminal,
   getTerminal,
@@ -15,57 +16,15 @@ import {
   setTerminalTheme,
   type TerminalEntry,
 } from "./terminals.ts";
+import { subscribeAndYield } from "./streaming.ts";
 
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalEntry {
   const entry = getTerminal(id);
-  if (!entry) throw new Error(`Terminal ${id} not found`);
+  if (!entry) throw new TerminalNotFoundError(id);
   return entry;
-}
-
-/**
- * Subscribe to an emitter event and yield items as an async iterable.
- *
- * Subscribes BEFORE returning so callers can capture a snapshot between
- * subscription and first yield — any events firing in that gap are queued.
- * Terminates when the AbortSignal fires.
- */
-async function* subscribeAndYield(
-  emitter: TerminalEntry["emitter"],
-  signal: AbortSignal | undefined,
-): AsyncGenerator<string> {
-  const queue: string[] = [];
-  let resolveNext: (() => void) | null = null;
-
-  const listener = (data: string) => {
-    queue.push(data);
-    resolveNext?.();
-  };
-  emitter.on("data", listener);
-
-  const cleanup = () => {
-    emitter.off("data", listener);
-    resolveNext?.();
-  };
-  signal?.addEventListener("abort", cleanup, { once: true });
-
-  try {
-    while (!signal?.aborted) {
-      if (queue.length > 0) {
-        yield queue.shift()!;
-        continue;
-      }
-      await new Promise<void>((resolve) => {
-        resolveNext = resolve;
-      });
-      resolveNext = null;
-    }
-  } finally {
-    cleanup();
-    signal?.removeEventListener("abort", cleanup);
-  }
 }
 
 export const appRouter = t.router({
@@ -98,7 +57,7 @@ export const appRouter = t.router({
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the generator, not lost.
-      const live = subscribeAndYield(entry.emitter, signal);
+      const live = subscribeAndYield(entry.emitter, "data", signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;

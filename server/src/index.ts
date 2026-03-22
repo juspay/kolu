@@ -6,6 +6,7 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
+import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import pkg from "../package.json" with { type: "json" };
 
@@ -21,7 +22,7 @@ const argv = cli({
     port: {
       type: Number,
       description: "Port to listen on",
-      default: 7681,
+      default: DEFAULT_PORT,
     },
   },
   strictFlags: true,
