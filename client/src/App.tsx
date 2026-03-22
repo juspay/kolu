@@ -12,7 +12,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import Header, { type WsStatus } from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
-import CommandPalette, { type Command } from "./CommandPalette";
+import CommandPalette from "./CommandPalette";
 import { THEME } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
@@ -47,14 +47,12 @@ const App: Component = () => {
     setActiveId(info.id);
   }
 
-  const commands = createMemo<Command[]>(() => [
+  const commands = createMemo(() => [
     {
-      id: "create-terminal",
       name: "Create new terminal",
       onSelect: () => void handleCreate(),
     },
     ...terminalIds().map((id, i) => ({
-      id: `switch-terminal-${id}`,
       name: `Switch to Terminal ${i + 1}`,
       onSelect: () => setActiveId(id),
     })),

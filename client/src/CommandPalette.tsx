@@ -3,6 +3,7 @@ import {
   createSignal,
   createMemo,
   createEffect,
+  on,
   For,
   Show,
 } from "solid-js";
@@ -10,7 +11,6 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 
 /** A command that can be executed from the palette. */
 export interface Command {
-  id: string;
   name: string;
   onSelect: () => void;
 }
@@ -41,32 +41,30 @@ const CommandPalette: Component<{
     switch (e.key) {
       case "ArrowDown":
         if (items.length === 0) return;
-        e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
         break;
       case "ArrowUp":
         if (items.length === 0) return;
-        e.preventDefault();
         setSelectedIndex((i) => Math.max(i - 1, 0));
         break;
       case "Enter": {
-        e.preventDefault();
         const selected = items[selectedIndex()];
         if (selected) execute(selected);
         break;
       }
       case "Escape":
-        e.preventDefault();
         props.onClose();
         break;
+      default:
+        return; // Let unhandled keys (typing) reach the input naturally
     }
+    // Only reached for handled keys — prevent browser default and stop propagation to ghostty
+    e.preventDefault();
+    e.stopPropagation();
   }
 
-  // Reset selection when filter results change
-  createEffect(() => {
-    filtered();
-    setSelectedIndex(0);
-  });
+  // Reset selection when filter results change (defer: skip initial run)
+  createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
 
   // Focus input on mount
   requestAnimationFrame(() => inputRef?.focus());

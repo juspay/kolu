@@ -26,7 +26,7 @@ const Header: Component<{
         onClick={() => props.onOpenPalette?.()}
         title="Command palette"
       >
-        <kbd class="font-sans">{isMac ? "⌘" : "Ctrl+"}K</kbd>
+        <kbd class="font-sans">{isMac ? "⌘K" : "Ctrl+K"}</kbd>
       </button>
       <span
         class={`text-xs ${statusColors[props.status]}`}
