@@ -42,6 +42,24 @@ just test       # run e2e only, no signoff
 
 Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
 
+## Deployment (NixOS + home-manager)
+
+A home-manager module is provided to run kolu as a systemd user service:
+
+```nix
+{
+  imports = [ kolu.homeManagerModules.default ];
+  services.kolu = {
+    enable = true;
+    package = kolu.packages.${system}.default;
+    host = "127.0.0.1"; # default
+    port = 7681;         # default
+  };
+}
+```
+
+See [`nix/home/example/`](nix/home/example/) for a full NixOS configuration example with a VM test.
+
 ## Architecture
 
 pnpm workspace with three packages:
