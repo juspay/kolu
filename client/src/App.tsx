@@ -8,6 +8,7 @@ import {
   Suspense,
   ErrorBoundary,
 } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Header, { type WsStatus } from "./Header";
 import Sidebar from "./Sidebar";
@@ -22,14 +23,16 @@ const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
   const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
   const [activeId, setActiveId] = createSignal<string | null>(null);
-  // Per-terminal theme name (terminal ID → theme name)
-  const [terminalThemes, setTerminalThemes] = createSignal<
+  // Per-terminal theme name (terminal ID → theme name).
+  // createStore gives fine-grained reactivity per key — changing one terminal's
+  // theme doesn't cause other terminals to re-evaluate their theme prop.
+  const [terminalThemes, setTerminalThemes] = createStore<
     Record<string, string>
   >({});
 
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
-    return terminalThemes()[id] ?? DEFAULT_THEME_NAME;
+    return terminalThemes[id] ?? DEFAULT_THEME_NAME;
   }
 
   /** The active terminal's theme name (for header + palette filter). */
@@ -52,10 +55,14 @@ const App: Component = () => {
       const running = existing.find((t) => t.status === "running");
       // Prefer a running terminal; fall back to first (which may be exited)
       setActiveId(running?.id ?? ids[0]);
-      // Restore per-terminal themes from server
+      // Restore per-terminal themes from server (reconcile replaces entire store)
       setTerminalThemes(
-        Object.fromEntries(
-          existing.filter((t) => t.themeName).map((t) => [t.id, t.themeName!]),
+        reconcile(
+          Object.fromEntries(
+            existing
+              .filter((t) => t.themeName)
+              .map((t) => [t.id, t.themeName!]),
+          ),
         ),
       );
     }
@@ -75,7 +82,7 @@ const App: Component = () => {
   async function handleSetTheme(themeName: string) {
     const id = activeId();
     if (!id) return;
-    setTerminalThemes((prev) => ({ ...prev, [id]: themeName }));
+    setTerminalThemes(id, themeName);
     void client.terminal.setTheme({ id, themeName });
   }
 

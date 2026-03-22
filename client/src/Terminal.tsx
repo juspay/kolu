@@ -15,6 +15,7 @@ import {
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { makePersisted } from "@solid-primitives/storage";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import type { ITheme } from "ghostty-web";
 import { FONT_FAMILY } from "./theme";
@@ -78,8 +79,9 @@ const Terminal: Component<{
   let currentCols = 80;
   let currentRows = 24;
 
-  const [fontSize, setFontSize] = createSignal(
-    Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
+  const [fontSize, setFontSize] = makePersisted(
+    createSignal(DEFAULT_FONT_SIZE),
+    { name: FONT_SIZE_KEY, serialize: String, deserialize: Number },
   );
 
   let streamAbort: AbortController | null = null;
@@ -172,8 +174,7 @@ const Terminal: Component<{
 
   function updateFontSize(newSize: number) {
     if (!terminal) return;
-    setFontSize(newSize);
-    localStorage.setItem(FONT_SIZE_KEY, String(newSize));
+    setFontSize(newSize); // makePersisted auto-syncs to localStorage
     terminal.options.fontSize = newSize;
     remeasureAndFit();
   }
