@@ -17,6 +17,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
+import { currentTheme } from "./themes";
 import { client } from "./rpc";
 import { isMac } from "./platform";
 
@@ -87,16 +88,40 @@ const Terminal: Component<{
     containerRef.querySelector("textarea")?.focus();
   }
 
-  // Re-measure, fit, and auto-focus when terminal becomes visible (display:none → visible).
+  /** Force a full repaint so theme palette changes are visible. */
+  function forceRepaint() {
+    if (!terminal) return;
+    const t = terminal as any;
+    t.renderer?.render(t.wasmTerm, true, t.viewportY ?? 0, t);
+  }
+
+  // Re-measure, fit, force repaint, and auto-focus when terminal becomes visible.
   // defer: true skips the initial run (onMount handles first fit + focus).
-  // Placed at component body level for proper SolidJS reactive scope.
   createEffect(
     on(
       () => props.visible,
       (visible) => {
         if (!visible) return;
         remeasureAndFit();
+        // Theme may have changed while hidden — repaint with current palette
+        requestAnimationFrame(() => forceRepaint());
         focusInput();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Apply theme changes at runtime via ghostty's renderer
+  createEffect(
+    on(
+      () => currentTheme(),
+      (named) => {
+        if (!terminal) return;
+        const t = terminal as any;
+        if (!t.renderer) return;
+        t.renderer.setTheme(named.theme);
+        // Only repaint visible terminals — hidden ones repaint on visibility change
+        if (props.visible) forceRepaint();
       },
       { defer: true },
     ),
