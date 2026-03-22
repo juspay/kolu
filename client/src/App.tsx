@@ -32,17 +32,31 @@ const App: Component = () => {
 
   // Shared open state: CommandPalette owns it, Header can trigger it
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
+
+  function openPaletteWith(query: string) {
+    setPaletteInitialQuery(query);
+    setPaletteOpen(true);
+  }
+
+  // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
+  function handlePaletteOpenChange(open: boolean) {
+    setPaletteOpen(open);
+    if (!open) setPaletteInitialQuery("");
+  }
 
   return (
     <div class="flex flex-col h-dvh bg-slate-900 text-white">
       <CommandPalette
         commands={commands}
         open={paletteOpen()}
-        onOpenChange={setPaletteOpen}
+        onOpenChange={handlePaletteOpenChange}
+        initialQuery={paletteInitialQuery()}
       />
       <Header
         status={wsStatus()}
-        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenPalette={() => openPaletteWith("")}
+        onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
         cwd={activeCwd()}
       />

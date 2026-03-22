@@ -29,6 +29,7 @@ const CommandPalette: Component<{
   commands: Accessor<Command[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialQuery?: string;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   let panelRef!: HTMLDivElement;
@@ -104,7 +105,7 @@ const CommandPalette: Component<{
       () => props.open,
       (isOpen) => {
         if (isOpen) {
-          setQuery("");
+          setQuery(props.initialQuery ?? "");
           setSelectedIndex(0);
           requestAnimationFrame(() => inputRef?.focus());
         }
