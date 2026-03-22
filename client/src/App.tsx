@@ -13,12 +13,7 @@ import Header, { type WsStatus } from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
-import {
-  DEFAULT_THEME_NAME,
-  availableThemes,
-  getThemeByName,
-  getChromeColors,
-} from "./theme";
+import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
 import { isMac } from "./platform";
@@ -42,9 +37,6 @@ const App: Component = () => {
     const id = activeId();
     return getThemeByName(id ? getTerminalThemeName(id) : undefined);
   });
-
-  /** Chrome colors derived from the active terminal's theme. */
-  const chrome = createMemo(() => getChromeColors(activeTheme()));
 
   /** The active terminal's theme name (for header display). */
   const activeThemeName = createMemo(() => {
@@ -123,25 +115,17 @@ const App: Component = () => {
   );
 
   return (
-    <div
-      class="flex flex-col h-dvh"
-      style={{
-        "background-color": chrome().bg,
-        color: chrome().text,
-      }}
-    >
+    <div class="flex flex-col h-dvh bg-slate-900 text-white">
       <Show when={paletteOpen()}>
         <CommandPalette
           commands={commands()}
           onClose={() => setPaletteOpen(false)}
-          chrome={chrome()}
         />
       </Show>
       <Header
         status={wsStatus()}
         onOpenPalette={() => setPaletteOpen(true)}
         themeName={activeThemeName()}
-        chrome={chrome()}
       />
       <div class="flex flex-1 min-h-0">
         <Sidebar
@@ -149,16 +133,12 @@ const App: Component = () => {
           activeId={activeId()}
           onSelect={setActiveId}
           onCreate={handleCreate}
-          chrome={chrome()}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">
           <div
-            class="h-full rounded overflow-hidden p-2"
-            style={{
-              "background-color": activeTheme().background,
-              border: `1px solid ${chrome().border}`,
-            }}
+            class="h-full rounded border border-slate-700 overflow-hidden p-2"
+            style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary
               fallback={(err) => (
@@ -169,10 +149,7 @@ const App: Component = () => {
             >
               <Suspense
                 fallback={
-                  <div
-                    class="flex items-center justify-center h-full text-sm"
-                    style={{ color: chrome().textMuted }}
-                  >
+                  <div class="flex items-center justify-center h-full text-slate-500 text-sm">
                     Connecting...
                   </div>
                 }
@@ -182,8 +159,7 @@ const App: Component = () => {
                 <Show when={terminalIds().length === 0}>
                   <div
                     data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-sm"
-                    style={{ color: chrome().textMuted }}
+                    class="flex items-center justify-center h-full text-slate-500 text-sm"
                   >
                     Click + to create a terminal
                   </div>

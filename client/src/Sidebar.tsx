@@ -1,5 +1,4 @@
 import { type Component, For } from "solid-js";
-import type { ChromeColors } from "./theme";
 
 /** Sidebar — create button and terminal list with active highlight. */
 const Sidebar: Component<{
@@ -7,21 +6,15 @@ const Sidebar: Component<{
   activeId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
-  chrome?: ChromeColors;
 }> = (props) => {
   return (
     <aside
       data-testid="sidebar"
-      class="flex flex-col w-12"
-      style={{
-        "background-color": props.chrome?.surface,
-        "border-right": `1px solid ${props.chrome?.border}`,
-      }}
+      class="flex flex-col w-12 bg-slate-800 border-r border-slate-700"
     >
       <button
         data-testid="create-terminal"
-        class="p-2 text-lg transition-colors"
-        style={{ color: props.chrome?.textMuted }}
+        class="p-2 text-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
         onClick={props.onCreate}
         title="New terminal"
       >
@@ -33,15 +26,10 @@ const Sidebar: Component<{
             <button
               data-terminal-id={id}
               class="w-full p-2 text-xs text-center transition-colors"
-              style={{
-                "background-color":
-                  props.activeId === id
-                    ? props.chrome?.activeBg
-                    : "transparent",
-                color:
-                  props.activeId === id
-                    ? props.chrome?.text
-                    : props.chrome?.textMuted,
+              classList={{
+                "bg-slate-600 text-white": props.activeId === id,
+                "text-slate-400 hover:text-white hover:bg-slate-700":
+                  props.activeId !== id,
               }}
               onClick={() => props.onSelect(id)}
               title={id}
