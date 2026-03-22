@@ -30,3 +30,10 @@ Feature: Theme switching
     Then the header should show theme "Tomorrow Night"
     When I select terminal 1 in the sidebar
     Then the header should show theme "Dracula"
+
+  Scenario: Light theme adapts app chrome
+    When I open the command palette
+    And I type "Theme: Gruvbox Light" in the palette
+    And I press Enter
+    Then the header should have a light background
+    And there should be no page errors

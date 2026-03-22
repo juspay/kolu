@@ -60,14 +60,14 @@ Then(
 Then(
   "palette item {int} should be selected",
   async function (this: KoluWorld, index: number) {
-    // Selected item has bg-slate-600 class (0-based internally, 1-based in feature)
+    // Selected item has a non-transparent background-color inline style
     const items = this.page.locator(`${PALETTE_SELECTOR} li`);
     const item = items.nth(index - 1);
     await item.waitFor({ state: "visible", timeout: 3000 });
-    const classes = await item.getAttribute("class");
+    const style = await item.getAttribute("style");
     assert.ok(
-      classes?.includes("bg-slate-600"),
-      `Palette item ${index} is not selected (classes: ${classes})`,
+      style?.includes("background-color") && !style?.includes("transparent"),
+      `Palette item ${index} is not selected (style: ${style})`,
     );
   },
 );
