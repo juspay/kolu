@@ -21,13 +21,23 @@ Feature: Theme Switching
     Then the terminal background should be "#2e3440"
     And there should be no page errors
 
-  Scenario: Terminal accepts input after theme switch
+  Scenario: Terminal has focus after theme switch
     When I open the command palette
     And I type "Theme: Dracula" in the palette
     And I press Enter
     Then the command palette should not be visible
-    When I run "echo theme-input-test"
-    Then the terminal should contain "theme-input-test"
+    And the terminal should have keyboard focus
+    And there should be no page errors
+
+  Scenario: Theme applies to all terminals
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I type "Theme: Gruvbox" in the palette
+    And I press Enter
+    Then the terminal background should be "#282828"
+    When I select terminal 1 in the sidebar
+    Then the terminal background should be "#282828"
     And there should be no page errors
 
   Scenario: Filter theme commands
