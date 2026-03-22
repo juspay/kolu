@@ -22,18 +22,18 @@ const Sidebar: Component<{
       {/* Backdrop — mobile only, shown when sidebar is open */}
       <Show when={props.open}>
         <div
-          class="fixed inset-0 bg-black/50 z-30 sm:hidden"
+          data-testid="sidebar-backdrop"
+          class="absolute inset-0 bg-black/50 z-30 sm:hidden"
           onClick={() => props.onClose()}
         />
       </Show>
 
-      {/* Sidebar panel */}
+      {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
         class="flex flex-col w-48 bg-slate-800 border-r border-slate-700 transition-transform duration-200 z-40"
         classList={{
-          // Mobile: fixed overlay; desktop: in-flow
-          "fixed inset-y-0 left-0 sm:relative sm:inset-auto": true,
+          "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           // Mobile closed: slide off-screen; desktop closed: display:none
           "-translate-x-full sm:hidden": !props.open,
           "translate-x-0": props.open,

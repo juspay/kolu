@@ -3,6 +3,7 @@
 import {
   type Component,
   createSignal,
+  onCleanup,
   Show,
   For,
   Suspense,
@@ -33,10 +34,12 @@ const App: Component = () => {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
 
-  // Sidebar: open on desktop, closed on mobile
-  const [sidebarOpen, setSidebarOpen] = createSignal(
-    window.matchMedia("(min-width: 640px)").matches,
-  );
+  // Sidebar: open on desktop, closed on mobile. Syncs with viewport changes.
+  const smQuery = window.matchMedia("(min-width: 640px)");
+  const [sidebarOpen, setSidebarOpen] = createSignal(smQuery.matches);
+  const onBreakpoint = (e: MediaQueryListEvent) => setSidebarOpen(e.matches);
+  smQuery.addEventListener("change", onBreakpoint);
+  onCleanup(() => smQuery.removeEventListener("change", onBreakpoint));
 
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
@@ -72,7 +75,8 @@ const App: Component = () => {
         themeName={activeThemeName()}
         onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
-      <div class="flex flex-1 min-h-0">
+      {/* relative: anchor for sidebar's absolute overlay on mobile */}
+      <div class="relative flex flex-1 min-h-0">
         <Sidebar
           terminalIds={terminalIds()}
           activeId={activeId()}
