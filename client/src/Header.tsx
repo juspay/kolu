@@ -9,19 +9,11 @@ const statusColors: Record<WsStatus, string> = {
   closed: "text-red-400",
 };
 
-/** Replace $HOME prefix with ~ for compact display. */
+/** Replace home directory prefix with ~ for compact display. */
 function shortenCwd(cwd: string): string {
-  const home = typeof window !== "undefined" ? undefined : undefined;
-  // We don't have $HOME on the client, but the server sends absolute paths.
-  // Use a simple heuristic: /home/user/... → ~/...
-  const match = cwd.match(/^\/home\/[^/]+\/(.*)/);
-  if (match) return `~/${match[1]}`;
-  // Also handle /root/...
-  const rootMatch = cwd.match(/^\/root\/(.*)/);
-  if (rootMatch) return `~/${rootMatch[1]}`;
-  // Exact home dir match
-  if (/^\/home\/[^/]+\/?$/.test(cwd) || cwd === "/root") return "~";
-  return cwd;
+  // Heuristic: /home/<user>/... or /root/... → ~/...
+  const shortened = cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
+  return shortened || "~";
 }
 
 const Header: Component<{

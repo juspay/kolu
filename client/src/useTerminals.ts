@@ -1,6 +1,6 @@
 /** Terminal session state: manages terminal list, active selection, and per-terminal themes. */
 
-import { createSignal, createResource, createMemo, onCleanup } from "solid-js";
+import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";

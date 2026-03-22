@@ -21,7 +21,7 @@ export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
-  cwd: string;
+  readonly cwd: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
