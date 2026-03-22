@@ -74,18 +74,8 @@ signoff context +cmd:
     fi
 
 # Record MP4 demo (requires running server, e.g. just dev or just run)
-demo base_url="http://localhost:7681":
-    rm -rf tests/demo-frames
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && BASE_URL={{ base_url }} {{ nix_shell }} pnpm demo
-    nix develop ./docs/demo -c ffmpeg -y \
-        -framerate 10 -i tests/demo-frames/frame-%05d.png \
-        -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p \
-        -vf "scale=1280:-2" -movflags +faststart \
-        docs/demo.mp4
-    @echo "✅ docs/demo.mp4"
-    rm -rf tests/demo-frames
+demo:
+    nix run ./docs/demo
 
 # Run pre-commit hooks on all files
 pc:
