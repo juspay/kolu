@@ -33,6 +33,11 @@ const App: Component = () => {
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
 
+  // Sidebar: open on desktop, closed on mobile
+  const [sidebarOpen, setSidebarOpen] = createSignal(
+    window.matchMedia("(min-width: 640px)").matches,
+  );
+
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
     setPaletteOpen(true);
@@ -45,7 +50,15 @@ const App: Component = () => {
   }
 
   return (
-    <div class="flex flex-col h-dvh bg-slate-900 text-white">
+    <div
+      class="flex flex-col h-dvh bg-slate-900 text-white"
+      style={{
+        "padding-top": "env(safe-area-inset-top)",
+        "padding-bottom": "env(safe-area-inset-bottom)",
+        "padding-left": "env(safe-area-inset-left)",
+        "padding-right": "env(safe-area-inset-right)",
+      }}
+    >
       <CommandPalette
         commands={commands}
         open={paletteOpen()}
@@ -57,6 +70,7 @@ const App: Component = () => {
         onOpenPalette={() => openPaletteWith("")}
         onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
+        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
       />
       <div class="flex flex-1 min-h-0">
         <Sidebar
@@ -64,6 +78,8 @@ const App: Component = () => {
           activeId={activeId()}
           onSelect={setActiveId}
           onCreate={handleCreate}
+          open={sidebarOpen()}
+          onClose={() => setSidebarOpen(false)}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">
