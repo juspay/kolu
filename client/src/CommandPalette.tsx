@@ -2,18 +2,20 @@ import {
   type Component,
   createSignal,
   createMemo,
+  createEffect,
   For,
-  onCleanup,
   Show,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 
+/** A command that can be executed from the palette. */
 export interface Command {
   id: string;
   name: string;
   onSelect: () => void;
 }
 
+/** Searchable command palette overlay — Cmd/Ctrl+K to open, Escape to close. */
 const CommandPalette: Component<{
   commands: Command[];
   onClose: () => void;
@@ -53,17 +55,16 @@ const CommandPalette: Component<{
     }
   }
 
-  // Reset selection when filter changes
-  const trackFiltered = () => filtered().length;
-  createMemo(() => {
-    trackFiltered();
+  // Reset selection when filter results change
+  createEffect(() => {
+    filtered();
     setSelectedIndex(0);
   });
 
-  // Focus input on mount via ref callback
+  // Focus input on mount
   requestAnimationFrame(() => inputRef?.focus());
 
-  // Close on click outside
+  // Close on click outside the palette panel
   makeEventListener(document, "mousedown", (e) => {
     const target = e.target as HTMLElement;
     if (!target.closest("[data-testid='command-palette']")) {
@@ -71,7 +72,7 @@ const CommandPalette: Component<{
     }
   });
 
-  // Prevent terminal from capturing keystrokes while palette is open
+  // Capture phase: intercept before ghostty's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
   return (

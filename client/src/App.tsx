@@ -16,8 +16,7 @@ import CommandPalette, { type Command } from "./CommandPalette";
 import { THEME } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
-
-const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+import { isMac } from "./platform";
 
 const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
