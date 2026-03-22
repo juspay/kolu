@@ -1,4 +1,4 @@
-import { defineCommand, runMain } from "citty";
+import { defineCommand, runMain, showUsage } from "citty";
 import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
@@ -35,6 +35,24 @@ const main = defineCommand({
     startServer(args.host, Number(args.port));
   },
 });
+
+// Reject unknown flags (citty silently ignores them)
+const knownFlags = new Set([
+  "--host",
+  "--port",
+  "--help",
+  "-h",
+  "--version",
+  "-v",
+]);
+const unknownFlag = process.argv
+  .slice(2)
+  .find((a) => a.startsWith("-") && !knownFlags.has(a.split("=")[0]!));
+if (unknownFlag) {
+  console.error(`Unknown option: ${unknownFlag}\n`);
+  await showUsage(main);
+  process.exit(1);
+}
 
 runMain(main);
 
