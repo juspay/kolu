@@ -109,8 +109,11 @@ const Terminal: Component<{
       () => currentTheme(),
       (named) => {
         if (!terminal) return;
-        // renderer.setTheme() is the supported way to update colors after open()
-        (terminal as any).renderer?.setTheme(named.theme);
+        const t = terminal as any;
+        if (!t.renderer) return;
+        t.renderer.setTheme(named.theme);
+        // setTheme only updates the palette — force a full repaint
+        t.renderer.render(t.wasmTerm, true, t.viewportY ?? 0, t);
       },
       { defer: true },
     ),

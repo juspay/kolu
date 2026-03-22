@@ -81,7 +81,15 @@ const App: Component = () => {
       <Show when={paletteOpen()}>
         <CommandPalette
           commands={commands()}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => {
+            setPaletteOpen(false);
+            // Re-focus the active terminal's textarea after palette closes
+            requestAnimationFrame(() => {
+              document
+                .querySelector<HTMLTextAreaElement>("[data-visible] textarea")
+                ?.focus();
+            });
+          }}
         />
       </Show>
       <Header status={wsStatus()} onOpenPalette={() => setPaletteOpen(true)} />
