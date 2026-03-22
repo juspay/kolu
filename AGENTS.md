@@ -13,6 +13,10 @@
 
 - Extract reusable UI into SolidJS components (one component per file in `client/src/`).
 
+## CI
+
+- After implementing a `/factually` plan approved by the user, open a draft PR and run `just ci` to create signoffs on success.
+
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
