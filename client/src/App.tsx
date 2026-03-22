@@ -1,9 +1,10 @@
 import {
   type Component,
   createSignal,
-  onMount,
+  createResource,
   Show,
   For,
+  Suspense,
   ErrorBoundary,
 } from "solid-js";
 import Header, { type WsStatus } from "./Header";
@@ -11,17 +12,16 @@ import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import { THEME } from "./theme";
 import { client } from "./rpc";
+import type { TerminalInfo } from "kolu-common";
 
 const App: Component = () => {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
   const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
   const [activeId, setActiveId] = createSignal<string | null>(null);
-  // Prevents empty-state flash while onMount restores terminals from server
-  const [loaded, setLoaded] = createSignal(false);
 
   // Restore existing terminals on page load (e.g. after browser refresh).
   // A successful list() call proves the WebSocket is connected.
-  onMount(async () => {
+  const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
     setWsStatus("open");
     if (existing.length > 0) {
@@ -31,7 +31,7 @@ const App: Component = () => {
       // Prefer a running terminal; fall back to first (which may be exited)
       setActiveId(running?.id ?? ids[0]);
     }
-    setLoaded(true);
+    return existing;
   });
 
   /** Create a new terminal on the server, add it to the list, and make it active. */
@@ -64,19 +64,29 @@ const App: Component = () => {
                 </div>
               )}
             >
-              <Show when={loaded() && terminalIds().length === 0}>
-                <div
-                  data-testid="empty-state"
-                  class="flex items-center justify-center h-full text-slate-500 text-sm"
-                >
-                  Click + to create a terminal
-                </div>
-              </Show>
-              <For each={terminalIds()}>
-                {(id) => (
-                  <Terminal terminalId={id} visible={activeId() === id} />
-                )}
-              </For>
+              <Suspense
+                fallback={
+                  <div class="flex items-center justify-center h-full text-slate-500 text-sm">
+                    Connecting...
+                  </div>
+                }
+              >
+                {/* Read the resource to trigger Suspense while it loads */}
+                {void existingTerminals()}
+                <Show when={terminalIds().length === 0}>
+                  <div
+                    data-testid="empty-state"
+                    class="flex items-center justify-center h-full text-slate-500 text-sm"
+                  >
+                    Click + to create a terminal
+                  </div>
+                </Show>
+                <For each={terminalIds()}>
+                  {(id) => (
+                    <Terminal terminalId={id} visible={activeId() === id} />
+                  )}
+                </For>
+              </Suspense>
             </ErrorBoundary>
           </div>
         </div>

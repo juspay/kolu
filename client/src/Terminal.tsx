@@ -13,6 +13,8 @@ import {
   createEffect,
   on,
 } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
 import { client } from "./rpc";
@@ -193,14 +195,14 @@ const Terminal: Component<{
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
-    const observer = new ResizeObserver(() => void fit());
-    observer.observe(containerRef);
+    createResizeObserver(
+      () => containerRef,
+      () => void fit(),
+    );
     // Capture phase: intercept before ghostty's own keydown handler in bubble phase
-    window.addEventListener("keydown", handleZoomKeys, { capture: true });
+    makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {
-      window.removeEventListener("keydown", handleZoomKeys, { capture: true });
-      observer.disconnect();
       streamAbort?.abort();
       terminal?.dispose();
     });
