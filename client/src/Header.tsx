@@ -12,6 +12,7 @@ const statusColors: Record<WsStatus, string> = {
 const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
+  onThemeClick?: () => void;
   themeName?: string;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
@@ -23,9 +24,14 @@ const Header: Component<{
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
-          <span class="px-2 py-0.5 text-xs text-slate-400 bg-slate-700/50 rounded">
+          <button
+            data-testid="theme-name"
+            class="px-2 py-0.5 text-xs text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-600/50 rounded transition-colors cursor-pointer"
+            onClick={() => props.onThemeClick?.()}
+            title="Change theme"
+          >
             {props.themeName}
-          </span>
+          </button>
         )}
         <button
           data-testid="palette-trigger"
