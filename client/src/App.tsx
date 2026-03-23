@@ -15,6 +15,7 @@ import CommandPalette from "./CommandPalette";
 import { getThemeByName } from "./theme";
 import { wsStatus } from "./rpc";
 import { useTerminals } from "./useTerminals";
+import { useSidebar } from "./useSidebar";
 
 const App: Component = () => {
   const {
@@ -28,6 +29,8 @@ const App: Component = () => {
     getTerminalThemeName,
     commands,
   } = useTerminals();
+
+  const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
 
   // Shared open state: CommandPalette owns it, Header can trigger it
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -45,7 +48,15 @@ const App: Component = () => {
   }
 
   return (
-    <div class="flex flex-col h-dvh bg-slate-900 text-white">
+    <div
+      class="flex flex-col h-dvh bg-slate-900 text-white"
+      style={{
+        "padding-top": "env(safe-area-inset-top)",
+        "padding-bottom": "env(safe-area-inset-bottom)",
+        "padding-left": "env(safe-area-inset-left)",
+        "padding-right": "env(safe-area-inset-right)",
+      }}
+    >
       <CommandPalette
         commands={commands}
         open={paletteOpen()}
@@ -57,13 +68,17 @@ const App: Component = () => {
         onOpenPalette={() => openPaletteWith("")}
         onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
+        onToggleSidebar={toggleSidebar}
       />
-      <div class="flex flex-1 min-h-0">
+      {/* relative: anchor for sidebar's absolute overlay on mobile */}
+      <div class="relative flex flex-1 min-h-0">
         <Sidebar
           terminalIds={terminalIds()}
           activeId={activeId()}
           onSelect={setActiveId}
           onCreate={handleCreate}
+          open={sidebarOpen()}
+          onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">
