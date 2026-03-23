@@ -9,7 +9,7 @@ import * as pty from "node-pty";
 import { createRequire } from "node:module";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import { cleanEnv } from "./shell.ts";
-import { log } from "./log.ts";
+import type { Logger } from "./log.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -33,13 +33,14 @@ export interface PtyHandle {
 
 /** Spawn a shell in a PTY, calling back on data and exit. */
 export function spawnPty(opts: {
+  log: Logger;
   onData: (data: string) => void;
   onExit: (exitCode: number) => void;
 }): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
-  log.info({ shell, cwd }, "spawning pty");
+  opts.log.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
@@ -47,7 +48,7 @@ export function spawnPty(opts: {
     cwd,
     env,
   });
-  log.info({ pid: proc.pid }, "pty spawned");
+  opts.log.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.

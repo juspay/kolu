@@ -42,13 +42,15 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
 /** Create a new terminal, spawn a PTY process. */
 export function createTerminal(): TerminalInfo {
   const id = `term-${nextId++}`;
+  const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
 
   const handle = spawnPty({
+    log: tlog,
     onData: (data) => emitter.emit("data", data),
     // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
     onExit: (exitCode) => {
-      log.info({ id, exitCode }, "terminal exited");
+      tlog.info({ exitCode }, "exited");
       const entry = terminals.get(id);
       if (entry) terminals.set(id, { ...entry, status: "exited", exitCode });
       emitter.emit("exit", exitCode);
@@ -57,7 +59,7 @@ export function createTerminal(): TerminalInfo {
 
   const entry: TerminalEntry = { handle, status: "running", emitter };
   terminals.set(id, entry);
-  log.info({ id, pid: handle.pid, total: terminals.size }, "terminal created");
+  tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   return toInfo(id, entry);
 }
 
@@ -81,7 +83,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const entry = terminals.get(id);
   if (!entry) return undefined;
 
-  log.info({ id, pid: entry.handle.pid }, "killing terminal");
+  log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   entry.handle.dispose();
   const killed: TerminalEntry = {
     ...entry,
