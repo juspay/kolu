@@ -63,9 +63,11 @@ export function spawnPty(
   tlog.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal for OSC 7 parsing and device query responses.
+  // allowProposedApi is required for parser.registerOscHandler().
   const headless = new Terminal({
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
+    allowProposedApi: true,
   });
 
   // Raw PTY output buffer — replayed on reconnect so ghostty sees the
