@@ -1,9 +1,12 @@
 /**
  * Cucumber hooks — browser lifecycle + server health check.
  *
- * When running in parallel (--parallel N), each worker spawns its own
- * server on a random available port (via get-port), so multiple test
- * runs (including across worktrees) never collide.
+ * Two modes:
+ *  - BASE_URL set → reuse an existing server (e.g. `just test-dev`)
+ *  - KOLU_BIN set → each worker spawns the binary on a random port
+ *
+ * Random ports (via get-port) let parallel runs across worktrees
+ * coexist without port collisions.
  */
 
 import { Before, After, BeforeAll, AfterAll, Status } from "@cucumber/cucumber";
@@ -56,25 +59,24 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
 }
 
 BeforeAll(async function () {
-  // Start server if not reusing
+  // Start server if not reusing an existing one
   if (process.env.BASE_URL) {
     baseUrl = process.env.BASE_URL;
   } else {
+    const koluBin = process.env.KOLU_BIN;
+    if (!koluBin)
+      throw new Error("Set BASE_URL (reuse server) or KOLU_BIN (spawn server)");
+
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    serverProcess = spawn(
-      "nix",
-      ["run", "..#default", "--", "--port", String(port)],
-      {
-        stdio: "pipe",
-        cwd: path.resolve(import.meta.dirname, ".."),
-      },
-    );
+    serverProcess = spawn(koluBin, ["--port", String(port)], {
+      stdio: "pipe",
+    });
     serverProcess.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[server:${workerId}] ${data}`);
     });
-    await waitForHealth(`${baseUrl}/api/health`, 600_000);
+    await waitForHealth(`${baseUrl}/api/health`, 30_000);
     console.log(`[worker:${workerId}] Server is healthy.`);
   }
 

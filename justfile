@@ -22,11 +22,14 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
-# Run Cucumber e2e tests (starts server via nix run), parallelized across 3 workers
+# Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test:
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && CUCUMBER_PARALLEL=3 {{ nix_shell }} pnpm test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    KOLU_BIN="$(nix build --print-out-paths)/bin/kolu"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_BIN="$KOLU_BIN" CUCUMBER_PARALLEL=3 {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
