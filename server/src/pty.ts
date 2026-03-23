@@ -41,20 +41,17 @@ export function spawnPty(
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
   },
-  clipboard?: { shimBinDir?: string; clipboardDir: string },
+  clipboard: { shimBinDir: string; clipboardDir: string },
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
 
-  // Pass clipboard shim dir as extraPath — injected into the shell rc
-  // wrapper AFTER the user's rc (NixOS rebuilds PATH during shell init).
-  const osc7 = osc7Init(shell, env.HOME, clipboard?.shimBinDir);
+  // Inject clipboard shim dir into shell rc AFTER the user's rc —
+  // NixOS rebuilds PATH during shell init, so env-level PATH gets lost.
+  const osc7 = osc7Init(shell, env.HOME, clipboard.shimBinDir);
   Object.assign(env, osc7.env);
-
-  if (clipboard) {
-    env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
-  }
+  env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
 
   tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, osc7.args, {

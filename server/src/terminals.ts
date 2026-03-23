@@ -13,9 +13,8 @@ import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import {
-  getClipboardShimDir,
+  CLIPBOARD_SHIM_DIR,
   createClipboardDir,
-  saveClipboardImage,
   cleanupClipboardDir,
 } from "./clipboard.ts";
 
@@ -74,7 +73,6 @@ export function createTerminal(): TerminalInfo {
   const id = `term-${nextId++}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
-  const shimBinDir = getClipboardShimDir();
   const clipboardDir = createClipboardDir(id);
 
   const handle = spawnPty(
@@ -97,7 +95,7 @@ export function createTerminal(): TerminalInfo {
       },
       onCwd: (cwd) => emitter.emit("cwd", cwd),
     },
-    { shimBinDir, clipboardDir },
+    { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
   );
 
   const entry: TerminalEntry = {
@@ -136,13 +134,6 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   };
   terminals.set(id, killed);
   return toInfo(id, killed);
-}
-
-/** Save a base64-encoded image to the terminal's clipboard shim directory. */
-export function pasteImageToTerminal(id: TerminalId, base64Data: string): void {
-  const entry = terminals.get(id);
-  if (!entry) return;
-  saveClipboardImage(entry.clipboardDir, base64Data);
 }
 
 /** Set the theme name for a terminal. */

@@ -14,23 +14,17 @@
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { log } from "./log.ts";
 
-let shimDirResolved = false;
-let shimDir: string | undefined;
-
-/** Resolve the clipboard shim bin directory from the environment (cached, logged once). */
-export function getClipboardShimDir(): string | undefined {
-  if (shimDirResolved) return shimDir;
-  shimDirResolved = true;
-  shimDir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
-  if (shimDir) {
-    log.info({ shimBinDir: shimDir }, "clipboard shims available");
-  } else {
-    log.warn("KOLU_CLIPBOARD_SHIM_DIR not set — Ctrl+V image paste disabled");
+/** Clipboard shim bin directory — required, crashes on startup if missing. */
+export const CLIPBOARD_SHIM_DIR = (() => {
+  const dir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
+  if (!dir) {
+    throw new Error(
+      "KOLU_CLIPBOARD_SHIM_DIR must be set (points to the Nix-built xclip/wl-paste shim bin directory)",
+    );
   }
-  return shimDir;
-}
+  return dir;
+})();
 
 /** Create a per-terminal clipboard directory (namespaced by PID to avoid collisions between parallel workers). */
 export function createClipboardDir(terminalId: string): string {

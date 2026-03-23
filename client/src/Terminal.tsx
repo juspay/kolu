@@ -54,12 +54,11 @@ function consumeStream<T>(
   })();
 }
 
-/** ArrayBuffer → base64 string without stack overflow (chunked conversion). */
+/** ArrayBuffer → base64 without stack overflow (spread on large arrays blows the stack). */
 function bufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  return btoa(
+    Array.from(new Uint8Array(buf), (b) => String.fromCharCode(b)).join(""),
+  );
 }
 
 /**

@@ -43,12 +43,11 @@
         exit 1
       '';
 
-      clipboard-shims = pkgs.symlinkJoin {
+    in
+    {
+      packages.clipboard-shims = pkgs.symlinkJoin {
         name = "kolu-clipboard-shims";
         paths = [ xclip-shim wl-paste-shim ];
       };
-    in
-    {
-      packages.clipboard-shims = clipboard-shims;
     };
 }
