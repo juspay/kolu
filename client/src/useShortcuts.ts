@@ -8,7 +8,8 @@ interface ShortcutDeps {
   terminalIds: Accessor<string[]>;
   activeId: Accessor<string | null>;
   setActiveId: Setter<string | null>;
-  handleCreate: () => void;
+  handleCreate: (cwd?: string) => void;
+  activeCwd: Accessor<string | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
 }
@@ -36,6 +37,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
     if (digit <= ids.length) deps.setActiveId(ids[digit - 1]);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.createTerminalInCwd.keybind)) {
+    deps.handleCreate(deps.activeCwd() ?? undefined);
     return true;
   }
 

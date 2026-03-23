@@ -68,8 +68,8 @@ function touchActivity(entry: TerminalBase): void {
   }, IDLE_MS);
 }
 
-/** Create a new terminal, spawn a PTY process. */
-export function createTerminal(): TerminalInfo {
+/** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
+export function createTerminal(cwd?: string): TerminalInfo {
   const id = `term-${nextId++}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
@@ -96,6 +96,7 @@ export function createTerminal(): TerminalInfo {
       onCwd: (cwd) => emitter.emit("cwd", cwd),
     },
     { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
+    cwd,
   );
 
   const entry: TerminalEntry = {

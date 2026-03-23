@@ -42,10 +42,11 @@ export function spawnPty(
     onCwd?: (cwd: string) => void;
   },
   clipboard: { shimBinDir: string; clipboardDir: string },
+  spawnCwd?: string,
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
-  const cwd = env.HOME || "/";
+  const cwd = spawnCwd || env.HOME || "/";
 
   // Inject clipboard shim dir into shell rc AFTER the user's rc —
   // NixOS rebuilds PATH during shell init, so env-level PATH gets lost.

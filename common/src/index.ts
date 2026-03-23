@@ -44,6 +44,10 @@ export const TerminalSetThemeInputSchema = z.object({
   themeName: z.string(),
 });
 
+export const TerminalCreateInputSchema = z.object({
+  cwd: z.string().optional(),
+});
+
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();

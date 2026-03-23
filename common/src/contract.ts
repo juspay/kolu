@@ -7,6 +7,7 @@
 import { oc, eventIterator } from "@orpc/contract";
 import {
   TerminalInfoSchema,
+  TerminalCreateInputSchema,
   TerminalResizeInputSchema,
   TerminalSendInputSchema,
   TerminalSetThemeInputSchema,
@@ -25,7 +26,7 @@ export const contract = oc.router({
     info: oc.output(ServerInfoSchema),
   },
   terminal: {
-    create: oc.output(TerminalInfoSchema),
+    create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
     list: oc.output(z.array(TerminalInfoSchema)),
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),

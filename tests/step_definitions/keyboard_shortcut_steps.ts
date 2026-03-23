@@ -32,6 +32,14 @@ When("I press the create terminal shortcut", async function (this: KoluWorld) {
   await this.page.waitForTimeout(500);
 });
 
+When(
+  "I press the create terminal in cwd shortcut",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press(`${MOD_KEY}+Shift+t`);
+    await this.page.waitForTimeout(500);
+  },
+);
+
 When("I click outside the shortcuts help", async function (this: KoluWorld) {
   await this.page.mouse.click(10, 10);
   await this.page.waitForTimeout(200);
