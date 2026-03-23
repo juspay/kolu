@@ -4,19 +4,15 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
 
-const themesJsonPath = process.env.KOLU_THEMES_JSON;
-if (!themesJsonPath) {
-  throw new Error(
-    "KOLU_THEMES_JSON env var is not set. Run inside the Nix devShell (just dev).",
-  );
+/** Require a Nix-provided env var, failing fast outside the devShell. */
+function nixEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} is not set. Run inside the Nix devShell.`);
+  return v;
 }
 
-const ghosttyWebPkgPath = process.env.GHOSTTY_WEB_PKG;
-if (!ghosttyWebPkgPath) {
-  throw new Error(
-    "GHOSTTY_WEB_PKG env var is not set. Run inside the Nix devShell (just dev).",
-  );
-}
+const themesJsonPath = nixEnv("KOLU_THEMES_JSON");
+const ghosttyWebPkgPath = nixEnv("GHOSTTY_WEB_PKG");
 
 export default defineConfig({
   plugins: [

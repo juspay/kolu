@@ -7,21 +7,28 @@
       ghosttyThemes = pkgs.callPackage ../ghostty-themes { };
 
       # Build ghostty-web from git (latest) as a fixed-output derivation.
-      # The upstream flake's build can't run in Nix sandbox (bun install
-      # needs network), so we use a FOD which allows network access.
-      # fetchGit with submodules=true fetches the ghostty zig submodule.
-      ghosttyWebSrc = builtins.fetchGit {
-        url = "https://github.com/coder/ghostty-web.git";
-        rev = inputs.ghostty-web.rev;
-        submodules = true;
-      };
-      zig = inputs.ghostty-web.inputs.zig-overlay.packages.${pkgs.system}."0.15.2";
+      # The upstream flake can't build in Nix sandbox (bun needs network),
+      # so we use a FOD. fetchGit with submodules=true pulls the ghostty
+      # zig source needed for WASM compilation.
+      #
+      # To update: `nix flake update ghostty-web`, then replace outputHash
+      # with an empty string, build, and paste the hash Nix reports.
       ghosttyWebPkg = pkgs.stdenv.mkDerivation {
         pname = "ghostty-web";
         version = "0.0.0-git+${inputs.ghostty-web.shortRev or "latest"}";
-        src = ghosttyWebSrc;
+        src = builtins.fetchGit {
+          url = "https://github.com/coder/ghostty-web.git";
+          rev = inputs.ghostty-web.rev;
+          submodules = true;
+        };
 
-        nativeBuildInputs = [ pkgs.bun pkgs.nodejs_22 pkgs.cacert zig pkgs.git ];
+        nativeBuildInputs = [
+          pkgs.bun
+          pkgs.nodejs_22
+          pkgs.cacert
+          pkgs.git
+          inputs.ghostty-web.inputs.zig-overlay.packages.${pkgs.system}."0.15.2"
+        ];
 
         # FOD: allows network access for bun install; output verified by hash.
         outputHashMode = "recursive";
@@ -36,18 +43,13 @@
 
           bun install --frozen-lockfile
 
-          # The build script uses git apply on the ghostty submodule,
-          # which requires a git repo. Set up minimal repos.
+          # The build script uses git-apply on the ghostty submodule,
+          # which requires a git repo with a commit to diff against.
           git -C ghostty init
           git -C ghostty add -A
           git -C ghostty commit -m init
-          git init
-          git add -A
-          git commit -m init
 
-          # Fix shebang in build script (uses /bin/bash)
           patchShebangs scripts/
-
           bun run build
         '';
 
