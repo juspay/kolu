@@ -102,8 +102,8 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current state immediately
-      yield entry.status === "running" && entry.isActive;
+      // Yield current state immediately (isActive lives on TerminalBase, always available)
+      yield entry.isActive;
 
       // Then stream changes (activity events emit booleans)
       yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);

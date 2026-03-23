@@ -57,18 +57,16 @@ export function useTerminals() {
     return id ? (terminalCwds[id] ?? null) : null;
   });
 
-  /** Subscribe to activity state changes for a terminal. */
-  function subscribeActivity(id: string) {
+  /** Fire-and-forget stream subscription with AbortController cleanup. */
+  function subscribeStream<T>(
+    startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+    onValue: (value: T) => void,
+  ): () => void {
     const controller = new AbortController();
     (async () => {
       try {
-        const stream = await client.terminal.onActivityChange(
-          { id },
-          { signal: controller.signal },
-        );
-        for await (const isActive of stream) {
-          setTerminalActivity(id, isActive);
-        }
+        const stream = await startStream(controller.signal);
+        for await (const value of stream) onValue(value);
       } catch {
         // Stream aborted or terminal gone — expected on cleanup
       }
@@ -78,21 +76,18 @@ export function useTerminals() {
 
   /** Subscribe to CWD changes for a terminal. Called when terminal is created or restored. */
   function subscribeCwd(id: string) {
-    const controller = new AbortController();
-    (async () => {
-      try {
-        const stream = await client.terminal.onCwdChange(
-          { id },
-          { signal: controller.signal },
-        );
-        for await (const cwd of stream) {
-          setTerminalCwds(id, cwd);
-        }
-      } catch {
-        // Stream aborted or terminal gone — expected on cleanup
-      }
-    })();
-    return () => controller.abort();
+    return subscribeStream(
+      (signal) => client.terminal.onCwdChange({ id }, { signal }),
+      (cwd) => setTerminalCwds(id, cwd),
+    );
+  }
+
+  /** Subscribe to activity state changes for a terminal. */
+  function subscribeActivity(id: string) {
+    return subscribeStream(
+      (signal) => client.terminal.onActivityChange({ id }, { signal }),
+      (isActive) => setTerminalActivity(id, isActive),
+    );
   }
 
   // Restore existing terminals on page load (e.g. after browser refresh).
@@ -131,7 +126,8 @@ export function useTerminals() {
     const info = await client.terminal.create();
     setTerminalIds((prev) => [...prev, info.id]);
     setActiveId(info.id);
-    if (info.status === "running") setTerminalActivity(info.id, info.isActive);
+    // New terminals always start active (server spawns PTY with initial output)
+    setTerminalActivity(info.id, true);
     subscribeCwd(info.id);
     subscribeActivity(info.id);
   }
