@@ -3,6 +3,7 @@
 import {
   type Component,
   createSignal,
+  createEffect,
   Show,
   For,
   Suspense,
@@ -14,6 +15,7 @@ import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { getThemeByName } from "./theme";
+import { shortenCwd } from "./path";
 import { wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
@@ -54,6 +56,12 @@ const App: Component = () => {
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
+  });
+
+  // Sync browser tab title with active terminal's CWD
+  createEffect(() => {
+    const cwd = activeCwd();
+    document.title = cwd ? `${shortenCwd(cwd)} — kolu` : "kolu";
   });
 
   function openPaletteWith(query: string) {
