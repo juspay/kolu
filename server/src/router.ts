@@ -5,7 +5,7 @@
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
-import { once } from "node:events";
+
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
@@ -136,12 +136,16 @@ export const appRouter = t.router({
         return;
       }
 
-      // events.once() handles abort cleanup internally — no manual listener wiring needed
-      const [exitCode] = (await once(entry.emitter, "exit", {
+      // Use subscribeAndYield instead of events.once() — it handles abort
+      // gracefully (clean return, no thrown AbortError) when clients disconnect.
+      for await (const exitCode of subscribeAndYield<number>(
+        entry.emitter,
+        "exit",
         signal,
-      })) as [number];
-
-      if (!signal?.aborted) yield exitCode;
+      )) {
+        yield exitCode;
+        return;
+      }
     }),
   },
 });
