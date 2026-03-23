@@ -79,6 +79,14 @@ const CommandPalette: Component<{
         if (items.length === 0) return;
         setSelectedIndex((i) => Math.max(i - 1, 0));
         break;
+      case "Tab":
+        if (items.length === 0) return;
+        setSelectedIndex((i) =>
+          e.shiftKey
+            ? (i - 1 + items.length) % items.length
+            : (i + 1) % items.length,
+        );
+        break;
       case "Enter": {
         const selected = items[selectedIndex()];
         if (selected) execute(selected);
