@@ -27,6 +27,11 @@ export function useTerminals() {
     return terminalThemes[id] ?? DEFAULT_THEME_NAME;
   }
 
+  /** Get the CWD for a terminal (reactive per key via createStore). */
+  function getTerminalCwd(id: string): string | undefined {
+    return terminalCwds[id];
+  }
+
   /** The active terminal's theme name (for header + palette filter). */
   const activeThemeName = createMemo(() => {
     const id = activeId();
@@ -121,11 +126,6 @@ export function useTerminals() {
         onSelect: () => void handleSetTheme(t.name),
       })),
   ]);
-
-  /** Get the CWD for a terminal (reactive per key via createStore). */
-  function getTerminalCwd(id: string): string | undefined {
-    return terminalCwds[id];
-  }
 
   return {
     terminalIds,

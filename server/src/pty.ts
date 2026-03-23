@@ -102,10 +102,9 @@ export function spawnPty(
   const serializeAddon = new SerializeAddon();
   headless.loadAddon(serializeAddon);
 
-  // OSC 7: shell reports CWD as file://hostname/path
-  // Modern shells (zsh, fish) emit this by default; bash needs config.
-  const initialCwd = env.HOME || "/";
-  let currentCwd = initialCwd;
+  // Parse OSC 7 (CWD reporting) from headless terminal output.
+  // The rc wrapper injected above ensures the shell emits these sequences.
+  let currentCwd = cwd;
   const oscDisposable = headless.parser.registerOscHandler(
     7,
     (data: string) => {

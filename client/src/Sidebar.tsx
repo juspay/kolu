@@ -1,5 +1,5 @@
 import { type Component, For, Show } from "solid-js";
-import { shortenCwd } from "./path";
+import { cwdBasename } from "./path";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
@@ -67,7 +67,7 @@ const Sidebar: Component<{
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (
                     <div class="text-xs text-slate-400 truncate">
-                      {shortenCwd(cwd()).split("/").pop() || "~"}
+                      {cwdBasename(cwd())}
                     </div>
                   )}
                 </Show>

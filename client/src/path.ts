@@ -1,6 +1,10 @@
 /** Replace home directory prefix with ~ for compact display. */
 export function shortenCwd(cwd: string): string {
-  // Heuristic: /home/<user>/... or /root/... → ~/...
-  const shortened = cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
-  return shortened || "~";
+  return cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
+}
+
+/** Last segment of a path, with ~ for home. Used for compact sidebar labels. */
+export function cwdBasename(cwd: string): string {
+  const short = shortenCwd(cwd);
+  return short.split("/").pop() || "~";
 }

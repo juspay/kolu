@@ -1,21 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
-
-/** Poll until a condition is met, returning the last value on timeout. */
-async function pollUntil<T>(
-  page: KoluWorld["page"],
-  fn: () => Promise<T>,
-  check: (val: T) => boolean,
-  { attempts = 10, intervalMs = 300 } = {},
-): Promise<T> {
-  let val = await fn();
-  for (let i = 1; i < attempts && !check(val); i++) {
-    await page.waitForTimeout(intervalMs);
-    val = await fn();
-  }
-  return val;
-}
+import { pollUntil } from "../support/poll.ts";
 
 /** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
 function hexToRgb(hex: string): string {
