@@ -63,9 +63,11 @@ Then(
 When(
   "I wait for the terminal to become idle",
   async function (this: KoluWorld) {
-    // The idle threshold is 5s, so poll up to ~10s
+    // The idle threshold is 5s, but shell init (starship, nix env, etc.) may
+    // produce sporadic output that resets the timer. Under load from the full
+    // test suite, init can take 10-15s. Poll up to ~30s for safety.
     await assertActivity(this, this.createdTerminalIds.length, false, {
-      attempts: 20,
+      attempts: 60,
       intervalMs: 500,
     });
   },

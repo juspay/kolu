@@ -20,6 +20,8 @@ When(
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: 5000 });
+    // Brief settle for Terminal.tsx visibility effect to fire (auto-focus + remeasure)
+    await this.page.waitForTimeout(300);
   },
 );
 
@@ -81,9 +83,12 @@ Then(
     const terminalId = await activeContainer.getAttribute("data-terminal-id");
     assert.ok(terminalId, "No active terminal found");
 
-    // Poll screen state until expected content appears (echo may still be in-flight)
+    // Poll screen state until expected content appears (echo may still be in-flight,
+    // or terminal may still be reconnecting after a page refresh).
+    // Use generous timeout: after refresh, the client sends a resize that triggers
+    // shell SIGWINCH → prompt redraw, which can temporarily affect serialization.
     let screenState = "";
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < 50; attempt++) {
       const resp = await this.page.request.fetch("/rpc/terminal/screenState", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +98,7 @@ Then(
       screenState =
         typeof body.json === "string" ? body.json : JSON.stringify(body);
       if (screenState.includes(expected)) return;
-      await this.page.waitForTimeout(300);
+      await this.page.waitForTimeout(500);
     }
     assert.fail(
       `Active terminal screen does not contain "${expected}" after retries.\nScreen state (partial): ${screenState.slice(0, 500)}`,

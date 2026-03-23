@@ -47,6 +47,13 @@ Feature: Terminal
     Then the file "/tmp/kolu-test-cols" should contain a number greater than 80
     And there should be no page errors
 
+  Scenario: Screen state includes scrollback beyond viewport
+    When I run "for i in $(seq 1 50); do echo scrollback-line-$i; done"
+    Then the screen state should contain "scrollback-line-1"
+    And the screen state should contain "scrollback-line-50"
+    And the screen state should have at least 50 lines
+    And there should be no page errors
+
   Scenario: Clicking terminal focuses input
     When I click the terminal canvas
     Then the terminal input should be focused
