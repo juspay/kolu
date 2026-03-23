@@ -179,6 +179,42 @@ const Terminal: Component<{
         if (key === "c" || key === "v") return true;
         return false;
       }
+
+      // Intercept Ctrl+V to bridge browser clipboard → PTY for image paste.
+      // Claude Code uses Ctrl+V (\x16) to trigger image paste from clipboard
+      // via xclip/wl-paste. We read the browser clipboard first, upload any
+      // image to the server's shim directory, then forward \x16 to the PTY.
+      if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
+        void (async () => {
+          try {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+              const imageType = item.types.find((t) => t.startsWith("image/"));
+              if (imageType) {
+                const blob = await item.getType(imageType);
+                const buf = await blob.arrayBuffer();
+                const base64 = btoa(
+                  String.fromCharCode(...new Uint8Array(buf)),
+                );
+                await client.terminal.pasteImage({
+                  id: props.terminalId,
+                  data: base64,
+                });
+                break;
+              }
+            }
+          } catch {
+            // Clipboard API unavailable or permission denied — proceed without image
+          }
+          // Forward Ctrl+V (\x16) to PTY after image upload (or if no image)
+          void client.terminal.sendInput({
+            id: props.terminalId,
+            data: "\x16",
+          });
+        })();
+        return false; // Prevent xterm from sending \x16 (we send it manually after upload)
+      }
+
       return true;
     });
 

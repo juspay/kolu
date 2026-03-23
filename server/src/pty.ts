@@ -41,12 +41,20 @@ export function spawnPty(
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
   },
+  clipboard?: { shimBinDir: string; clipboardDir: string },
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
   const osc7 = osc7Init(shell, env.HOME);
   Object.assign(env, osc7.env);
+
+  // Clipboard shims: prepend shim dir to PATH so Claude Code finds our
+  // xclip/wl-paste wrappers before any system-installed versions.
+  if (clipboard) {
+    env.PATH = `${clipboard.shimBinDir}:${env.PATH}`;
+    env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
+  }
 
   tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, osc7.args, {

@@ -14,6 +14,7 @@ import {
   listTerminals,
   killAllTerminals,
   setTerminalTheme,
+  pasteImageToTerminal,
   type TerminalEntry,
 } from "./terminals.ts";
 import { subscribeAndYield } from "./streaming.ts";
@@ -67,6 +68,11 @@ export const appRouter = t.router({
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
       return requireTerminal(input.id).handle.getScreenState();
+    }),
+
+    pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      pasteImageToTerminal(input.id, input.data);
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
