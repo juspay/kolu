@@ -58,6 +58,13 @@ const Terminal: Component<{
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
+  let fitRaf = 0;
+
+  /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
+  function debouncedFit() {
+    cancelAnimationFrame(fitRaf);
+    fitRaf = requestAnimationFrame(() => fitAddon?.fit());
+  }
 
   const [fontSize, setFontSize] = makePersisted(
     createSignal(DEFAULT_FONT_SIZE),
@@ -73,7 +80,7 @@ const Terminal: Component<{
       () => props.visible,
       (visible) => {
         if (!visible || !terminal) return;
-        fitAddon?.fit();
+        debouncedFit();
         terminal.focus();
       },
       { defer: true },
@@ -109,7 +116,7 @@ const Terminal: Component<{
     if (!terminal) return;
     setFontSize(newSize);
     terminal.options.fontSize = newSize;
-    fitAddon?.fit();
+    debouncedFit();
   }
 
   /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
@@ -129,6 +136,7 @@ const Terminal: Component<{
       theme: props.theme,
       fontSize: fontSize(),
       cursorBlink: true,
+      // Required by SerializeAddon and ImageAddon for buffer access
       allowProposedApi: true,
     });
     terminal = term;
@@ -191,6 +199,8 @@ const Terminal: Component<{
       "Terminal onExit",
     );
 
+    // fitAddon.fit() above only fires onResize when dimensions actually change.
+    // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();
 
     // Send input: fire-and-forget for low latency (don't await server ack)
@@ -203,7 +213,7 @@ const Terminal: Component<{
       () => {
         // Skip fitting when hidden — display:none triggers a 0x0 resize that would
         // cause a server-side PTY resize, producing shell output and false activity.
-        if (props.visible) fitAddon?.fit();
+        if (props.visible) debouncedFit();
       },
     );
     makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
