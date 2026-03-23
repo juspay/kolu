@@ -6,12 +6,11 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
-import selfsigned from "selfsigned";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
+import { resolveTlsOptions } from "./tls.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -86,42 +85,8 @@ if (clientDist) {
 }
 
 // --- TLS setup ---
-const { host, port, tls, tlsCert, tlsKey } = argv.flags;
-
-if ((tlsCert && !tlsKey) || (!tlsCert && tlsKey)) {
-  log.fatal("--tls-cert and --tls-key must be used together");
-  process.exit(1);
-}
-
-const tlsOptions = await (async () => {
-  if (tlsCert && tlsKey) {
-    log.info({ cert: tlsCert, key: tlsKey }, "using provided TLS certificate");
-    return { key: readFileSync(tlsKey), cert: readFileSync(tlsCert) };
-  }
-  if (tls) {
-    log.info("generating self-signed certificate");
-    const pems = await selfsigned.generate(
-      [{ name: "commonName", value: "localhost" }],
-      {
-        algorithm: "sha256",
-        extensions: [
-          { name: "basicConstraints", cA: false },
-          { name: "keyUsage", digitalSignature: true, keyEncipherment: true },
-          {
-            name: "subjectAltName",
-            altNames: [
-              { type: 2, value: "localhost" },
-              { type: 7, ip: "127.0.0.1" },
-              { type: 7, ip: "::1" },
-            ],
-          },
-        ],
-      },
-    );
-    return { key: pems.private, cert: pems.cert };
-  }
-  return null;
-})();
+const { host, port } = argv.flags;
+const tlsOptions = await resolveTlsOptions(argv.flags);
 
 // --- Start server ---
 const server = serve(
