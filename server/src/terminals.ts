@@ -12,6 +12,11 @@ import type {
 import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
+import {
+  CLIPBOARD_SHIM_DIR,
+  createClipboardDir,
+  cleanupClipboardDir,
+} from "./clipboard.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -29,6 +34,8 @@ interface TerminalBase {
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
+  /** Per-terminal clipboard directory for image paste shims. */
+  clipboardDir: string;
 }
 
 /** Server-side terminal state. Status discriminant derived from common TerminalInfo. */
@@ -66,31 +73,37 @@ export function createTerminal(): TerminalInfo {
   const id = `term-${nextId++}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
+  const clipboardDir = createClipboardDir(id);
 
-  const handle = spawnPty(tlog, {
-    onData: (data) => {
-      const entry = terminals.get(id);
-      if (entry) touchActivity(entry);
-      emitter.emit("data", data);
+  const handle = spawnPty(
+    tlog,
+    {
+      onData: (data) => {
+        const entry = terminals.get(id);
+        if (entry) touchActivity(entry);
+        emitter.emit("data", data);
+      },
+      // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
+      onExit: (exitCode) => {
+        tlog.info({ exitCode }, "exited");
+        const entry = terminals.get(id);
+        if (entry) {
+          if (entry.idleTimer) clearTimeout(entry.idleTimer);
+          terminals.set(id, { ...entry, status: "exited", exitCode });
+        }
+        emitter.emit("exit", exitCode);
+      },
+      onCwd: (cwd) => emitter.emit("cwd", cwd),
     },
-    // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
-    onExit: (exitCode) => {
-      tlog.info({ exitCode }, "exited");
-      const entry = terminals.get(id);
-      if (entry) {
-        if (entry.idleTimer) clearTimeout(entry.idleTimer);
-        terminals.set(id, { ...entry, status: "exited", exitCode });
-      }
-      emitter.emit("exit", exitCode);
-    },
-    onCwd: (cwd) => emitter.emit("cwd", cwd),
-  });
+    { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
+  );
 
   const entry: TerminalEntry = {
     handle,
     status: "running",
     emitter,
     isActive: true,
+    clipboardDir,
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
@@ -135,6 +148,7 @@ export function killAllTerminals(): void {
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     if (entry.status === "running") entry.handle.dispose();
+    cleanupClipboardDir(entry.clipboardDir);
   }
   terminals.clear();
   nextId = 1;

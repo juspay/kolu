@@ -16,6 +16,7 @@ import {
   setTerminalTheme,
   type TerminalEntry,
 } from "./terminals.ts";
+import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 
 const t = implement(contract);
@@ -67,6 +68,11 @@ export const appRouter = t.router({
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
       return requireTerminal(input.id).handle.getScreenState();
+    }),
+
+    pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      saveClipboardImage(entry.clipboardDir, input.data);
     }),
 
     killAll: t.terminal.killAll.handler(async () => {

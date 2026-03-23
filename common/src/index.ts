@@ -50,6 +50,12 @@ export const TerminalOnExitOutputSchema = z.number();
 export const TerminalCwdOutputSchema = z.string();
 export const TerminalActivityOutputSchema = z.boolean();
 
+export const TerminalPasteImageInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Base64-encoded image data (PNG, JPEG, etc.) */
+  data: z.string(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;

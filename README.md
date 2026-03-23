@@ -76,7 +76,7 @@ Powered by [xterm.js](https://xtermjs.org/) with WebGL-accelerated rendering (ca
 
 - **Clickable URLs** — links in terminal output open in the browser
 - **Find in buffer** — search through terminal scrollback
-- **Clipboard integration** — system clipboard copy/paste
+- **Clipboard integration** — system clipboard copy/paste, including Ctrl+V image paste for Claude Code (via server-side xclip/wl-paste shims)
 - **Unicode 11** — correct rendering of wide characters, emoji, CJK
 - **Inline images** — sixel, iTerm2, and kitty image protocols
 - **Themes** — 200+ color schemes, switchable at runtime via command palette
