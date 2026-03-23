@@ -7,11 +7,8 @@
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
-import { cleanEnv } from "./shell.ts";
+import { cleanEnv, osc7Init } from "./shell.ts";
 import type { Logger } from "./log.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
@@ -48,42 +45,11 @@ export function spawnPty(
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
-
-  // Inject OSC 7 CWD reporting after user's rc files.
-  // We can't set PROMPT_COMMAND/precmd in env because .bashrc/starship/etc
-  // overwrite it. Instead, use shell-specific rc wrappers that source the
-  // user's config first, then append our hook.
-  const shellArgs: string[] = [];
-  let tmpCleanup: string | undefined;
-  const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
-  const isZsh = shell.endsWith("/zsh");
-  const osc7Fn = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
-
-  if (isBash && env.HOME) {
-    tmpCleanup = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
-    const rcContent = [
-      `[ -f "${env.HOME}/.bashrc" ] && . "${env.HOME}/.bashrc"`,
-      osc7Fn,
-      `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
-    ].join("\n");
-    writeFileSync(tmpCleanup, rcContent);
-    shellArgs.push("--rcfile", tmpCleanup);
-  } else if (isZsh && env.HOME) {
-    // Zsh uses ZDOTDIR to locate .zshrc. Create a temp dir with a .zshrc
-    // that sources the user's original, then appends our precmd hook.
-    tmpCleanup = mkdtempSync(join(tmpdir(), "kolu-zsh-"));
-    const rcContent = [
-      `[ -f "${env.HOME}/.zshrc" ] && ZDOTDIR="${env.HOME}" source "${env.HOME}/.zshrc"`,
-      osc7Fn,
-      `autoload -Uz add-zsh-hook`,
-      `add-zsh-hook precmd __kolu_osc7`,
-    ].join("\n");
-    writeFileSync(join(tmpCleanup, ".zshrc"), rcContent);
-    env.ZDOTDIR = tmpCleanup;
-  }
+  const osc7 = osc7Init(shell, env.HOME);
+  Object.assign(env, osc7.env);
 
   tlog.info({ shell, cwd }, "spawning pty");
-  const proc = pty.spawn(shell, shellArgs, {
+  const proc = pty.spawn(shell, osc7.args, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -154,12 +120,7 @@ export function spawnPty(
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
-      if (tmpCleanup)
-        try {
-          rmSync(tmpCleanup, { recursive: true });
-        } catch {
-          /* already cleaned up */
-        }
+      osc7.cleanup();
     },
   };
 }
