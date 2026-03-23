@@ -6,24 +6,28 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 default:
     @just --list
 
+# Install pnpm dependencies
+install:
+    {{ nix_shell }} pnpm install
+
 # Run server + client in parallel via process-compose
-dev:
+dev: install
     {{ nix_shell }} kolu-dev
 
 # Run TypeScript type checking across all packages
-watch:
+watch: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
-server:
+server: install
     cd server && {{ nix_shell }} pnpm dev
 
 # Run client with Vite dev server (HMR)
-client:
+client: install
     cd client && {{ nix_shell }} pnpm dev
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
-test:
+test: install
     #!/usr/bin/env bash
     set -euo pipefail
     KOLU_SERVER="$(nix build --print-out-paths)/bin/kolu"
@@ -32,7 +36,7 @@ test:
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=3 {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
-test-dev:
+test-dev: install
     cd tests \
         && {{ nix_shell }} pnpm install \
         && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test

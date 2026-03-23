@@ -188,6 +188,17 @@ export function useTerminals() {
           },
         ]
       : []),
+    {
+      name: "Debug: trigger server error",
+      showOnPrefix: "debug",
+      onSelect: () =>
+        // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+        void client.terminal.resize({
+          id: "__nonexistent__",
+          cols: 1,
+          rows: 1,
+        }),
+    },
     ...terminalIds().map((id) => ({
       name: `Switch to ${getTerminalDisplayName(id)}`,
       onSelect: () => setActiveId(id),

@@ -18,7 +18,6 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { subscribeAndYield } from "./streaming.ts";
-import { log } from "./log.ts";
 
 const t = implement(contract);
 
@@ -45,9 +44,6 @@ export const appRouter = t.router({
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
       requireTerminal(input.id);
       setTerminalTheme(input.id, input.themeName);
-      log
-        .child({ terminal: input.id })
-        .info({ theme: input.themeName }, "theme set");
     }),
 
     setName: t.terminal.setName.handler(async ({ input }) => {
@@ -65,8 +61,6 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const tlog = log.child({ terminal: input.id });
-      tlog.info("attach started");
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the generator, not lost.
@@ -75,11 +69,7 @@ export const appRouter = t.router({
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      try {
-        yield* live;
-      } finally {
-        tlog.info("attach ended");
-      }
+      yield* live;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -118,8 +108,6 @@ export const appRouter = t.router({
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const tlog = log.child({ terminal: input.id });
-      tlog.info({ status: entry.status }, "onExit started");
 
       // If already exited, yield immediately
       if (entry.status === "exited") {
