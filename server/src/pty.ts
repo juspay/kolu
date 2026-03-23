@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import { cleanEnv } from "./shell.ts";
+import type { Logger } from "./log.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -36,13 +37,17 @@ export interface PtyHandle {
 }
 
 /** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
-export function spawnPty(opts: {
-  onData: (data: string) => void;
-  onExit: (exitCode: number) => void;
-  onCwd?: (cwd: string) => void;
-}): PtyHandle {
+export function spawnPty(
+  tlog: Logger,
+  opts: {
+    onData: (data: string) => void;
+    onExit: (exitCode: number) => void;
+    onCwd?: (cwd: string) => void;
+  },
+): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
+  const cwd = env.HOME || "/";
 
   // Inject OSC 7 CWD reporting after user's rc files.
   // We can't set PROMPT_COMMAND/precmd in env because .bashrc/starship/etc
@@ -77,13 +82,15 @@ export function spawnPty(opts: {
     env.ZDOTDIR = tmpCleanup;
   }
 
+  tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, shellArgs, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd: env.HOME || "/",
+    cwd,
     env,
   });
+  tlog.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.
@@ -106,6 +113,7 @@ export function spawnPty(opts: {
         const url = new URL(data);
         if (url.protocol === "file:") {
           currentCwd = decodeURIComponent(url.pathname);
+          tlog.debug({ cwd: currentCwd }, "cwd changed (OSC 7)");
           opts.onCwd?.(currentCwd);
         }
       } catch {
