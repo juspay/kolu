@@ -41,15 +41,23 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = (cfg.tls.certFile == null) == (cfg.tls.keyFile == null);
+        message = "services.kolu.tls.certFile and services.kolu.tls.keyFile must both be set or both be null.";
+      }
+    ];
+
     systemd.user.services.kolu =
       let
         tlsArgs =
           if cfg.tls.certFile != null && cfg.tls.keyFile != null then
-            "--tls-cert ${cfg.tls.certFile} --tls-key ${cfg.tls.keyFile}"
+            [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
           else if cfg.tls.enable then
-            "--tls"
+            [ "--tls" ]
           else
-            "";
+            [ ];
+        args = [ "--host" cfg.host "--port" (toString cfg.port) ] ++ tlsArgs;
       in
       {
         Unit = {
@@ -57,7 +65,7 @@ in
           After = [ "network.target" ];
         };
         Service = {
-          ExecStart = "${lib.getExe cfg.package} --host ${cfg.host} --port ${toString cfg.port} ${tlsArgs}";
+          ExecStart = lib.concatStringsSep " " ([ (lib.getExe cfg.package) ] ++ args);
           Restart = "on-failure";
           Environment = [
             "SHELL=${lib.getExe pkgs.bashInteractive}"
