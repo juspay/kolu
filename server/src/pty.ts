@@ -7,7 +7,7 @@
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
@@ -44,22 +44,37 @@ export function spawnPty(opts: {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
 
-  // Build shell args to inject OSC 7 CWD reporting after user's rc files.
-  // We can't set PROMPT_COMMAND in env because .bashrc/starship/etc overwrite it.
-  // Instead, use --rcfile with a wrapper that sources the user's .bashrc first,
-  // then appends our hook to whatever PROMPT_COMMAND ended up being.
+  // Inject OSC 7 CWD reporting after user's rc files.
+  // We can't set PROMPT_COMMAND/precmd in env because .bashrc/starship/etc
+  // overwrite it. Instead, use shell-specific rc wrappers that source the
+  // user's config first, then append our hook.
   const shellArgs: string[] = [];
-  let rcFile: string | undefined;
+  let tmpCleanup: string | undefined;
   const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
+  const isZsh = shell.endsWith("/zsh");
+  const osc7Fn = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
+
   if (isBash && env.HOME) {
-    rcFile = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
+    tmpCleanup = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
     const rcContent = [
       `[ -f "${env.HOME}/.bashrc" ] && . "${env.HOME}/.bashrc"`,
-      `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`,
+      osc7Fn,
       `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
     ].join("\n");
-    writeFileSync(rcFile, rcContent);
-    shellArgs.push("--rcfile", rcFile);
+    writeFileSync(tmpCleanup, rcContent);
+    shellArgs.push("--rcfile", tmpCleanup);
+  } else if (isZsh && env.HOME) {
+    // Zsh uses ZDOTDIR to locate .zshrc. Create a temp dir with a .zshrc
+    // that sources the user's original, then appends our precmd hook.
+    tmpCleanup = mkdtempSync(join(tmpdir(), "kolu-zsh-"));
+    const rcContent = [
+      `[ -f "${env.HOME}/.zshrc" ] && ZDOTDIR="${env.HOME}" source "${env.HOME}/.zshrc"`,
+      osc7Fn,
+      `autoload -Uz add-zsh-hook`,
+      `add-zsh-hook precmd __kolu_osc7`,
+    ].join("\n");
+    writeFileSync(join(tmpCleanup, ".zshrc"), rcContent);
+    env.ZDOTDIR = tmpCleanup;
   }
 
   const proc = pty.spawn(shell, shellArgs, {
@@ -132,9 +147,9 @@ export function spawnPty(opts: {
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
-      if (rcFile)
+      if (tmpCleanup)
         try {
-          unlinkSync(rcFile);
+          rmSync(tmpCleanup, { recursive: true });
         } catch {
           /* already cleaned up */
         }
