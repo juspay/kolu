@@ -52,7 +52,7 @@ BeforeAll(async function () {
   // Start server if not reusing
   if (!process.env.REUSE_SERVER) {
     console.log(
-      `[worker ${workerId}] Starting server on port ${workerPort}...`,
+      `[worker:${workerId}] Starting server on port ${workerPort}...`,
     );
     serverProcess = spawn(
       "nix",
@@ -66,7 +66,7 @@ BeforeAll(async function () {
       process.stderr.write(`[server:${workerId}] ${data}`);
     });
     await waitForHealth(HEALTH_URL, 600_000);
-    console.log(`[worker ${workerId}] Server is healthy.`);
+    console.log(`[worker:${workerId}] Server is healthy.`);
   }
 
   // Launch browser
