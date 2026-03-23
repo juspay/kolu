@@ -1,6 +1,6 @@
 import { type Component, Show, mergeProps } from "solid-js";
-import { isMac } from "./platform";
 import { shortenCwd } from "./path";
+import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { WsStatus } from "./rpc";
 
 /** WS connection status indicator colors. */
@@ -17,6 +17,7 @@ const Header: Component<{
   themeName?: string;
   cwd?: string | null;
   onToggleSidebar?: () => void;
+  onShortcutsHelp?: () => void;
   renderer?: string;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
@@ -74,7 +75,18 @@ const Header: Component<{
           onClick={() => props.onOpenPalette?.()}
           title="Command palette"
         >
-          <kbd class="font-sans">{isMac ? "⌘K" : "Ctrl+K"}</kbd>
+          <kbd class="font-sans">
+            {formatKeybind(SHORTCUTS.commandPalette.keybind)}
+          </kbd>
+        </button>
+        <button
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 transition-colors cursor-pointer"
+          onClick={() => props.onShortcutsHelp?.()}
+          title="Keyboard shortcuts"
+        >
+          <kbd class="font-sans">
+            {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
+          </kbd>
         </button>
         {props.renderer && (
           <span class="text-xs text-slate-500 hidden sm:inline">
