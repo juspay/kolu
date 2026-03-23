@@ -37,10 +37,11 @@ export function spawnPty(opts: {
   onData: (data: string) => void;
   onExit: (exitCode: number) => void;
 }): PtyHandle {
+  const { log: tlog } = opts;
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
-  opts.log.info({ shell, cwd }, "spawning pty");
+  tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
@@ -48,7 +49,7 @@ export function spawnPty(opts: {
     cwd,
     env,
   });
-  opts.log.info({ pid: proc.pid }, "pty spawned");
+  tlog.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.

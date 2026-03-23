@@ -90,23 +90,21 @@ const wsRpcHandler = new WsRPCHandler(appRouter);
 
 let wsConnections = 0;
 wss.on("connection", (ws) => {
-  wsConnections++;
-  const connId = wsConnections;
-  log.info({ connId, total: wss.clients.size }, "ws client connected");
+  const connLog = log.child({ ws: ++wsConnections });
+  connLog.info({ total: wss.clients.size }, "connected");
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
-    log.info(
+    connLog.info(
       {
-        connId,
         code,
         reason: reason.toString() || undefined,
         remaining: wss.clients.size,
       },
-      "ws client disconnected",
+      "disconnected",
     );
   });
   ws.on("error", (err) => {
-    log.error({ connId, err }, "ws client error");
+    connLog.error({ err }, "error");
   });
 });
 

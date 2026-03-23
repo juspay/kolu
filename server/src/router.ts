@@ -42,9 +42,11 @@ export const appRouter = t.router({
     }),
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
-      requireTerminal(input.id); // validate terminal exists
-      log.child({ terminal: input.id }).info({ theme: input.themeName }, "theme set");
+      requireTerminal(input.id);
       setTerminalTheme(input.id, input.themeName);
+      log
+        .child({ terminal: input.id })
+        .info({ theme: input.themeName }, "theme set");
     }),
 
     /**
