@@ -13,8 +13,7 @@ When(
     const id = await container.getAttribute("data-terminal-id");
     if (!id) throw new Error("No active terminal found");
 
-    // 4 bytes of test data, base64-encoded ("AQID" = [0x01, 0x02, 0x03])
-    // Using 4 raw bytes so "wc -c" returns "4"
+    // 4 bytes of test data so "wc -c" returns "4"
     const base64Data = Buffer.from([0x01, 0x02, 0x03, 0x04]).toString("base64");
 
     const resp = await this.page.request.fetch("/rpc/terminal/pasteImage", {

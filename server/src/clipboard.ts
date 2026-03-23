@@ -16,18 +16,20 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { log } from "./log.ts";
 
-/**
- * Resolve the clipboard shim bin directory from the environment.
- * Returns undefined if KOLU_CLIPBOARD_SHIM_DIR is not set (shims not available).
- */
+let shimDirResolved = false;
+let shimDir: string | undefined;
+
+/** Resolve the clipboard shim bin directory from the environment (cached, logged once). */
 export function getClipboardShimDir(): string | undefined {
-  const dir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
-  if (dir) {
-    log.info({ shimBinDir: dir }, "clipboard shims available");
+  if (shimDirResolved) return shimDir;
+  shimDirResolved = true;
+  shimDir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
+  if (shimDir) {
+    log.info({ shimBinDir: shimDir }, "clipboard shims available");
   } else {
     log.warn("KOLU_CLIPBOARD_SHIM_DIR not set — Ctrl+V image paste disabled");
   }
-  return dir;
+  return shimDir;
 }
 
 /** Create a per-terminal clipboard directory (namespaced by PID to avoid collisions between parallel workers). */

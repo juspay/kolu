@@ -54,6 +54,38 @@ function consumeStream<T>(
   })();
 }
 
+/** ArrayBuffer → base64 string without stack overflow (chunked conversion). */
+function bufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/**
+ * Read the browser clipboard for an image, upload it to the server's
+ * clipboard shim directory, then forward Ctrl+V (\x16) to the PTY.
+ * If no image is found or the Clipboard API is unavailable, \x16 is
+ * still forwarded so text-mode Ctrl+V works unchanged.
+ */
+async function uploadClipboardImage(terminalId: string): Promise<void> {
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith("image/"));
+      if (imageType) {
+        const blob = await item.getType(imageType);
+        const base64 = bufferToBase64(await blob.arrayBuffer());
+        await client.terminal.pasteImage({ id: terminalId, data: base64 });
+        break;
+      }
+    }
+  } catch {
+    // Clipboard API unavailable or permission denied — proceed without image
+  }
+  void client.terminal.sendInput({ id: terminalId, data: "\x16" });
+}
+
 const Terminal: Component<{
   terminalId: string;
   visible: boolean;
@@ -185,33 +217,7 @@ const Terminal: Component<{
       // via xclip/wl-paste. We read the browser clipboard first, upload any
       // image to the server's shim directory, then forward \x16 to the PTY.
       if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
-        void (async () => {
-          try {
-            const items = await navigator.clipboard.read();
-            for (const item of items) {
-              const imageType = item.types.find((t) => t.startsWith("image/"));
-              if (imageType) {
-                const blob = await item.getType(imageType);
-                const buf = await blob.arrayBuffer();
-                const base64 = btoa(
-                  String.fromCharCode(...new Uint8Array(buf)),
-                );
-                await client.terminal.pasteImage({
-                  id: props.terminalId,
-                  data: base64,
-                });
-                break;
-              }
-            }
-          } catch {
-            // Clipboard API unavailable or permission denied — proceed without image
-          }
-          // Forward Ctrl+V (\x16) to PTY after image upload (or if no image)
-          void client.terminal.sendInput({
-            id: props.terminalId,
-            data: "\x16",
-          });
-        })();
+        void uploadClipboardImage(props.terminalId);
         return false; // Prevent xterm from sending \x16 (we send it manually after upload)
       }
 
