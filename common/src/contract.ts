@@ -44,6 +44,8 @@ export const contract = oc.router({
       .output(eventIterator(TerminalActivityOutputSchema)),
     // Save image data to the terminal's clipboard shim for Ctrl+V paste
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
+    // Kill a single terminal
+    kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

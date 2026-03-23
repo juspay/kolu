@@ -248,13 +248,6 @@ const Terminal: Component<{
       "Terminal attach",
     );
 
-    // Exit stream: yields exit code once when PTY process terminates
-    consumeStream(
-      () => client.terminal.onExit({ id: props.terminalId }, { signal }),
-      (exitCode) => console.log(`PTY exited with code ${exitCode}`),
-      "Terminal onExit",
-    );
-
     // fitAddon.fit() above only fires onResize when dimensions actually change.
     // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();

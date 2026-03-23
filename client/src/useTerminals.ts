@@ -1,7 +1,7 @@
 /** Terminal session state: manages terminal list, active selection, and per-terminal themes. */
 
 import { createSignal, createResource, createMemo } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
@@ -96,6 +96,47 @@ export function useTerminals() {
     );
   }
 
+  /** Subscribe to exit events for a terminal. On exit, remove it and auto-switch. */
+  function subscribeExit(id: string) {
+    return subscribeStream(
+      (signal) => client.terminal.onExit({ id }, { signal }),
+      () => removeAndAutoSwitch(id),
+    );
+  }
+
+  /** Start all per-terminal stream subscriptions (CWD, activity, exit). */
+  function subscribeAll(id: string) {
+    subscribeCwd(id);
+    subscribeActivity(id);
+    subscribeExit(id);
+  }
+
+  /** Remove a terminal from all state stores. Returns the new ID list and removed index. */
+  function removeTerminal(
+    id: string,
+  ): { newIds: string[]; idx: number } | null {
+    const ids = terminalIds();
+    const idx = ids.indexOf(id);
+    if (idx === -1) return null; // already removed
+    const newIds = ids.filter((x) => x !== id);
+    setTerminalIds(newIds);
+    setTerminalCwds(produce((s) => delete s[id]));
+    setTerminalActivity(produce((s) => delete s[id]));
+    setTerminalThemes(produce((s) => delete s[id]));
+    return { newIds, idx };
+  }
+
+  /** Remove a terminal and auto-switch if it was the active one. */
+  function removeAndAutoSwitch(id: string) {
+    const result = removeTerminal(id);
+    if (!result) return;
+    if (activeId() === id) {
+      const next =
+        result.newIds[Math.min(result.idx, result.newIds.length - 1)] ?? null;
+      setActiveId(next);
+    }
+  }
+
   // Restore existing terminals on page load (e.g. after browser refresh).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
@@ -122,8 +163,7 @@ export function useTerminals() {
       for (const t of existing) {
         if (t.status === "running") {
           setTerminalActivity(t.id, t.isActive);
-          subscribeCwd(t.id);
-          subscribeActivity(t.id);
+          subscribeAll(t.id);
         }
       }
     }
@@ -137,8 +177,17 @@ export function useTerminals() {
     setActiveId(info.id);
     // New terminals always start active (server spawns PTY with initial output)
     setTerminalActivity(info.id, true);
-    subscribeCwd(info.id);
-    subscribeActivity(info.id);
+    subscribeAll(info.id);
+  }
+
+  /** Kill a terminal on the server, then remove + auto-switch locally. */
+  async function handleKill(id: string) {
+    try {
+      await client.terminal.kill({ id });
+    } catch {
+      // Terminal may already be gone
+    }
+    removeAndAutoSwitch(id);
   }
 
   /** Set the theme for the active terminal, persisting to server. */
@@ -160,6 +209,14 @@ export function useTerminals() {
         name: "Create new terminal",
         onSelect: () => void handleCreate(),
       },
+      ...(activeId()
+        ? [
+            {
+              name: "Close terminal",
+              onSelect: () => void handleKill(activeId()!),
+            },
+          ]
+        : []),
       {
         name: "Debug: trigger server error",
         showOnPrefix: "debug",
@@ -193,6 +250,7 @@ export function useTerminals() {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleKill,
     getTerminalThemeName,
     getTerminalCwd,
     getTerminalActive,

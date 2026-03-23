@@ -12,6 +12,7 @@ import {
   createTerminal,
   getTerminal,
   listTerminals,
+  killTerminal,
   killAllTerminals,
   setTerminalTheme,
   type TerminalEntry,
@@ -73,6 +74,12 @@ export const appRouter = t.router({
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
       saveClipboardImage(entry.clipboardDir, input.data);
+    }),
+
+    kill: t.terminal.kill.handler(async ({ input }) => {
+      const info = killTerminal(input.id);
+      if (!info) throw new TerminalNotFoundError(input.id);
+      return info;
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
