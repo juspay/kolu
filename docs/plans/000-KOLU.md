@@ -116,20 +116,34 @@ procedures. Layout: Header → Sidebar + terminal area.
 Auto-switch on active terminal kill. Keyboard shortcut Ctrl/Cmd+Shift+T.
 Full e2e coverage.
 
-### Phase 3: Repo registry
+### Phase 3: CWD-aware terminal creation
 
-Register repos (name → clone URL → local path). Persisted as JSON.
+Add optional `cwd` to `terminal.create`. "Create terminal in current
+directory" command in palette (uses active terminal's CWD). Existing
+"Create new terminal" stays (spawns at HOME). Sidebar remains flat.
 
-### Phase 4: Worktrees + worktree terminals
+### Phase 4: Git context + worktree-aware sidebar
 
-Git worktrees for repos. Terminals inside worktrees. Three-level
-sidebar tree (Repo → Worktree → Terminal). Tab bar for switching.
+Auto-discover git context from terminal CWDs — no repo registry needed.
+Uses [`simple-git`](https://github.com/steveukx/git-js) on the server.
 
-### Phase 5: Git status + activity polish
+#### 4a: Git context in header ([#48](https://github.com/juspay/kolu/issues/48))
 
-Surface git info (dirty count, ahead/behind). Refined activity indicators.
+Enrich `onCwdChange` stream with git context (repo name, worktree path,
+branch). Server resolves via `git rev-parse` (~2ms) when CWD changes.
+Show repo name + branch in header alongside CWD.
 
-### Phase 6: UX polish
+New schema: `CwdInfo = { cwd, git: { repoRoot, repoName, worktreePath, branch } | null }`
+
+#### 4b: Grouped sidebar
+
+Sidebar tree: Repo → Worktree (branch name) → Terminal(s). Per-group
+"+" button spawns terminal in that worktree's CWD. Ungrouped section
+for terminals not in a git repo. Client-side `createMemo` derives tree
+from terminal CWDs + git context. Terminals re-group reactively when
+user `cd`s between repos.
+
+### Phase 5: UX polish
 
 Keyboard shortcuts, error toasts, theme, collapsible sidebar, session
 persistence.
@@ -138,7 +152,7 @@ persistence.
 
 ## Future Milestones
 
-Deferred. Do not build during Phases 0–6.
+Deferred. Do not build during Phases 0–5.
 
 - Agent activity detection (parse prompts vs output heuristic)
 - PTY detachment / survival across server restarts
