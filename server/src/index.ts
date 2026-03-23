@@ -13,6 +13,7 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { resolveTlsOptions } from "./tls.ts";
+import { serverHostname } from "./hostname.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -110,6 +111,27 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Dynamic PWA manifest (includes hostname) ---
+// theme_color must match <meta name="theme-color"> in client/index.html
+app.get("/manifest.webmanifest", (c) => {
+  const name = `kolu@${serverHostname}`;
+  return c.json(
+    {
+      name,
+      short_name: name,
+      start_url: "/",
+      display: "standalone",
+      background_color: "#292c33",
+      theme_color: "#292c33",
+      icons: [
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+    },
+    { headers: { "Content-Type": "application/manifest+json" } },
+  );
+});
 
 // --- Static files (production) ---
 const clientDist = process.env.KOLU_CLIENT_DIST;

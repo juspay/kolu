@@ -19,6 +19,7 @@ const Header: Component<{
   onToggleSidebar?: () => void;
   onShortcutsHelp?: () => void;
   renderer?: string;
+  appTitle?: string;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
@@ -45,7 +46,9 @@ const Header: Component<{
         </svg>
       </button>
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
-      <span class="font-semibold text-sm hidden sm:inline">kolu</span>
+      <span class="font-semibold text-sm hidden sm:inline">
+        {props.appTitle ?? "kolu"}
+      </span>
       <Show when={props.cwd}>
         {(cwd) => (
           <span
