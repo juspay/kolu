@@ -66,8 +66,8 @@ const Sidebar: Component<{
                 <div>Terminal {i() + 1}</div>
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (
-                    <div class="text-xs text-slate-500 truncate">
-                      {shortenCwd(cwd())}
+                    <div class="text-xs text-slate-400 truncate">
+                      {shortenCwd(cwd()).split("/").pop() || "~"}
                     </div>
                   )}
                 </Show>
