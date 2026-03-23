@@ -50,7 +50,7 @@ test-dev: install
 # Uses giton (https://github.com/srid/giton) to run commands and post GitHub commit statuses.
 # TODO: add cache push (nix copy) after builds https://github.com/srid/giton/issues/4
 ci:
-    {{ giton }} -f giton.json
+    {{ giton }} --tui -f giton.json
 
 # Run pre-commit hooks on all files
 pc:
