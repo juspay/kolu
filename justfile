@@ -3,7 +3,7 @@
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
 # giton branch/ref to use (override: just giton_ref=main ci)
-giton_ref := "out"
+giton_ref := "idempotent-multi-step"
 giton_nix_opts := "--refresh"
 giton := "nix run " + giton_nix_opts + " github:srid/giton/" + giton_ref + " --"
 
@@ -48,19 +48,9 @@ test-dev: install
 
 # Run CI: build all flake outputs on each platform, run e2e tests
 # Uses giton (https://github.com/srid/giton) to run commands and post GitHub commit statuses.
+# TODO: add cache push (nix copy) after builds https://github.com/srid/giton/issues/4
 ci:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # TODO: add cache push (nix copy) after builds https://github.com/srid/giton/issues/4
-    for sys in x86_64-linux aarch64-darwin; do
-        {{ giton }} -s "$sys" -n nix -- \
-            nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
-    done
-    {{ giton }} -s x86_64-linux -n nix/home-example -- \
-        nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
-    for sys in x86_64-linux aarch64-darwin; do
-        {{ giton }} -s "$sys" -n e2e -- just test
-    done
+    {{ giton }} -f giton.json
 
 # Run pre-commit hooks on all files
 pc:
