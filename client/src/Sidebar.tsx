@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { cwdBasename } from "./path";
 
-/** Focus the active terminal's ghostty textarea. */
+/** Focus the active terminal's ghostty textarea (couples to Terminal.tsx's DOM structure). */
 function focusTerminal(id: string) {
   requestAnimationFrame(() => {
     // Select the terminal container div (not the sidebar button which also has data-terminal-id)
@@ -41,12 +41,16 @@ const Sidebar: Component<{
 
   // Watch for external rename requests (e.g. command palette "Rename" command)
   createEffect(
-    on(props.renameRequest, (id) => {
-      if (id) {
-        setRenamingId(id);
-        props.onRenameRequestHandled();
-      }
-    }),
+    on(
+      props.renameRequest,
+      (id) => {
+        if (id) {
+          setRenamingId(id);
+          props.onRenameRequestHandled();
+        }
+      },
+      { defer: true },
+    ),
   );
 
   function finishRename(id: string, name: string | null) {
