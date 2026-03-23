@@ -78,7 +78,7 @@ const rpcPlugins = [
     // logRequestResponse left off (default) — too noisy for high-frequency
     // calls like sendInput/attach. Errors and unmatched procedures are
     // still logged automatically by the plugin.
-    logRequestAbort: true,
+    logRequestAbort: false,
   }),
 ];
 
