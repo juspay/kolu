@@ -20,6 +20,21 @@ const ShortcutsHelp: Component<{
 }> = (props) => {
   let panelRef!: HTMLDivElement;
 
+  // Close on Escape
+  makeEventListener(
+    window,
+    "keydown",
+    (e: KeyboardEvent) => {
+      if (props.open && e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onOpenChange(false);
+      }
+    },
+    { capture: true },
+  );
+
+  // Close on click outside
   makeEventListener(document, "mousedown", (e) => {
     if (props.open && !panelRef.contains(e.target as Node)) {
       props.onOpenChange(false);
@@ -32,6 +47,7 @@ const ShortcutsHelp: Component<{
         <div class="fixed inset-0 bg-black/50" />
         <div
           ref={panelRef}
+          data-testid="shortcuts-help"
           class="relative z-10 w-full max-w-sm bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-hidden"
         >
           <div class="px-4 py-3 border-b border-slate-600">

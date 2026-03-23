@@ -50,9 +50,7 @@ const App: Component = () => {
     activeId,
     setActiveId,
     handleCreate: () => void handleCreate(),
-    paletteOpen,
     setPaletteOpen,
-    shortcutsHelpOpen,
     setShortcutsHelpOpen,
   });
 

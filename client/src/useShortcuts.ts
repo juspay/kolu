@@ -2,16 +2,14 @@
 
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { matchesKeybind, SHORTCUTS } from "./keyboard";
+import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
 
 interface ShortcutDeps {
   terminalIds: Accessor<string[]>;
   activeId: Accessor<string | null>;
   setActiveId: Setter<string | null>;
   handleCreate: () => void;
-  paletteOpen: Accessor<boolean>;
   setPaletteOpen: Setter<boolean>;
-  shortcutsHelpOpen: Accessor<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
 }
 
@@ -33,14 +31,12 @@ export function useShortcuts(deps: ShortcutDeps) {
 
 /** Try to handle the event. Returns true if a shortcut matched. */
 function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
-  // Mod+1-9: switch to terminal N
-  for (let n = 1; n <= 9; n++) {
-    const shortcut = SHORTCUTS[`switchTo${n}` as keyof typeof SHORTCUTS];
-    if (matchesKeybind(e, shortcut.keybind)) {
-      const ids = deps.terminalIds();
-      if (n <= ids.length) deps.setActiveId(ids[n - 1]);
-      return true;
-    }
+  // Mod+1-9: switch to terminal by position
+  const digit = parseInt(e.key);
+  if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
+    const ids = deps.terminalIds();
+    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]);
+    return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.createTerminal.keybind)) {

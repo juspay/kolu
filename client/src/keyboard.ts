@@ -1,8 +1,6 @@
 /**
- * Keyboard shortcut helpers — platform-aware Cmd/Ctrl detection and keybind matching.
- *
- * Consolidates the duplicated platform modifier logic that was spread
- * across Terminal.tsx and CommandPalette.tsx.
+ * Keyboard shortcut helpers — keybind types, matching, formatting, and
+ * the global shortcut registry consumed by useShortcuts and ShortcutsHelp.
  */
 
 import { isMac } from "./platform";
@@ -15,16 +13,31 @@ export function isPlatformModifier(e: KeyboardEvent): boolean {
 /** Zoom key deltas: maps key to font-size change direction. */
 export const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 
-/** A keyboard shortcut definition. `mod` = Cmd on macOS, Ctrl elsewhere. */
+/**
+ * A keyboard shortcut definition. `mod` = Cmd on macOS, Ctrl elsewhere.
+ * Use `code` (physical key via KeyboardEvent.code) when Shift changes the
+ * reported `e.key` — e.g. Shift+[ reports key="{" but code="BracketLeft".
+ */
 export interface Keybind {
+  /** Display key name (also used for matching when `code` is absent). */
   key: string;
+  /** Physical key code (KeyboardEvent.code). Preferred over `key` for matching when set. */
+  code?: string;
   mod?: boolean;
   shift?: boolean;
 }
 
+/** A shortcut definition: keybind + human-readable label. */
+export interface Shortcut {
+  keybind: Keybind;
+  label: string;
+}
+
 /** Check if a KeyboardEvent matches a keybind definition. */
 export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
-  if (e.key !== kb.key) return false;
+  // Prefer physical key code when specified (Shift changes e.key but not e.code)
+  const keyMatch = kb.code ? e.code === kb.code : e.key === kb.key;
+  if (!keyMatch) return false;
   if (kb.mod && !isPlatformModifier(e)) return false;
   if (!kb.mod && isPlatformModifier(e)) return false;
   if (kb.shift && !e.shiftKey) return false;
@@ -42,12 +55,6 @@ export function formatKeybind(kb: Keybind): string {
   return isMac ? parts.join("") : parts.join("+");
 }
 
-/** A shortcut definition: keybind + human-readable label. */
-export interface Shortcut {
-  keybind: Keybind;
-  label: string;
-}
-
 /** Mod+1 through Mod+9 for direct terminal switching. */
 const SWITCH_SHORTCUTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [
@@ -63,15 +70,15 @@ const SWITCH_SHORTCUTS = Object.fromEntries(
 export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
   createTerminal: {
-    keybind: { key: "t", mod: true },
+    keybind: { key: "t", mod: true, shift: true },
     label: "Create new terminal",
   },
   nextTerminal: {
-    keybind: { key: "]", mod: true, shift: true },
+    keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
     label: "Next terminal",
   },
   prevTerminal: {
-    keybind: { key: "[", mod: true, shift: true },
+    keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     label: "Previous terminal",
   },
   commandPalette: {
