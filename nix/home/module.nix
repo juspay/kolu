@@ -48,32 +48,29 @@ in
       }
     ];
 
-    systemd.user.services.kolu =
-      let
-        tlsArgs =
-          if cfg.tls.certFile != null && cfg.tls.keyFile != null then
-            [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
-          else if cfg.tls.enable then
-            [ "--tls" ]
-          else
-            [ ];
-        args = [ "--host" cfg.host "--port" (toString cfg.port) ] ++ tlsArgs;
-      in
-      {
-        Unit = {
-          Description = "kolu web terminal multiplexer";
-          After = [ "network.target" ];
-        };
-        Service = {
-          ExecStart = lib.concatStringsSep " " ([ (lib.getExe cfg.package) ] ++ args);
-          Restart = "on-failure";
-          Environment = [
-            "SHELL=${lib.getExe pkgs.bashInteractive}"
-          ];
-        };
-        Install = {
-          WantedBy = [ "default.target" ];
-        };
+    systemd.user.services.kolu = {
+      Unit = {
+        Description = "kolu web terminal multiplexer";
+        After = [ "network.target" ];
       };
+      Service = {
+        ExecStart = toString ([
+          (lib.getExe cfg.package)
+          "--host"
+          cfg.host
+          "--port"
+          (toString cfg.port)
+        ]
+        ++ lib.optionals (cfg.tls.certFile != null) [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
+        ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]);
+        Restart = "on-failure";
+        Environment = [
+          "SHELL=${lib.getExe pkgs.bashInteractive}"
+        ];
+      };
+      Install = {
+        WantedBy = [ "default.target" ];
+      };
+    };
   };
 }
