@@ -70,7 +70,7 @@ const SWITCH_SHORTCUTS = Object.fromEntries(
 export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
   createTerminal: {
-    keybind: { key: "t", mod: true, shift: true },
+    keybind: { key: "t", mod: true },
     label: "Create new terminal",
   },
   nextTerminal: {
