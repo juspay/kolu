@@ -56,6 +56,10 @@ export const TerminalPasteImageInputSchema = z.object({
   data: z.string(),
 });
 
+export const ServerInfoSchema = z.object({
+  hostname: z.string(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;

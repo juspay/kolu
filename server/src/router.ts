@@ -19,6 +19,7 @@ import {
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
+import { serverHostname } from "./hostname.ts";
 
 const t = implement(contract);
 
@@ -30,6 +31,11 @@ function requireTerminal(id: string): TerminalEntry {
 }
 
 export const appRouter = t.router({
+  server: {
+    info: t.server.info.handler(async () => ({
+      hostname: serverHostname,
+    })),
+  },
   terminal: {
     create: t.terminal.create.handler(async () => createTerminal()),
     list: t.terminal.list.handler(async () => listTerminals()),

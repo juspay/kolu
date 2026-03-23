@@ -16,10 +16,14 @@ import {
   TerminalCwdOutputSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
+  ServerInfoSchema,
 } from "./index";
 import { z } from "zod";
 
 export const contract = oc.router({
+  server: {
+    info: oc.output(ServerInfoSchema),
+  },
   terminal: {
     create: oc.output(TerminalInfoSchema),
     list: oc.output(z.array(TerminalInfoSchema)),
