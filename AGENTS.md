@@ -7,7 +7,7 @@
 
 ## Testing
 
-- Use `just test-dev` to run e2e tests against a running dev server (`just dev`). Faster than `just test` which does a full `nix build`.
+- Use `just test` to run e2e tests. Never use `just test-dev`.
 
 ## UI
 

@@ -11,11 +11,13 @@
   "dependencies": {
     "@hono/node-server": "^1.14.0",
     "@hono/node-ws": "^1.1.0",
+    "@orpc/experimental-pino": "^1.13.9",
     "@orpc/server": "^1.13.9",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",
     "hono": "^4.7.0",
+    "hono-pino": "^0.10.3",
     "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
     "pino": "^10.3.1",

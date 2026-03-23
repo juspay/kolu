@@ -155,6 +155,17 @@ export function useTerminals() {
       name: "Create new terminal",
       onSelect: () => void handleCreate(),
     },
+    {
+      name: "Debug: trigger server error",
+      showOnPrefix: "debug",
+      onSelect: () =>
+        // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+        void client.terminal.resize({
+          id: "__nonexistent__",
+          cols: 1,
+          rows: 1,
+        }),
+    },
     ...terminalIds().map((id, i) => ({
       name: `Switch to Terminal ${i + 1}`,
       onSelect: () => setActiveId(id),
