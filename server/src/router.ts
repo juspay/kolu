@@ -129,12 +129,18 @@ export const appRouter = t.router({
         return;
       }
 
-      // events.once() handles abort cleanup internally — no manual listener wiring needed
-      const [exitCode] = (await once(entry.emitter, "exit", {
-        signal,
-      })) as [number];
+      // events.once() throws AbortError when the signal fires (e.g. client
+      // closes tab) — this is expected, not an error worth logging.
+      try {
+        const [exitCode] = (await once(entry.emitter, "exit", {
+          signal,
+        })) as [number];
 
-      if (!signal?.aborted) yield exitCode;
+        if (!signal?.aborted) yield exitCode;
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        throw err;
+      }
     }),
   },
 });
