@@ -16,7 +16,7 @@ import {
   setTerminalTheme,
   type TerminalEntry,
 } from "./terminals.ts";
-import { subscribeAndYield } from "./streaming.ts";
+import { subscribeAndYield, coalesceStrings } from "./streaming.ts";
 
 const t = implement(contract);
 
@@ -62,7 +62,9 @@ export const appRouter = t.router({
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      yield* live;
+      // Coalesce rapid PTY chunks into larger batches to reduce WebSocket
+      // message count and escape-sequence boundary splits.
+      yield* coalesceStrings(live, signal);
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
