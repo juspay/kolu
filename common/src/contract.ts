@@ -14,7 +14,7 @@ import {
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
-  TerminalCwdOutputSchema,
+  CwdInfoSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
   ServerInfoSchema,
@@ -42,7 +42,7 @@ export const contract = oc.router({
     // Stream CWD changes for a terminal (OSC 7). Yields current CWD immediately.
     onCwdChange: oc
       .input(TerminalAttachInputSchema)
-      .output(eventIterator(TerminalCwdOutputSchema)),
+      .output(eventIterator(CwdInfoSchema)),
     // Stream activity state changes (active/sleeping) for a terminal
     onActivityChange: oc
       .input(TerminalAttachInputSchema)

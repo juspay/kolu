@@ -1,5 +1,6 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
+import type { CwdInfo } from "kolu-common";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
@@ -10,7 +11,7 @@ const Sidebar: Component<{
   onCreate: () => void;
   open: boolean;
   onClose: () => void;
-  getCwd: (id: string) => string | undefined;
+  getCwd: (id: string) => CwdInfo | undefined;
   getActive: (id: string) => boolean;
 }> = (props) => {
   function handleSelect(id: string) {
@@ -66,7 +67,7 @@ const Sidebar: Component<{
                 // Prevent button from stealing focus — terminal canvas must keep focus
                 // so keyboard input flows to the PTY, even when clicking the already-active tab.
                 onMouseDown={(e) => e.preventDefault()}
-                title={props.getCwd(id) ?? id}
+                title={props.getCwd(id)?.cwd ?? id}
               >
                 <div class="flex items-center gap-1.5">
                   <span
@@ -92,9 +93,9 @@ const Sidebar: Component<{
                   </span>
                 </div>
                 <Show when={props.getCwd(id)}>
-                  {(cwd) => (
+                  {(cwdInfo) => (
                     <div class="text-xs text-slate-400 truncate ml-3.5">
-                      {cwdBasename(cwd())}
+                      {cwdBasename(cwdInfo().cwd)}
                     </div>
                   )}
                 </Show>

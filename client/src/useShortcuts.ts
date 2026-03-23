@@ -3,13 +3,14 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
+import type { CwdInfo } from "kolu-common";
 
 interface ShortcutDeps {
   terminalIds: Accessor<string[]>;
   activeId: Accessor<string | null>;
   setActiveId: Setter<string | null>;
   handleCreate: (cwd?: string) => void;
-  activeCwd: Accessor<string | null>;
+  activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
 }
@@ -41,7 +42,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.createTerminalInCwd.keybind)) {
-    deps.handleCreate(deps.activeCwd() ?? undefined);
+    deps.handleCreate(deps.activeCwd()?.cwd ?? undefined);
     return true;
   }
 

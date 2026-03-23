@@ -51,7 +51,20 @@ export const TerminalCreateInputSchema = z.object({
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
-export const TerminalCwdOutputSchema = z.string();
+export const GitInfoSchema = z.object({
+  repoRoot: z.string(),
+  repoName: z.string(),
+  worktreePath: z.string(),
+  branch: z.string(),
+});
+
+export const CwdInfoSchema = z.object({
+  cwd: z.string(),
+  git: GitInfoSchema.nullable(),
+});
+
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+export type CwdInfo = z.infer<typeof CwdInfoSchema>;
 export const TerminalActivityOutputSchema = z.boolean();
 
 export const TerminalPasteImageInputSchema = z.object({
