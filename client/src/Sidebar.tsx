@@ -2,10 +2,23 @@ import {
   type Component,
   type Accessor,
   createSignal,
+  createEffect,
+  on,
   For,
   Show,
 } from "solid-js";
 import { cwdBasename } from "./path";
+
+/** Focus the active terminal's ghostty textarea. */
+function focusTerminal(id: string) {
+  requestAnimationFrame(() => {
+    // Select the terminal container div (not the sidebar button which also has data-terminal-id)
+    document
+      .querySelector(`div[data-terminal-id="${id}"]`)
+      ?.querySelector("textarea")
+      ?.focus();
+  });
+}
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
@@ -18,11 +31,30 @@ const Sidebar: Component<{
   getCwd: (id: string) => string | undefined;
   getActive: (id: string) => boolean;
   getDisplayName: (id: string) => string;
-  renamingId: Accessor<string | null>;
-  onStartRename: (id: string) => void;
-  onCommitRename: (id: string, name: string) => void;
-  onCancelRename: () => void;
+  onRename: (id: string, name: string) => void;
+  /** External rename trigger (e.g. from command palette). Set to terminal ID to start renaming. */
+  renameRequest: Accessor<string | null>;
+  onRenameRequestHandled: () => void;
 }> = (props) => {
+  // Rename editing state — owned by Sidebar, not leaked to parent
+  const [renamingId, setRenamingId] = createSignal<string | null>(null);
+
+  // Watch for external rename requests (e.g. command palette "Rename" command)
+  createEffect(
+    on(props.renameRequest, (id) => {
+      if (id) {
+        setRenamingId(id);
+        props.onRenameRequestHandled();
+      }
+    }),
+  );
+
+  function finishRename(id: string, name: string | null) {
+    setRenamingId(null);
+    if (name) props.onRename(id, name);
+    if (props.activeId) focusTerminal(props.activeId);
+  }
+
   function handleSelect(id: string) {
     props.onSelect(id);
     // Auto-close on mobile
@@ -85,14 +117,14 @@ const Sidebar: Component<{
                     }}
                   />
                   <Show
-                    when={props.renamingId() === id}
+                    when={renamingId() === id}
                     fallback={
                       <span
                         class="cursor-text hover:underline hover:decoration-slate-500 hover:decoration-dotted"
                         title="Double-click to rename"
                         onDblClick={(e) => {
                           e.stopPropagation();
-                          props.onStartRename(id);
+                          setRenamingId(id);
                         }}
                       >
                         {props.getDisplayName(id)}
@@ -101,8 +133,8 @@ const Sidebar: Component<{
                   >
                     <InlineRenameInput
                       initialValue={props.getDisplayName(id)}
-                      onCommit={(name) => props.onCommitRename(id, name)}
-                      onCancel={() => props.onCancelRename()}
+                      onCommit={(name) => finishRename(id, name)}
+                      onCancel={() => finishRename(id, null)}
                     />
                   </Show>
                 </div>

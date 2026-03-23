@@ -32,8 +32,9 @@ export function useTerminals() {
     {},
   );
 
-  // Signal to trigger inline rename in Sidebar (set to terminal ID to rename).
-  const [renamingId, setRenamingId] = createSignal<string | null>(null);
+  // One-shot signal: command palette sets this to trigger rename in Sidebar.
+  // Sidebar watches it, starts editing, then calls onRenameRequestHandled to clear.
+  const [renameRequest, setRenameRequest] = createSignal<string | null>(null);
 
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
@@ -174,7 +175,7 @@ export function useTerminals() {
       ? [
           {
             name: `Rename ${getTerminalDisplayName(activeId()!)}`,
-            onSelect: () => setRenamingId(activeId()),
+            onSelect: () => setRenameRequest(activeId()),
           },
         ]
       : []),
@@ -204,8 +205,8 @@ export function useTerminals() {
     getTerminalActive,
     getTerminalDisplayName,
     handleSetName,
-    renamingId,
-    setRenamingId,
+    renameRequest,
+    clearRenameRequest: () => setRenameRequest(null),
     commands,
   };
 }

@@ -32,8 +32,8 @@ const App: Component = () => {
     getTerminalActive,
     getTerminalDisplayName,
     handleSetName,
-    renamingId,
-    setRenamingId,
+    renameRequest,
+    clearRenameRequest,
     commands,
   } = useTerminals();
 
@@ -46,20 +46,6 @@ const App: Component = () => {
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
     setPaletteOpen(true);
-  }
-
-  /** Clear rename state and return keyboard focus to the active terminal. */
-  function finishRename() {
-    setRenamingId(null);
-    requestAnimationFrame(() => {
-      const id = activeId();
-      if (!id) return;
-      // Find the terminal container div (not the sidebar button which also has data-terminal-id)
-      document
-        .querySelector(`div[data-terminal-id="${id}"]`)
-        ?.querySelector("textarea")
-        ?.focus();
-    });
   }
 
   // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
@@ -104,13 +90,9 @@ const App: Component = () => {
           getCwd={getTerminalCwd}
           getActive={getTerminalActive}
           getDisplayName={getTerminalDisplayName}
-          renamingId={renamingId}
-          onStartRename={setRenamingId}
-          onCommitRename={(id, name) => {
-            handleSetName(id, name);
-            finishRename();
-          }}
-          onCancelRename={finishRename}
+          onRename={handleSetName}
+          renameRequest={renameRequest}
+          onRenameRequestHandled={clearRenameRequest}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">
