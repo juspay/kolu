@@ -41,44 +41,17 @@ test-dev: install
         && {{ nix_shell }} pnpm install \
         && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
 
-# Run full nix build (via vira), e2e tests, and post signoff status to GitHub
+# Run CI: build all flake outputs on each platform, run e2e tests
+# Uses giton (https://github.com/srid/giton) to run commands and post GitHub commit statuses.
 ci:
-    nix run github:juspay/vira ci
-    just signoff signoff/e2e just test
-
-# Post GitHub commit status (pending → success/failure) around any command
-signoff context +cmd:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Bail if worktree is dirty
-    if [ -n "$(git status --porcelain)" ]; then
-        echo "✗ Dirty worktree. Commit or stash changes first."
-        exit 1
-    fi
-    REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-    SHA=$(git rev-parse HEAD)
-    USER=$(gh api user -q .login)
-    CONTEXT="{{ context }}"
-    # Post pending status
-    echo "⏳ Posting pending status for $CONTEXT..."
-    gh api "repos/$REPO/statuses/$SHA" \
-        -f state=pending -f context="$CONTEXT" \
-        -f description="Running locally (by $USER)..." > /dev/null
-    # On Ctrl+C, just exit without posting failure
-    trap 'echo " interrupted"; exit 130' INT
-    # Run command
-    if {{ cmd }}; then
-        gh api "repos/$REPO/statuses/$SHA" \
-            -f state=success -f context="$CONTEXT" \
-            -f description="Passed (ran by $USER)" > /dev/null
-        echo "✓ $CONTEXT passed, signoff posted"
-    else
-        gh api "repos/$REPO/statuses/$SHA" \
-            -f state=failure -f context="$CONTEXT" \
-            -f description="Failed (ran by $USER)" > /dev/null
-        echo "✗ $CONTEXT failed, failure posted"
-        exit 1
-    fi
+    # TODO: add cache push (nix copy) after builds
+    nix run github:srid/giton -- -s x86_64-linux -n nix -- \
+        nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+    nix run github:srid/giton -- -s aarch64-darwin -n nix -- \
+        nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+    nix run github:srid/giton -- -s x86_64-linux -n nix/home-example -- \
+        nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
+    nix run github:srid/giton -- -n e2e -- just test
 
 # Run pre-commit hooks on all files
 pc:

@@ -3,7 +3,7 @@
 # Also provides a VM test that verifies the service actually starts.
 {
   inputs = {
-    # In CI, vira overrides this to the repo root via overrideInputs.
+    # In CI, giton builds this with --override-input kolu pointing to the repo root.
     kolu.url = "github:juspay/kolu";
     nixpkgs.follows = "kolu/nixpkgs";
     home-manager.url = "github:nix-community/home-manager";

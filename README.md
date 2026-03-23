@@ -34,15 +34,14 @@ nix run -- --host 127.0.0.1 --port 8080  # custom bind
 
 ## CI
 
-- **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
-- **E2E tests**: local via `just ci` — runs Playwright and posts `signoff/e2e` commit status to GitHub
+Uses [giton](https://github.com/srid/giton) to build all flake outputs on each platform and run e2e tests, posting GitHub commit statuses.
 
 ```sh
-just ci         # run e2e + post signoff (requires clean worktree)
-just test       # run e2e only, no signoff
+just ci         # build + e2e, post statuses (requires clean worktree)
+just test       # run e2e only, no status posting
 ```
 
-Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
+Required statuses for merge: `giton/nix/x86_64-linux`, `giton/nix/aarch64-darwin`, `giton/nix/home-example/x86_64-linux`, `giton/e2e`.
 
 ## Deployment (NixOS + home-manager)
 
