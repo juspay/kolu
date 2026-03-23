@@ -12,6 +12,7 @@ const terminalBaseFields = {
   id: TerminalIdSchema,
   pid: z.number(),
   themeName: z.string().optional(),
+  name: z.string().optional(),
 };
 
 // Discriminated union: exitCode is required when exited, absent when running.
@@ -42,6 +43,11 @@ export const TerminalSendInputSchema = z.object({
 export const TerminalSetThemeInputSchema = z.object({
   id: TerminalIdSchema,
   themeName: z.string(),
+});
+
+export const TerminalSetNameInputSchema = z.object({
+  id: TerminalIdSchema,
+  name: z.string(),
 });
 
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });

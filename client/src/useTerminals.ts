@@ -27,6 +27,14 @@ export function useTerminals() {
     Record<string, boolean>
   >({});
 
+  // Per-terminal custom name (terminal ID → name).
+  const [terminalNames, setTerminalNames] = createStore<Record<string, string>>(
+    {},
+  );
+
+  // Signal to trigger inline rename in Sidebar (set to terminal ID to rename).
+  const [renamingId, setRenamingId] = createSignal<string | null>(null);
+
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
     return terminalThemes[id] ?? DEFAULT_THEME_NAME;
@@ -40,6 +48,14 @@ export function useTerminals() {
   /** Get the activity state for a terminal (reactive per key via createStore). */
   function getTerminalActive(id: string): boolean {
     return terminalActivity[id] ?? false;
+  }
+
+  /** Get display name: custom name or fallback "Terminal {n}". */
+  function getTerminalDisplayName(id: string): string {
+    const custom = terminalNames[id];
+    if (custom) return custom;
+    const idx = terminalIds().indexOf(id);
+    return `Terminal ${idx + 1}`;
   }
 
   /** The active terminal's theme name (for header + palette filter). */
@@ -109,6 +125,14 @@ export function useTerminals() {
           ),
         ),
       );
+      // Restore per-terminal names from server
+      setTerminalNames(
+        reconcile(
+          Object.fromEntries(
+            existing.filter((t) => t.name).map((t) => [t.id, t.name!]),
+          ),
+        ),
+      );
       // Set initial activity state and subscribe to changes for running terminals
       for (const t of existing) {
         if (t.status === "running") {
@@ -140,14 +164,28 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
+  /** Set the name for a terminal, persisting to server. */
+  function handleSetName(id: string, name: string) {
+    setTerminalNames(id, name);
+    void client.terminal.setName({ id, name });
+  }
+
   /** Command palette entries for terminal + theme actions. */
   const commands = createMemo(() => [
     {
       name: "Create new terminal",
       onSelect: () => void handleCreate(),
     },
-    ...terminalIds().map((id, i) => ({
-      name: `Switch to Terminal ${i + 1}`,
+    ...(activeId()
+      ? [
+          {
+            name: `Rename ${getTerminalDisplayName(activeId()!)}`,
+            onSelect: () => setRenamingId(activeId()),
+          },
+        ]
+      : []),
+    ...terminalIds().map((id) => ({
+      name: `Switch to ${getTerminalDisplayName(id)}`,
       onSelect: () => setActiveId(id),
     })),
     ...availableThemes
@@ -170,6 +208,10 @@ export function useTerminals() {
     getTerminalThemeName,
     getTerminalCwd,
     getTerminalActive,
+    getTerminalDisplayName,
+    handleSetName,
+    renamingId,
+    setRenamingId,
     commands,
   };
 }

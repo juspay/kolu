@@ -1,4 +1,10 @@
-import { type Component, For, Show } from "solid-js";
+import {
+  type Component,
+  type Accessor,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { cwdBasename } from "./path";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
@@ -11,6 +17,11 @@ const Sidebar: Component<{
   onClose: () => void;
   getCwd: (id: string) => string | undefined;
   getActive: (id: string) => boolean;
+  getDisplayName: (id: string) => string;
+  renamingId: Accessor<string | null>;
+  onStartRename: (id: string) => void;
+  onCommitRename: (id: string, name: string) => void;
+  onCancelRename: () => void;
 }> = (props) => {
   function handleSelect(id: string) {
     props.onSelect(id);
@@ -52,7 +63,7 @@ const Sidebar: Component<{
         </button>
         <nav class="flex-1 overflow-y-auto">
           <For each={props.terminalIds}>
-            {(id, i) => (
+            {(id) => (
               <button
                 data-terminal-id={id}
                 class="w-full p-2 text-sm text-left transition-colors"
@@ -73,7 +84,26 @@ const Sidebar: Component<{
                       "bg-slate-500": !props.getActive(id),
                     }}
                   />
-                  <span>Terminal {i() + 1}</span>
+                  <Show
+                    when={props.renamingId() === id}
+                    fallback={
+                      <span
+                        class="cursor-text hover:underline hover:decoration-slate-500 hover:decoration-dotted"
+                        onDblClick={(e) => {
+                          e.stopPropagation();
+                          props.onStartRename(id);
+                        }}
+                      >
+                        {props.getDisplayName(id)}
+                      </span>
+                    }
+                  >
+                    <InlineRenameInput
+                      initialValue={props.getDisplayName(id)}
+                      onCommit={(name) => props.onCommitRename(id, name)}
+                      onCancel={() => props.onCancelRename()}
+                    />
+                  </Show>
                 </div>
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (
@@ -88,6 +118,56 @@ const Sidebar: Component<{
         </nav>
       </aside>
     </>
+  );
+};
+
+/** Inline text input for renaming a terminal. Auto-focuses and selects text. */
+const InlineRenameInput: Component<{
+  initialValue: string;
+  onCommit: (name: string) => void;
+  onCancel: () => void;
+}> = (props) => {
+  let inputRef!: HTMLInputElement;
+  const [value, setValue] = createSignal(props.initialValue);
+  let committed = false;
+
+  function commit() {
+    if (committed) return;
+    committed = true;
+    const trimmed = value().trim();
+    if (trimmed) {
+      props.onCommit(trimmed);
+    } else {
+      props.onCancel();
+    }
+  }
+
+  // Auto-focus + select on mount
+  requestAnimationFrame(() => {
+    inputRef?.focus();
+    inputRef?.select();
+  });
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      class="bg-slate-700 text-white text-sm rounded px-1 py-0 w-full outline-none border border-slate-500 focus:border-blue-400"
+      value={value()}
+      onInput={(e) => setValue(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          props.onCancel();
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onBlur={() => commit()}
+    />
   );
 };
 

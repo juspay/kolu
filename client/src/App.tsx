@@ -30,6 +30,10 @@ const App: Component = () => {
     getTerminalThemeName,
     getTerminalCwd,
     getTerminalActive,
+    getTerminalDisplayName,
+    handleSetName,
+    renamingId,
+    setRenamingId,
     commands,
   } = useTerminals();
 
@@ -42,6 +46,17 @@ const App: Component = () => {
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
     setPaletteOpen(true);
+  }
+
+  /** Refocus the active terminal's ghostty textarea after UI interactions (e.g. rename). */
+  function focusActiveTerminal() {
+    requestAnimationFrame(() => {
+      const id = activeId();
+      if (!id) return;
+      // Find the terminal container div (has data-visible), not the sidebar button
+      const container = document.querySelector(`div[data-terminal-id="${id}"]`);
+      container?.querySelector("textarea")?.focus();
+    });
   }
 
   // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
@@ -85,6 +100,18 @@ const App: Component = () => {
           onClose={closeSidebar}
           getCwd={getTerminalCwd}
           getActive={getTerminalActive}
+          getDisplayName={getTerminalDisplayName}
+          renamingId={renamingId}
+          onStartRename={(id) => setRenamingId(id)}
+          onCommitRename={(id, name) => {
+            handleSetName(id, name);
+            setRenamingId(null);
+            focusActiveTerminal();
+          }}
+          onCancelRename={() => {
+            setRenamingId(null);
+            focusActiveTerminal();
+          }}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">

@@ -25,6 +25,7 @@ interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
+  name?: string;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
@@ -40,7 +41,12 @@ const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  const base = { id, pid: entry.handle.pid, themeName: entry.themeName };
+  const base = {
+    id,
+    pid: entry.handle.pid,
+    themeName: entry.themeName,
+    name: entry.name,
+  };
   return entry.status === "exited"
     ? { ...base, status: "exited", exitCode: entry.exitCode }
     : { ...base, status: "running", isActive: entry.isActive };
@@ -127,6 +133,12 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) terminals.set(id, { ...entry, themeName });
+}
+
+/** Set the display name for a terminal. */
+export function setTerminalName(id: TerminalId, name: string): void {
+  const entry = terminals.get(id);
+  if (entry) terminals.set(id, { ...entry, name });
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */

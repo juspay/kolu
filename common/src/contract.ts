@@ -10,6 +10,7 @@ import {
   TerminalResizeInputSchema,
   TerminalSendInputSchema,
   TerminalSetThemeInputSchema,
+  TerminalSetNameInputSchema,
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
@@ -25,6 +26,7 @@ export const contract = oc.router({
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
+    setName: oc.input(TerminalSetNameInputSchema).output(z.void()),
     attach: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalAttachOutputSchema)),

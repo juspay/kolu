@@ -14,6 +14,7 @@ import {
   listTerminals,
   killAllTerminals,
   setTerminalTheme,
+  setTerminalName,
   type TerminalEntry,
 } from "./terminals.ts";
 import { subscribeAndYield } from "./streaming.ts";
@@ -47,6 +48,12 @@ export const appRouter = t.router({
       log
         .child({ terminal: input.id })
         .info({ theme: input.themeName }, "theme set");
+    }),
+
+    setName: t.terminal.setName.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      setTerminalName(input.id, input.name);
+      log.child({ terminal: input.id }).info({ name: input.name }, "name set");
     }),
 
     /**
