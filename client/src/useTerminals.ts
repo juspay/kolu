@@ -1,7 +1,7 @@
 /** Terminal session state: manages terminal list, active selection, and per-terminal themes. */
 
 import { createSignal, createResource, createMemo } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
@@ -104,21 +104,35 @@ export function useTerminals() {
     );
   }
 
-  /** Remove a terminal from the list and auto-switch if it was active. */
-  function removeAndAutoSwitch(id: string) {
+  /** Start all per-terminal stream subscriptions (CWD, activity, exit). */
+  function subscribeAll(id: string) {
+    subscribeCwd(id);
+    subscribeActivity(id);
+    subscribeExit(id);
+  }
+
+  /** Remove a terminal from all state stores. Returns the new ID list and removed index. */
+  function removeTerminal(
+    id: string,
+  ): { newIds: string[]; idx: number } | null {
     const ids = terminalIds();
     const idx = ids.indexOf(id);
-    if (idx === -1) return; // already removed
+    if (idx === -1) return null; // already removed
     const newIds = ids.filter((x) => x !== id);
     setTerminalIds(newIds);
-    // Clean up per-terminal state
-    setTerminalCwds(id, undefined!);
-    setTerminalActivity(id, undefined!);
-    setTerminalThemes(id, undefined!);
-    // Auto-switch if the removed terminal was active
+    setTerminalCwds(produce((s) => delete s[id]));
+    setTerminalActivity(produce((s) => delete s[id]));
+    setTerminalThemes(produce((s) => delete s[id]));
+    return { newIds, idx };
+  }
+
+  /** Remove a terminal and auto-switch if it was the active one. */
+  function removeAndAutoSwitch(id: string) {
+    const result = removeTerminal(id);
+    if (!result) return;
     if (activeId() === id) {
-      // Pick terminal at same index, or last, or null
-      const next = newIds[Math.min(idx, newIds.length - 1)] ?? null;
+      const next =
+        result.newIds[Math.min(result.idx, result.newIds.length - 1)] ?? null;
       setActiveId(next);
     }
   }
@@ -149,9 +163,7 @@ export function useTerminals() {
       for (const t of existing) {
         if (t.status === "running") {
           setTerminalActivity(t.id, t.isActive);
-          subscribeCwd(t.id);
-          subscribeActivity(t.id);
-          subscribeExit(t.id);
+          subscribeAll(t.id);
         }
       }
     }
@@ -165,9 +177,7 @@ export function useTerminals() {
     setActiveId(info.id);
     // New terminals always start active (server spawns PTY with initial output)
     setTerminalActivity(info.id, true);
-    subscribeCwd(info.id);
-    subscribeActivity(info.id);
-    subscribeExit(info.id);
+    subscribeAll(info.id);
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
