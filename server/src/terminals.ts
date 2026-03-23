@@ -25,8 +25,6 @@ interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
-  /** Timestamp of last PTY data event (ms). Used for active/sleeping detection. */
-  lastDataTime: number;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
@@ -52,7 +50,6 @@ const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 
 /** Mark terminal active and reset the idle timer. */
 function touchActivity(entry: TerminalBase): void {
-  entry.lastDataTime = Date.now();
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.isActive) {
     entry.isActive = true;
@@ -93,7 +90,6 @@ export function createTerminal(): TerminalInfo {
     handle,
     status: "running",
     emitter,
-    lastDataTime: Date.now(),
     isActive: true,
   };
   terminals.set(id, entry);
