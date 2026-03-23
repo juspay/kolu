@@ -24,9 +24,11 @@ const App: Component = () => {
     setActiveId,
     activeThemeName,
     activeTheme,
+    activeCwd,
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
+    getTerminalCwd,
     commands,
   } = useTerminals();
 
@@ -68,6 +70,7 @@ const App: Component = () => {
         onOpenPalette={() => openPaletteWith("")}
         onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
+        cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
@@ -79,6 +82,7 @@ const App: Component = () => {
           onCreate={handleCreate}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          getCwd={getTerminalCwd}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">

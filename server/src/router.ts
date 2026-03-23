@@ -83,6 +83,19 @@ export const appRouter = t.router({
       killAllTerminals();
     }),
 
+    onCwdChange: t.terminal.onCwdChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = requireTerminal(input.id);
+
+      // Yield current CWD immediately
+      yield entry.handle.cwd;
+
+      // Then stream changes
+      yield* subscribeAndYield(entry.emitter, "cwd", signal);
+    }),
+
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
       const tlog = log.child({ terminal: input.id });

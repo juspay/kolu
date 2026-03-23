@@ -1,4 +1,5 @@
 import { type Component, For, Show } from "solid-js";
+import { cwdBasename } from "./path";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
@@ -8,6 +9,7 @@ const Sidebar: Component<{
   onCreate: () => void;
   open: boolean;
   onClose: () => void;
+  getCwd: (id: string) => string | undefined;
 }> = (props) => {
   function handleSelect(id: string) {
     props.onSelect(id);
@@ -59,9 +61,16 @@ const Sidebar: Component<{
                     props.activeId !== id,
                 }}
                 onClick={() => handleSelect(id)}
-                title={id}
+                title={props.getCwd(id) ?? id}
               >
-                Terminal {i() + 1}
+                <div>Terminal {i() + 1}</div>
+                <Show when={props.getCwd(id)}>
+                  {(cwd) => (
+                    <div class="text-xs text-slate-400 truncate">
+                      {cwdBasename(cwd())}
+                    </div>
+                  )}
+                </Show>
               </button>
             )}
           </For>

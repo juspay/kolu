@@ -8,7 +8,7 @@
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
-import { cleanEnv } from "./shell.ts";
+import { cleanEnv, osc7Init } from "./shell.ts";
 import type { Logger } from "./log.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
@@ -21,6 +21,8 @@ const { SerializeAddon } =
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
+  /** Current working directory (from OSC 7), initially $HOME. */
+  readonly cwd: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -31,19 +33,23 @@ export interface PtyHandle {
   dispose(): void;
 }
 
-/** Spawn a shell in a PTY, calling back on data and exit. */
+/** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
 export function spawnPty(
   tlog: Logger,
   opts: {
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
+    onCwd?: (cwd: string) => void;
   },
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
+  const osc7 = osc7Init(shell, env.HOME);
+  Object.assign(env, osc7.env);
+
   tlog.info({ shell, cwd }, "spawning pty");
-  const proc = pty.spawn(shell, [], {
+  const proc = pty.spawn(shell, osc7.args, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -62,6 +68,26 @@ export function spawnPty(
   const serializeAddon = new SerializeAddon();
   headless.loadAddon(serializeAddon);
 
+  // Parse OSC 7 (CWD reporting) from headless terminal output.
+  // The rc wrapper injected above ensures the shell emits these sequences.
+  let currentCwd = cwd;
+  const oscDisposable = headless.parser.registerOscHandler(
+    7,
+    (data: string) => {
+      try {
+        const url = new URL(data);
+        if (url.protocol === "file:") {
+          currentCwd = decodeURIComponent(url.pathname);
+          tlog.debug({ cwd: currentCwd }, "cwd changed (OSC 7)");
+          opts.onCwd?.(currentCwd);
+        }
+      } catch {
+        // Ignore malformed OSC 7 data
+      }
+      return true;
+    },
+  );
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
@@ -78,6 +104,9 @@ export function spawnPty(
 
   return {
     pid: proc.pid,
+    get cwd() {
+      return currentCwd;
+    },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
@@ -85,11 +114,13 @@ export function spawnPty(
     },
     getScreenState: () => serializeAddon.serialize(),
     dispose() {
+      oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
+      osc7.cleanup();
     },
   };
 }

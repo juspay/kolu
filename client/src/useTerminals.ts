@@ -17,9 +17,19 @@ export function useTerminals() {
     Record<string, string>
   >({});
 
+  // Per-terminal CWD (terminal ID → cwd path).
+  const [terminalCwds, setTerminalCwds] = createStore<Record<string, string>>(
+    {},
+  );
+
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
     return terminalThemes[id] ?? DEFAULT_THEME_NAME;
+  }
+
+  /** Get the CWD for a terminal (reactive per key via createStore). */
+  function getTerminalCwd(id: string): string | undefined {
+    return terminalCwds[id];
   }
 
   /** The active terminal's theme name (for header + palette filter). */
@@ -30,6 +40,31 @@ export function useTerminals() {
 
   /** The active terminal's resolved theme (for container background). */
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
+
+  /** The active terminal's CWD (for header display). */
+  const activeCwd = createMemo(() => {
+    const id = activeId();
+    return id ? (terminalCwds[id] ?? null) : null;
+  });
+
+  /** Subscribe to CWD changes for a terminal. Called when terminal is created or restored. */
+  function subscribeCwd(id: string) {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const stream = await client.terminal.onCwdChange(
+          { id },
+          { signal: controller.signal },
+        );
+        for await (const cwd of stream) {
+          setTerminalCwds(id, cwd);
+        }
+      } catch {
+        // Stream aborted or terminal gone — expected on cleanup
+      }
+    })();
+    return () => controller.abort();
+  }
 
   // Restore existing terminals on page load (e.g. after browser refresh).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
@@ -50,6 +85,10 @@ export function useTerminals() {
           ),
         ),
       );
+      // Subscribe to CWD changes for all running terminals
+      for (const t of existing) {
+        if (t.status === "running") subscribeCwd(t.id);
+      }
     }
     return existing;
   });
@@ -59,6 +98,7 @@ export function useTerminals() {
     const info = await client.terminal.create();
     setTerminalIds((prev) => [...prev, info.id]);
     setActiveId(info.id);
+    subscribeCwd(info.id);
   }
 
   /** Set the theme for the active terminal, persisting to server. */
@@ -93,9 +133,11 @@ export function useTerminals() {
     setActiveId,
     activeThemeName,
     activeTheme,
+    activeCwd,
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
+    getTerminalCwd,
     commands,
   };
 }

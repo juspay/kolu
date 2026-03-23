@@ -1,5 +1,6 @@
-import { type Component, mergeProps } from "solid-js";
+import { type Component, Show, mergeProps } from "solid-js";
 import { isMac } from "./platform";
+import { shortenCwd } from "./path";
 import type { WsStatus } from "./rpc";
 
 /** WS connection status indicator colors. */
@@ -14,6 +15,7 @@ const Header: Component<{
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
   themeName?: string;
+  cwd?: string | null;
   onToggleSidebar?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
@@ -42,6 +44,17 @@ const Header: Component<{
       </button>
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm hidden sm:inline">kolu</span>
+      <Show when={props.cwd}>
+        {(cwd) => (
+          <span
+            class="text-xs text-slate-400 truncate max-w-[300px]"
+            title={cwd()}
+            data-testid="header-cwd"
+          >
+            {shortenCwd(cwd())}
+          </span>
+        )}
+      </Show>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (

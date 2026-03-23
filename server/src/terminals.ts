@@ -16,6 +16,7 @@ import { log } from "./log.ts";
 export interface TerminalEvents {
   data: [data: string];
   exit: [exitCode: number];
+  cwd: [cwd: string];
 }
 
 interface TerminalBase {
@@ -54,6 +55,7 @@ export function createTerminal(): TerminalInfo {
       if (entry) terminals.set(id, { ...entry, status: "exited", exitCode });
       emitter.emit("exit", exitCode);
     },
+    onCwd: (cwd) => emitter.emit("cwd", cwd),
   });
 
   const entry: TerminalEntry = { handle, status: "running", emitter };
