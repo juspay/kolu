@@ -1,5 +1,8 @@
 /**
  * Cucumber hooks — browser lifecycle + server health check.
+ *
+ * When running in parallel (--parallel N), each worker spawns its own
+ * server on a unique port derived from CUCUMBER_WORKER_ID.
  */
 
 import { Before, After, BeforeAll, AfterAll, Status } from "@cucumber/cucumber";
@@ -11,7 +14,11 @@ import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
-const BASE_URL = process.env.BASE_URL || "http://localhost:7681";
+const BASE_PORT = 7681;
+const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
+const workerPort = BASE_PORT + workerId;
+
+const BASE_URL = process.env.BASE_URL || `http://localhost:${workerPort}`;
 const HEALTH_URL = `${BASE_URL}/api/health`;
 
 let browser: Browser;
@@ -44,16 +51,22 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
 BeforeAll(async function () {
   // Start server if not reusing
   if (!process.env.REUSE_SERVER) {
-    console.log("Starting server via nix run ..#default ...");
-    serverProcess = spawn("nix", ["run", "..#default"], {
-      stdio: "pipe",
-      cwd: path.resolve(import.meta.dirname, ".."),
-    });
+    console.log(
+      `[worker ${workerId}] Starting server on port ${workerPort}...`,
+    );
+    serverProcess = spawn(
+      "nix",
+      ["run", "..#default", "--", "--port", String(workerPort)],
+      {
+        stdio: "pipe",
+        cwd: path.resolve(import.meta.dirname, ".."),
+      },
+    );
     serverProcess.stderr?.on("data", (data: Buffer) => {
-      process.stderr.write(`[server] ${data}`);
+      process.stderr.write(`[server:${workerId}] ${data}`);
     });
     await waitForHealth(HEALTH_URL, 600_000);
-    console.log("Server is healthy.");
+    console.log(`[worker ${workerId}] Server is healthy.`);
   }
 
   // Launch browser

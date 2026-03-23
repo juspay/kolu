@@ -22,11 +22,11 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
-# Run Cucumber e2e tests (starts server via nix run)
+# Run Cucumber e2e tests (starts server via nix run), parallelized across 3 workers
 test:
     cd tests \
         && {{ nix_shell }} pnpm install \
-        && {{ nix_shell }} pnpm test
+        && CUCUMBER_PARALLEL=3 {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
