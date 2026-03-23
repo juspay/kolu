@@ -42,9 +42,16 @@ const argv = cli({
       type: String,
       description: "Path to TLS private key file (PEM)",
     },
+    verbose: {
+      type: Boolean,
+      description: "Enable debug-level logging",
+      default: false,
+    },
   },
   strictFlags: true,
 });
+
+if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();
 
