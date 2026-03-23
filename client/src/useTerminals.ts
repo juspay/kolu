@@ -171,13 +171,19 @@ export function useTerminals() {
   });
 
   /** Create a new terminal on the server, add it to the list, and make it active. */
-  async function handleCreate() {
-    const info = await client.terminal.create();
+  async function handleCreate(cwd?: string) {
+    const info = await client.terminal.create({ cwd });
     setTerminalIds((prev) => [...prev, info.id]);
     setActiveId(info.id);
     // New terminals always start active (server spawns PTY with initial output)
     setTerminalActivity(info.id, true);
     subscribeAll(info.id);
+  }
+
+  /** Create a new terminal in the active terminal's CWD. */
+  async function handleCreateInCwd() {
+    const cwd = activeCwd();
+    await handleCreate(cwd ?? undefined);
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
@@ -209,6 +215,14 @@ export function useTerminals() {
         name: "Create new terminal",
         onSelect: () => void handleCreate(),
       },
+      ...(activeCwd()
+        ? [
+            {
+              name: "Create terminal in current directory",
+              onSelect: () => void handleCreateInCwd(),
+            },
+          ]
+        : []),
       ...(activeId()
         ? [
             {
@@ -250,6 +264,7 @@ export function useTerminals() {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateInCwd,
     handleKill,
     getTerminalThemeName,
     getTerminalCwd,

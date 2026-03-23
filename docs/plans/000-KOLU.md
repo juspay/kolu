@@ -116,7 +116,7 @@ procedures. Layout: Header → Sidebar + terminal area.
 Auto-switch on active terminal kill. Keyboard shortcut Ctrl/Cmd+Shift+T.
 Full e2e coverage.
 
-### Phase 3: CWD-aware terminal creation
+### Phase 3: CWD-aware terminal creation ✅
 
 Add optional `cwd` to `terminal.create`. "Create terminal in current
 directory" command in palette (uses active terminal's CWD). Existing

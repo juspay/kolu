@@ -31,7 +31,9 @@ function requireTerminal(id: string): TerminalEntry {
 
 export const appRouter = t.router({
   terminal: {
-    create: t.terminal.create.handler(async () => createTerminal()),
+    create: t.terminal.create.handler(async ({ input }) =>
+      createTerminal(input.cwd),
+    ),
     list: t.terminal.list.handler(async () => listTerminals()),
 
     resize: t.terminal.resize.handler(async ({ input }) => {

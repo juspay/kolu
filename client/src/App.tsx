@@ -30,6 +30,7 @@ const App: Component = () => {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateInCwd,
     handleKill,
     getTerminalThemeName,
     getTerminalCwd,
@@ -51,6 +52,7 @@ const App: Component = () => {
     activeId,
     setActiveId,
     handleCreate: () => void handleCreate(),
+    handleCreateInCwd: () => void handleCreateInCwd(),
     setPaletteOpen,
     setShortcutsHelpOpen,
   });
