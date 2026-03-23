@@ -11,6 +11,9 @@ Seamless parallel development across repos and branches — switch context in on
 > [!IMPORTANT]
 > Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
 
+<img width="2446" height="2030" alt="image" src="https://github.com/user-attachments/assets/5d6bbb17-25c4-4c04-9389-66004dee3b9c" />
+
+
 ## Development
 
 Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
