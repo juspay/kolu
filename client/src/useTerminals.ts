@@ -180,12 +180,6 @@ export function useTerminals() {
     subscribeAll(info.id);
   }
 
-  /** Create a new terminal in the active terminal's CWD. */
-  async function handleCreateInCwd() {
-    const cwd = activeCwd();
-    await handleCreate(cwd ?? undefined);
-  }
-
   /** Kill a terminal on the server, then remove + auto-switch locally. */
   async function handleKill(id: string) {
     try {
@@ -219,7 +213,7 @@ export function useTerminals() {
         ? [
             {
               name: "Create terminal in current directory",
-              onSelect: () => void handleCreateInCwd(),
+              onSelect: () => void handleCreate(activeCwd()!),
             },
           ]
         : []),
@@ -264,7 +258,6 @@ export function useTerminals() {
     activeCwd,
     existingTerminals,
     handleCreate,
-    handleCreateInCwd,
     handleKill,
     getTerminalThemeName,
     getTerminalCwd,
