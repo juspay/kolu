@@ -68,19 +68,28 @@ function bufferToBase64(buf: ArrayBuffer): string {
  * still forwarded so text-mode Ctrl+V works unchanged.
  */
 async function uploadClipboardImage(terminalId: string): Promise<void> {
+  // Read clipboard — expected to fail (permission denied, API unavailable, no image).
+  // Errors here are normal; only the RPC upload should surface failures.
+  let base64: string | undefined;
   try {
     const items = await navigator.clipboard.read();
     for (const item of items) {
       const imageType = item.types.find((t) => t.startsWith("image/"));
       if (imageType) {
         const blob = await item.getType(imageType);
-        const base64 = bufferToBase64(await blob.arrayBuffer());
-        await client.terminal.pasteImage({ id: terminalId, data: base64 });
+        base64 = bufferToBase64(await blob.arrayBuffer());
         break;
       }
     }
   } catch {
-    // Clipboard API unavailable or permission denied — proceed without image
+    // Clipboard API unavailable or permission denied — no image to upload
+  }
+  if (base64) {
+    try {
+      await client.terminal.pasteImage({ id: terminalId, data: base64 });
+    } catch (err) {
+      console.error("Failed to upload clipboard image:", err);
+    }
   }
   void client.terminal.sendInput({ id: terminalId, data: "\x16" });
 }
