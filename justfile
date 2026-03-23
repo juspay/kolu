@@ -3,7 +3,7 @@
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
 # giton branch/ref to use (override: just giton_ref=main ci)
-giton_ref := "master"
+giton_ref := "out"
 giton_nix_opts := "--refresh"
 giton := "nix run " + giton_nix_opts + " github:srid/giton/" + giton_ref + " --"
 
