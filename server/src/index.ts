@@ -48,12 +48,17 @@ const argv = cli({
 
 const app = new Hono();
 
-// --- HTTP request logging ---
+// --- HTTP request logging (debug level to avoid noise in normal operation) ---
 app.use(
   pinoLogger({
     pino: log,
     http: {
-      onReqMessage: (c) => `${c.req.method} ${c.req.path}`,
+      onReqMessage: false,
+      onReqBindings: (c) => ({
+        req: { method: c.req.method, url: c.req.path },
+      }),
+      onResBindings: (c) => ({ res: { status: c.res.status } }),
+      onResLevel: () => "debug",
     },
   }),
 );
@@ -62,7 +67,9 @@ app.use(
 const rpcPlugins = [
   new LoggingHandlerPlugin({
     logger: log,
-    logRequestResponse: true,
+    // logRequestResponse left off (default) — too noisy for high-frequency
+    // calls like sendInput/attach. Errors and unmatched procedures are
+    // still logged automatically by the plugin.
     logRequestAbort: true,
   }),
 ];
