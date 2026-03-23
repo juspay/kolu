@@ -30,9 +30,9 @@ export function getClipboardShimDir(): string | undefined {
   return dir;
 }
 
-/** Create a per-terminal clipboard directory. */
+/** Create a per-terminal clipboard directory (namespaced by PID to avoid collisions between parallel workers). */
 export function createClipboardDir(terminalId: string): string {
-  const dir = join(tmpdir(), `kolu-clipboard-${terminalId}`);
+  const dir = join(tmpdir(), `kolu-clipboard-${process.pid}-${terminalId}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

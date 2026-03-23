@@ -65,6 +65,7 @@ const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostna
 export function osc7Init(
   shell: string,
   home: string | undefined,
+  extraPath?: string,
 ): { args: string[]; env: Record<string, string>; cleanup: () => void } {
   const noop = { args: [], env: {}, cleanup: () => {} };
   if (!home) return noop;
@@ -72,15 +73,21 @@ export function osc7Init(
   const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
   const isZsh = shell.endsWith("/zsh");
 
+  // Prepend extra dirs to PATH after the user's rc (which may rebuild PATH from scratch on NixOS).
+  const pathLine = extraPath ? `export PATH="${extraPath}:$PATH"` : "";
+
   if (isBash) {
     const rcFile = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
     writeFileSync(
       rcFile,
       [
         `[ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
+        pathLine,
         OSC7_FN,
         `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
     return {
       args: ["--rcfile", rcFile],
@@ -95,10 +102,13 @@ export function osc7Init(
       join(zdotdir, ".zshrc"),
       [
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
+        pathLine,
         OSC7_FN,
         `autoload -Uz add-zsh-hook`,
         `add-zsh-hook precmd __kolu_osc7`,
-      ].join("\n"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
     return {
       args: [],

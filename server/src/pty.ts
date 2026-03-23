@@ -46,15 +46,13 @@ export function spawnPty(
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";
-  const osc7 = osc7Init(shell, env.HOME);
+
+  // Pass clipboard shim dir as extraPath — injected into the shell rc
+  // wrapper AFTER the user's rc (NixOS rebuilds PATH during shell init).
+  const osc7 = osc7Init(shell, env.HOME, clipboard?.shimBinDir);
   Object.assign(env, osc7.env);
 
-  // Clipboard shims: prepend shim dir to PATH so Claude Code finds our
-  // xclip/wl-paste wrappers before any system-installed versions.
   if (clipboard) {
-    if (clipboard.shimBinDir) {
-      env.PATH = `${clipboard.shimBinDir}:${env.PATH}`;
-    }
     env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
   }
 
