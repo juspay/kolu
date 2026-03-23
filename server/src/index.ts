@@ -78,6 +78,15 @@ const rpcPlugins = [
     // logRequestResponse left off (default) — too noisy for high-frequency
     // calls like sendInput/attach. Errors and unmatched procedures are
     // still logged automatically by the plugin.
+    //
+    // logRequestAbort: disabled because the plugin attaches its own
+    // addEventListener("abort") on each request signal (independent of our
+    // handler code), so every WebSocket disconnect spams one INFO line per
+    // in-flight stream. In this app every abort is a tab close — there are
+    // no client-initiated cancellations — so the noise has no diagnostic
+    // value. The WebSocket close handler below already logs disconnects
+    // with connection ID and close code. Trade-off: if a future client-side
+    // bug aborts a non-streaming call mid-flight, we won't see it here.
     logRequestAbort: false,
   }),
 ];
