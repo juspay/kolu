@@ -25,6 +25,9 @@ export interface Command {
   onSelect: () => void;
 }
 
+/** Ctrl+key → normalized key for readline-style navigation. */
+const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
+
 const CommandPalette: Component<{
   commands: Accessor<Command[]>;
   open: boolean;
@@ -65,7 +68,9 @@ const CommandPalette: Component<{
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
     const items = filtered();
-    switch (e.key) {
+    const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    const key = (isCtrl && CTRL_KEY_MAP[e.key]) || e.key;
+    switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
