@@ -20,6 +20,8 @@ When(
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: 5000 });
+    // Brief settle for Terminal.tsx visibility effect to fire (auto-focus + remeasure)
+    await this.page.waitForTimeout(300);
   },
 );
 

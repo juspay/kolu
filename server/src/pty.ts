@@ -112,7 +112,7 @@ export function spawnPty(
       proc.resize(cols, rows);
       headless.resize(cols, rows);
     },
-    getScreenState: () => serializeAddon.serialize({ scrollback: 1000 }),
+    getScreenState: () => serializeAddon.serialize(),
     dispose() {
       oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
