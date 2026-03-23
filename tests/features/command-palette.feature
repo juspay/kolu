@@ -60,6 +60,18 @@ Feature: Command Palette
     Then palette item 1 should be selected
     And there should be no page errors
 
+  Scenario: Ctrl+N/P navigation
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I open the command palette
+    Then palette item 1 should be selected
+    When I press Control+n
+    Then palette item 2 should be selected
+    When I press Control+p
+    Then palette item 1 should be selected
+    And there should be no page errors
+
   Scenario: Create terminal via command palette
     Given I note the sidebar entry count
     When I open the command palette

@@ -65,7 +65,14 @@ const CommandPalette: Component<{
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
     const items = filtered();
-    switch (e.key) {
+    const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    const key =
+      isCtrl && e.key === "n"
+        ? "ArrowDown"
+        : isCtrl && e.key === "p"
+          ? "ArrowUp"
+          : e.key;
+    switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
         setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
