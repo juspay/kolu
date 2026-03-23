@@ -62,6 +62,7 @@ const Sidebar: Component<{
                     props.activeId !== id,
                 }}
                 onClick={() => handleSelect(id)}
+                onMouseDown={(e) => e.preventDefault()}
                 title={props.getCwd(id) ?? id}
               >
                 <div class="flex items-center gap-1.5">
