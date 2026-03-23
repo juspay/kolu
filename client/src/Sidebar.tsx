@@ -83,7 +83,7 @@ const Sidebar: Component<{
                     class="opacity-0 group-hover:opacity-100 hover:text-red-400 text-slate-500 px-0.5 transition-opacity"
                     onClick={(e) => {
                       e.stopPropagation();
-                      props.onKill(id);
+                      if (confirm("Close this terminal?")) props.onKill(id);
                     }}
                     onMouseDown={(e) => e.preventDefault()}
                     title="Close terminal"

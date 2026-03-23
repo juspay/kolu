@@ -10,6 +10,8 @@ When(
     const entry = this.page.locator(
       `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
     );
+    // Auto-accept the confirmation dialog
+    this.page.once("dialog", (dialog) => dialog.accept());
     // Hover to reveal the close button
     await entry.hover();
     await entry.locator('[data-testid="close-terminal"]').click();
