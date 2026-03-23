@@ -157,6 +157,7 @@ export function useTerminals() {
     },
     {
       name: "Debug: trigger server error",
+      hidden: true,
       onSelect: () =>
         // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
         void client.terminal.resize({

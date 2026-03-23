@@ -23,6 +23,8 @@ import { isPlatformModifier } from "./keyboard";
 export interface Command {
   name: string;
   onSelect: () => void;
+  /** Hidden commands only appear when the query matches their name. */
+  hidden?: boolean;
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -42,7 +44,7 @@ const CommandPalette: Component<{
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
     const cmds = props.commands();
-    if (!q) return cmds;
+    if (!q) return cmds.filter((cmd) => !cmd.hidden);
     return cmds.filter((cmd) => cmd.name.toLowerCase().includes(q));
   });
 
