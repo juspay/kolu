@@ -107,7 +107,7 @@ const CommandPalette: Component<{
     e.stopPropagation();
   }
 
-  // Capture phase: intercept before ghostty's keydown handler
+  // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
   // Close on click outside the palette panel

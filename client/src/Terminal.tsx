@@ -1,5 +1,5 @@
 /**
- * Terminal component — owns ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
+ * Terminal component — owns xterm.js lifecycle, oRPC streaming, resize fitting, keyboard zoom.
  *
  * These concerns share the same volatility (all change together when
  * terminal behavior changes), so they belong in one module.
@@ -16,21 +16,26 @@ import {
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
-import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
-import type { ITheme } from "ghostty-web";
+import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { SearchAddon } from "@xterm/addon-search";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { ImageAddon } from "@xterm/addon-image";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
-import {
-  DEFAULT_COLS,
-  DEFAULT_ROWS,
-  DEFAULT_FONT_SIZE,
-} from "kolu-common/config";
-import { measureCells, fitToContainer } from "./resize";
+import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
 const FONT_SIZE_KEY = "kolu-font-size";
-// Module-level to avoid re-creating on every write callback
-const encoder = new TextEncoder();
+
+export type RendererType = "webgl" | "canvas";
+const [renderer, setRenderer] = createSignal<RendererType>("canvas");
+export { renderer };
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -55,11 +60,15 @@ const Terminal: Component<{
   theme: ITheme;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
-  let terminal: GhosttyTerminal | null = null;
-  let cellWidth = 0;
-  let cellHeight = 0;
-  let currentCols = DEFAULT_COLS;
-  let currentRows = DEFAULT_ROWS;
+  let terminal: XTerm | null = null;
+  let fitAddon: FitAddon | null = null;
+  let fitRaf = 0;
+
+  /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
+  function debouncedFit() {
+    cancelAnimationFrame(fitRaf);
+    fitRaf = requestAnimationFrame(() => fitAddon?.fit());
+  }
 
   const [fontSize, setFontSize] = makePersisted(
     createSignal(DEFAULT_FONT_SIZE),
@@ -68,107 +77,50 @@ const Terminal: Component<{
 
   let streamAbort: AbortController | null = null;
 
-  /** Focus ghostty's hidden textarea so keyboard input reaches this terminal. */
-  function focusInput() {
-    containerRef.querySelector("textarea")?.focus();
-  }
-
-  // Re-measure, fit, and auto-focus when terminal becomes visible (display:none → visible).
+  // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // defer: true skips the initial run (onMount handles first fit + focus).
-  // Placed at component body level for proper SolidJS reactive scope.
   createEffect(
     on(
       () => props.visible,
       (visible) => {
-        if (!visible) return;
-        remeasureAndFit();
-        focusInput();
+        if (!visible || !terminal) return;
+        debouncedFit();
+        terminal.focus();
       },
       { defer: true },
     ),
   );
 
-  // Apply theme changes at runtime.
-  // ghostty-web doesn't support runtime theme changes (options.theme setter is a no-op
-  // after open()). We set the options (so buildWasmConfig reads them), update the
-  // renderer palette, then reset() to rebuild the WASM terminal. Reset clears the
-  // screen, so we re-stream the screen state from the server to restore content.
-  let themeVersion = 0;
+  // Apply theme changes at runtime — xterm.js supports live theme switching.
   createEffect(
     on(
       () => props.theme,
-      async (theme) => {
-        if (!terminal?.renderer) return;
-        // Guard against rapid theme switches: only apply the latest one
-        const version = ++themeVersion;
-        let state: string | undefined;
-        try {
-          state = await client.terminal.screenState({
-            id: props.terminalId,
-          });
-        } catch {
-          // Terminal may have been killed
-        }
-        // Stale: a newer theme switch started while we were fetching
-        if (version !== themeVersion) return;
+      (theme) => {
+        if (!terminal) return;
         terminal.options.theme = theme;
-        terminal.renderer.setTheme(theme);
-        terminal.reset();
-        if (state) terminal.write(encoder.encode(state));
-        // Force full canvas repaint — the render loop only redraws dirty lines,
-        // which can leave stale content after a theme switch + screen restore.
-        if (terminal.wasmTerm) {
-          terminal.renderer.render(
-            terminal.wasmTerm,
-            true,
-            terminal.viewportY,
-            terminal,
-          );
-        }
-        // reset() recreates ghostty's textarea, so re-focus it
-        focusInput();
       },
       { defer: true },
     ),
   );
 
-  /** Resize PTY first, then frontend (prevents output clobbering). */
-  async function fit() {
-    if (!terminal || cellWidth === 0) return;
-    const { cols, rows } = fitToContainer(containerRef, cellWidth, cellHeight);
+  /** Resize PTY to match frontend dimensions. */
+  async function syncResize() {
+    if (!terminal) return;
+    const cols = terminal.cols;
+    const rows = terminal.rows;
     if (cols <= 0 || rows <= 0) return;
-    if (cols === currentCols && rows === currentRows) return;
     try {
       await client.terminal.resize({ id: props.terminalId, cols, rows });
-      currentCols = cols;
-      currentRows = rows;
-      terminal.resize(cols, rows);
     } catch {
       // Terminal may have been killed mid-resize
     }
   }
 
-  /** Double rAF ensures ghostty's canvas has re-rendered at the new size. */
-  function remeasureAndFit() {
-    // Guard: createEffect may fire before onMount finishes ghostty init
-    if (!terminal) return;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        ({ cellWidth, cellHeight } = measureCells(
-          containerRef,
-          currentCols,
-          currentRows,
-        ));
-        void fit();
-      });
-    });
-  }
-
   function updateFontSize(newSize: number) {
     if (!terminal) return;
-    setFontSize(newSize); // makePersisted auto-syncs to localStorage
+    setFontSize(newSize);
     terminal.options.fontSize = newSize;
-    remeasureAndFit();
+    debouncedFit();
   }
 
   /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
@@ -182,42 +134,59 @@ const Terminal: Component<{
     updateFontSize(fontSize() + delta);
   }
 
-  onMount(async () => {
-    const ghostty = await initGhostty();
-    terminal = new ghostty.Terminal({
+  onMount(() => {
+    const term = new XTerm({
       fontFamily: FONT_FAMILY,
       theme: props.theme,
       fontSize: fontSize(),
+      cursorBlink: true,
+      // Required by SerializeAddon and ImageAddon for buffer access
+      allowProposedApi: true,
     });
-    terminal.open(containerRef);
+    terminal = term;
 
-    // On macOS, stop Cmd+... shortcuts from reaching ghostty so they pass
-    // through to the browser (e.g. Cmd+1 switches browser tabs, not "1" to PTY).
-    // We intercept in capture phase on the container and stopPropagation so
-    // ghostty's bubble-phase keydown listener never fires. Copy/paste are
-    // excluded so the terminal keeps handling them.
-    // Note: ghostty's attachCustomKeyEventHandler can't be used here because
-    // it calls preventDefault() internally, which blocks the browser too.
-    makeEventListener(
-      containerRef,
-      "keydown",
-      (e: KeyboardEvent) => {
-        if (!e.metaKey) return;
+    fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon());
+    term.loadAddon(new SearchAddon());
+    term.loadAddon(new ClipboardAddon());
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = "11";
+    term.loadAddon(new ImageAddon());
+    term.loadAddon(new SerializeAddon());
+
+    term.open(containerRef);
+
+    // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        setRenderer("canvas");
+      });
+      term.loadAddon(webgl);
+      setRenderer("webgl");
+    } catch {
+      // WebGL unavailable — canvas renderer is the default
+    }
+
+    // xterm.js has attachCustomKeyEventHandler for intercepting keys.
+    // Return false to prevent xterm from handling the key.
+    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+      // Let Cmd+key pass through to browser (except copy/paste)
+      if (e.metaKey) {
         const key = e.key.toLowerCase();
-        if (key === "c" || key === "v") return; // keep copy/paste in terminal
-        e.stopPropagation(); // prevent ghostty from capturing this event
-      },
-      { capture: true },
-    );
+        if (key === "c" || key === "v") return true;
+        return false;
+      }
+      return true;
+    });
 
-    // Wait one frame so ghostty's canvas + textarea exist and getBoundingClientRect returns real values
-    await new Promise((r) => requestAnimationFrame(r));
-    if (props.visible) focusInput();
-    ({ cellWidth, cellHeight } = measureCells(
-      containerRef,
-      currentCols,
-      currentRows,
-    ));
+    fitAddon.fit();
+    if (props.visible) term.focus();
+
+    // Sync PTY size after fit and on subsequent resizes
+    term.onResize(() => void syncResize());
 
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
@@ -225,7 +194,7 @@ const Terminal: Component<{
     // Attach stream: yields scrollback first, then live PTY output
     consumeStream(
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
-      (data) => terminal?.write(encoder.encode(data)),
+      (data) => terminal?.write(data),
       "Terminal attach",
     );
 
@@ -236,18 +205,27 @@ const Terminal: Component<{
       "Terminal onExit",
     );
 
-    await fit();
+    // fitAddon.fit() above only fires onResize when dimensions actually change.
+    // If the default 80×24 matches the container, no event fires — sync manually.
+    void syncResize();
 
-    // Send input: fire-and-forget for low latency (don't await server ack)
-    terminal.onData((data: string) => {
+    // Send user input to PTY. Filter out DA1/DA2/DSR responses — the server's
+    // headless xterm already answers these; a duplicate arriving late over the
+    // network gets printed as visible garbage (e.g. "62;4;9;22c").
+    const deviceResponse = /\x1b\[[\?>=]?[\d;]*[cnR]/;
+    term.onData((data: string) => {
+      if (deviceResponse.test(data)) return;
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
     createResizeObserver(
       () => containerRef,
-      () => void fit(),
+      () => {
+        // Skip fitting when hidden — display:none triggers a 0x0 resize that would
+        // cause a server-side PTY resize, producing shell output and false activity.
+        if (props.visible) debouncedFit();
+      },
     );
-    // Capture phase: intercept before ghostty's own keydown handler in bubble phase
     makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
@@ -265,12 +243,12 @@ const Terminal: Component<{
       ref={containerRef}
       // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
       class="w-full h-full overflow-hidden touch-manipulation"
-      // Hide via display:none (not unmount) to preserve ghostty canvas state and scrollback
+      // Hide via display:none (not unmount) to preserve xterm state and scrollback
       style={{ display: props.visible ? undefined : "none" }}
       data-terminal-id={props.terminalId}
       data-visible={props.visible ? "" : undefined}
       data-font-size={fontSize()}
-      onClick={() => focusInput()}
+      onClick={() => terminal?.focus()}
     />
   );
 };

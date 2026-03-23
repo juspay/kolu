@@ -1,7 +1,7 @@
 # kolu — Implementation Plan
 
 > A web-based terminal multiplexer organized around repos and branches.
-> SolidJS + Hono + ghostty-web. Simple Made Easy.
+> SolidJS + Hono + xterm.js. Simple Made Easy.
 
 ---
 
@@ -58,7 +58,7 @@ kolu/
 ├── pnpm-workspace.yaml
 ├── common/           # Shared types + oRPC contract (Zod schemas)
 ├── server/           # Hono + oRPC + node-pty + @xterm/headless
-├── client/           # SolidJS + ghostty-web + oRPC client + Tailwind
+├── client/           # SolidJS + xterm.js + oRPC client + Tailwind
 └── tests/            # Cucumber + Playwright e2e
 ```
 
@@ -72,13 +72,13 @@ Workspace setup, SolidJS page served by Hono, Nix build, e2e smoke test.
 
 ### Phase 1: One terminal in the browser ✅
 
-Single PTY via node-pty, binary WebSocket bridge, ghostty-web canvas
+Single PTY via node-pty, binary WebSocket bridge, xterm.js canvas
 rendering, resize handling, scrollback replay.
 
 ### Phase 2: Multiple plain terminals + sidebar
 
 oRPC migration, multi-terminal support, sidebar with status indicators.
-Prior art: [coder/mux](https://github.com/coder/mux) (ghostty-web + oRPC).
+Prior art: [coder/mux](https://github.com/coder/mux) (xterm.js + oRPC).
 
 #### 2a: Migrate to oRPC (single terminal) ✅
 

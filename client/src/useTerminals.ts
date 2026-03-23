@@ -106,7 +106,7 @@ export function useTerminals() {
       const persisted = activeId();
       if (!persisted || !ids.includes(persisted)) {
         const running = existing.find((t) => t.status === "running");
-        setActiveId(running?.id ?? ids[0]);
+        setActiveId(running?.id ?? ids[0] ?? null);
       }
       // Restore per-terminal themes from server (reconcile replaces entire store)
       setTerminalThemes(
@@ -150,33 +150,39 @@ export function useTerminals() {
   }
 
   /** Command palette entries for terminal + theme actions. */
-  const commands = createMemo(() => [
-    {
-      name: "Create new terminal",
-      onSelect: () => void handleCreate(),
-    },
-    {
-      name: "Debug: trigger server error",
-      showOnPrefix: "debug",
-      onSelect: () =>
-        // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
-        void client.terminal.resize({
-          id: "__nonexistent__",
-          cols: 1,
-          rows: 1,
-        }),
-    },
-    ...terminalIds().map((id, i) => ({
-      name: `Switch to Terminal ${i + 1}`,
-      onSelect: () => setActiveId(id),
-    })),
-    ...availableThemes
-      .filter((t) => t.name !== activeThemeName())
-      .map((t) => ({
-        name: `Theme: ${t.name}`,
-        onSelect: () => void handleSetTheme(t.name),
+  const commands = createMemo(
+    (): Array<{
+      name: string;
+      showOnPrefix?: string;
+      onSelect: () => void;
+    }> => [
+      {
+        name: "Create new terminal",
+        onSelect: () => void handleCreate(),
+      },
+      {
+        name: "Debug: trigger server error",
+        showOnPrefix: "debug",
+        onSelect: () =>
+          // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+          void client.terminal.resize({
+            id: "__nonexistent__",
+            cols: 1,
+            rows: 1,
+          }),
+      },
+      ...terminalIds().map((id, i) => ({
+        name: `Switch to Terminal ${i + 1}`,
+        onSelect: () => setActiveId(id),
       })),
-  ]);
+      ...availableThemes
+        .filter((t) => t.name !== activeThemeName())
+        .map((t) => ({
+          name: `Theme: ${t.name}`,
+          onSelect: () => void handleSetTheme(t.name),
+        })),
+    ],
+  );
 
   return {
     terminalIds,
