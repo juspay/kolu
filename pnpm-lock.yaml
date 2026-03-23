@@ -29,8 +29,8 @@ importers:
         specifier: ^4.3.4
         version: 4.3.4(solid-js@1.9.11)
       ghostty-web:
-        specifier: 0.4.0-next.14.g6a1a50d
-        version: 0.4.0-next.14.g6a1a50d
+        specifier: 0.4.0
+        version: 0.4.0
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16
@@ -1985,8 +1985,8 @@ packages:
   get-tsconfig@4.13.6:
     resolution: {integrity: sha512-shZT/QMiSHc/YBLxxOkMtgSid5HFoauqCE3/exfsEcwg1WkeqjG+V40yBbBrsD+jW2HDXcs28xOfcbm2jI8Ddw==}
 
-  ghostty-web@0.4.0-next.14.g6a1a50d:
-    resolution: {integrity: sha512-01H59pAKq43Y8ZZiIhH98cu0ahZaoGoPQPtW4KnZPT0JFdQYen2djsXrOnt27JnMv64D4eLeAq8D6h72mo52xQ==}
+  ghostty-web@0.4.0:
+    resolution: {integrity: sha512-0puDBik2qapbD/QQBW9o5ZHfXnZBqZWx/ctBiVtKZ6ZLds4NYb+wZuw1cRLXZk9zYovIQ908z3rvFhexAvc5Hg==}
 
   glob@10.5.0:
     resolution: {integrity: sha512-DfXN8DfhJ7NH3Oe7cFmu3NCu1wKbkReJ8TorzSAFbSKrlNaQSKfIzqYqVY8zlbs2NLBbWpRiU52GX2PbaBVNkg==}
@@ -5223,7 +5223,7 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  ghostty-web@0.4.0-next.14.g6a1a50d: {}
+  ghostty-web@0.4.0: {}
 
   glob@10.5.0:
     dependencies:

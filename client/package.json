@@ -14,7 +14,7 @@
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/resize-observer": "^2.1.5",
     "@solid-primitives/storage": "^4.3.4",
-    "ghostty-web": "0.4.0-next.14.g6a1a50d",
+    "ghostty-web": "0.4.0",
     "partysocket": "^1.1.16",
     "solid-js": "^1.9.0"
   },
