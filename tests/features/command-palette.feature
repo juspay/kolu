@@ -83,6 +83,29 @@ Feature: Command Palette
     And the terminal canvas should be visible
     And there should be no page errors
 
+  Scenario: Tab cycles through results
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I open the command palette
+    Then palette item 1 should be selected
+    When I press Tab
+    Then palette item 2 should be selected
+    When I press Tab
+    Then palette item 3 should be selected
+    And there should be no page errors
+
+  Scenario: Shift+Tab cycles backwards and wraps
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I open the command palette
+    Then palette item 1 should be selected
+    # Wrap to last
+    When I press Shift+Tab
+    Then the last palette item should be selected
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette

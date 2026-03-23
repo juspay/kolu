@@ -73,6 +73,20 @@ Then(
 );
 
 Then(
+  "the last palette item should be selected",
+  async function (this: KoluWorld) {
+    const items = this.page.locator(`${PALETTE_SELECTOR} li`);
+    const count = await items.count();
+    const last = items.nth(count - 1);
+    const classes = await last.getAttribute("class");
+    assert.ok(
+      classes?.includes("bg-slate-600"),
+      `Last palette item is not selected (classes: ${classes})`,
+    );
+  },
+);
+
+Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
     const messages: string[] = await this.page.evaluate(
