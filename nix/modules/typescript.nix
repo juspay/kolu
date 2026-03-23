@@ -91,6 +91,7 @@
           runtimeInputs = [ nodejs pkgs.tsx ];
           text = ''
             export KOLU_CLIENT_DIST="${kolu}/client/dist"
+            export KOLU_CLIPBOARD_SHIM_DIR="${config.packages.clipboard-shims}/bin"
             exec tsx "${kolu}/server/src/index.ts" "$@"
           '';
         };

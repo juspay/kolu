@@ -54,6 +54,46 @@ function consumeStream<T>(
   })();
 }
 
+/** ArrayBuffer → base64 without stack overflow (spread on large arrays blows the stack). */
+function bufferToBase64(buf: ArrayBuffer): string {
+  return btoa(
+    Array.from(new Uint8Array(buf), (b) => String.fromCharCode(b)).join(""),
+  );
+}
+
+/**
+ * Read the browser clipboard for an image, upload it to the server's
+ * clipboard shim directory, then forward Ctrl+V (\x16) to the PTY.
+ * If no image is found or the Clipboard API is unavailable, \x16 is
+ * still forwarded so text-mode Ctrl+V works unchanged.
+ */
+async function uploadClipboardImage(terminalId: string): Promise<void> {
+  // Read clipboard — expected to fail (permission denied, API unavailable, no image).
+  // Errors here are normal; only the RPC upload should surface failures.
+  let base64: string | undefined;
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const imageType = item.types.find((t) => t.startsWith("image/"));
+      if (imageType) {
+        const blob = await item.getType(imageType);
+        base64 = bufferToBase64(await blob.arrayBuffer());
+        break;
+      }
+    }
+  } catch {
+    // Clipboard API unavailable or permission denied — no image to upload
+  }
+  if (base64) {
+    try {
+      await client.terminal.pasteImage({ id: terminalId, data: base64 });
+    } catch (err) {
+      console.error("Failed to upload clipboard image:", err);
+    }
+  }
+  void client.terminal.sendInput({ id: terminalId, data: "\x16" });
+}
+
 const Terminal: Component<{
   terminalId: string;
   visible: boolean;
@@ -179,6 +219,16 @@ const Terminal: Component<{
         if (key === "c" || key === "v") return true;
         return false;
       }
+
+      // Intercept Ctrl+V to bridge browser clipboard → PTY for image paste.
+      // Claude Code uses Ctrl+V (\x16) to trigger image paste from clipboard
+      // via xclip/wl-paste. We read the browser clipboard first, upload any
+      // image to the server's shim directory, then forward \x16 to the PTY.
+      if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
+        void uploadClipboardImage(props.terminalId);
+        return false; // Prevent xterm from sending \x16 (we send it manually after upload)
+      }
+
       return true;
     });
 
