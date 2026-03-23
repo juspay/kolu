@@ -12,11 +12,13 @@ import Header from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
+import ShortcutsHelp from "./ShortcutsHelp";
 import { getThemeByName } from "./theme";
 import { wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
+import { useShortcuts } from "./useShortcuts";
 
 const App: Component = () => {
   const {
@@ -36,9 +38,21 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
 
-  // Shared open state: CommandPalette owns it, Header can trigger it
+  // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
+
+  // Shortcuts help overlay state
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
+
+  useShortcuts({
+    terminalIds,
+    activeId,
+    setActiveId,
+    handleCreate: () => void handleCreate(),
+    setPaletteOpen,
+    setShortcutsHelpOpen,
+  });
 
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
@@ -67,6 +81,10 @@ const App: Component = () => {
         onOpenChange={handlePaletteOpenChange}
         initialQuery={paletteInitialQuery()}
       />
+      <ShortcutsHelp
+        open={shortcutsHelpOpen()}
+        onOpenChange={setShortcutsHelpOpen}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPaletteWith("")}
@@ -74,6 +92,7 @@ const App: Component = () => {
         themeName={activeThemeName()}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
+        onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         renderer={renderer()}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
