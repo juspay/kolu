@@ -3,7 +3,6 @@
 import {
   type Component,
   createSignal,
-  onCleanup,
   Show,
   For,
   Suspense,
@@ -16,6 +15,7 @@ import CommandPalette from "./CommandPalette";
 import { getThemeByName } from "./theme";
 import { wsStatus } from "./rpc";
 import { useTerminals } from "./useTerminals";
+import { useSidebar } from "./useSidebar";
 
 const App: Component = () => {
   const {
@@ -30,16 +30,11 @@ const App: Component = () => {
     commands,
   } = useTerminals();
 
+  const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+
   // Shared open state: CommandPalette owns it, Header can trigger it
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
-
-  // Sidebar: open on desktop, closed on mobile. Syncs with viewport changes.
-  const smQuery = window.matchMedia("(min-width: 640px)");
-  const [sidebarOpen, setSidebarOpen] = createSignal(smQuery.matches);
-  const onBreakpoint = (e: MediaQueryListEvent) => setSidebarOpen(e.matches);
-  smQuery.addEventListener("change", onBreakpoint);
-  onCleanup(() => smQuery.removeEventListener("change", onBreakpoint));
 
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
@@ -73,7 +68,7 @@ const App: Component = () => {
         onOpenPalette={() => openPaletteWith("")}
         onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
-        onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        onToggleSidebar={toggleSidebar}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
@@ -83,7 +78,7 @@ const App: Component = () => {
           onSelect={setActiveId}
           onCreate={handleCreate}
           open={sidebarOpen()}
-          onClose={() => setSidebarOpen(false)}
+          onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">
