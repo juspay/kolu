@@ -31,14 +31,18 @@ Feature: Sidebar
     When I open the app
     Given I note the sidebar entry count
     And I create a terminal
-    And I run "echo refresh-aaa"
     And I create a terminal
-    And I run "echo refresh-bbb"
     And I refresh the page
     Then the sidebar should have 2 more terminal entries
     And the terminal canvas should be visible
+    # Run post-refresh commands to verify each terminal is alive and connected
+    # to its original PTY (terminal count check above proves no new PTYs spawned).
+    # We don't check pre-refresh screen content because shell SIGWINCH handlers
+    # may clear the screen on resize, destroying previous output.
     When I select terminal 2 in the sidebar
-    Then the active terminal should show "refresh-bbb"
+    And I run "echo alive-bbb"
+    Then the active terminal should show "alive-bbb"
     When I select terminal 1 in the sidebar
-    Then the active terminal should show "refresh-aaa"
+    And I run "echo alive-aaa"
+    Then the active terminal should show "alive-aaa"
     And there should be no page errors

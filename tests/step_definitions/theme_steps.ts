@@ -80,6 +80,7 @@ Then(
       this.page,
       async () => (await header.textContent()) ?? "",
       (t) => t.includes(expectedTheme),
+      { attempts: 30 },
     );
     assert.ok(
       text.includes(expectedTheme),

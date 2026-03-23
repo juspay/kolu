@@ -63,9 +63,10 @@ Then(
 When(
   "I wait for the terminal to become idle",
   async function (this: KoluWorld) {
-    // The idle threshold is 5s, so poll up to ~10s
+    // The idle threshold is 5s, but shell init (starship, etc.) may produce
+    // sporadic output that resets the timer. Poll up to ~20s for safety.
     await assertActivity(this, this.createdTerminalIds.length, false, {
-      attempts: 20,
+      attempts: 40,
       intervalMs: 500,
     });
   },

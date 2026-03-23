@@ -31,6 +31,8 @@ When("I refresh the page", async function (this: KoluWorld) {
   // Snapshot terminal count before refresh so post-refresh assertions can verify reconnect
   this.terminalCountBeforeRefresh = (await fetchTerminalList(this)).length;
   await this.page.reload();
+  // Wait for app to finish restoring terminals/state before subsequent assertions
+  await this.waitForSettled();
 });
 
 Then(

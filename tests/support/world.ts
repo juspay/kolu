@@ -67,11 +67,15 @@ export class KoluWorld extends World {
     return id;
   }
 
-  /** Wait for the app to settle: either a restored terminal canvas or the empty state tip. */
-  async waitForReady(timeout = READY_TIMEOUT) {
-    // Wait for the app to reach a stable state (restored terminals or empty state)
+  /** Wait for the app to reach a stable state (restored terminals or empty state). */
+  async waitForSettled(timeout = READY_TIMEOUT) {
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
+  }
+
+  /** Wait for the app to settle, creating a terminal if empty state is shown. */
+  async waitForReady(timeout = READY_TIMEOUT) {
+    await this.waitForSettled(timeout);
 
     // If the empty state is visible, create a terminal
     if (await this.page.locator('[data-testid="empty-state"]').isVisible()) {
