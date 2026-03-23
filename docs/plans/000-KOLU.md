@@ -124,7 +124,15 @@ directory" command in palette (uses active terminal's CWD). Existing
 
 ### Phase 4: Git context + worktree-aware sidebar
 
-Auto-discover git context from terminal CWDs — no repo registry needed.
+Kolu is a terminal multiplexer organized around repos and branches.
+A flat terminal list doesn't reflect how developers actually work —
+juggling multiple worktrees across repos, often with several terminals
+per worktree. Rather than a heavyweight repo registry (the original
+Phase 3), we auto-discover git context from terminal CWDs: the server
+enriches the existing CWD stream with `git rev-parse` data, and the
+client derives a Repo → Worktree → Terminal tree reactively. No config,
+no registration — just `cd` into a repo and kolu organizes itself.
+
 Uses [`simple-git`](https://github.com/steveukx/git-js) on the server.
 
 #### 4a: Git context in header ([#48](https://github.com/juspay/kolu/issues/48))
