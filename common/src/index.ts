@@ -16,7 +16,11 @@ const terminalBaseFields = {
 
 // Discriminated union: exitCode is required when exited, absent when running.
 export const TerminalInfoSchema = z.discriminatedUnion("status", [
-  z.object({ ...terminalBaseFields, status: z.literal("running") }),
+  z.object({
+    ...terminalBaseFields,
+    status: z.literal("running"),
+    isActive: z.boolean(),
+  }),
   z.object({
     ...terminalBaseFields,
     status: z.literal("exited"),
@@ -44,6 +48,7 @@ export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
 export const TerminalCwdOutputSchema = z.string();
+export const TerminalActivityOutputSchema = z.boolean();
 
 // --- Derived types ---
 

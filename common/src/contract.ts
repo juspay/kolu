@@ -14,6 +14,7 @@ import {
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
   TerminalCwdOutputSchema,
+  TerminalActivityOutputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -36,6 +37,10 @@ export const contract = oc.router({
     onCwdChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalCwdOutputSchema)),
+    // Stream activity state changes (active/sleeping) for a terminal
+    onActivityChange: oc
+      .input(TerminalAttachInputSchema)
+      .output(eventIterator(TerminalActivityOutputSchema)),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

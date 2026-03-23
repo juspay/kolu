@@ -96,6 +96,19 @@ export const appRouter = t.router({
       yield* subscribeAndYield(entry.emitter, "cwd", signal);
     }),
 
+    onActivityChange: t.terminal.onActivityChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = requireTerminal(input.id);
+
+      // Yield current state immediately (isActive lives on TerminalBase, always available)
+      yield entry.isActive;
+
+      // Then stream changes (activity events emit booleans)
+      yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);
+    }),
+
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
       const tlog = log.child({ terminal: input.id });
