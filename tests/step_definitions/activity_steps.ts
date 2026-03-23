@@ -14,7 +14,7 @@ async function getIndicatorActive(
     `[data-terminal-id="${id}"] [data-testid="activity-indicator"]`,
   );
   const classes = await indicator.getAttribute("class");
-  return classes?.includes("bg-green-400") ?? false;
+  return classes?.includes("bg-ok") ?? false;
 }
 
 /** Poll until terminal reaches expected activity state, then assert. */

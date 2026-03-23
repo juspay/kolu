@@ -78,7 +78,7 @@ const App: Component = () => {
 
   return (
     <div
-      class="flex flex-col h-dvh bg-slate-900 text-white"
+      class="flex flex-col h-dvh bg-surface-0 text-fg font-sans"
       style={{
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",
@@ -122,21 +122,21 @@ const App: Component = () => {
           getActive={getTerminalActive}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 p-2">
+        <div class="flex-1 min-h-0 min-w-0 p-1">
           <div
-            class="h-full rounded border border-slate-700 overflow-hidden p-2"
+            class="h-full rounded border border-edge overflow-hidden p-1"
             style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary
               fallback={(err) => (
-                <div class="text-red-400 p-4">
+                <div class="text-danger p-4">
                   Failed to connect: {String(err)}
                 </div>
               )}
             >
               <Suspense
                 fallback={
-                  <div class="flex items-center justify-center h-full text-slate-500 text-sm">
+                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
                     Connecting...
                   </div>
                 }
@@ -146,7 +146,7 @@ const App: Component = () => {
                 <Show when={terminalIds().length === 0}>
                   <div
                     data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-slate-500 text-sm"
+                    class="flex items-center justify-center h-full text-fg-3 text-sm"
                   >
                     Click + to create a terminal
                   </div>

@@ -35,7 +35,7 @@ const Sidebar: Component<{
       {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-48 bg-slate-800 border-r border-slate-700 transition-transform duration-200 z-40"
+        class="flex flex-col w-44 bg-surface-1 border-r border-edge transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           // Mobile closed: slide off-screen; desktop closed: display:none
@@ -45,7 +45,7 @@ const Sidebar: Component<{
       >
         <button
           data-testid="create-terminal"
-          class="p-2 text-sm text-slate-400 hover:text-white hover:bg-slate-700 transition-colors text-left"
+          class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
           onClick={props.onCreate}
           title="New terminal"
         >
@@ -56,10 +56,11 @@ const Sidebar: Component<{
             {(id, i) => (
               <button
                 data-terminal-id={id}
-                class="group w-full p-2 text-sm text-left transition-colors"
+                class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
                 classList={{
-                  "bg-slate-600 text-white": props.activeId === id,
-                  "text-slate-400 hover:text-white hover:bg-slate-700":
+                  "border-accent bg-surface-2/50 text-fg":
+                    props.activeId === id,
+                  "border-transparent text-fg-2 hover:text-fg hover:bg-surface-2":
                     props.activeId !== id,
                 }}
                 onClick={() => handleSelect(id)}
@@ -71,16 +72,16 @@ const Sidebar: Component<{
                 <div class="flex items-center gap-1.5">
                   <span
                     data-testid="activity-indicator"
-                    class="inline-block w-2 h-2 rounded-full shrink-0"
+                    class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
                     classList={{
-                      "bg-green-400": props.getActive(id),
-                      "bg-slate-500": !props.getActive(id),
+                      "bg-ok animate-activity-pulse": props.getActive(id),
+                      "bg-fg-3": !props.getActive(id),
                     }}
                   />
                   <span class="flex-1">Terminal {i() + 1}</span>
                   <span
                     data-testid="close-terminal"
-                    class="opacity-0 group-hover:opacity-100 hover:text-red-400 text-slate-500 px-0.5 transition-opacity"
+                    class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
                     onClick={(e) => {
                       e.stopPropagation();
                       if (confirm("Close this terminal?")) props.onKill(id);
@@ -93,7 +94,7 @@ const Sidebar: Component<{
                 </div>
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (
-                    <div class="text-xs text-slate-400 truncate ml-3.5">
+                    <div class="text-xs text-fg-3 truncate ml-3.5">
                       {cwdBasename(cwd())}
                     </div>
                   )}
