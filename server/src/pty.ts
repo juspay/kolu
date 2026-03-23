@@ -8,7 +8,11 @@
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
-import { DEFAULT_COLS, DEFAULT_ROWS, PTY_BUFFER_CAPACITY } from "kolu-common/config";
+import {
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  PTY_BUFFER_CAPACITY,
+} from "kolu-common/config";
 import { cleanEnv, osc7Init } from "./shell.ts";
 import type { Logger } from "./log.ts";
 import { RingBuffer } from "./ring-buffer.ts";
