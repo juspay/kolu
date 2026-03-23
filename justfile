@@ -2,6 +2,9 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
+# giton branch/ref to use (override: just giton_ref=main ci)
+giton_ref := "fix/ssh-controlmaster-socket-dir"
+
 # List available recipes
 default:
     @just --list
@@ -45,13 +48,13 @@ test-dev: install
 # Uses giton (https://github.com/srid/giton) to run commands and post GitHub commit statuses.
 ci:
     # TODO: add cache push (nix copy) after builds
-    nix run github:srid/giton -- -s x86_64-linux -n nix -- \
+    nix run github:srid/giton/{{ giton_ref }} -- -s x86_64-linux -n nix -- \
         nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
-    nix run github:srid/giton -- -s aarch64-darwin -n nix -- \
+    nix run github:srid/giton/{{ giton_ref }} -- -s aarch64-darwin -n nix -- \
         nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
-    nix run github:srid/giton -- -s x86_64-linux -n nix/home-example -- \
+    nix run github:srid/giton/{{ giton_ref }} -- -s x86_64-linux -n nix/home-example -- \
         nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
-    nix run github:srid/giton -- -n e2e -- just test
+    nix run github:srid/giton/{{ giton_ref }} -- -n e2e -- just test
 
 # Run pre-commit hooks on all files
 pc:
