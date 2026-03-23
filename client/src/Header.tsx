@@ -56,29 +56,19 @@ const Header: Component<{
             class="flex items-center gap-1 text-xs min-w-0"
             data-testid="header-cwd"
           >
-            <Show when={cwdInfo().git}>
-              {(git) => (
-                <>
-                  <span
-                    class="text-slate-300 shrink-0"
-                    data-testid="header-repo"
-                  >
-                    {git().repoName}
-                  </span>
-                  <span class="text-slate-500 shrink-0">:</span>
-                  <span
-                    class="text-slate-400 shrink-0"
-                    data-testid="header-branch"
-                  >
-                    {git().branch}
-                  </span>
-                  <span class="text-slate-500 shrink-0">&middot;</span>
-                </>
-              )}
-            </Show>
             <span class="text-slate-400 truncate" title={cwdInfo().cwd}>
               {shortenCwd(cwdInfo().cwd)}
             </span>
+            <Show when={cwdInfo().git}>
+              {(git) => (
+                <span
+                  class="text-slate-500 shrink-0"
+                  data-testid="header-branch"
+                >
+                  &middot; {git().branch}
+                </span>
+              )}
+            </Show>
           </span>
         )}
       </Show>

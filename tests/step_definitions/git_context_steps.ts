@@ -24,19 +24,6 @@ async function pollTestId(
   );
 }
 
-Then(
-  "the header should show repo {string}",
-  async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "header-repo", (t) =>
-      t.includes(expected),
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected header repo to contain "${expected}" but got "${text}"`,
-    );
-  },
-);
-
 Then("the header should show a branch name", async function (this: KoluWorld) {
   const text = await pollTestId(this, "header-branch", (t) => t.length > 0);
   assert.ok(text.length > 0, `Expected header to show a branch name`);
@@ -51,12 +38,12 @@ Then(
   "the header should not show git context",
   async function (this: KoluWorld) {
     const count = await this.page
-      .locator('[data-testid="header-repo"]')
+      .locator('[data-testid="header-branch"]')
       .count();
     assert.strictEqual(
       count,
       0,
-      `Expected no git context in header but found ${count} repo elements`,
+      `Expected no git context in header but found ${count} branch elements`,
     );
   },
 );
