@@ -209,8 +209,12 @@ const Terminal: Component<{
     // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();
 
-    // Send input: fire-and-forget for low latency (don't await server ack)
+    // Send user input to PTY. Filter out DA1/DA2/DSR responses — the server's
+    // headless xterm already answers these; a duplicate arriving late over the
+    // network gets printed as visible garbage (e.g. "62;4;9;22c").
+    const deviceResponse = /\x1b\[[\?>=]?[\d;]*[cnR]/;
     term.onData((data: string) => {
+      if (deviceResponse.test(data)) return;
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
