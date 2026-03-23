@@ -2,6 +2,7 @@ import { type Component, Show, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { WsStatus } from "./rpc";
+import type { CwdInfo } from "kolu-common";
 
 /** WS connection status indicator colors and animations. */
 const statusStyles: Record<WsStatus, string> = {
@@ -15,7 +16,7 @@ const Header: Component<{
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
   themeName?: string;
-  cwd?: string | null;
+  cwd?: CwdInfo | null;
   onToggleSidebar?: () => void;
   onShortcutsHelp?: () => void;
   renderer?: string;
@@ -50,13 +51,21 @@ const Header: Component<{
         {props.appTitle ?? "kolu"}
       </span>
       <Show when={props.cwd}>
-        {(cwd) => (
+        {(cwdInfo) => (
           <span
-            class="text-xs text-fg-2 truncate max-w-[300px]"
-            title={cwd()}
+            class="flex items-center gap-1 text-xs min-w-0"
             data-testid="header-cwd"
           >
-            {shortenCwd(cwd())}
+            <span class="text-fg-2 truncate" title={cwdInfo().cwd}>
+              {shortenCwd(cwdInfo().cwd)}
+            </span>
+            <Show when={cwdInfo().git}>
+              {(git) => (
+                <span class="text-fg-3 shrink-0" data-testid="header-branch">
+                  &middot; {git().branch}
+                </span>
+              )}
+            </Show>
           </span>
         )}
       </Show>

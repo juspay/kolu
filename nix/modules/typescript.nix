@@ -23,7 +23,7 @@
         pname = "kolu";
         version = "0.1.0";
         inherit src;
-        hash = "sha256-KJAo41XdUdA8gTxuUmZ6RmRz3rt8oeOMvnO5q40SSDs=";
+        hash = "sha256-DNk5dSluHpr4a2WOwxFY0IELJdkRgao6L2uH42Z7iLE=";
         fetcherVersion = 3;
       };
 

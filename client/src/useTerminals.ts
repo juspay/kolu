@@ -5,7 +5,7 @@ import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
-import type { TerminalInfo } from "kolu-common";
+import type { TerminalInfo, CwdInfo } from "kolu-common";
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
@@ -23,8 +23,8 @@ export function useTerminals() {
     Record<string, string>
   >({});
 
-  // Per-terminal CWD (terminal ID → cwd path).
-  const [terminalCwds, setTerminalCwds] = createStore<Record<string, string>>(
+  // Per-terminal CWD info (terminal ID → CwdInfo).
+  const [terminalCwds, setTerminalCwds] = createStore<Record<string, CwdInfo>>(
     {},
   );
 
@@ -38,8 +38,8 @@ export function useTerminals() {
     return terminalThemes[id] ?? DEFAULT_THEME_NAME;
   }
 
-  /** Get the CWD for a terminal (reactive per key via createStore). */
-  function getTerminalCwd(id: string): string | undefined {
+  /** Get the CWD info for a terminal (reactive per key via createStore). */
+  function getTerminalCwd(id: string): CwdInfo | undefined {
     return terminalCwds[id];
   }
 
@@ -57,8 +57,8 @@ export function useTerminals() {
   /** The active terminal's resolved theme (for container background). */
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  /** The active terminal's CWD (for header display). */
-  const activeCwd = createMemo(() => {
+  /** The active terminal's CWD info (for header display). */
+  const activeCwd = createMemo((): CwdInfo | null => {
     const id = activeId();
     return id ? (terminalCwds[id] ?? null) : null;
   });
@@ -213,7 +213,7 @@ export function useTerminals() {
         ? [
             {
               name: "Create terminal in current directory",
-              onSelect: () => void handleCreate(activeCwd()!),
+              onSelect: () => void handleCreate(activeCwd()!.cwd),
             },
           ]
         : []),
