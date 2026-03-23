@@ -23,8 +23,8 @@ import { isPlatformModifier } from "./keyboard";
 export interface Command {
   name: string;
   onSelect: () => void;
-  /** Excluded from the default list; only shown when a search query is active. */
-  hidden?: boolean;
+  /** If set, command is hidden unless the query starts with this prefix. */
+  showOnPrefix?: string;
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -44,8 +44,11 @@ const CommandPalette: Component<{
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
     const cmds = props.commands();
-    if (!q) return cmds.filter((cmd) => !cmd.hidden);
-    return cmds.filter((cmd) => cmd.name.toLowerCase().includes(q));
+    return cmds.filter(
+      (cmd) =>
+        (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
+        (!q || cmd.name.toLowerCase().includes(q)),
+    );
   });
 
   function execute(cmd: Command) {
