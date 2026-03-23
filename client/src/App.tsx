@@ -48,14 +48,17 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Refocus the active terminal's ghostty textarea after UI interactions (e.g. rename). */
-  function focusActiveTerminal() {
+  /** Clear rename state and return keyboard focus to the active terminal. */
+  function finishRename() {
+    setRenamingId(null);
     requestAnimationFrame(() => {
       const id = activeId();
       if (!id) return;
-      // Find the terminal container div (has data-visible), not the sidebar button
-      const container = document.querySelector(`div[data-terminal-id="${id}"]`);
-      container?.querySelector("textarea")?.focus();
+      // Find the terminal container div (not the sidebar button which also has data-terminal-id)
+      document
+        .querySelector(`div[data-terminal-id="${id}"]`)
+        ?.querySelector("textarea")
+        ?.focus();
     });
   }
 
@@ -102,16 +105,12 @@ const App: Component = () => {
           getActive={getTerminalActive}
           getDisplayName={getTerminalDisplayName}
           renamingId={renamingId}
-          onStartRename={(id) => setRenamingId(id)}
+          onStartRename={setRenamingId}
           onCommitRename={(id, name) => {
             handleSetName(id, name);
-            setRenamingId(null);
-            focusActiveTerminal();
+            finishRename();
           }}
-          onCancelRename={() => {
-            setRenamingId(null);
-            focusActiveTerminal();
-          }}
+          onCancelRename={finishRename}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">

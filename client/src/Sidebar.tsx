@@ -89,6 +89,7 @@ const Sidebar: Component<{
                     fallback={
                       <span
                         class="cursor-text hover:underline hover:decoration-slate-500 hover:decoration-dotted"
+                        title="Double-click to rename"
                         onDblClick={(e) => {
                           e.stopPropagation();
                           props.onStartRename(id);
@@ -127,7 +128,6 @@ const InlineRenameInput: Component<{
   onCommit: (name: string) => void;
   onCancel: () => void;
 }> = (props) => {
-  let inputRef!: HTMLInputElement;
   const [value, setValue] = createSignal(props.initialValue);
   let committed = false;
 
@@ -142,15 +142,15 @@ const InlineRenameInput: Component<{
     }
   }
 
-  // Auto-focus + select on mount
-  requestAnimationFrame(() => {
-    inputRef?.focus();
-    inputRef?.select();
-  });
-
   return (
     <input
-      ref={inputRef}
+      // ref callback + rAF: reliable focus even when <Show> conditionally mounts this input
+      ref={(el) =>
+        requestAnimationFrame(() => {
+          el.focus();
+          el.select();
+        })
+      }
       type="text"
       class="bg-slate-700 text-white text-sm rounded px-1 py-0 w-full outline-none border border-slate-500 focus:border-blue-400"
       value={value()}
