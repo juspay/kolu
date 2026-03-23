@@ -1,9 +1,8 @@
 /**
  * Command palette — searchable overlay for terminal and theme actions.
  *
- * Always mounted. Owns Cmd/Ctrl+K shortcut and keyboard navigation.
- * Open state is controlled by the parent via open/onOpenChange props
- * so other components (e.g. Header button) can trigger it.
+ * Always mounted. Keyboard navigation handled internally.
+ * Open state and Cmd/Ctrl+K shortcut are controlled externally via useShortcuts.
  */
 
 import {
@@ -17,7 +16,6 @@ import {
   Show,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { isPlatformModifier } from "./keyboard";
 
 /** A command that can be executed from the palette. */
 export interface Command {
@@ -55,20 +53,6 @@ const CommandPalette: Component<{
     cmd.onSelect();
     props.onOpenChange(false);
   }
-
-  // Cmd/Ctrl+K to toggle palette — works even when closed
-  makeEventListener(
-    window,
-    "keydown",
-    (e: KeyboardEvent) => {
-      if (isPlatformModifier(e) && e.key === "k") {
-        e.preventDefault();
-        e.stopPropagation();
-        props.onOpenChange(!props.open);
-      }
-    },
-    { capture: true },
-  );
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
