@@ -45,8 +45,7 @@ export function createTerminal(): TerminalInfo {
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
 
-  const handle = spawnPty({
-    log: tlog,
+  const handle = spawnPty(tlog, {
     onData: (data) => emitter.emit("data", data),
     // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
     onExit: (exitCode) => {
@@ -64,13 +63,8 @@ export function createTerminal(): TerminalInfo {
 }
 
 export function listTerminals(): TerminalInfo[] {
-  const list = Array.from(terminals.entries()).map(([id, entry]) =>
-    toInfo(id, entry),
-  );
-  log.info(
-    { count: list.length, terminals: list.map((t) => `${t.id}(${t.status})`) },
-    "terminal list",
-  );
+  const list = [...terminals.entries()].map(([id, entry]) => toInfo(id, entry));
+  log.info({ count: list.length }, "terminal list");
   return list;
 }
 

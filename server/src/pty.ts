@@ -32,12 +32,13 @@ export interface PtyHandle {
 }
 
 /** Spawn a shell in a PTY, calling back on data and exit. */
-export function spawnPty(opts: {
-  log: Logger;
-  onData: (data: string) => void;
-  onExit: (exitCode: number) => void;
-}): PtyHandle {
-  const { log: tlog } = opts;
+export function spawnPty(
+  tlog: Logger,
+  opts: {
+    onData: (data: string) => void;
+    onExit: (exitCode: number) => void;
+  },
+): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = env.HOME || "/";

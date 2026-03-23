@@ -45,7 +45,7 @@ app.use("/rpc/*", async (c, next) => {
 // --- Graceful shutdown logging ---
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
-    log.info({ signal: sig }, "shutdown signal received, exiting");
+    log.info({ signal: sig }, "shutting down");
     process.exit(0);
   });
 }
@@ -88,16 +88,18 @@ const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
 const wss = new WebSocketServer({ noServer: true });
 const wsRpcHandler = new WsRPCHandler(appRouter);
 
-let wsConnections = 0;
+let nextConnId = 0;
 wss.on("connection", (ws) => {
-  const connLog = log.child({ ws: ++wsConnections });
+  const connId = ++nextConnId;
+  const connLog = log.child({ ws: connId });
   connLog.info({ total: wss.clients.size }, "connected");
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
+    const reasonStr = reason.toString();
     connLog.info(
       {
         code,
-        reason: reason.toString() || undefined,
+        ...(reasonStr && { reason: reasonStr }),
         remaining: wss.clients.size,
       },
       "disconnected",
@@ -118,5 +120,3 @@ server.on("upgrade", (req, socket, head) => {
     socket.destroy();
   }
 });
-
-log.info("oRPC WebSocket ready on /rpc/ws");
