@@ -42,6 +42,11 @@ Then("the header should show a branch name", async function (this: KoluWorld) {
   assert.ok(text.length > 0, `Expected header to show a branch name`);
 });
 
+Then("the sidebar should show a branch name", async function (this: KoluWorld) {
+  const text = await pollTestId(this, "sidebar-branch", (t) => t.length > 0);
+  assert.ok(text.length > 0, `Expected sidebar to show a branch name`);
+});
+
 Then(
   "the header should not show git context",
   async function (this: KoluWorld) {
@@ -52,6 +57,20 @@ Then(
       count,
       0,
       `Expected no git context in header but found ${count} repo elements`,
+    );
+  },
+);
+
+Then(
+  "the sidebar should not show git context",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="sidebar-branch"]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no git context in sidebar but found ${count} branch elements`,
     );
   },
 );

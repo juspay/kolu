@@ -97,7 +97,10 @@ const Sidebar: Component<{
                     <div class="text-xs text-slate-400 truncate ml-3.5">
                       <Show when={cwdInfo().git}>
                         {(git) => (
-                          <span class="text-slate-500">
+                          <span
+                            class="text-slate-500"
+                            data-testid="sidebar-branch"
+                          >
                             {git().branch} &middot;{" "}
                           </span>
                         )}
