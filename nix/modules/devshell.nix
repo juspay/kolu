@@ -10,6 +10,7 @@
         export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
         export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
         export KOLU_THEMES_JSON="${self'.packages.ghosttyThemes}/themes.json"
+        export GHOSTTY_WEB_PKG="${self'.packages.ghosttyWebPkg}"
       '';
       packages = [
         self'.packages.kolu-dev

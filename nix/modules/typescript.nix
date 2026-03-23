@@ -6,6 +6,58 @@
       pnpm = pkgs.pnpm;
       ghosttyThemes = pkgs.callPackage ../ghostty-themes { };
 
+      # Build ghostty-web from git (latest) as a fixed-output derivation.
+      # The upstream flake's build can't run in Nix sandbox (bun install
+      # needs network), so we use a FOD which allows network access.
+      # fetchGit with submodules=true fetches the ghostty zig submodule.
+      ghosttyWebSrc = builtins.fetchGit {
+        url = "https://github.com/coder/ghostty-web.git";
+        rev = inputs.ghostty-web.rev;
+        submodules = true;
+      };
+      zig = inputs.ghostty-web.inputs.zig-overlay.packages.${pkgs.system}."0.15.2";
+      ghosttyWebPkg = pkgs.stdenv.mkDerivation {
+        pname = "ghostty-web";
+        version = "0.0.0-git+${inputs.ghostty-web.shortRev or "latest"}";
+        src = ghosttyWebSrc;
+
+        nativeBuildInputs = [ pkgs.bun pkgs.nodejs_22 pkgs.cacert zig pkgs.git ];
+
+        # FOD: allows network access for bun install; output verified by hash.
+        outputHashMode = "recursive";
+        outputHashAlgo = "sha256";
+        outputHash = "sha256-agJluTy6Bc90ZzkR2DJzMLiqbnd4hmfGUoQH7VGKDbc=";
+
+        buildPhase = ''
+          export HOME=$TMPDIR
+          export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+          export GIT_AUTHOR_NAME="nix" GIT_COMMITTER_NAME="nix"
+          export GIT_AUTHOR_EMAIL="nix@build" GIT_COMMITTER_EMAIL="nix@build"
+
+          bun install --frozen-lockfile
+
+          # The build script uses git apply on the ghostty submodule,
+          # which requires a git repo. Set up minimal repos.
+          git -C ghostty init
+          git -C ghostty add -A
+          git -C ghostty commit -m init
+          git init
+          git add -A
+          git commit -m init
+
+          # Fix shebang in build script (uses /bin/bash)
+          patchShebangs scripts/
+
+          bun run build
+        '';
+
+        installPhase = ''
+          mkdir -p $out
+          cp -r dist/* $out/
+          cp package.json $out/
+        '';
+      };
+
       src = lib.fileset.toSource {
         root = ../..;
         fileset = lib.fileset.unions [
@@ -23,7 +75,7 @@
         pname = "kolu";
         version = "0.1.0";
         inherit src;
-        hash = "sha256-eCXVvewob07U44RbXv7Q3Pi2Cb5/vw1FeuU/qtf2Tb8=";
+        hash = "sha256-JsMdjOmgkaW10OfUNelRXFpPtQkhKF/1MONQqQjgbN4=";
         fetcherVersion = 3;
       };
 
@@ -50,6 +102,7 @@
         env.npm_config_nodedir = nodejs;
         env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
         env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+        env.GHOSTTY_WEB_PKG = "${ghosttyWebPkg}";
 
         buildPhase = ''
           runHook preBuild
@@ -84,7 +137,7 @@
     in
     {
       packages = {
-        inherit kolu ghosttyThemes;
+        inherit kolu ghosttyThemes ghosttyWebPkg;
 
         default = pkgs.writeShellApplication {
           name = "kolu";

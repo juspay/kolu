@@ -11,6 +11,13 @@ if (!themesJsonPath) {
   );
 }
 
+const ghosttyWebPkgPath = process.env.GHOSTTY_WEB_PKG;
+if (!ghosttyWebPkgPath) {
+  throw new Error(
+    "GHOSTTY_WEB_PKG env var is not set. Run inside the Nix devShell (just dev).",
+  );
+}
+
 export default defineConfig({
   plugins: [
     solid(),
@@ -26,10 +33,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "ghostty-themes": themesJsonPath,
+      "ghostty-web": `${ghosttyWebPkgPath}/ghostty-web.js`,
     },
   },
   server: {
     port: 5173,
+    fs: {
+      allow: ["..", ghosttyWebPkgPath],
+    },
     proxy: {
       "/api": `http://localhost:${DEFAULT_PORT}`,
       "/rpc": {
