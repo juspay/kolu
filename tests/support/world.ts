@@ -16,8 +16,9 @@ const REFLOW_SETTLE_MS = 2000;
 const READY_TIMEOUT = 15_000;
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Locator for the app's settled state: either a visible terminal canvas or the empty state tip. */
-const SETTLED_SELECTOR = '[data-visible] canvas, [data-testid="empty-state"]';
+/** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
+const SETTLED_SELECTOR =
+  '[data-visible] .xterm-screen, [data-testid="empty-state"]';
 export const SIDEBAR_ENTRY_SELECTOR =
   '[data-testid="sidebar"] [data-terminal-id]';
 
@@ -38,7 +39,7 @@ export class KoluWorld extends World {
   createdTerminalIds: string[] = [];
 
   get canvas(): Locator {
-    return this.page.locator("[data-visible] canvas");
+    return this.page.locator("[data-visible] .xterm-screen");
   }
 
   /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
@@ -59,7 +60,7 @@ export class KoluWorld extends World {
     if (!id) throw new Error("Created terminal has no data-terminal-id");
 
     await this.canvas.waitFor({ state: "visible", timeout });
-    // Wait for ghostty's textarea to receive focus (auto-focus in Terminal.tsx onMount)
+    // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout: 5000 },
