@@ -30,6 +30,7 @@ const App: Component = () => {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleKill,
     getTerminalThemeName,
     getTerminalCwd,
     getTerminalActive,
@@ -101,6 +102,7 @@ const App: Component = () => {
           terminalIds={terminalIds()}
           activeId={activeId()}
           onSelect={setActiveId}
+          onKill={(id) => void handleKill(id)}
           onCreate={handleCreate}
           open={sidebarOpen()}
           onClose={closeSidebar}

@@ -96,6 +96,33 @@ export function useTerminals() {
     );
   }
 
+  /** Subscribe to exit events for a terminal. On exit, remove it and auto-switch. */
+  function subscribeExit(id: string) {
+    return subscribeStream(
+      (signal) => client.terminal.onExit({ id }, { signal }),
+      () => removeAndAutoSwitch(id),
+    );
+  }
+
+  /** Remove a terminal from the list and auto-switch if it was active. */
+  function removeAndAutoSwitch(id: string) {
+    const ids = terminalIds();
+    const idx = ids.indexOf(id);
+    if (idx === -1) return; // already removed
+    const newIds = ids.filter((x) => x !== id);
+    setTerminalIds(newIds);
+    // Clean up per-terminal state
+    setTerminalCwds(id, undefined!);
+    setTerminalActivity(id, undefined!);
+    setTerminalThemes(id, undefined!);
+    // Auto-switch if the removed terminal was active
+    if (activeId() === id) {
+      // Pick terminal at same index, or last, or null
+      const next = newIds[Math.min(idx, newIds.length - 1)] ?? null;
+      setActiveId(next);
+    }
+  }
+
   // Restore existing terminals on page load (e.g. after browser refresh).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
@@ -124,6 +151,7 @@ export function useTerminals() {
           setTerminalActivity(t.id, t.isActive);
           subscribeCwd(t.id);
           subscribeActivity(t.id);
+          subscribeExit(t.id);
         }
       }
     }
@@ -139,6 +167,17 @@ export function useTerminals() {
     setTerminalActivity(info.id, true);
     subscribeCwd(info.id);
     subscribeActivity(info.id);
+    subscribeExit(info.id);
+  }
+
+  /** Kill a terminal on the server, then remove + auto-switch locally. */
+  async function handleKill(id: string) {
+    try {
+      await client.terminal.kill({ id });
+    } catch {
+      // Terminal may already be gone
+    }
+    removeAndAutoSwitch(id);
   }
 
   /** Set the theme for the active terminal, persisting to server. */
@@ -160,6 +199,14 @@ export function useTerminals() {
         name: "Create new terminal",
         onSelect: () => void handleCreate(),
       },
+      ...(activeId()
+        ? [
+            {
+              name: "Close terminal",
+              onSelect: () => void handleKill(activeId()!),
+            },
+          ]
+        : []),
       {
         name: "Debug: trigger server error",
         showOnPrefix: "debug",
@@ -193,6 +240,7 @@ export function useTerminals() {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleKill,
     getTerminalThemeName,
     getTerminalCwd,
     getTerminalActive,

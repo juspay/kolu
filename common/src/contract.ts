@@ -41,6 +41,8 @@ export const contract = oc.router({
     onActivityChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalActivityOutputSchema)),
+    // Kill a single terminal
+    kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

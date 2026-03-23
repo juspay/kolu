@@ -6,6 +6,7 @@ const Sidebar: Component<{
   terminalIds: string[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  onKill: (id: string) => void;
   onCreate: () => void;
   open: boolean;
   onClose: () => void;
@@ -55,7 +56,7 @@ const Sidebar: Component<{
             {(id, i) => (
               <button
                 data-terminal-id={id}
-                class="w-full p-2 text-sm text-left transition-colors"
+                class="group w-full p-2 text-sm text-left transition-colors"
                 classList={{
                   "bg-slate-600 text-white": props.activeId === id,
                   "text-slate-400 hover:text-white hover:bg-slate-700":
@@ -76,7 +77,19 @@ const Sidebar: Component<{
                       "bg-slate-500": !props.getActive(id),
                     }}
                   />
-                  <span>Terminal {i() + 1}</span>
+                  <span class="flex-1">Terminal {i() + 1}</span>
+                  <span
+                    data-testid="close-terminal"
+                    class="opacity-0 group-hover:opacity-100 hover:text-red-400 text-slate-500 px-0.5 transition-opacity"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      props.onKill(id);
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    title="Close terminal"
+                  >
+                    ×
+                  </span>
                 </div>
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (

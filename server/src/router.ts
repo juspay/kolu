@@ -12,6 +12,7 @@ import {
   createTerminal,
   getTerminal,
   listTerminals,
+  killTerminal,
   killAllTerminals,
   setTerminalTheme,
   type TerminalEntry,
@@ -67,6 +68,12 @@ export const appRouter = t.router({
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
       return requireTerminal(input.id).handle.getScreenState();
+    }),
+
+    kill: t.terminal.kill.handler(async ({ input }) => {
+      const info = killTerminal(input.id);
+      if (!info) throw new TerminalNotFoundError(input.id);
+      return info;
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
