@@ -8,6 +8,7 @@ import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { pinoLogger } from "hono-pino";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
+import { hostname } from "node:os";
 import { createServer as createHttpsServer } from "node:https";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
@@ -110,6 +111,27 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Dynamic PWA manifest (includes hostname) ---
+// theme_color must match <meta name="theme-color"> in client/index.html
+app.get("/manifest.webmanifest", (c) => {
+  const name = `kolu@${hostname()}`;
+  return c.json(
+    {
+      name,
+      short_name: name,
+      start_url: "/",
+      display: "standalone",
+      background_color: "#292c33",
+      theme_color: "#292c33",
+      icons: [
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+    },
+    { headers: { "Content-Type": "application/manifest+json" } },
+  );
+});
 
 // --- Static files (production) ---
 const clientDist = process.env.KOLU_CLIENT_DIST;

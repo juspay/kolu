@@ -3,6 +3,8 @@
 import {
   type Component,
   createSignal,
+  createResource,
+  createEffect,
   Show,
   For,
   Suspense,
@@ -14,7 +16,7 @@ import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { getThemeByName } from "./theme";
-import { wsStatus } from "./rpc";
+import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
@@ -38,6 +40,16 @@ const App: Component = () => {
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+
+  // Fetch hostname from server; used in document.title and header
+  const [serverInfo] = createResource(() => client.server.info());
+  const appTitle = () => {
+    const h = serverInfo()?.hostname;
+    return h ? `kolu@${h}` : "kolu";
+  };
+  createEffect(() => {
+    document.title = appTitle();
+  });
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -95,6 +107,7 @@ const App: Component = () => {
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         renderer={renderer()}
+        appTitle={appTitle()}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

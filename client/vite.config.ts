@@ -32,6 +32,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": `http://localhost:${DEFAULT_PORT}`,
+      "/manifest.webmanifest": `http://localhost:${DEFAULT_PORT}`,
       "/rpc": {
         target: `http://localhost:${DEFAULT_PORT}`,
         ws: true,
