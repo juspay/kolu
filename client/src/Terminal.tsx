@@ -133,25 +133,27 @@ const Terminal: Component<{
     });
     terminal = term;
 
-    // Load addons
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.loadAddon(new SearchAddon());
     term.loadAddon(new ClipboardAddon());
-    const unicode11 = new Unicode11Addon();
-    term.loadAddon(unicode11);
+    term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.loadAddon(new ImageAddon());
     term.loadAddon(new SerializeAddon());
 
     term.open(containerRef);
 
-    // Try WebGL renderer for performance, fall back to canvas
+    // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
     try {
-      term.loadAddon(new WebglAddon());
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+      });
+      term.loadAddon(webgl);
     } catch {
-      console.warn("WebGL renderer unavailable, using canvas fallback");
+      // WebGL unavailable — canvas renderer is the default
     }
 
     // xterm.js has attachCustomKeyEventHandler for intercepting keys.
