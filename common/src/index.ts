@@ -12,7 +12,7 @@ const terminalBaseFields = {
   id: TerminalIdSchema,
   pid: z.number(),
   themeName: z.string().optional(),
-  name: z.string().optional(),
+  name: z.string(),
 };
 
 // Discriminated union: exitCode is required when exited, absent when running.

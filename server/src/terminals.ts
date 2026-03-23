@@ -25,7 +25,7 @@ interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
-  name?: string;
+  name: string;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
@@ -69,7 +69,8 @@ function touchActivity(entry: TerminalBase): void {
 
 /** Create a new terminal, spawn a PTY process. */
 export function createTerminal(): TerminalInfo {
-  const id = `term-${nextId++}`;
+  const n = nextId++;
+  const id = `term-${n}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
 
@@ -97,6 +98,7 @@ export function createTerminal(): TerminalInfo {
     status: "running",
     emitter,
     isActive: true,
+    name: `Terminal ${n}`,
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");

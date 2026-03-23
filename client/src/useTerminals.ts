@@ -50,12 +50,9 @@ export function useTerminals() {
     return terminalActivity[id] ?? false;
   }
 
-  /** Get display name: custom name or fallback "Terminal {n}". */
+  /** Get the display name for a terminal (reactive per key via createStore). */
   function getTerminalDisplayName(id: string): string {
-    const custom = terminalNames[id];
-    if (custom) return custom;
-    const idx = terminalIds().indexOf(id);
-    return `Terminal ${idx + 1}`;
+    return terminalNames[id] ?? id;
   }
 
   /** The active terminal's theme name (for header + palette filter). */
@@ -127,11 +124,7 @@ export function useTerminals() {
       );
       // Restore per-terminal names from server
       setTerminalNames(
-        reconcile(
-          Object.fromEntries(
-            existing.filter((t) => t.name).map((t) => [t.id, t.name!]),
-          ),
-        ),
+        reconcile(Object.fromEntries(existing.map((t) => [t.id, t.name]))),
       );
       // Set initial activity state and subscribe to changes for running terminals
       for (const t of existing) {
@@ -152,6 +145,7 @@ export function useTerminals() {
     setActiveId(info.id);
     // New terminals always start active (server spawns PTY with initial output)
     setTerminalActivity(info.id, true);
+    setTerminalNames(info.id, info.name);
     subscribeCwd(info.id);
     subscribeActivity(info.id);
   }
