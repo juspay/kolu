@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
+import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
 
 const themesJsonPath = process.env.KOLU_THEMES_JSON;
@@ -11,7 +12,17 @@ if (!themesJsonPath) {
 }
 
 export default defineConfig({
-  plugins: [solid(), tailwindcss()],
+  plugins: [
+    solid(),
+    tailwindcss(),
+    VitePWA({
+      registerType: "autoUpdate",
+      manifest: false,
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       "ghostty-themes": themesJsonPath,
