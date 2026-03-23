@@ -1,81 +1,33 @@
 /**
- * Clipboard shim for bridging browser clipboard → PTY.
+ * Clipboard bridge: browser clipboard → PTY via server-side shim scripts.
  *
  * Claude Code reads images from the system clipboard via xclip/wl-paste
  * when the user presses Ctrl+V. In a web terminal, the server has no
- * access to the browser's clipboard. This module creates shim scripts
- * that serve image data uploaded from the browser, so Claude Code's
- * existing clipboard mechanism works transparently.
+ * access to the browser's clipboard. This module manages per-terminal
+ * clipboard data directories that Nix-provided shim scripts read from.
+ *
+ * The shim scripts themselves are packaged as Nix derivations
+ * (writeShellScriptBin) and their bin directory is passed via the
+ * KOLU_CLIPBOARD_SHIM_DIR environment variable.
  */
 
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  chmodSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { log } from "./log.ts";
 
-/** Directory containing the shared xclip/wl-paste shim scripts. */
-let shimBinDir: string | undefined;
-
-const XCLIP_SHIM = `#!/bin/sh
-# Kolu clipboard shim — serves browser-uploaded images to Claude Code.
-# Falls through gracefully when no image is available.
-KOLU_IMG="\${KOLU_CLIPBOARD_DIR}/image.png"
-
-# Handle image-related clipboard reads
-case "$*" in
-  *"-selection"*"clipboard"*"-t"*"TARGETS"*"-o"*)
-    [ -f "$KOLU_IMG" ] && printf 'image/png\\n' && exit 0
-    ;;
-  *"-selection"*"clipboard"*"-t"*"image/"*"-o"*)
-    [ -f "$KOLU_IMG" ] && cat "$KOLU_IMG" && exit 0
-    ;;
-esac
-exit 1
-`;
-
-const WLPASTE_SHIM = `#!/bin/sh
-# Kolu clipboard shim — serves browser-uploaded images to Claude Code.
-KOLU_IMG="\${KOLU_CLIPBOARD_DIR}/image.png"
-
-for arg in "$@"; do
-  case "$arg" in
-    -l|--list-types)
-      [ -f "$KOLU_IMG" ] && printf 'image/png\\n' && exit 0
-      exit 1
-      ;;
-  esac
-done
-
-# --type image/png (or similar)
-case "$*" in
-  *"--type"*"image/"*)
-    [ -f "$KOLU_IMG" ] && cat "$KOLU_IMG" && exit 0
-    ;;
-esac
-exit 1
-`;
-
-/** Create shared shim scripts (idempotent). Returns the bin directory path. */
-export function initClipboardShims(): string {
-  if (shimBinDir) return shimBinDir;
-
-  shimBinDir = mkdtempSync(join(tmpdir(), "kolu-clipboard-shims-"));
-  for (const [name, content] of [
-    ["xclip", XCLIP_SHIM],
-    ["wl-paste", WLPASTE_SHIM],
-  ] as const) {
-    const path = join(shimBinDir, name);
-    writeFileSync(path, content);
-    chmodSync(path, 0o755);
+/**
+ * Resolve the clipboard shim bin directory from the environment.
+ * Returns undefined if KOLU_CLIPBOARD_SHIM_DIR is not set (shims not available).
+ */
+export function getClipboardShimDir(): string | undefined {
+  const dir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
+  if (dir) {
+    log.info({ shimBinDir: dir }, "clipboard shims available");
+  } else {
+    log.warn("KOLU_CLIPBOARD_SHIM_DIR not set — Ctrl+V image paste disabled");
   }
-  log.info({ shimBinDir }, "clipboard shims initialized");
-  return shimBinDir;
+  return dir;
 }
 
 /** Create a per-terminal clipboard directory. */

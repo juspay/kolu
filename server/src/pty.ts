@@ -41,7 +41,7 @@ export function spawnPty(
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
   },
-  clipboard?: { shimBinDir: string; clipboardDir: string },
+  clipboard?: { shimBinDir?: string; clipboardDir: string },
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
@@ -52,7 +52,9 @@ export function spawnPty(
   // Clipboard shims: prepend shim dir to PATH so Claude Code finds our
   // xclip/wl-paste wrappers before any system-installed versions.
   if (clipboard) {
-    env.PATH = `${clipboard.shimBinDir}:${env.PATH}`;
+    if (clipboard.shimBinDir) {
+      env.PATH = `${clipboard.shimBinDir}:${env.PATH}`;
+    }
     env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
   }
 

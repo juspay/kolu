@@ -13,7 +13,7 @@ import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import {
-  initClipboardShims,
+  getClipboardShimDir,
   createClipboardDir,
   saveClipboardImage,
   cleanupClipboardDir,
@@ -74,7 +74,7 @@ export function createTerminal(): TerminalInfo {
   const id = `term-${nextId++}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
-  const shimBinDir = initClipboardShims();
+  const shimBinDir = getClipboardShimDir();
   const clipboardDir = createClipboardDir(id);
 
   const handle = spawnPty(
