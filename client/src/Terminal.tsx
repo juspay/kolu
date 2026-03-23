@@ -222,10 +222,27 @@ const Terminal: Component<{
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
-    // Attach stream: yields scrollback first, then live PTY output
+    // Attach stream: yields scrollback first, then live PTY output.
+    // Writes are serialized via ghostty-web's rAF callback — each chunk waits
+    // for the previous write's requestAnimationFrame callback before writing,
+    // ensuring the render loop gets a chance to paint between batches.
+    let writeReady = true;
+    const writeQueue: Uint8Array[] = [];
+    function drainWriteQueue() {
+      while (writeQueue.length > 0 && writeReady && terminal) {
+        writeReady = false;
+        terminal.write(writeQueue.shift()!, () => {
+          writeReady = true;
+          drainWriteQueue();
+        });
+      }
+    }
     consumeStream(
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
-      (data) => terminal?.write(encoder.encode(data)),
+      (data) => {
+        writeQueue.push(encoder.encode(data));
+        drainWriteQueue();
+      },
       "Terminal attach",
     );
 
