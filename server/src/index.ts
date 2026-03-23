@@ -6,6 +6,9 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
+import selfsigned from "selfsigned";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
@@ -24,6 +27,19 @@ const argv = cli({
       type: Number,
       description: "Port to listen on",
       default: DEFAULT_PORT,
+    },
+    tls: {
+      type: Boolean,
+      description: "Enable HTTPS with auto-generated self-signed certificate",
+      default: false,
+    },
+    tlsCert: {
+      type: String,
+      description: "Path to TLS certificate file (PEM)",
+    },
+    tlsKey: {
+      type: String,
+      description: "Path to TLS private key file (PEM)",
     },
   },
   strictFlags: true,
@@ -69,20 +85,54 @@ if (clientDist) {
   app.get("/*", serveStatic({ root, path: "index.html" }));
 }
 
+// --- TLS setup ---
+const { host, port, tls, tlsCert, tlsKey } = argv.flags;
+
+async function getTlsOptions() {
+  if (tlsCert && tlsKey) {
+    return {
+      key: readFileSync(tlsKey),
+      cert: readFileSync(tlsCert),
+    };
+  }
+  if (tls) {
+    log.info("generating self-signed certificate");
+    const pems = await selfsigned.generate(
+      [{ name: "commonName", value: "localhost" }],
+      { algorithm: "sha256" },
+    );
+    return { key: pems.private, cert: pems.cert };
+  }
+  return null;
+}
+
+const tlsOptions = await getTlsOptions();
+
 // --- Start server ---
-const { host, port } = argv.flags;
-const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
-  log.info(
-    {
-      version: pkg.version,
-      pid: process.pid,
-      node: process.version,
-      rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-      address: `http://${info.address}:${info.port}`,
-    },
-    "kolu listening",
-  );
-});
+const server = serve(
+  {
+    fetch: app.fetch,
+    hostname: host,
+    port,
+    ...(tlsOptions && {
+      createServer: createHttpsServer,
+      serverOptions: tlsOptions,
+    }),
+  },
+  (info) => {
+    const protocol = tlsOptions ? "https" : "http";
+    log.info(
+      {
+        version: pkg.version,
+        pid: process.pid,
+        node: process.version,
+        rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+        address: `${protocol}://${info.address}:${info.port}`,
+      },
+      "kolu listening",
+    );
+  },
+);
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
