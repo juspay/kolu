@@ -99,7 +99,7 @@ export function createTerminal(): TerminalInfo {
 
 export function listTerminals(): TerminalInfo[] {
   const list = [...terminals.entries()].map(([id, entry]) => toInfo(id, entry));
-  log.info({ count: list.length }, "terminal list");
+  log.debug({ count: list.length }, "terminal list");
   return list;
 }
 

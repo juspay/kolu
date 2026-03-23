@@ -23,6 +23,8 @@ in
       description = "Port to listen on.";
     };
 
+    verbose = lib.mkEnableOption "debug-level logging";
+
     tls = {
       enable = lib.mkEnableOption "TLS with auto-generated self-signed certificate";
 
@@ -62,7 +64,8 @@ in
           (toString cfg.port)
         ]
         ++ lib.optionals (cfg.tls.certFile != null) [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
-        ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]);
+        ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]
+        ++ lib.optionals cfg.verbose [ "--verbose" ]);
         Restart = "on-failure";
         Environment = [
           "SHELL=${lib.getExe pkgs.bashInteractive}"
