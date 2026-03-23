@@ -8,16 +8,18 @@ import type {
   TerminalInfo,
   TerminalRunning,
   TerminalExited,
+  CwdOutput,
 } from "kolu-common";
 import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
+import { getGitInfo } from "./git.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
   data: [data: string];
   exit: [exitCode: number];
-  cwd: [cwd: string];
+  cwd: [data: CwdOutput];
   activity: [isActive: boolean];
 }
 
@@ -83,7 +85,12 @@ export function createTerminal(): TerminalInfo {
       }
       emitter.emit("exit", exitCode);
     },
-    onCwd: (cwd) => emitter.emit("cwd", cwd),
+    onCwd: (cwd) => {
+      getGitInfo(cwd).then(
+        (git) => emitter.emit("cwd", { cwd, git }),
+        () => emitter.emit("cwd", { cwd, git: null }),
+      );
+    },
   });
 
   const entry: TerminalEntry = {

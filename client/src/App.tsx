@@ -25,6 +25,7 @@ const App: Component = () => {
     activeThemeName,
     activeTheme,
     activeCwd,
+    activeGitInfo,
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
@@ -72,6 +73,7 @@ const App: Component = () => {
         onThemeClick={() => openPaletteWith("Theme: ")}
         themeName={activeThemeName()}
         cwd={activeCwd()}
+        gitInfo={activeGitInfo()}
         onToggleSidebar={toggleSidebar}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}

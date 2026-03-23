@@ -47,7 +47,16 @@ export const TerminalSetThemeInputSchema = z.object({
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
-export const TerminalCwdOutputSchema = z.string();
+export const GitInfoSchema = z.object({
+  remoteUrl: z.string(), // formatted "org/repo"
+  branch: z.string().nullable(), // current branch name, null if detached HEAD
+  toplevel: z.string(), // repo root path
+});
+
+export const TerminalCwdOutputSchema = z.object({
+  cwd: z.string(),
+  git: GitInfoSchema.nullable(),
+});
 export const TerminalActivityOutputSchema = z.boolean();
 
 // --- Derived types ---
@@ -55,6 +64,9 @@ export const TerminalActivityOutputSchema = z.boolean();
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 export type TerminalStatus = TerminalInfo["status"];
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+/** CWD + associated git info, streamed from server on directory changes. */
+export type CwdOutput = z.infer<typeof TerminalCwdOutputSchema>;
 
 /** Extract the status discriminant from TerminalInfo for reuse (e.g. server-side TerminalEntry). */
 export type TerminalRunning = Extract<TerminalInfo, { status: "running" }>;

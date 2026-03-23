@@ -17,6 +17,7 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { subscribeAndYield } from "./streaming.ts";
+import { getGitInfo } from "./git.ts";
 
 const t = implement(contract);
 
@@ -79,8 +80,9 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current CWD immediately
-      yield entry.handle.cwd;
+      // Yield current CWD + git info immediately
+      const cwd = entry.handle.cwd;
+      yield { cwd, git: await getGitInfo(cwd) };
 
       // Then stream changes
       yield* subscribeAndYield(entry.emitter, "cwd", signal);

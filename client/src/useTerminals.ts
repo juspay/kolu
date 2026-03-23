@@ -5,7 +5,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
-import type { TerminalInfo } from "kolu-common";
+import type { TerminalInfo, GitInfo } from "kolu-common";
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
@@ -27,6 +27,11 @@ export function useTerminals() {
   const [terminalCwds, setTerminalCwds] = createStore<Record<string, string>>(
     {},
   );
+
+  // Per-terminal git info (terminal ID → GitInfo | null).
+  const [terminalGit, setTerminalGit] = createStore<
+    Record<string, GitInfo | null>
+  >({});
 
   // Per-terminal activity state (terminal ID → isActive).
   const [terminalActivity, setTerminalActivity] = createStore<
@@ -63,6 +68,12 @@ export function useTerminals() {
     return id ? (terminalCwds[id] ?? null) : null;
   });
 
+  /** The active terminal's git info (for header display). */
+  const activeGitInfo = createMemo(() => {
+    const id = activeId();
+    return id ? (terminalGit[id] ?? null) : null;
+  });
+
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
     startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
@@ -84,7 +95,10 @@ export function useTerminals() {
   function subscribeCwd(id: string) {
     return subscribeStream(
       (signal) => client.terminal.onCwdChange({ id }, { signal }),
-      (cwd) => setTerminalCwds(id, cwd),
+      ({ cwd, git }) => {
+        setTerminalCwds(id, cwd);
+        setTerminalGit(id, git);
+      },
     );
   }
 
@@ -185,6 +199,7 @@ export function useTerminals() {
     activeThemeName,
     activeTheme,
     activeCwd,
+    activeGitInfo,
     existingTerminals,
     handleCreate,
     getTerminalThemeName,

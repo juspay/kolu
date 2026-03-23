@@ -2,6 +2,7 @@ import { type Component, Show, mergeProps } from "solid-js";
 import { isMac } from "./platform";
 import { shortenCwd } from "./path";
 import type { WsStatus } from "./rpc";
+import type { GitInfo } from "kolu-common";
 
 /** WS connection status indicator colors. */
 const statusColors: Record<WsStatus, string> = {
@@ -16,6 +17,7 @@ const Header: Component<{
   onThemeClick?: () => void;
   themeName?: string;
   cwd?: string | null;
+  gitInfo?: GitInfo | null;
   onToggleSidebar?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
@@ -52,6 +54,21 @@ const Header: Component<{
             data-testid="header-cwd"
           >
             {shortenCwd(cwd())}
+          </span>
+        )}
+      </Show>
+      <Show when={props.gitInfo}>
+        {(info) => (
+          <span class="text-xs text-slate-500" data-testid="header-git-repo">
+            · {info().remoteUrl}
+            <Show when={info().branch}>
+              {(branch) => (
+                <span class="text-slate-600" data-testid="header-git-branch">
+                  {" "}
+                  @ {branch()}
+                </span>
+              )}
+            </Show>
           </span>
         )}
       </Show>
