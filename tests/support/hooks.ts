@@ -1,9 +1,9 @@
 /**
  * Cucumber hooks — browser lifecycle + server health check.
  *
- * Two modes:
- *  - BASE_URL set → reuse an existing server (e.g. `just test-dev`)
- *  - KOLU_BIN set → each worker spawns the binary on a random port
+ * KOLU_SERVER controls how the server is provided:
+ *  - URL (http://...) → reuse an existing server (e.g. `just test-dev`)
+ *  - file path        → each worker spawns the binary on a random port
  *
  * Random ports (via get-port) let parallel runs across worktrees
  * coexist without port collisions.
@@ -59,18 +59,18 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
 }
 
 BeforeAll(async function () {
-  // Start server if not reusing an existing one
-  if (process.env.BASE_URL) {
-    baseUrl = process.env.BASE_URL;
-  } else {
-    const koluBin = process.env.KOLU_BIN;
-    if (!koluBin)
-      throw new Error("Set BASE_URL (reuse server) or KOLU_BIN (spawn server)");
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer) throw new Error("KOLU_SERVER must be a URL or binary path");
 
+  if (koluServer.startsWith("http")) {
+    // Reuse an already-running server
+    baseUrl = koluServer;
+  } else {
+    // Spawn the binary on a random port
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    serverProcess = spawn(koluBin, ["--port", String(port)], {
+    serverProcess = spawn(koluServer, ["--port", String(port)], {
       stdio: "pipe",
     });
     serverProcess.stderr?.on("data", (data: Buffer) => {
