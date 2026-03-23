@@ -4,6 +4,8 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
+import { pinoLogger } from "hono-pino";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
 import { createServer as createHttpsServer } from "node:https";
@@ -46,8 +48,27 @@ const argv = cli({
 
 const app = new Hono();
 
+// --- HTTP request logging ---
+app.use(
+  pinoLogger({
+    pino: log,
+    http: {
+      onReqMessage: (c) => `${c.req.method} ${c.req.path}`,
+    },
+  }),
+);
+
+// --- oRPC plugins ---
+const rpcPlugins = [
+  new LoggingHandlerPlugin({
+    logger: log,
+    logRequestResponse: true,
+    logRequestAbort: true,
+  }),
+];
+
 // --- oRPC HTTP handler (non-streaming calls) ---
-const rpcHandler = new RPCHandler(appRouter);
+const rpcHandler = new RPCHandler(appRouter, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
     prefix: "/rpc",
@@ -116,7 +137,7 @@ const server = serve(
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
-const wsRpcHandler = new WsRPCHandler(appRouter);
+const wsRpcHandler = new WsRPCHandler(appRouter, { plugins: rpcPlugins });
 
 let nextConnId = 0;
 wss.on("connection", (ws) => {
