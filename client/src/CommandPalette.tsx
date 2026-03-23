@@ -23,7 +23,7 @@ import { isPlatformModifier } from "./keyboard";
 export interface Command {
   name: string;
   onSelect: () => void;
-  /** Hidden commands only appear when the query matches their name. */
+  /** Excluded from the default list; only shown when a search query is active. */
   hidden?: boolean;
 }
 
