@@ -8,8 +8,8 @@ interface ShortcutDeps {
   terminalIds: Accessor<string[]>;
   activeId: Accessor<string | null>;
   setActiveId: Setter<string | null>;
-  handleCreate: () => void;
-  handleCreateInCwd: () => void;
+  handleCreate: (cwd?: string) => void;
+  activeCwd: Accessor<string | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
 }
@@ -41,7 +41,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.createTerminalInCwd.keybind)) {
-    deps.handleCreateInCwd();
+    deps.handleCreate(deps.activeCwd() ?? undefined);
     return true;
   }
 

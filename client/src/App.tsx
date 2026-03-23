@@ -50,8 +50,8 @@ const App: Component = () => {
     terminalIds,
     activeId,
     setActiveId,
-    handleCreate: () => void handleCreate(),
-    handleCreateInCwd: () => void handleCreate(activeCwd() ?? undefined),
+    handleCreate: (cwd?: string) => void handleCreate(cwd),
+    activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
   });
