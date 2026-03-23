@@ -62,6 +62,8 @@ const Sidebar: Component<{
                     props.activeId !== id,
                 }}
                 onClick={() => handleSelect(id)}
+                // Prevent button from stealing focus — terminal canvas must keep focus
+                // so keyboard input flows to the PTY, even when clicking the already-active tab.
                 onMouseDown={(e) => e.preventDefault()}
                 title={props.getCwd(id) ?? id}
               >
