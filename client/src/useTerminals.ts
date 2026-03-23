@@ -2,13 +2,19 @@
 
 import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
+import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo } from "kolu-common";
 
+const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
+
 export function useTerminals() {
   const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
-  const [activeId, setActiveId] = createSignal<string | null>(null);
+  const [activeId, setActiveId] = makePersisted(
+    createSignal<string | null>(null),
+    { name: ACTIVE_TERMINAL_KEY },
+  );
 
   // Per-terminal theme name (terminal ID → theme name).
   // createStore gives fine-grained reactivity per key — changing one terminal's
@@ -110,9 +116,12 @@ export function useTerminals() {
     if (existing.length > 0) {
       const ids = existing.map((t) => t.id);
       setTerminalIds(ids);
-      const running = existing.find((t) => t.status === "running");
-      // Prefer a running terminal; fall back to first (which may be exited)
-      setActiveId(running?.id ?? ids[0]);
+      // Keep persisted active terminal if it still exists; otherwise pick a running one
+      const persisted = activeId();
+      if (!persisted || !ids.includes(persisted)) {
+        const running = existing.find((t) => t.status === "running");
+        setActiveId(running?.id ?? ids[0]);
+      }
       // Restore per-terminal themes from server (reconcile replaces entire store)
       setTerminalThemes(
         reconcile(

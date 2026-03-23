@@ -22,17 +22,20 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
-# Run Cucumber e2e tests (starts server via nix run)
+# Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test:
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && {{ nix_shell }} pnpm test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    KOLU_SERVER="$(nix build --print-out-paths)/bin/kolu"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=3 {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
 test-dev:
     cd tests \
         && {{ nix_shell }} pnpm install \
-        && BASE_URL=http://localhost:5173 REUSE_SERVER=1 {{ nix_shell }} pnpm test
+        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
 
 # Run full nix build (via vira), e2e tests, and post signoff status to GitHub
 ci:
