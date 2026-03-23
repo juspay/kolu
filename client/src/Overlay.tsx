@@ -1,15 +1,31 @@
 /** Shared overlay container with backdrop and entrance/exit transitions. */
 
-import type { Component, JSX } from "solid-js";
+import { type Component, type JSX, createEffect, on } from "solid-js";
 
 const Overlay: Component<{
   open: boolean;
   onClose: () => void;
   children: JSX.Element;
 }> = (props) => {
+  // Refocus the active terminal when overlay closes — the always-mounted
+  // overlay doesn't naturally return focus like a <Show>-based unmount would.
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (open) return;
+        const el = document.querySelector<HTMLElement>(
+          "[data-visible][data-terminal-id]",
+        );
+        el?.click();
+      },
+      { defer: true },
+    ),
+  );
+
   return (
     <div
-      class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] transition-all duration-150 ease-out"
+      class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] transition-[opacity] duration-150 ease-out"
       classList={{
         "visible opacity-100 pointer-events-auto": props.open,
         // visibility:hidden ensures Playwright treats closed overlays as hidden
