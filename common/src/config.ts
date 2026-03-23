@@ -17,3 +17,6 @@ export const DEFAULT_FONT_SIZE = 14;
 
 /** Seconds of no PTY output before a terminal is considered idle/sleeping. */
 export const ACTIVITY_IDLE_THRESHOLD_S = 5;
+
+/** Max bytes of raw PTY output to buffer for screen state replay on reconnect. */
+export const PTY_BUFFER_CAPACITY = 1024 * 1024; // 1 MB

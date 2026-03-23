@@ -2,21 +2,21 @@
  * Pure PTY lifecycle wrapper around node-pty.
  *
  * Transport-agnostic: communicates via onData/onExit callbacks.
- * Maintains a headless xterm instance for screen state serialization
- * on late-joining clients (~4KB vs raw scrollback replay).
+ * Maintains a headless xterm instance for OSC 7 parsing and device query
+ * responses, and a ring buffer of raw PTY output for screen state replay
+ * on late-joining clients.
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
-import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
+import { DEFAULT_COLS, DEFAULT_ROWS, PTY_BUFFER_CAPACITY } from "kolu-common/config";
 import { cleanEnv, osc7Init } from "./shell.ts";
 import type { Logger } from "./log.ts";
+import { RingBuffer } from "./ring-buffer.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
 const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
-const { SerializeAddon } =
-  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
@@ -27,7 +27,7 @@ export interface PtyHandle {
   write(data: string): void;
   /** Resize the PTY grid. */
   resize(cols: number, rows: number): void;
-  /** Serialized screen state (VT escape sequences) for late-joining clients. */
+  /** Raw PTY output for screen state replay on late-joining clients. */
   getScreenState(): string;
   /** Kill the PTY process and release resources. */
   dispose(): void;
@@ -58,15 +58,15 @@ export function spawnPty(
   });
   tlog.info({ pid: proc.pid }, "pty spawned");
 
-  // Headless terminal parses PTY output into screen state for serialization.
-  // allowProposedApi is required for SerializeAddon to access the buffer.
+  // Headless terminal for OSC 7 parsing and device query responses.
   const headless = new Terminal({
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    allowProposedApi: true,
   });
-  const serializeAddon = new SerializeAddon();
-  headless.loadAddon(serializeAddon);
+
+  // Raw PTY output buffer — replayed on reconnect so ghostty sees the
+  // original escape sequences (not xterm's re-serialized interpretation).
+  const ringBuffer = new RingBuffer(PTY_BUFFER_CAPACITY);
 
   // Parse OSC 7 (CWD reporting) from headless terminal output.
   // The rc wrapper injected above ensures the shell emits these sequences.
@@ -97,6 +97,7 @@ export function spawnPty(
 
   const dataDisposable = proc.onData((data: string) => {
     headless.write(data);
+    ringBuffer.append(data);
     opts.onData(data);
   });
 
@@ -112,7 +113,7 @@ export function spawnPty(
       proc.resize(cols, rows);
       headless.resize(cols, rows);
     },
-    getScreenState: () => serializeAddon.serialize(),
+    getScreenState: () => ringBuffer.drain(),
     dispose() {
       oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
