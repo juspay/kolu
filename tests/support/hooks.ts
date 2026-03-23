@@ -2,25 +2,23 @@
  * Cucumber hooks — browser lifecycle + server health check.
  *
  * When running in parallel (--parallel N), each worker spawns its own
- * server on a unique port derived from CUCUMBER_WORKER_ID.
+ * server on a random available port (via get-port), so multiple test
+ * runs (including across worktrees) never collide.
  */
 
 import { Before, After, BeforeAll, AfterAll, Status } from "@cucumber/cucumber";
 import { chromium } from "playwright";
 import type { Browser } from "playwright";
+import getPort from "get-port";
 import { KoluWorld } from "./world.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
-const BASE_PORT = 7681;
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
-const workerPort = BASE_PORT + workerId;
 
-const BASE_URL = process.env.BASE_URL || `http://localhost:${workerPort}`;
-const HEALTH_URL = `${BASE_URL}/api/health`;
-
+let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
 
@@ -50,13 +48,15 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
 
 BeforeAll(async function () {
   // Start server if not reusing
-  if (!process.env.REUSE_SERVER) {
-    console.log(
-      `[worker:${workerId}] Starting server on port ${workerPort}...`,
-    );
+  if (process.env.BASE_URL) {
+    baseUrl = process.env.BASE_URL;
+  } else {
+    const port = await getPort();
+    baseUrl = `http://localhost:${port}`;
+    console.log(`[worker:${workerId}] Starting server on port ${port}...`);
     serverProcess = spawn(
       "nix",
-      ["run", "..#default", "--", "--port", String(workerPort)],
+      ["run", "..#default", "--", "--port", String(port)],
       {
         stdio: "pipe",
         cwd: path.resolve(import.meta.dirname, ".."),
@@ -65,7 +65,7 @@ BeforeAll(async function () {
     serverProcess.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[server:${workerId}] ${data}`);
     });
-    await waitForHealth(HEALTH_URL, 600_000);
+    await waitForHealth(`${baseUrl}/api/health`, 600_000);
     console.log(`[worker:${workerId}] Server is healthy.`);
   }
 
@@ -87,7 +87,7 @@ AfterAll(async function () {
 
 Before(async function (this: KoluWorld) {
   // Kill leftover terminals from previous scenarios so each starts with a clean slate
-  await fetch(`${BASE_URL}/rpc/terminal/killAll`, {
+  await fetch(`${baseUrl}/rpc/terminal/killAll`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
@@ -96,7 +96,7 @@ Before(async function (this: KoluWorld) {
   this.browser = browser;
   this.context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
-    baseURL: BASE_URL,
+    baseURL: baseUrl,
     ignoreHTTPSErrors: true,
   });
   this.page = await this.context.newPage();
