@@ -14,6 +14,7 @@ import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import { getThemeByName } from "./theme";
 import { wsStatus } from "./rpc";
+import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 
@@ -73,6 +74,7 @@ const App: Component = () => {
         themeName={activeThemeName()}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
+        renderer={renderer()}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

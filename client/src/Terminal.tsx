@@ -33,6 +33,10 @@ import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 
+export type RendererType = "webgl" | "canvas";
+const [renderer, setRenderer] = createSignal<RendererType>("canvas");
+export { renderer };
+
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
@@ -158,8 +162,10 @@ const Terminal: Component<{
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
         webgl.dispose();
+        setRenderer("canvas");
       });
       term.loadAddon(webgl);
+      setRenderer("webgl");
     } catch {
       // WebGL unavailable — canvas renderer is the default
     }

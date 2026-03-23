@@ -66,6 +66,18 @@ pnpm workspace with three packages:
 
 - `common/` — [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas (shared types between server and client)
 - `server/` — [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) with oRPC over WebSocket
-- `client/` — [SolidJS](https://www.solidjs.com/) + [ghostty-web](https://ghostty.org) terminal
+- `client/` — [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) terminal
 
-Stack: Hono → oRPC (WebSocket) → PTY → ghostty-web canvas. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
+Stack: Hono → oRPC (WebSocket) → PTY → xterm.js. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
+
+## Terminal Features
+
+Powered by [xterm.js](https://xtermjs.org/) with WebGL-accelerated rendering (canvas fallback):
+
+- **Clickable URLs** — links in terminal output open in the browser
+- **Find in buffer** — search through terminal scrollback
+- **Clipboard integration** — system clipboard copy/paste
+- **Unicode 11** — correct rendering of wide characters, emoji, CJK
+- **Inline images** — sixel, iTerm2, and kitty image protocols
+- **Themes** — 200+ color schemes, switchable at runtime via command palette
+- **Font zoom** — Cmd/Ctrl +/- to adjust font size (persisted across sessions)

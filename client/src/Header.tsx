@@ -17,6 +17,7 @@ const Header: Component<{
   themeName?: string;
   cwd?: string | null;
   onToggleSidebar?: () => void;
+  renderer?: string;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
@@ -75,6 +76,11 @@ const Header: Component<{
         >
           <kbd class="font-sans">{isMac ? "⌘K" : "Ctrl+K"}</kbd>
         </button>
+        {props.renderer && (
+          <span class="text-xs text-slate-500 hidden sm:inline">
+            {props.renderer}
+          </span>
+        )}
         <span
           class={`text-xs ${statusColors[props.status]}`}
           data-ws-status={props.status}
