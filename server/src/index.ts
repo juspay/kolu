@@ -4,7 +4,6 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
-import { onError } from "@orpc/server";
 import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
 import { createServer as createHttpsServer } from "node:https";
@@ -47,16 +46,21 @@ const argv = cli({
 
 const app = new Hono();
 
-// --- oRPC error logging (both HTTP and WebSocket handlers) ---
+// --- oRPC error-logging interceptor (handler-level, wraps next()) ---
 const rpcInterceptors = [
-  onError((error: unknown) => {
-    log.error({ err: error }, "oRPC handler error");
-  }),
+  async (options: { next: () => Promise<unknown> }) => {
+    try {
+      return await options.next();
+    } catch (err) {
+      log.error({ err }, "oRPC handler error");
+      throw err;
+    }
+  },
 ];
 
 // --- oRPC HTTP handler (non-streaming calls) ---
 const rpcHandler = new RPCHandler(appRouter, {
-  interceptors: rpcInterceptors,
+  interceptors: rpcInterceptors as never[],
 });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
@@ -127,7 +131,7 @@ const server = serve(
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
 const wsRpcHandler = new WsRPCHandler(appRouter, {
-  interceptors: rpcInterceptors,
+  interceptors: rpcInterceptors as never[],
 });
 
 let nextConnId = 0;
