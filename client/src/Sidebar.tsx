@@ -10,6 +10,7 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
   getCwd: (id: string) => string | undefined;
+  getActive: (id: string) => boolean;
 }> = (props) => {
   function handleSelect(id: string) {
     props.onSelect(id);
@@ -63,10 +64,20 @@ const Sidebar: Component<{
                 onClick={() => handleSelect(id)}
                 title={props.getCwd(id) ?? id}
               >
-                <div>Terminal {i() + 1}</div>
+                <div class="flex items-center gap-1.5">
+                  <span
+                    data-testid="activity-indicator"
+                    class="inline-block w-2 h-2 rounded-full shrink-0"
+                    classList={{
+                      "bg-green-400": props.getActive(id),
+                      "bg-slate-500": !props.getActive(id),
+                    }}
+                  />
+                  <span>Terminal {i() + 1}</span>
+                </div>
                 <Show when={props.getCwd(id)}>
                   {(cwd) => (
-                    <div class="text-xs text-slate-400 truncate">
+                    <div class="text-xs text-slate-400 truncate ml-3.5">
                       {cwdBasename(cwd())}
                     </div>
                   )}

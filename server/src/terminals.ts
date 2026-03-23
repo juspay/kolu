@@ -9,6 +9,7 @@ import type {
   TerminalRunning,
   TerminalExited,
 } from "kolu-common";
+import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 
@@ -17,12 +18,19 @@ export interface TerminalEvents {
   data: [data: string];
   exit: [exitCode: number];
   cwd: [cwd: string];
+  activity: [isActive: boolean];
 }
 
 interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
+  /** Timestamp of last PTY data event (ms). Used for active/sleeping detection. */
+  lastDataTime: number;
+  /** Current activity state. Transitions emit "activity" event. */
+  isActive: boolean;
+  /** Timer that flips isActive→false after idle threshold. */
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Server-side terminal state. Status discriminant derived from common TerminalInfo. */
@@ -37,7 +45,23 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
   const base = { id, pid: entry.handle.pid, themeName: entry.themeName };
   return entry.status === "exited"
     ? { ...base, status: "exited", exitCode: entry.exitCode }
-    : { ...base, status: "running" };
+    : { ...base, status: "running", isActive: entry.isActive };
+}
+
+const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
+
+/** Mark terminal active and reset the idle timer. */
+function touchActivity(entry: TerminalBase): void {
+  entry.lastDataTime = Date.now();
+  if (entry.idleTimer) clearTimeout(entry.idleTimer);
+  if (!entry.isActive) {
+    entry.isActive = true;
+    entry.emitter.emit("activity", true);
+  }
+  entry.idleTimer = setTimeout(() => {
+    entry.isActive = false;
+    entry.emitter.emit("activity", false);
+  }, IDLE_MS);
 }
 
 /** Create a new terminal, spawn a PTY process. */
@@ -47,18 +71,31 @@ export function createTerminal(): TerminalInfo {
   const emitter = new EventEmitter<TerminalEvents>();
 
   const handle = spawnPty(tlog, {
-    onData: (data) => emitter.emit("data", data),
+    onData: (data) => {
+      const entry = terminals.get(id);
+      if (entry) touchActivity(entry);
+      emitter.emit("data", data);
+    },
     // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
     onExit: (exitCode) => {
       tlog.info({ exitCode }, "exited");
       const entry = terminals.get(id);
-      if (entry) terminals.set(id, { ...entry, status: "exited", exitCode });
+      if (entry) {
+        if (entry.idleTimer) clearTimeout(entry.idleTimer);
+        terminals.set(id, { ...entry, status: "exited", exitCode });
+      }
       emitter.emit("exit", exitCode);
     },
     onCwd: (cwd) => emitter.emit("cwd", cwd),
   });
 
-  const entry: TerminalEntry = { handle, status: "running", emitter };
+  const entry: TerminalEntry = {
+    handle,
+    status: "running",
+    emitter,
+    lastDataTime: Date.now(),
+    isActive: true,
+  };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   return toInfo(id, entry);
@@ -100,6 +137,7 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
 export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
+    if (entry.idleTimer) clearTimeout(entry.idleTimer);
     if (entry.status === "running") entry.handle.dispose();
   }
   terminals.clear();

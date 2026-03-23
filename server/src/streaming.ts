@@ -8,21 +8,21 @@
 import type { EventEmitter } from "node:events";
 
 /**
- * Subscribe to a string-valued emitter event and yield items as an async iterable.
+ * Subscribe to an emitter event and yield items as an async iterable.
  *
  * Subscribes BEFORE returning so callers can capture a snapshot between
  * subscription and first yield — any events firing in that gap are queued.
  * Terminates when the AbortSignal fires.
  */
-export async function* subscribeAndYield(
+export async function* subscribeAndYield<T = string>(
   emitter: EventEmitter,
   event: string,
   signal: AbortSignal | undefined,
-): AsyncGenerator<string> {
-  const queue: string[] = [];
+): AsyncGenerator<T> {
+  const queue: T[] = [];
   let resolveNext: (() => void) | null = null;
 
-  const listener = (data: string) => {
+  const listener = (data: T) => {
     queue.push(data);
     resolveNext?.();
   };

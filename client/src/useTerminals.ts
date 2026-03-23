@@ -22,6 +22,11 @@ export function useTerminals() {
     {},
   );
 
+  // Per-terminal activity state (terminal ID → isActive).
+  const [terminalActivity, setTerminalActivity] = createStore<
+    Record<string, boolean>
+  >({});
+
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
     return terminalThemes[id] ?? DEFAULT_THEME_NAME;
@@ -30,6 +35,11 @@ export function useTerminals() {
   /** Get the CWD for a terminal (reactive per key via createStore). */
   function getTerminalCwd(id: string): string | undefined {
     return terminalCwds[id];
+  }
+
+  /** Get the activity state for a terminal (reactive per key via createStore). */
+  function getTerminalActive(id: string): boolean {
+    return terminalActivity[id] ?? false;
   }
 
   /** The active terminal's theme name (for header + palette filter). */
@@ -46,6 +56,25 @@ export function useTerminals() {
     const id = activeId();
     return id ? (terminalCwds[id] ?? null) : null;
   });
+
+  /** Subscribe to activity state changes for a terminal. */
+  function subscribeActivity(id: string) {
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const stream = await client.terminal.onActivityChange(
+          { id },
+          { signal: controller.signal },
+        );
+        for await (const isActive of stream) {
+          setTerminalActivity(id, isActive);
+        }
+      } catch {
+        // Stream aborted or terminal gone — expected on cleanup
+      }
+    })();
+    return () => controller.abort();
+  }
 
   /** Subscribe to CWD changes for a terminal. Called when terminal is created or restored. */
   function subscribeCwd(id: string) {
@@ -85,9 +114,13 @@ export function useTerminals() {
           ),
         ),
       );
-      // Subscribe to CWD changes for all running terminals
+      // Set initial activity state and subscribe to changes for running terminals
       for (const t of existing) {
-        if (t.status === "running") subscribeCwd(t.id);
+        if (t.status === "running") {
+          setTerminalActivity(t.id, t.isActive);
+          subscribeCwd(t.id);
+          subscribeActivity(t.id);
+        }
       }
     }
     return existing;
@@ -98,7 +131,9 @@ export function useTerminals() {
     const info = await client.terminal.create();
     setTerminalIds((prev) => [...prev, info.id]);
     setActiveId(info.id);
+    if (info.status === "running") setTerminalActivity(info.id, info.isActive);
     subscribeCwd(info.id);
+    subscribeActivity(info.id);
   }
 
   /** Set the theme for the active terminal, persisting to server. */
@@ -138,6 +173,7 @@ export function useTerminals() {
     handleCreate,
     getTerminalThemeName,
     getTerminalCwd,
+    getTerminalActive,
     commands,
   };
 }
