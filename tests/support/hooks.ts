@@ -22,6 +22,15 @@ let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
 
+/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
+function killServer() {
+  if (serverProcess) {
+    serverProcess.kill("SIGTERM");
+    serverProcess = undefined;
+  }
+}
+process.on("exit", killServer);
+
 const ciArgs = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
@@ -79,10 +88,7 @@ BeforeAll(async function () {
 
 AfterAll(async function () {
   if (browser) await browser.close();
-  if (serverProcess) {
-    serverProcess.kill("SIGTERM");
-    serverProcess = undefined;
-  }
+  killServer();
 });
 
 Before(async function (this: KoluWorld) {
