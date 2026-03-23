@@ -95,6 +95,13 @@ const Sidebar: Component<{
                 <Show when={props.getCwd(id)}>
                   {(cwdInfo) => (
                     <div class="text-xs text-slate-400 truncate ml-3.5">
+                      <Show when={cwdInfo().git}>
+                        {(git) => (
+                          <span class="text-slate-500">
+                            {git().branch} &middot;{" "}
+                          </span>
+                        )}
+                      </Show>
                       {cwdBasename(cwdInfo().cwd)}
                     </div>
                   )}

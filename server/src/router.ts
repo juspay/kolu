@@ -20,7 +20,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
-import { resolveGitInfo } from "./git.ts";
+import { toCwdInfo } from "./git.ts";
 
 const t = implement(contract);
 
@@ -102,8 +102,7 @@ export const appRouter = t.router({
       const entry = requireTerminal(input.id);
 
       // Yield current CWD with git context immediately
-      const cwd = entry.handle.cwd;
-      yield { cwd, git: await resolveGitInfo(cwd) };
+      yield await toCwdInfo(entry.handle.cwd);
 
       // Then stream changes, enriching each with git context
       for await (const rawCwd of subscribeAndYield(
@@ -111,7 +110,7 @@ export const appRouter = t.router({
         "cwd",
         signal,
       )) {
-        yield { cwd: rawCwd, git: await resolveGitInfo(rawCwd) };
+        yield await toCwdInfo(rawCwd);
       }
     }),
 

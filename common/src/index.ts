@@ -51,6 +51,10 @@ export const TerminalCreateInputSchema = z.object({
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
+export const TerminalActivityOutputSchema = z.boolean();
+
+// --- Git context (enriches CWD stream) ---
+
 export const GitInfoSchema = z.object({
   repoRoot: z.string(),
   repoName: z.string(),
@@ -62,10 +66,6 @@ export const CwdInfoSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
 });
-
-export type GitInfo = z.infer<typeof GitInfoSchema>;
-export type CwdInfo = z.infer<typeof CwdInfoSchema>;
-export const TerminalActivityOutputSchema = z.boolean();
 
 export const TerminalPasteImageInputSchema = z.object({
   id: TerminalIdSchema,
@@ -86,3 +86,6 @@ export type TerminalStatus = TerminalInfo["status"];
 /** Extract the status discriminant from TerminalInfo for reuse (e.g. server-side TerminalEntry). */
 export type TerminalRunning = Extract<TerminalInfo, { status: "running" }>;
 export type TerminalExited = Extract<TerminalInfo, { status: "exited" }>;
+
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+export type CwdInfo = z.infer<typeof CwdInfoSchema>;
