@@ -28,6 +28,7 @@ const App: Component = () => {
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
+    getTerminalCwd,
     commands,
   } = useTerminals();
 
@@ -81,6 +82,7 @@ const App: Component = () => {
           onCreate={handleCreate}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          getCwd={getTerminalCwd}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-2">

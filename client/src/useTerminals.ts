@@ -122,6 +122,11 @@ export function useTerminals() {
       })),
   ]);
 
+  /** Get the CWD for a terminal (reactive per key via createStore). */
+  function getTerminalCwd(id: string): string | undefined {
+    return terminalCwds[id];
+  }
+
   return {
     terminalIds,
     activeId,
@@ -132,6 +137,7 @@ export function useTerminals() {
     existingTerminals,
     handleCreate,
     getTerminalThemeName,
+    getTerminalCwd,
     commands,
   };
 }

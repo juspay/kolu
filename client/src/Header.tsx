@@ -1,5 +1,6 @@
 import { type Component, Show, mergeProps } from "solid-js";
 import { isMac } from "./platform";
+import { shortenCwd } from "./path";
 import type { WsStatus } from "./rpc";
 
 /** WS connection status indicator colors. */
@@ -8,13 +9,6 @@ const statusColors: Record<WsStatus, string> = {
   open: "text-green-400",
   closed: "text-red-400",
 };
-
-/** Replace home directory prefix with ~ for compact display. */
-function shortenCwd(cwd: string): string {
-  // Heuristic: /home/<user>/... or /root/... → ~/...
-  const shortened = cwd.replace(/^\/(home\/[^/]+|root)(\/|$)/, "~$2");
-  return shortened || "~";
-}
 
 const Header: Component<{
   status?: WsStatus;
