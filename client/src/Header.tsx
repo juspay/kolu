@@ -22,13 +22,34 @@ const Header: Component<{
   onThemeClick?: () => void;
   themeName?: string;
   cwd?: string | null;
+  onToggleSidebar?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
   return (
-    <header class="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
+    <header class="flex items-center gap-2 px-2 sm:px-4 py-2 bg-slate-800 border-b border-slate-700">
+      <button
+        data-testid="sidebar-toggle"
+        class="p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors cursor-pointer"
+        onClick={() => props.onToggleSidebar?.()}
+        title="Toggle sidebar"
+      >
+        <svg
+          class="w-5 h-5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 6h16M4 12h16M4 18h16"
+          />
+        </svg>
+      </button>
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
-      <span class="font-semibold text-sm">kolu</span>
+      <span class="font-semibold text-sm hidden sm:inline">kolu</span>
       <Show when={props.cwd}>
         {(cwd) => (
           <span
@@ -64,7 +85,7 @@ const Header: Component<{
           class={`text-xs ${statusColors[props.status]}`}
           data-ws-status={props.status}
         >
-          ● {props.status}
+          ● <span class="hidden sm:inline">{props.status}</span>
         </span>
       </div>
     </header>
