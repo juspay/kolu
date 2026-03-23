@@ -17,6 +17,7 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { subscribeAndYield } from "./streaming.ts";
+import { log } from "./log.ts";
 
 const t = implement(contract);
 
@@ -42,7 +43,7 @@ export const appRouter = t.router({
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
       requireTerminal(input.id); // validate terminal exists
-      console.log(`[terminal] ${input.id} theme → ${input.themeName}`);
+      log.info({ id: input.id, theme: input.themeName }, "terminal theme set");
       setTerminalTheme(input.id, input.themeName);
     }),
 
@@ -55,7 +56,7 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      console.log(`[stream] attach ${input.id} started`);
+      log.info({ id: input.id }, "attach stream started");
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the generator, not lost.
@@ -67,7 +68,7 @@ export const appRouter = t.router({
       try {
         yield* live;
       } finally {
-        console.log(`[stream] attach ${input.id} ended`);
+        log.info({ id: input.id }, "attach stream ended");
       }
     }),
 
@@ -81,9 +82,7 @@ export const appRouter = t.router({
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      console.log(
-        `[stream] onExit ${input.id} started (status=${entry.status})`,
-      );
+      log.info({ id: input.id, status: entry.status }, "onExit stream started");
 
       // If already exited, yield immediately
       if (entry.status === "exited") {

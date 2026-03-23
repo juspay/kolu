@@ -10,6 +10,7 @@ import type {
   TerminalExited,
 } from "kolu-common";
 import { EventEmitter } from "node:events";
+import { log } from "./log.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -47,7 +48,7 @@ export function createTerminal(): TerminalInfo {
     onData: (data) => emitter.emit("data", data),
     // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
     onExit: (exitCode) => {
-      console.log(`[terminal] ${id} exited code=${exitCode}`);
+      log.info({ id, exitCode }, "terminal exited");
       const entry = terminals.get(id);
       if (entry) terminals.set(id, { ...entry, status: "exited", exitCode });
       emitter.emit("exit", exitCode);
@@ -56,9 +57,7 @@ export function createTerminal(): TerminalInfo {
 
   const entry: TerminalEntry = { handle, status: "running", emitter };
   terminals.set(id, entry);
-  console.log(
-    `[terminal] created ${id} pid=${handle.pid} (total: ${terminals.size})`,
-  );
+  log.info({ id, pid: handle.pid, total: terminals.size }, "terminal created");
   return toInfo(id, entry);
 }
 
@@ -66,8 +65,9 @@ export function listTerminals(): TerminalInfo[] {
   const list = Array.from(terminals.entries()).map(([id, entry]) =>
     toInfo(id, entry),
   );
-  console.log(
-    `[terminal] list → ${list.length} terminals: ${list.map((t) => `${t.id}(${t.status})`).join(", ") || "none"}`,
+  log.info(
+    { count: list.length, terminals: list.map((t) => `${t.id}(${t.status})`) },
+    "terminal list",
   );
   return list;
 }
@@ -81,7 +81,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const entry = terminals.get(id);
   if (!entry) return undefined;
 
-  console.log(`[terminal] killing ${id} pid=${entry.handle.pid}`);
+  log.info({ id, pid: entry.handle.pid }, "killing terminal");
   entry.handle.dispose();
   const killed: TerminalEntry = {
     ...entry,
@@ -100,7 +100,7 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
-  console.log(`[terminal] killing all (${terminals.size} terminals)`);
+  log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
     if (entry.status === "running") entry.handle.dispose();
   }

@@ -8,6 +8,7 @@ import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
+import { log } from "./log.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -44,16 +45,16 @@ app.use("/rpc/*", async (c, next) => {
 // --- Graceful shutdown logging ---
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
-    console.log(`[shutdown] received ${sig}, exiting`);
+    log.info({ signal: sig }, "shutdown signal received, exiting");
     process.exit(0);
   });
 }
 process.on("uncaughtException", (err) => {
-  console.error("[fatal] uncaught exception:", err);
+  log.fatal({ err }, "uncaught exception");
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
-  console.error("[fatal] unhandled rejection:", reason);
+  log.fatal({ reason }, "unhandled rejection");
   process.exit(1);
 });
 
@@ -71,11 +72,15 @@ if (clientDist) {
 // --- Start server ---
 const { host, port } = argv.flags;
 const server = serve({ fetch: app.fetch, hostname: host, port }, (info) => {
-  console.log(
-    `kolu v${pkg.version} listening on http://${info.address}:${info.port}`,
-  );
-  console.log(
-    `[startup] pid=${process.pid} node=${process.version} rss=${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+  log.info(
+    {
+      version: pkg.version,
+      pid: process.pid,
+      node: process.version,
+      rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+      address: `http://${info.address}:${info.port}`,
+    },
+    "kolu listening",
   );
 });
 
@@ -87,15 +92,21 @@ let wsConnections = 0;
 wss.on("connection", (ws) => {
   wsConnections++;
   const connId = wsConnections;
-  console.log(`[ws] client #${connId} connected (total: ${wss.clients.size})`);
+  log.info({ connId, total: wss.clients.size }, "ws client connected");
   wsRpcHandler.upgrade(ws, { context: {} });
   ws.on("close", (code, reason) => {
-    console.log(
-      `[ws] client #${connId} disconnected code=${code} reason=${reason || "none"} (remaining: ${wss.clients.size})`,
+    log.info(
+      {
+        connId,
+        code,
+        reason: reason.toString() || undefined,
+        remaining: wss.clients.size,
+      },
+      "ws client disconnected",
     );
   });
   ws.on("error", (err) => {
-    console.error(`[ws] client #${connId} error:`, err.message);
+    log.error({ connId, err }, "ws client error");
   });
 });
 
@@ -110,4 +121,4 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-console.log("oRPC WebSocket ready on /rpc/ws");
+log.info("oRPC WebSocket ready on /rpc/ws");
