@@ -115,7 +115,7 @@ const App: Component = () => {
           activeId={activeId()}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
-          onCreate={handleCreate}
+          onCreate={() => handleCreate()}
           open={sidebarOpen()}
           onClose={closeSidebar}
           getCwd={getTerminalCwd}
