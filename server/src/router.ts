@@ -6,7 +6,6 @@
  */
 import { implement } from "@orpc/server";
 import { once } from "node:events";
-import { hostname } from "node:os";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
@@ -20,6 +19,7 @@ import {
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
+import { serverHostname } from "./hostname.ts";
 
 const t = implement(contract);
 
@@ -33,7 +33,7 @@ function requireTerminal(id: string): TerminalEntry {
 export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
-      hostname: hostname(),
+      hostname: serverHostname,
     })),
   },
   terminal: {

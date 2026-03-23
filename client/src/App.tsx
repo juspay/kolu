@@ -4,12 +4,12 @@ import {
   type Component,
   createSignal,
   createResource,
-  createEffect,
   Show,
   For,
   Suspense,
   ErrorBoundary,
 } from "solid-js";
+import { Title } from "@solidjs/meta";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
@@ -41,15 +41,12 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
 
-  // Fetch hostname from server; used in document.title and header
+  // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
   const appTitle = () => {
     const h = serverInfo()?.hostname;
     return h ? `kolu@${h}` : "kolu";
   };
-  createEffect(() => {
-    document.title = appTitle();
-  });
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -88,6 +85,7 @@ const App: Component = () => {
         "padding-right": "env(safe-area-inset-right)",
       }}
     >
+      <Title>{appTitle()}</Title>
       <CommandPalette
         commands={commands}
         open={paletteOpen()}
