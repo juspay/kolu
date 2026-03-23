@@ -60,13 +60,13 @@ Then(
 Then(
   "palette item {int} should be selected",
   async function (this: KoluWorld, index: number) {
-    // Selected item has bg-slate-600 class (0-based internally, 1-based in feature)
+    // Selected item has bg-surface-3 class (0-based internally, 1-based in feature)
     const items = this.page.locator(`${PALETTE_SELECTOR} li`);
     const item = items.nth(index - 1);
     await item.waitFor({ state: "visible", timeout: 3000 });
     const classes = await item.getAttribute("class");
     assert.ok(
-      classes?.includes("bg-slate-600"),
+      classes?.includes("bg-surface-3"),
       `Palette item ${index} is not selected (classes: ${classes})`,
     );
   },
@@ -80,7 +80,7 @@ Then(
     const last = items.nth(count - 1);
     const classes = await last.getAttribute("class");
     assert.ok(
-      classes?.includes("bg-slate-600"),
+      classes?.includes("bg-surface-3"),
       `Last palette item is not selected (classes: ${classes})`,
     );
   },

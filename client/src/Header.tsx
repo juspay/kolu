@@ -3,11 +3,11 @@ import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { WsStatus } from "./rpc";
 
-/** WS connection status indicator colors. */
-const statusColors: Record<WsStatus, string> = {
-  connecting: "text-yellow-400",
-  open: "text-green-400",
-  closed: "text-red-400",
+/** WS connection status indicator colors and animations. */
+const statusStyles: Record<WsStatus, string> = {
+  connecting: "bg-warning animate-pulse",
+  open: "bg-ok",
+  closed: "bg-danger",
 };
 
 const Header: Component<{
@@ -24,10 +24,10 @@ const Header: Component<{
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
   return (
-    <header class="flex items-center gap-2 px-2 sm:px-4 py-2 bg-slate-800 border-b border-slate-700">
+    <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
       <button
         data-testid="sidebar-toggle"
-        class="p-1 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors cursor-pointer"
+        class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         onClick={() => props.onToggleSidebar?.()}
         title="Toggle sidebar"
       >
@@ -52,7 +52,7 @@ const Header: Component<{
       <Show when={props.cwd}>
         {(cwd) => (
           <span
-            class="text-xs text-slate-400 truncate max-w-[300px]"
+            class="text-xs text-fg-2 truncate max-w-[300px]"
             title={cwd()}
             data-testid="header-cwd"
           >
@@ -65,7 +65,7 @@ const Header: Component<{
         {props.themeName && (
           <button
             data-testid="theme-name"
-            class="px-2 py-0.5 text-xs text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-600/50 rounded transition-colors cursor-pointer"
+            class="px-2 py-0.5 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onThemeClick?.()}
             title="Change theme"
           >
@@ -74,34 +74,35 @@ const Header: Component<{
         )}
         <button
           data-testid="palette-trigger"
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 transition-colors cursor-pointer"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           onClick={() => props.onOpenPalette?.()}
           title="Command palette"
         >
-          <kbd class="font-sans">
+          <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
             {formatKeybind(SHORTCUTS.commandPalette.keybind)}
           </kbd>
         </button>
         <button
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-slate-400 hover:text-white bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 transition-colors cursor-pointer"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           onClick={() => props.onShortcutsHelp?.()}
           title="Keyboard shortcuts"
         >
-          <kbd class="font-sans">
+          <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
             {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
           </kbd>
         </button>
         {props.renderer && (
-          <span class="text-xs text-slate-500 hidden sm:inline">
+          <span class="text-xs text-fg-3 hidden sm:inline">
             {props.renderer}
           </span>
         )}
-        <span
-          class={`text-xs ${statusColors[props.status]}`}
-          data-ws-status={props.status}
-        >
-          ● <span class="hidden sm:inline">{props.status}</span>
-        </span>
+        {/* Status dot — replaces text ● with styled element */}
+        <div class="flex items-center gap-1.5" data-ws-status={props.status}>
+          <span
+            class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
+          />
+          <span class="text-xs text-fg-3 hidden sm:inline">{props.status}</span>
+        </div>
       </div>
     </header>
   );

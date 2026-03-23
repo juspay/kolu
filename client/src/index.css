@@ -1,1 +1,38 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --color-surface-0: #0c0c0e;
+  --color-surface-1: #161618;
+  --color-surface-2: #1f1f23;
+  --color-surface-3: #2a2a30;
+
+  --color-edge: #27272c;
+  --color-edge-bright: #3a3a42;
+
+  --color-fg: #e4e4e8;
+  --color-fg-2: #8e8e96;
+  --color-fg-3: #55555e;
+
+  --color-accent: #5a9ea0;
+
+  --color-ok: #4ade80;
+  --color-warning: #facc15;
+  --color-danger: #f87171;
+
+  --animate-activity-pulse: activity-pulse 600ms ease-out;
+}
+
+/* Brief pulse when a terminal becomes active in the background */
+@keyframes activity-pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.5);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
