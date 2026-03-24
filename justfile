@@ -2,10 +2,10 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
-# giton branch/ref to use (override: just giton_ref=main ci)
-giton_ref := "master"
-giton_nix_opts := "--refresh"
-giton := "nix run " + giton_nix_opts + " github:srid/giton/" + giton_ref + " --"
+# localci branch/ref to use (override: just localci_ref=main ci)
+localci_ref := "master"
+localci_nix_opts := "--refresh"
+localci := "nix run " + localci_nix_opts + " github:srid/localci/" + localci_ref + " --"
 
 # List available recipes
 default:
@@ -47,10 +47,10 @@ test-dev: install
         && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
 
 # Run CI: build all flake outputs on each platform, run e2e tests
-# Uses giton (https://github.com/srid/giton) to run commands and post GitHub commit statuses.
-# TODO: add cache push (nix copy) after builds https://github.com/srid/giton/issues/4
+# Uses localci (https://github.com/srid/localci) to run commands and post GitHub commit statuses.
+# TODO: add cache push (nix copy) after builds https://github.com/srid/localci/issues/4
 ci:
-    {{ giton }} --tui -f giton.json
+    {{ localci }} --tui -f localci.json
 
 # Run pre-commit hooks on all files
 pc:
