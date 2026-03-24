@@ -4,8 +4,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
 # localci branch/ref to use (override: just localci_ref=main ci)
 localci_ref := "master"
-localci_nix_opts := "--refresh"
-localci := "nix run " + localci_nix_opts + " github:srid/localci/" + localci_ref + " --"
+localci := "nix run github:srid/localci/" + localci_ref + " --"
 
 # List available recipes
 default:
