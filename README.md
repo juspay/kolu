@@ -6,7 +6,7 @@
 
 A web-based terminal multiplexer for managing multiple repos and branches in parallel. Built for developers running AI coding agents across worktrees who need fast context switching without leaving the browser.
 
-Named after [கோலு](https://en.wikipedia.org/wiki/Golu_(festival)), the tradition of arranging figures on tiered steps.
+Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
 <img width="2446" height="2030" alt="image" src="https://github.com/user-attachments/assets/5d6bbb17-25c4-4c04-9389-66004dee3b9c" />
 
@@ -27,11 +27,11 @@ Named after [கோலு](https://en.wikipedia.org/wiki/Golu_(festival)), the t
 
 pnpm monorepo, three packages:
 
-| Package | Stack |
-|---------|-------|
-| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas |
+| Package   | Stack                                                                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                       |
 | `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
-| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
+| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
 
 All communication over a single WebSocket (`/rpc/ws`) via oRPC. Terminal I/O, lifecycle, CWD tracking, and activity detection are typed RPC procedures with async generator streaming.
 
