@@ -101,7 +101,7 @@ const Sidebar: Component<{
                         <Show when={cwdInfo().git}>
                           {(git) => (
                             <span
-                              class="text-fg-3/60"
+                              class="text-fg-3"
                               data-testid="sidebar-branch"
                             >
                               {" "}
