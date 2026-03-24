@@ -45,6 +45,7 @@ function IconButton(props: {
   );
 }
 
+/** Find-in-terminal search bar — overlays the active terminal with incremental search, match navigation, and result count. */
 const SearchBar: Component<{
   searchAddon: SearchAddon;
   open: boolean;
@@ -69,6 +70,7 @@ const SearchBar: Component<{
       () => props.open,
       (open) => {
         if (open) {
+          // rAF: input is inside <Show> and may not be in DOM yet when the effect runs
           requestAnimationFrame(() => {
             inputRef?.focus();
             inputRef?.select();
