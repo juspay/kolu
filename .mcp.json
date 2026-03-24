@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "localci": {
+      "type": "stdio",
+      "command": "nix",
+      "args": ["run", "github:srid/localci", "--", "--mcp", "-f", "localci.json"]
+    }
+  }
+}

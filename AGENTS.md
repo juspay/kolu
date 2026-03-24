@@ -7,7 +7,8 @@
 
 ## Testing
 
-- Use `just test` to run e2e tests. Never use `just test-dev`.
+- Use the localci MCP tools (`mcp__localci__<step>`) to build and test — never run build or test commands directly.
+- After making changes: commit, run localci MCP tools to verify, fix if needed, push when green.
 
 ## UI
 
