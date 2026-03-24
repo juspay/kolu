@@ -29,6 +29,8 @@ When(
 When("I press Ctrl+V in the terminal", async function (this: KoluWorld) {
   await this.canvas.click();
   await this.page.keyboard.press("Control+v");
-  // Wait for the async clipboard read + RPC upload to complete
-  await this.page.waitForTimeout(1500);
+  // pasteImage RPC goes over WebSocket, so Playwright's waitForResponse
+  // can't observe it. Brief settle to let the upload land before the next
+  // step runs a shim command that reads the uploaded file.
+  await this.page.waitForTimeout(1000);
 });

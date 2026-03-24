@@ -6,34 +6,24 @@ Feature: Clipboard image paste
   Background:
     Given the terminal is ready
 
-  Scenario: Ctrl+V with clipboard image uploads to shim and xclip reads it
+  Scenario Outline: <tool> reads pasted clipboard image
     When I place an image in the browser clipboard
     And I press Ctrl+V in the terminal
-    And I run "xclip -selection clipboard -t TARGETS -o"
-    Then the screen state should contain "image/png"
+    And I run "<command>"
+    Then the screen state should contain "<expected>"
 
-  Scenario: Ctrl+V with clipboard image makes xclip serve the image bytes
-    When I place an image in the browser clipboard
-    And I press Ctrl+V in the terminal
-    And I run "test $(xclip -selection clipboard -t image/png -o | wc -c) -gt 0 && echo ok"
-    Then the screen state should contain "ok"
+    Examples:
+      | tool              | command                                                                       | expected  |
+      | xclip TARGETS     | xclip -selection clipboard -t TARGETS -o                                      | image/png |
+      | xclip bytes       | test $(xclip -selection clipboard -t image/png -o \| wc -c) -gt 0 && echo ok | ok        |
+      | wl-paste TARGETS  | wl-paste -l                                                                   | image/png |
+      | wl-paste bytes    | test $(wl-paste --type image/png \| wc -c) -gt 0 && echo ok                  | ok        |
 
-  Scenario: Ctrl+V with clipboard image uploads to shim and wl-paste reads it
-    When I place an image in the browser clipboard
-    And I press Ctrl+V in the terminal
-    And I run "wl-paste -l"
-    Then the screen state should contain "image/png"
-
-  Scenario: Ctrl+V with clipboard image makes wl-paste serve the image bytes
-    When I place an image in the browser clipboard
-    And I press Ctrl+V in the terminal
-    And I run "test $(wl-paste --type image/png | wc -c) -gt 0 && echo ok"
-    Then the screen state should contain "ok"
-
-  Scenario: xclip shim exits non-zero with no image
-    When I run "xclip -selection clipboard -t TARGETS -o; echo exit:$?"
+  Scenario Outline: <tool> shim exits non-zero with no image
+    When I run "<command>"
     Then the screen state should contain "exit:1"
 
-  Scenario: wl-paste shim exits non-zero with no image
-    When I run "wl-paste -l; echo exit:$?"
-    Then the screen state should contain "exit:1"
+    Examples:
+      | tool     | command                                                |
+      | xclip    | xclip -selection clipboard -t TARGETS -o; echo exit:$? |
+      | wl-paste | wl-paste -l; echo exit:$?                              |
