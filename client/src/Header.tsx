@@ -20,6 +20,8 @@ const Header: Component<{
   onToggleSidebar?: () => void;
   onShortcutsHelp?: () => void;
   onSearch?: () => void;
+  onToggleWebView?: () => void;
+  webViewOpen?: boolean;
   renderer?: string;
   appTitle?: string;
 }> = (rawProps) => {
@@ -94,6 +96,25 @@ const Header: Component<{
             {props.themeName}
           </button>
         )}
+        <button
+          class={`p-1 hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${props.webViewOpen ? "text-accent" : "text-fg-2 hover:text-fg"}`}
+          onClick={() => props.onToggleWebView?.()}
+          title={`Toggle web view (${formatKeybind(SHORTCUTS.toggleWebView.keybind)})`}
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+            />
+          </svg>
+        </button>
         <button
           class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           onClick={() => props.onSearch?.()}

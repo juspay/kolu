@@ -12,9 +12,11 @@ import {
   ErrorBoundary,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
+import Resizable from "@corvu/resizable";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
+import WebView from "./WebView";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { getThemeByName } from "./theme";
@@ -22,6 +24,7 @@ import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
+import { useWebView } from "./useWebView";
 import { useShortcuts } from "./useShortcuts";
 
 const App: Component = () => {
@@ -40,6 +43,8 @@ const App: Component = () => {
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+  const { webViewOpen, toggleWebView, webViewUrl, setWebViewUrl } =
+    useWebView();
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -68,6 +73,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    toggleWebView,
   });
 
   function openPaletteWith(query: string) {
@@ -111,6 +117,8 @@ const App: Component = () => {
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
+        onToggleWebView={toggleWebView}
+        webViewOpen={webViewOpen()}
         renderer={renderer()}
         appTitle={appTitle()}
       />
@@ -126,53 +134,70 @@ const App: Component = () => {
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 p-1">
-          <div
-            class="h-full rounded border border-edge overflow-hidden p-1"
-            style={{ "background-color": activeTheme().background }}
+        {/* Resizable split: terminal + optional web view */}
+        <Resizable orientation="horizontal" class="flex-1 min-h-0 min-w-0">
+          {/* Terminal panel */}
+          <Resizable.Panel
+            initialSize={webViewOpen() ? 0.6 : 1}
+            minSize={0.2}
+            class="min-w-0 p-1"
           >
-            <ErrorBoundary
-              fallback={(err) => (
-                <div class="text-danger p-4">
-                  Failed to connect: {String(err)}
-                </div>
-              )}
+            <div
+              class="h-full rounded border border-edge overflow-hidden p-1"
+              style={{ "background-color": activeTheme().background }}
             >
-              <Suspense
-                fallback={
-                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                    Connecting...
+              <ErrorBoundary
+                fallback={(err) => (
+                  <div class="text-danger p-4">
+                    Failed to connect: {String(err)}
                   </div>
-                }
+                )}
               >
-                {/* Read the resource to trigger Suspense while it loads */}
-                {void existingTerminals()}
-                <Show when={terminalIds().length === 0}>
-                  <div
-                    data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-fg-3 text-sm"
-                  >
-                    Click + to create a terminal
-                  </div>
-                </Show>
-                <For each={terminalIds()}>
-                  {(id) => (
-                    <Terminal
-                      terminalId={id}
-                      visible={activeId() === id}
-                      theme={getThemeByName(
-                        getMeta(id)?.themeName ?? activeThemeName(),
-                      )}
-                      searchOpen={searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                    />
-                  )}
-                </For>
-              </Suspense>
-            </ErrorBoundary>
-          </div>
-        </div>
+                <Suspense
+                  fallback={
+                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                      Connecting...
+                    </div>
+                  }
+                >
+                  {/* Read the resource to trigger Suspense while it loads */}
+                  {void existingTerminals()}
+                  <Show when={terminalIds().length === 0}>
+                    <div
+                      data-testid="empty-state"
+                      class="flex items-center justify-center h-full text-fg-3 text-sm"
+                    >
+                      Click + to create a terminal
+                    </div>
+                  </Show>
+                  <For each={terminalIds()}>
+                    {(id) => (
+                      <Terminal
+                        terminalId={id}
+                        visible={activeId() === id}
+                        theme={getThemeByName(
+                          getMeta(id)?.themeName ?? activeThemeName(),
+                        )}
+                        searchOpen={searchOpen()}
+                        onSearchOpenChange={setSearchOpen}
+                      />
+                    )}
+                  </For>
+                </Suspense>
+              </ErrorBoundary>
+            </div>
+          </Resizable.Panel>
+          <Show when={webViewOpen()}>
+            <Resizable.Handle class="w-1.5 bg-surface-1 hover:bg-accent/30 transition-colors cursor-col-resize shrink-0" />
+            <Resizable.Panel initialSize={0.4} minSize={0.15} class="min-w-0">
+              <WebView
+                url={webViewUrl()}
+                onUrlChange={setWebViewUrl}
+                onClose={toggleWebView}
+              />
+            </Resizable.Panel>
+          </Show>
+        </Resizable>
       </div>
     </div>
   );

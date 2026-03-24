@@ -94,4 +94,8 @@ export const SHORTCUTS = {
     keybind: { key: "f", mod: true },
     label: "Find in terminal",
   },
+  toggleWebView: {
+    keybind: { key: "B", code: "KeyB", mod: true, shift: true },
+    label: "Toggle web view",
+  },
 } as const satisfies Record<string, Shortcut>;

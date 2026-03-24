@@ -14,6 +14,7 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  toggleWebView: () => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -74,6 +75,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
     deps.setSearchOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleWebView.keybind)) {
+    deps.toggleWebView();
     return true;
   }
 

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@corvu/resizable": "^0.2.5",
     "@orpc/client": "^1.13.9",
     "@orpc/contract": "^1.13.9",
     "@solid-primitives/event-listener": "^2.4.5",
