@@ -7,6 +7,7 @@
 
 import {
   type Component,
+  Show,
   onMount,
   onCleanup,
   createSignal,
@@ -106,7 +107,7 @@ const Terminal: Component<{
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
-  let searchAddon: SearchAddon | null = null;
+  const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -131,6 +132,17 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         debouncedFit();
         terminal.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Refocus terminal when search bar closes
+  createEffect(
+    on(
+      () => props.searchOpen,
+      (open) => {
+        if (!open && props.visible && terminal) terminal.focus();
       },
       { defer: true },
     ),
@@ -193,8 +205,9 @@ const Terminal: Component<{
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
-    searchAddon = new SearchAddon();
-    term.loadAddon(searchAddon);
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    setSearchAddon(search);
     term.loadAddon(new ClipboardAddon());
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
@@ -289,13 +302,15 @@ const Terminal: Component<{
 
   return (
     <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
-      {searchAddon && (
-        <SearchBar
-          searchAddon={searchAddon}
-          open={props.searchOpen}
-          onClose={() => props.onSearchOpenChange(false)}
-        />
-      )}
+      <Show when={searchAddon()}>
+        {(addon) => (
+          <SearchBar
+            searchAddon={addon()}
+            open={props.searchOpen}
+            onClose={() => props.onSearchOpenChange(false)}
+          />
+        )}
+      </Show>
       <div
         ref={containerRef}
         // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile

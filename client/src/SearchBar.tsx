@@ -2,6 +2,7 @@
 
 import {
   type Component,
+  type JSX,
   Show,
   createSignal,
   createEffect,
@@ -12,16 +13,37 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import type {
   SearchAddon,
   ISearchResultChangeEvent,
+  ISearchOptions,
 } from "@xterm/addon-search";
 
-const SEARCH_DECORATIONS = {
-  matchBackground: "#FFD33D44",
-  matchBorder: "#FFD33D88",
-  matchOverviewRuler: "#FFD33D",
-  activeMatchBackground: "#FFD33DAA",
-  activeMatchBorder: "#FFD33D",
-  activeMatchColorOverviewRuler: "#FFD33DFF",
-} as const;
+const SEARCH_OPTIONS: ISearchOptions = {
+  incremental: true,
+  decorations: {
+    matchBackground: "#FFD33D44",
+    matchBorder: "#FFD33D88",
+    matchOverviewRuler: "#FFD33D",
+    activeMatchBackground: "#FFD33DAA",
+    activeMatchBorder: "#FFD33D",
+    activeMatchColorOverviewRuler: "#FFD33DFF",
+  },
+};
+
+/** Small icon button used for prev/next/close actions. */
+function IconButton(props: {
+  onClick: () => void;
+  title: string;
+  children: JSX.Element;
+}) {
+  return (
+    <button
+      class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
+      onClick={props.onClick}
+      title={props.title}
+    >
+      {props.children}
+    </button>
+  );
+}
 
 const SearchBar: Component<{
   searchAddon: SearchAddon;
@@ -33,7 +55,6 @@ const SearchBar: Component<{
   const [resultIndex, setResultIndex] = createSignal(-1);
   const [resultCount, setResultCount] = createSignal(0);
 
-  // Listen for result changes from the addon
   const disposable = props.searchAddon.onDidChangeResults(
     (e: ISearchResultChangeEvent) => {
       setResultIndex(e.resultIndex);
@@ -63,28 +84,18 @@ const SearchBar: Component<{
 
   function findNext() {
     const q = query();
-    if (!q) return;
-    props.searchAddon.findNext(q, {
-      incremental: true,
-      decorations: SEARCH_DECORATIONS,
-    });
+    if (q) props.searchAddon.findNext(q, SEARCH_OPTIONS);
   }
 
   function findPrevious() {
     const q = query();
-    if (!q) return;
-    props.searchAddon.findPrevious(q, {
-      decorations: SEARCH_DECORATIONS,
-    });
+    if (q) props.searchAddon.findPrevious(q, SEARCH_OPTIONS);
   }
 
   function handleInput(value: string) {
     setQuery(value);
     if (value) {
-      props.searchAddon.findNext(value, {
-        incremental: true,
-        decorations: SEARCH_DECORATIONS,
-      });
+      props.searchAddon.findNext(value, SEARCH_OPTIONS);
     } else {
       props.searchAddon.clearDecorations();
       setResultIndex(-1);
@@ -92,7 +103,13 @@ const SearchBar: Component<{
     }
   }
 
-  // Keyboard handling within the search bar
+  function resultLabel(): string {
+    if (!query()) return "";
+    if (resultCount() === 0) return "No results";
+    const idx = resultIndex() >= 0 ? resultIndex() + 1 : "?";
+    return `${idx} / ${resultCount()}`;
+  }
+
   makeEventListener(
     window,
     "keydown",
@@ -128,17 +145,9 @@ const SearchBar: Component<{
           onInput={(e) => handleInput(e.currentTarget.value)}
         />
         <span class="text-xs text-fg-3 min-w-[3.5rem] text-center tabular-nums">
-          {resultCount() > 0
-            ? `${resultIndex() >= 0 ? resultIndex() + 1 : "?"} / ${resultCount()}`
-            : query()
-              ? "No results"
-              : ""}
+          {resultLabel()}
         </span>
-        <button
-          class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
-          onClick={findPrevious}
-          title="Previous match (Shift+Enter)"
-        >
+        <IconButton onClick={findPrevious} title="Previous match (Shift+Enter)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"
@@ -149,12 +158,8 @@ const SearchBar: Component<{
           >
             <path d="M12 10L8 6L4 10" />
           </svg>
-        </button>
-        <button
-          class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
-          onClick={findNext}
-          title="Next match (Enter)"
-        >
+        </IconButton>
+        <IconButton onClick={findNext} title="Next match (Enter)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"
@@ -165,12 +170,8 @@ const SearchBar: Component<{
           >
             <path d="M4 6L8 10L12 6" />
           </svg>
-        </button>
-        <button
-          class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
-          onClick={() => props.onClose()}
-          title="Close (Escape)"
-        >
+        </IconButton>
+        <IconButton onClick={() => props.onClose()} title="Close (Escape)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"
@@ -181,7 +182,7 @@ const SearchBar: Component<{
           >
             <path d="M4 4L12 12M12 4L4 12" />
           </svg>
-        </button>
+        </IconButton>
       </div>
     </Show>
   );
