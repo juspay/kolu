@@ -50,6 +50,7 @@
         env.npm_config_nodedir = nodejs;
         env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
         env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+        env.KOLU_COMMIT_HASH = inputs.self.shortRev or inputs.self.dirtyShortRev or "dev";
 
         buildPhase = ''
           runHook preBuild
