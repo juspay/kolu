@@ -1,57 +1,49 @@
-/** Terminal session state: manages terminal list, active selection, and per-terminal themes. */
+/** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
-import type { TerminalInfo, CwdInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
+import { createSignal } from "solid-js";
+
+/** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
+type TerminalState = Omit<TerminalInfo, "id">;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals() {
-  const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
+  // Single store: all per-terminal metadata keyed by numeric ID.
+  // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
+  const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
+
   const [activeId, setActiveId] = makePersisted(
-    createSignal<string | null>(null),
-    { name: ACTIVE_TERMINAL_KEY },
+    createSignal<TerminalId | null>(null),
+    {
+      name: ACTIVE_TERMINAL_KEY,
+      // localStorage stores strings; convert to/from number
+      serialize: (v) => (v === null ? "" : String(v)),
+      deserialize: (s) => (s === "" ? null : Number(s)),
+    },
   );
 
-  // Per-terminal theme name (terminal ID → theme name).
-  // createStore gives fine-grained reactivity per key — changing one terminal's
-  // theme doesn't cause other terminals to re-evaluate their theme prop.
-  const [terminalThemes, setTerminalThemes] = createStore<
-    Record<string, string>
-  >({});
-
-  // Per-terminal CWD info (terminal ID → CwdInfo).
-  const [terminalCwds, setTerminalCwds] = createStore<Record<string, CwdInfo>>(
-    {},
+  /** Sorted terminal IDs — derived from store keys, ordered by creation (numeric ID). */
+  const terminalIds = createMemo(() =>
+    Object.keys(meta)
+      .map(Number)
+      .sort((a, b) => a - b),
   );
 
-  // Per-terminal activity state (terminal ID → isActive).
-  const [terminalActivity, setTerminalActivity] = createStore<
-    Record<string, boolean>
-  >({});
-
-  /** Get the theme name for a terminal, falling back to default. */
-  function getTerminalThemeName(id: string): string {
-    return terminalThemes[id] ?? DEFAULT_THEME_NAME;
-  }
-
-  /** Get the CWD info for a terminal (reactive per key via createStore). */
-  function getTerminalCwd(id: string): CwdInfo | undefined {
-    return terminalCwds[id];
-  }
-
-  /** Get the activity state for a terminal (reactive per key via createStore). */
-  function getTerminalActive(id: string): boolean {
-    return terminalActivity[id] ?? false;
+  /** Get metadata for a terminal. */
+  function getMeta(id: TerminalId): TerminalState | undefined {
+    return meta[id];
   }
 
   /** The active terminal's theme name (for header + palette filter). */
   const activeThemeName = createMemo(() => {
     const id = activeId();
-    return id ? getTerminalThemeName(id) : DEFAULT_THEME_NAME;
+    return (id !== null && meta[id]?.themeName) || DEFAULT_THEME_NAME;
   });
 
   /** The active terminal's resolved theme (for container background). */
@@ -60,7 +52,7 @@ export function useTerminals() {
   /** The active terminal's CWD info (for header display). */
   const activeCwd = createMemo((): CwdInfo | null => {
     const id = activeId();
-    return id ? (terminalCwds[id] ?? null) : null;
+    return id !== null ? (meta[id]?.cwd ?? null) : null;
   });
 
   /** Fire-and-forget stream subscription with AbortController cleanup. */
@@ -81,23 +73,23 @@ export function useTerminals() {
   }
 
   /** Subscribe to CWD changes for a terminal. Called when terminal is created or restored. */
-  function subscribeCwd(id: string) {
+  function subscribeCwd(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onCwdChange({ id }, { signal }),
-      (cwd) => setTerminalCwds(id, cwd),
+      (cwd) => setMeta(id, "cwd", cwd),
     );
   }
 
   /** Subscribe to activity state changes for a terminal. */
-  function subscribeActivity(id: string) {
+  function subscribeActivity(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => setTerminalActivity(id, isActive),
+      (isActive) => setMeta(id, "isActive", isActive),
     );
   }
 
   /** Subscribe to exit events for a terminal. On exit, remove it and auto-switch. */
-  function subscribeExit(id: string) {
+  function subscribeExit(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       () => removeAndAutoSwitch(id),
@@ -105,67 +97,49 @@ export function useTerminals() {
   }
 
   /** Start all per-terminal stream subscriptions (CWD, activity, exit). */
-  function subscribeAll(id: string) {
+  function subscribeAll(id: TerminalId) {
     subscribeCwd(id);
     subscribeActivity(id);
     subscribeExit(id);
   }
 
-  /** Remove a terminal from all state stores. Returns the new ID list and removed index. */
-  function removeTerminal(
-    id: string,
-  ): { newIds: string[]; idx: number } | null {
+  /** Remove a terminal from the store and auto-switch if it was active. */
+  function removeAndAutoSwitch(id: TerminalId) {
     const ids = terminalIds();
     const idx = ids.indexOf(id);
-    if (idx === -1) return null; // already removed
-    const newIds = ids.filter((x) => x !== id);
-    setTerminalIds(newIds);
-    setTerminalCwds(produce((s) => delete s[id]));
-    setTerminalActivity(produce((s) => delete s[id]));
-    setTerminalThemes(produce((s) => delete s[id]));
-    return { newIds, idx };
+    if (idx === -1) return;
+    setMeta(produce((s) => delete s[id]));
+    if (activeId() === id) {
+      // terminalIds() still has the old value here; compute remaining manually
+      const remaining = ids.filter((x) => x !== id);
+      setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
+    }
   }
 
-  /** Remove a terminal and auto-switch if it was the active one. */
-  function removeAndAutoSwitch(id: string) {
-    const result = removeTerminal(id);
-    if (!result) return;
-    if (activeId() === id) {
-      const next =
-        result.newIds[Math.min(result.idx, result.newIds.length - 1)] ?? null;
-      setActiveId(next);
-    }
+  /** Convert a TerminalInfo (wire type) to store entry (strip id, used as key). */
+  function infoToState(t: TerminalInfo): TerminalState {
+    const { id: _, ...state } = t;
+    return state;
   }
 
   // Restore existing terminals on page load (e.g. after browser refresh).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
     if (existing.length > 0) {
-      const ids = existing.map((t) => t.id);
-      setTerminalIds(ids);
-      // Keep persisted active terminal if it still exists; otherwise pick a running one
+      // Build initial metadata store from server state
+      const initial: Record<TerminalId, TerminalState> = {};
+      for (const t of existing) initial[t.id] = infoToState(t);
+      setMeta(reconcile(initial));
+
+      // Keep persisted active terminal if it still exists; otherwise pick first
       const persisted = activeId();
-      if (!persisted || !ids.includes(persisted)) {
-        const running = existing.find((t) => t.status === "running");
-        setActiveId(running?.id ?? ids[0] ?? null);
+      const ids = terminalIds();
+      if (persisted === null || !ids.includes(persisted)) {
+        setActiveId(ids[0] ?? null);
       }
-      // Restore per-terminal themes from server (reconcile replaces entire store)
-      setTerminalThemes(
-        reconcile(
-          Object.fromEntries(
-            existing
-              .filter((t) => t.themeName)
-              .map((t) => [t.id, t.themeName!]),
-          ),
-        ),
-      );
-      // Set initial activity state and subscribe to changes for running terminals
-      for (const t of existing) {
-        if (t.status === "running") {
-          setTerminalActivity(t.id, t.isActive);
-          subscribeAll(t.id);
-        }
-      }
+
+      // Subscribe to live updates for all terminals
+      for (const t of existing) subscribeAll(t.id);
     }
     return existing;
   });
@@ -173,15 +147,13 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    setTerminalIds((prev) => [...prev, info.id]);
+    setMeta(info.id, infoToState(info));
     setActiveId(info.id);
-    // New terminals always start active (server spawns PTY with initial output)
-    setTerminalActivity(info.id, true);
     subscribeAll(info.id);
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
-  async function handleKill(id: string) {
+  async function handleKill(id: TerminalId) {
     try {
       await client.terminal.kill({ id });
     } catch {
@@ -193,8 +165,8 @@ export function useTerminals() {
   /** Set the theme for the active terminal, persisting to server. */
   async function handleSetTheme(themeName: string) {
     const id = activeId();
-    if (!id) return;
-    setTerminalThemes(id, themeName);
+    if (id === null) return;
+    setMeta(id, "themeName", themeName);
     void client.terminal.setTheme({ id, themeName });
   }
 
@@ -217,7 +189,7 @@ export function useTerminals() {
             },
           ]
         : []),
-      ...(activeId()
+      ...(activeId() !== null
         ? [
             {
               name: "Close terminal",
@@ -231,13 +203,13 @@ export function useTerminals() {
         onSelect: () =>
           // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
           void client.terminal.resize({
-            id: "__nonexistent__",
+            id: -1,
             cols: 1,
             rows: 1,
           }),
       },
-      ...terminalIds().map((id, i) => ({
-        name: `Switch to Terminal ${i + 1}`,
+      ...terminalIds().map((id) => ({
+        name: `Switch to ${meta[id]?.name ?? `Terminal ${id}`}`,
         onSelect: () => setActiveId(id),
       })),
       ...availableThemes
@@ -253,15 +225,13 @@ export function useTerminals() {
     terminalIds,
     activeId,
     setActiveId,
+    getMeta,
     activeThemeName,
     activeTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
     handleKill,
-    getTerminalThemeName,
-    getTerminalCwd,
-    getTerminalActive,
     commands,
   };
 }

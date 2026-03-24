@@ -25,7 +25,7 @@ import { toCwdInfo } from "./git.ts";
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
-function requireTerminal(id: string): TerminalEntry {
+function requireTerminal(id: number): TerminalEntry {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
@@ -129,12 +129,6 @@ export const appRouter = t.router({
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-
-      // If already exited, yield immediately
-      if (entry.status === "exited") {
-        yield entry.exitCode;
-        return;
-      }
 
       // Use subscribeAndYield instead of events.once() — it handles abort
       // gracefully (clean return, no thrown AbortError) when clients disconnect.
