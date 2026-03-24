@@ -1,6 +1,8 @@
 import { When } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 
+const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+
 /**
  * Simulate the full image paste flow: write a valid PNG to the browser
  * clipboard, then press Ctrl+V so the browser fires a real paste event
@@ -22,10 +24,10 @@ When("I paste an image into the terminal", async function (this: KoluWorld) {
     await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
   });
 
-  // Focus the terminal and press Ctrl+V — the browser fires a real paste
-  // event with the clipboard image data (no clipboard-read needed).
+  // Focus the terminal and press paste shortcut — the browser fires a real
+  // paste event with the clipboard image data (no clipboard-read needed).
   await this.canvas.click();
-  await this.page.keyboard.press("Control+v");
+  await this.page.keyboard.press(`${MOD_KEY}+v`);
 
   // Wait for the async upload RPC to complete (goes over WebSocket,
   // so Playwright's waitForResponse can't observe it).
