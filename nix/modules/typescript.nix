@@ -88,7 +88,7 @@
 
         default = pkgs.writeShellApplication {
           name = "kolu";
-          runtimeInputs = [ nodejs pkgs.tsx ];
+          runtimeInputs = [ nodejs pkgs.tsx pkgs.git ];
           text = ''
             export KOLU_CLIENT_DIST="${kolu}/client/dist"
             export KOLU_CLIPBOARD_SHIM_DIR="${config.packages.clipboard-shims}/bin"
