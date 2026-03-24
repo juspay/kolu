@@ -13,6 +13,7 @@ interface ShortcutDeps {
   activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
+  setSearchOpen: Setter<boolean>;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -68,6 +69,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.shortcutsHelp.keybind)) {
     deps.setShortcutsHelpOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
+    deps.setSearchOpen((v) => !v);
     return true;
   }
 
