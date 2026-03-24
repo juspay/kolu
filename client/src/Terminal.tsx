@@ -288,10 +288,7 @@ const Terminal: Component<{
   });
 
   return (
-    <div
-      class="w-full h-full relative"
-      style={{ display: props.visible ? undefined : "none" }}
-    >
+    <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
       {searchAddon && (
         <SearchBar
           searchAddon={searchAddon}
