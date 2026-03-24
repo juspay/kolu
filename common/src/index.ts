@@ -10,6 +10,7 @@ const TerminalIdSchema = z.string();
 // Shared fields spread into each discriminant variant
 const terminalBaseFields = {
   id: TerminalIdSchema,
+  name: z.string(),
   pid: z.number(),
   themeName: z.string().optional(),
 };

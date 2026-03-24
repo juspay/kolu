@@ -7,10 +7,13 @@ import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalInfo, CwdInfo } from "kolu-common";
 
+/** Lightweight terminal identity — the subset of TerminalInfo that's stable after creation. */
+export type TerminalHandle = Pick<TerminalInfo, "id" | "name">;
+
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals() {
-  const [terminalIds, setTerminalIds] = createSignal<string[]>([]);
+  const [terminals, setTerminals] = createSignal<TerminalHandle[]>([]);
   const [activeId, setActiveId] = makePersisted(
     createSignal<string | null>(null),
     { name: ACTIVE_TERMINAL_KEY },
@@ -32,6 +35,9 @@ export function useTerminals() {
   const [terminalActivity, setTerminalActivity] = createStore<
     Record<string, boolean>
   >({});
+
+  /** Derive the ID list for consumers that only need IDs. */
+  const terminalIds = createMemo(() => terminals().map((t) => t.id));
 
   /** Get the theme name for a terminal, falling back to default. */
   function getTerminalThemeName(id: string): string {
@@ -111,29 +117,26 @@ export function useTerminals() {
     subscribeExit(id);
   }
 
-  /** Remove a terminal from all state stores. Returns the new ID list and removed index. */
-  function removeTerminal(
-    id: string,
-  ): { newIds: string[]; idx: number } | null {
-    const ids = terminalIds();
-    const idx = ids.indexOf(id);
-    if (idx === -1) return null; // already removed
-    const newIds = ids.filter((x) => x !== id);
-    setTerminalIds(newIds);
+  /** Remove a terminal from all state stores. Returns removed index, or -1 if not found. */
+  function removeTerminal(id: string): number {
+    const current = terminals();
+    const idx = current.findIndex((t) => t.id === id);
+    if (idx === -1) return -1;
+    setTerminals(current.filter((t) => t.id !== id));
     setTerminalCwds(produce((s) => delete s[id]));
     setTerminalActivity(produce((s) => delete s[id]));
     setTerminalThemes(produce((s) => delete s[id]));
-    return { newIds, idx };
+    return idx;
   }
 
   /** Remove a terminal and auto-switch if it was the active one. */
   function removeAndAutoSwitch(id: string) {
-    const result = removeTerminal(id);
-    if (!result) return;
+    const idx = removeTerminal(id);
+    if (idx === -1) return;
     if (activeId() === id) {
-      const next =
-        result.newIds[Math.min(result.idx, result.newIds.length - 1)] ?? null;
-      setActiveId(next);
+      // terminalIds() already reflects the removal; pick the nearest surviving terminal
+      const ids = terminalIds();
+      setActiveId(ids[Math.min(idx, ids.length - 1)] ?? null);
     }
   }
 
@@ -141,13 +144,12 @@ export function useTerminals() {
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
     if (existing.length > 0) {
-      const ids = existing.map((t) => t.id);
-      setTerminalIds(ids);
+      setTerminals(existing.map((t) => ({ id: t.id, name: t.name })));
       // Keep persisted active terminal if it still exists; otherwise pick a running one
       const persisted = activeId();
-      if (!persisted || !ids.includes(persisted)) {
+      if (!persisted || !terminalIds().includes(persisted)) {
         const running = existing.find((t) => t.status === "running");
-        setActiveId(running?.id ?? ids[0] ?? null);
+        setActiveId(running?.id ?? terminalIds()[0] ?? null);
       }
       // Restore per-terminal themes from server (reconcile replaces entire store)
       setTerminalThemes(
@@ -173,7 +175,7 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    setTerminalIds((prev) => [...prev, info.id]);
+    setTerminals((prev) => [...prev, { id: info.id, name: info.name }]);
     setActiveId(info.id);
     // New terminals always start active (server spawns PTY with initial output)
     setTerminalActivity(info.id, true);
@@ -236,9 +238,9 @@ export function useTerminals() {
             rows: 1,
           }),
       },
-      ...terminalIds().map((id, i) => ({
-        name: `Switch to Terminal ${i + 1}`,
-        onSelect: () => setActiveId(id),
+      ...terminals().map((t) => ({
+        name: `Switch to ${t.name}`,
+        onSelect: () => setActiveId(t.id),
       })),
       ...availableThemes
         .filter((t) => t.name !== activeThemeName())
@@ -250,6 +252,7 @@ export function useTerminals() {
   );
 
   return {
+    terminals,
     terminalIds,
     activeId,
     setActiveId,

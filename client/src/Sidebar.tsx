@@ -1,10 +1,11 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
 import type { CwdInfo } from "kolu-common";
+import type { TerminalHandle } from "./useTerminals";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
-  terminalIds: string[];
+  terminals: TerminalHandle[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onKill: (id: string) => void;
@@ -53,8 +54,8 @@ const Sidebar: Component<{
           + New terminal
         </button>
         <nav class="flex-1 overflow-y-auto">
-          <For each={props.terminalIds}>
-            {(id, i) => (
+          <For each={props.terminals}>
+            {({ id, name }) => (
               <button
                 data-terminal-id={id}
                 class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
@@ -79,7 +80,7 @@ const Sidebar: Component<{
                       "bg-fg-3": !props.getActive(id),
                     }}
                   />
-                  <span class="flex-1">Terminal {i() + 1}</span>
+                  <span class="flex-1">{name}</span>
                   <span
                     data-testid="close-terminal"
                     class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"

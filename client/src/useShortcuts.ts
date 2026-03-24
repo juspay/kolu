@@ -37,7 +37,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   const digit = parseInt(e.key);
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
-    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]);
+    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);
     return true;
   }
 
@@ -79,5 +79,5 @@ function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   if (ids.length === 0) return;
   const current = ids.indexOf(deps.activeId() ?? "");
   const next = (current + direction + ids.length) % ids.length;
-  deps.setActiveId(ids[next]);
+  deps.setActiveId(ids[next]!);
 }

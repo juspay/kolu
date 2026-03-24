@@ -29,6 +29,7 @@ export interface TerminalEvents {
 interface TerminalBase {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
+  name: string;
   themeName?: string;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
@@ -47,7 +48,12 @@ const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  const base = { id, pid: entry.handle.pid, themeName: entry.themeName };
+  const base = {
+    id,
+    name: entry.name,
+    pid: entry.handle.pid,
+    themeName: entry.themeName,
+  };
   return entry.status === "exited"
     ? { ...base, status: "exited", exitCode: entry.exitCode }
     : { ...base, status: "running", isActive: entry.isActive };
@@ -70,7 +76,9 @@ function touchActivity(entry: TerminalBase): void {
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
 export function createTerminal(cwd?: string): TerminalInfo {
-  const id = `term-${nextId++}`;
+  const n = nextId++;
+  const id = `term-${n}`;
+  const name = `Terminal ${n}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
@@ -83,7 +91,7 @@ export function createTerminal(cwd?: string): TerminalInfo {
         if (entry) touchActivity(entry);
         emitter.emit("data", data);
       },
-      // On exit: transition entry to "exited" but keep it in the map (sidebar needs it)
+      // On natural exit: transition to "exited" so onExit stream can yield the code
       onExit: (exitCode) => {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
@@ -101,6 +109,7 @@ export function createTerminal(cwd?: string): TerminalInfo {
 
   const entry: TerminalEntry = {
     handle,
+    name,
     status: "running",
     emitter,
     isActive: true,
@@ -121,20 +130,19 @@ export function getTerminal(id: TerminalId): TerminalEntry | undefined {
   return terminals.get(id);
 }
 
-/** Kill a terminal's PTY process. Returns updated info, or undefined if not found. */
+/** Kill a terminal's PTY process and remove it from the map. Returns final info, or undefined if not found. */
 export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const entry = terminals.get(id);
   if (!entry) return undefined;
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
+  if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.handle.dispose();
-  const killed: TerminalEntry = {
-    ...entry,
-    status: "exited",
-    exitCode: entry.status === "exited" ? entry.exitCode : -1,
-  };
-  terminals.set(id, killed);
-  return toInfo(id, killed);
+  cleanupClipboardDir(entry.clipboardDir);
+  const exitCode = entry.status === "exited" ? entry.exitCode : -1;
+  const info = toInfo(id, { ...entry, status: "exited", exitCode });
+  terminals.delete(id);
+  return info;
 }
 
 /** Set the theme name for a terminal. */

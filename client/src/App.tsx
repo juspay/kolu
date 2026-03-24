@@ -24,6 +24,7 @@ import { useShortcuts } from "./useShortcuts";
 
 const App: Component = () => {
   const {
+    terminals,
     terminalIds,
     activeId,
     setActiveId,
@@ -111,7 +112,7 @@ const App: Component = () => {
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Sidebar
-          terminalIds={terminalIds()}
+          terminals={terminals()}
           activeId={activeId()}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
