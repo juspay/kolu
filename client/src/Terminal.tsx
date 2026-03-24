@@ -31,6 +31,7 @@ import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
+import SearchBar from "./SearchBar";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 
@@ -99,10 +100,13 @@ const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
   theme: ITheme;
+  searchOpen: boolean;
+  onSearchOpenChange: (open: boolean) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
+  let searchAddon: SearchAddon | null = null;
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -189,7 +193,8 @@ const Terminal: Component<{
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
-    term.loadAddon(new SearchAddon());
+    searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
     term.loadAddon(new ClipboardAddon());
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
@@ -284,16 +289,26 @@ const Terminal: Component<{
 
   return (
     <div
-      ref={containerRef}
-      // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
-      class="w-full h-full overflow-hidden touch-manipulation"
-      // Hide via display:none (not unmount) to preserve xterm state and scrollback
+      class="w-full h-full relative"
       style={{ display: props.visible ? undefined : "none" }}
-      data-terminal-id={props.terminalId}
-      data-visible={props.visible ? "" : undefined}
-      data-font-size={fontSize()}
-      onClick={() => terminal?.focus()}
-    />
+    >
+      {searchAddon && (
+        <SearchBar
+          searchAddon={searchAddon}
+          open={props.searchOpen}
+          onClose={() => props.onSearchOpenChange(false)}
+        />
+      )}
+      <div
+        ref={containerRef}
+        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
+        class="w-full h-full overflow-hidden touch-manipulation"
+        data-terminal-id={props.terminalId}
+        data-visible={props.visible ? "" : undefined}
+        data-font-size={fontSize()}
+        onClick={() => terminal?.focus()}
+      />
+    </div>
   );
 };
 
