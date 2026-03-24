@@ -4,14 +4,36 @@
 
 # kolu
 
-> [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>) — the Navaratri tradition of arranging figures on tiered steps.
+A web-based terminal multiplexer for managing multiple repos and branches in parallel. Built for developers running AI coding agents across worktrees who need fast context switching without leaving the browser.
 
-Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
-
-> [!IMPORTANT]
-> Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
+Named after [கோலு](https://en.wikipedia.org/wiki/Golu_(festival)), the tradition of arranging figures on tiered steps.
 
 <img width="2446" height="2030" alt="image" src="https://github.com/user-attachments/assets/5d6bbb17-25c4-4c04-9389-66004dee3b9c" />
+
+## Features
+
+- **Multi-terminal** — create, switch, and kill terminals from a collapsible sidebar
+- **Git-aware** — header shows repo name, branch, and working directory (auto-detected via OSC 7)
+- **Command palette** — `Cmd/Ctrl+K` to search terminals, switch themes, and run actions
+- **200+ themes** — color schemes from [Ghostty](https://ghostty.org/), switchable at runtime
+- **Keyboard-driven** — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
+- **Clipboard & image paste** — `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
+- **WebGL rendering** — xterm.js with GPU acceleration, canvas fallback
+- **Clickable URLs**, **find in buffer**, **Unicode 11**, **inline images** (sixel, iTerm2, kitty)
+- **Font zoom** — `Cmd/Ctrl +/-`, persisted across sessions
+- **Lazy attach** — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
+
+## Architecture
+
+pnpm monorepo, three packages:
+
+| Package | Stack |
+|---------|-------|
+| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas |
+| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
+
+All communication over a single WebSocket (`/rpc/ws`) via oRPC. Terminal I/O, lifecycle, CWD tracking, and activity detection are typed RPC procedures with async generator streaming.
 
 ## Development
 
@@ -21,7 +43,6 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 nix develop     # enter devshell
 just dev        # run server + client with hot reload
 just test       # e2e tests (full nix build)
-just test-dev   # e2e tests against running dev server (faster)
 ```
 
 ## Production
@@ -32,21 +53,9 @@ nix run         # serve on 0.0.0.0:7681
 nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ```
 
-## CI
-
-- **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
-- **E2E tests**: local via `just ci` — runs Playwright and posts `signoff/e2e` commit status to GitHub
-
-```sh
-just ci         # run e2e + post signoff (requires clean worktree)
-just test       # run e2e only, no signoff
-```
-
-Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
-
 ## Deployment (NixOS + home-manager)
 
-A home-manager module is provided to run kolu as a systemd user service:
+A home-manager module runs kolu as a systemd user service:
 
 ```nix
 {
@@ -60,26 +69,11 @@ A home-manager module is provided to run kolu as a systemd user service:
 }
 ```
 
-See [`nix/home/example/`](nix/home/example/) for a full NixOS configuration example with a VM test.
+See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
 
-## Architecture
+## CI
 
-pnpm workspace with three packages:
+- **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
+- **E2E tests**: Cucumber + Playwright, run locally via `just ci` — posts `signoff/e2e` commit status to GitHub
 
-- `common/` — [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas (shared types between server and client)
-- `server/` — [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) with oRPC over WebSocket
-- `client/` — [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) terminal
-
-Stack: Hono → oRPC (WebSocket) → PTY → xterm.js. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
-
-## Terminal Features
-
-Powered by [xterm.js](https://xtermjs.org/) with WebGL-accelerated rendering (canvas fallback):
-
-- **Clickable URLs** — links in terminal output open in the browser
-- **Find in buffer** — search through terminal scrollback
-- **Clipboard integration** — system clipboard copy/paste, including Ctrl+V image paste for Claude Code (via server-side xclip/wl-paste shims)
-- **Unicode 11** — correct rendering of wide characters, emoji, CJK
-- **Inline images** — sixel, iTerm2, and kitty image protocols
-- **Themes** — 200+ color schemes, switchable at runtime via command palette
-- **Font zoom** — Cmd/Ctrl +/- to adjust font size (persisted across sessions)
+Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
