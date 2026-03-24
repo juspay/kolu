@@ -53,6 +53,17 @@ nix run         # serve on 0.0.0.0:7681
 nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ```
 
+## CI
+
+Uses [localci](https://github.com/srid/localci) to build all flake outputs on each platform and run e2e tests, posting GitHub commit statuses.
+
+```sh
+just ci         # build + e2e, post statuses (requires clean worktree)
+just test       # run e2e only, no status posting
+```
+
+Required statuses for merge: `localci/nix/x86_64-linux`, `localci/nix/aarch64-darwin`, `localci/nix/home-example/x86_64-linux`, `localci/e2e`.
+
 ## Deployment (NixOS + home-manager)
 
 A home-manager module runs kolu as a systemd user service:

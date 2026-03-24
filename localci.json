@@ -1,0 +1,18 @@
+{
+  "steps": {
+    "nix": {
+      "systems": ["x86_64-linux", "aarch64-darwin"],
+      "command": "nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ."
+    },
+    "nix/home-example": {
+      "systems": ["x86_64-linux"],
+      "command": "nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .",
+      "depends_on": ["nix"]
+    },
+    "e2e": {
+      "systems": ["x86_64-linux", "aarch64-darwin"],
+      "command": "just test",
+      "depends_on": ["nix"]
+    }
+  }
+}
