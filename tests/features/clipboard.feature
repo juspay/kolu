@@ -1,14 +1,13 @@
 Feature: Clipboard image paste
-  Verify the full browser-to-PTY image paste flow: an image placed in the
-  browser clipboard, Ctrl+V in the terminal, and the server-side shim
-  scripts (xclip, wl-paste) serving the uploaded image data.
+  Verify the full browser-to-PTY image paste flow: paste an image via
+  Ctrl+V in the terminal, and the server-side shim scripts (xclip,
+  wl-paste) should serve the uploaded image data.
 
   Background:
     Given the terminal is ready
 
   Scenario Outline: <tool> reads pasted clipboard image
-    When I place an image in the browser clipboard
-    And I press Ctrl+V in the terminal
+    When I paste an image into the terminal
     And I run "<command>"
     Then the screen state should contain "<expected>"
 

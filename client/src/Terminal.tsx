@@ -64,39 +64,6 @@ function bufferToBase64(buf: ArrayBuffer): string {
   );
 }
 
-/**
- * Read the browser clipboard for an image, upload it to the server's
- * clipboard shim directory, then forward Ctrl+V (\x16) to the PTY.
- * If no image is found or the Clipboard API is unavailable, \x16 is
- * still forwarded so text-mode Ctrl+V works unchanged.
- */
-async function uploadClipboardImage(terminalId: TerminalId): Promise<void> {
-  // Read clipboard — expected to fail (permission denied, API unavailable, no image).
-  // Errors here are normal; only the RPC upload should surface failures.
-  let base64: string | undefined;
-  try {
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const imageType = item.types.find((t) => t.startsWith("image/"));
-      if (imageType) {
-        const blob = await item.getType(imageType);
-        base64 = bufferToBase64(await blob.arrayBuffer());
-        break;
-      }
-    }
-  } catch {
-    // Clipboard API unavailable or permission denied — no image to upload
-  }
-  if (base64) {
-    try {
-      await client.terminal.pasteImage({ id: terminalId, data: base64 });
-    } catch (err) {
-      console.error("Failed to upload clipboard image:", err);
-    }
-  }
-  void client.terminal.sendInput({ id: terminalId, data: "\x16" });
-}
-
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
@@ -239,14 +206,9 @@ const Terminal: Component<{
         return false;
       }
 
-      // Intercept Ctrl+V to bridge browser clipboard → PTY for image paste.
-      // Claude Code uses Ctrl+V (\x16) to trigger image paste from clipboard
-      // via xclip/wl-paste. We read the browser clipboard first, upload any
-      // image to the server's shim directory, then forward \x16 to the PTY.
-      if (e.ctrlKey && e.key === "v" && e.type === "keydown") {
-        void uploadClipboardImage(props.terminalId);
-        return false; // Prevent xterm from sending \x16 (we send it manually after upload)
-      }
+      // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
+      // paste listener uploads images; xterm's own paste handler covers text.
+      if (e.ctrlKey && e.key === "v") return false;
 
       return true;
     });
@@ -292,6 +254,53 @@ const Terminal: Component<{
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),
+    );
+
+    // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
+    // Capture phase fires before xterm's own paste handler on the textarea,
+    // letting us intercept images while text paste falls through to xterm.
+    // Uses the native paste event (not navigator.clipboard.read) so no explicit
+    // clipboard-read permission is needed.
+    makeEventListener(
+      containerRef,
+      "paste",
+      (e: ClipboardEvent) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+
+        let imageFile: File | null = null;
+        for (const item of items) {
+          if (item.type.startsWith("image/")) {
+            imageFile = item.getAsFile();
+            break;
+          }
+        }
+        if (!imageFile) return; // No image — let xterm handle text paste
+
+        // Must stop propagation synchronously before the async upload,
+        // otherwise xterm's paste handler would paste the image as garbled text.
+        e.stopPropagation();
+        e.preventDefault();
+
+        const file = imageFile;
+        void (async () => {
+          const base64 = bufferToBase64(await file.arrayBuffer());
+          try {
+            await client.terminal.pasteImage({
+              id: props.terminalId,
+              data: base64,
+            });
+          } catch (err) {
+            console.error("Failed to upload clipboard image:", err);
+          }
+          // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
+          void client.terminal.sendInput({
+            id: props.terminalId,
+            data: "\x16",
+          });
+        })();
+      },
+      { capture: true },
     );
 
     onCleanup(() => {

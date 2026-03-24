@@ -106,7 +106,10 @@ Before(async function (this: KoluWorld) {
     viewport: { width: 1280, height: 720 },
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
-    permissions: ["clipboard-read", "clipboard-write"],
+    // clipboard-write: lets tests place images in the clipboard for paste testing.
+    // clipboard-read is intentionally NOT granted — production code must work
+    // without it (the paste event provides clipboard data for free).
+    permissions: ["clipboard-write"],
   });
   this.page = await this.context.newPage();
   this.errors = [];

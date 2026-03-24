@@ -2,35 +2,32 @@ import { When } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 
 /**
- * Draw a 1×1 pixel on an OffscreenCanvas and write the resulting PNG
- * blob to the browser clipboard. This produces a valid PNG that
- * Chromium's clipboard API will accept.
+ * Simulate the full image paste flow: write a valid PNG to the browser
+ * clipboard, then press Ctrl+V so the browser fires a real paste event
+ * with the image in clipboardData. The terminal's capture-phase paste
+ * listener reads it and uploads to the server shim.
+ *
+ * Only clipboard-write permission is needed (for test setup). The paste
+ * event provides clipboard data without clipboard-read permission —
+ * matching production behavior.
  */
-When(
-  "I place an image in the browser clipboard",
-  async function (this: KoluWorld) {
-    await this.page.evaluate(async () => {
-      const canvas = new OffscreenCanvas(1, 1);
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "red";
-      ctx.fillRect(0, 0, 1, 1);
-      const blob = await canvas.convertToBlob({ type: "image/png" });
-      await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob }),
-      ]);
-    });
-  },
-);
+When("I paste an image into the terminal", async function (this: KoluWorld) {
+  // Write a 1×1 PNG to the system clipboard
+  await this.page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(1, 1);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, 1, 1);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+  });
 
-/**
- * Press Ctrl+V in the terminal, triggering the client-side clipboard
- * image upload flow (reads browser clipboard → pasteImage RPC → \x16).
- */
-When("I press Ctrl+V in the terminal", async function (this: KoluWorld) {
+  // Focus the terminal and press Ctrl+V — the browser fires a real paste
+  // event with the clipboard image data (no clipboard-read needed).
   await this.canvas.click();
   await this.page.keyboard.press("Control+v");
-  // pasteImage RPC goes over WebSocket, so Playwright's waitForResponse
-  // can't observe it. Brief settle to let the upload land before the next
-  // step runs a shim command that reads the uploaded file.
-  await this.page.waitForTimeout(1000);
+
+  // Wait for the async upload RPC to complete (goes over WebSocket,
+  // so Playwright's waitForResponse can't observe it).
+  await this.page.waitForTimeout(1500);
 });
