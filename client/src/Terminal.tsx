@@ -7,6 +7,7 @@
 
 import {
   type Component,
+  Show,
   onMount,
   onCleanup,
   createSignal,
@@ -28,8 +29,10 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import type { TerminalId } from "kolu-common";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
+import SearchBar from "./SearchBar";
 
 const FONT_SIZE_KEY = "kolu-font-size";
 
@@ -67,7 +70,7 @@ function bufferToBase64(buf: ArrayBuffer): string {
  * If no image is found or the Clipboard API is unavailable, \x16 is
  * still forwarded so text-mode Ctrl+V works unchanged.
  */
-async function uploadClipboardImage(terminalId: string): Promise<void> {
+async function uploadClipboardImage(terminalId: TerminalId): Promise<void> {
   // Read clipboard — expected to fail (permission denied, API unavailable, no image).
   // Errors here are normal; only the RPC upload should surface failures.
   let base64: string | undefined;
@@ -95,13 +98,16 @@ async function uploadClipboardImage(terminalId: string): Promise<void> {
 }
 
 const Terminal: Component<{
-  terminalId: string;
+  terminalId: TerminalId;
   visible: boolean;
   theme: ITheme;
+  searchOpen: boolean;
+  onSearchOpenChange: (open: boolean) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
+  const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -126,6 +132,17 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         debouncedFit();
         terminal.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Refocus terminal when search bar closes
+  createEffect(
+    on(
+      () => props.searchOpen,
+      (open) => {
+        if (!open && props.visible && terminal) terminal.focus();
       },
       { defer: true },
     ),
@@ -188,7 +205,9 @@ const Terminal: Component<{
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
-    term.loadAddon(new SearchAddon());
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    setSearchAddon(search);
     term.loadAddon(new ClipboardAddon());
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
@@ -252,12 +271,12 @@ const Terminal: Component<{
     // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();
 
-    // Send user input to PTY. Filter out DA1/DA2/DSR responses — the server's
-    // headless xterm already answers these; a duplicate arriving late over the
-    // network gets printed as visible garbage (e.g. "62;4;9;22c").
-    const deviceResponse = /\x1b\[[\?>=]?[\d;]*[cnR]/;
+    // Filter terminal query responses from onData before sending to PTY.
+    // The server's headless xterm already answers these; duplicates arriving
+    // late over the network get printed as visible garbage.
+    const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
     term.onData((data: string) => {
-      if (deviceResponse.test(data)) return;
+      if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
@@ -282,17 +301,26 @@ const Terminal: Component<{
   });
 
   return (
-    <div
-      ref={containerRef}
-      // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
-      class="w-full h-full overflow-hidden touch-manipulation"
-      // Hide via display:none (not unmount) to preserve xterm state and scrollback
-      style={{ display: props.visible ? undefined : "none" }}
-      data-terminal-id={props.terminalId}
-      data-visible={props.visible ? "" : undefined}
-      data-font-size={fontSize()}
-      onClick={() => terminal?.focus()}
-    />
+    <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
+      <Show when={searchAddon()}>
+        {(addon) => (
+          <SearchBar
+            searchAddon={addon()}
+            open={props.searchOpen}
+            onClose={() => props.onSearchOpenChange(false)}
+          />
+        )}
+      </Show>
+      <div
+        ref={containerRef}
+        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
+        class="w-full h-full overflow-hidden touch-manipulation"
+        data-terminal-id={props.terminalId}
+        data-visible={props.visible ? "" : undefined}
+        data-font-size={fontSize()}
+        onClick={() => terminal?.focus()}
+      />
+    </div>
   );
 };
 

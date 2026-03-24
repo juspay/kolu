@@ -3,16 +3,17 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { CwdInfo } from "kolu-common";
+import type { TerminalId, CwdInfo } from "kolu-common";
 
 interface ShortcutDeps {
-  terminalIds: Accessor<string[]>;
-  activeId: Accessor<string | null>;
-  setActiveId: Setter<string | null>;
+  terminalIds: Accessor<TerminalId[]>;
+  activeId: Accessor<TerminalId | null>;
+  setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
   activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
+  setSearchOpen: Setter<boolean>;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -37,7 +38,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   const digit = parseInt(e.key);
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
-    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]);
+    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);
     return true;
   }
 
@@ -71,13 +72,18 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
+  if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
+    deps.setSearchOpen((v) => !v);
+    return true;
+  }
+
   return false;
 }
 
 function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   const ids = deps.terminalIds();
   if (ids.length === 0) return;
-  const current = ids.indexOf(deps.activeId() ?? "");
+  const current = ids.indexOf(deps.activeId() ?? -1);
   const next = (current + direction + ids.length) % ids.length;
-  deps.setActiveId(ids[next]);
+  deps.setActiveId(ids[next]!);
 }

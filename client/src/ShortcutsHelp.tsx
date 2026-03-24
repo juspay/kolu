@@ -12,6 +12,7 @@ const DISPLAY_SHORTCUTS = [
   SHORTCUTS.nextTerminal,
   SHORTCUTS.prevTerminal,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
+  SHORTCUTS.findInTerminal,
   SHORTCUTS.shortcutsHelp,
 ];
 

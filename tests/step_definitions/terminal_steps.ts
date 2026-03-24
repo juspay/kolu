@@ -85,8 +85,9 @@ Given("I note the font size", async function (this: KoluWorld) {
 /** Fetch serialized screen state for the active terminal (polls until non-empty). */
 async function fetchActiveScreenState(world: KoluWorld): Promise<string> {
   const container = world.page.locator("[data-visible][data-terminal-id]");
-  const id = await container.getAttribute("data-terminal-id");
-  assert.ok(id, "No active terminal found");
+  const rawId = await container.getAttribute("data-terminal-id");
+  assert.ok(rawId, "No active terminal found");
+  const id = Number(rawId);
   let state = "";
   for (let attempt = 0; attempt < 20; attempt++) {
     const resp = await world.page.request.fetch("/rpc/terminal/screenState", {

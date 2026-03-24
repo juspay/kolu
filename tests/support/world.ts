@@ -36,14 +36,14 @@ export class KoluWorld extends World {
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
   savedSidebarCount?: number;
-  createdTerminalIds: string[] = [];
+  createdTerminalIds: number[] = [];
 
   get canvas(): Locator {
     return this.page.locator("[data-visible] .xterm-screen");
   }
 
   /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
-  async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
+  async createTerminal(timeout = READY_TIMEOUT): Promise<number> {
     // Wait for app to settle (onMount may still be restoring terminals from server)
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
@@ -56,8 +56,10 @@ export class KoluWorld extends World {
 
     // Wait for the new entry to appear in the sidebar
     await entries.nth(countBefore).waitFor({ state: "visible", timeout });
-    const id = await entries.nth(countBefore).getAttribute("data-terminal-id");
-    if (!id) throw new Error("Created terminal has no data-terminal-id");
+    const rawId = await entries
+      .nth(countBefore)
+      .getAttribute("data-terminal-id");
+    if (!rawId) throw new Error("Created terminal has no data-terminal-id");
 
     await this.canvas.waitFor({ state: "visible", timeout });
     // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
@@ -65,7 +67,7 @@ export class KoluWorld extends World {
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout: 5000 },
     );
-    return id;
+    return Number(rawId);
   }
 
   /** Wait for the app to reach a stable state (restored terminals or empty state). */

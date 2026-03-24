@@ -50,6 +50,7 @@
         env.npm_config_nodedir = nodejs;
         env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
         env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+        env.KOLU_COMMIT_HASH = inputs.self.shortRev or inputs.self.dirtyShortRev or "dev";
 
         buildPhase = ''
           runHook preBuild
@@ -88,7 +89,7 @@
 
         default = pkgs.writeShellApplication {
           name = "kolu";
-          runtimeInputs = [ nodejs pkgs.tsx ];
+          runtimeInputs = [ nodejs pkgs.tsx pkgs.git ];
           text = ''
             export KOLU_CLIENT_DIST="${kolu}/client/dist"
             export KOLU_CLIPBOARD_SHIM_DIR="${config.packages.clipboard-shims}/bin"

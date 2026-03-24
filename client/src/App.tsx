@@ -3,6 +3,8 @@
 import {
   type Component,
   createSignal,
+  createEffect,
+  on,
   createResource,
   Show,
   For,
@@ -27,15 +29,13 @@ const App: Component = () => {
     terminalIds,
     activeId,
     setActiveId,
+    getMeta,
     activeThemeName,
     activeTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
     handleKill,
-    getTerminalThemeName,
-    getTerminalCwd,
-    getTerminalActive,
     commands,
   } = useTerminals();
 
@@ -55,6 +55,10 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
+  // Terminal search bar state — close when switching terminals
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+
   useShortcuts({
     terminalIds,
     activeId,
@@ -63,6 +67,7 @@ const App: Component = () => {
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
+    setSearchOpen,
   });
 
   function openPaletteWith(query: string) {
@@ -105,6 +110,7 @@ const App: Component = () => {
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
+        onSearch={() => setSearchOpen(true)}
         renderer={renderer()}
         appTitle={appTitle()}
       />
@@ -113,13 +119,12 @@ const App: Component = () => {
         <Sidebar
           terminalIds={terminalIds()}
           activeId={activeId()}
+          getMeta={getMeta}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
           open={sidebarOpen()}
           onClose={closeSidebar}
-          getCwd={getTerminalCwd}
-          getActive={getTerminalActive}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-1">
@@ -156,7 +161,11 @@ const App: Component = () => {
                     <Terminal
                       terminalId={id}
                       visible={activeId() === id}
-                      theme={getThemeByName(getTerminalThemeName(id))}
+                      theme={getThemeByName(
+                        getMeta(id)?.themeName ?? activeThemeName(),
+                      )}
+                      searchOpen={searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
                     />
                   )}
                 </For>

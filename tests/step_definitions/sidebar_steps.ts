@@ -80,8 +80,9 @@ Then(
     const activeContainer = this.page.locator(
       "[data-visible][data-terminal-id]",
     );
-    const terminalId = await activeContainer.getAttribute("data-terminal-id");
-    assert.ok(terminalId, "No active terminal found");
+    const rawId = await activeContainer.getAttribute("data-terminal-id");
+    assert.ok(rawId, "No active terminal found");
+    const terminalId = Number(rawId);
 
     // Poll screen state until expected content appears (echo may still be in-flight,
     // or terminal may still be reconnecting after a page refresh).

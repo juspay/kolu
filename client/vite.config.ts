@@ -4,6 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
 
+const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
+
 const themesJsonPath = process.env.KOLU_THEMES_JSON;
 if (!themesJsonPath) {
   throw new Error(
@@ -38,6 +40,9 @@ export default defineConfig({
         ws: true,
       },
     },
+  },
+  define: {
+    __KOLU_COMMIT__: JSON.stringify(commitHash),
   },
   build: {
     target: "esnext",

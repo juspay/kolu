@@ -97,7 +97,10 @@ export function spawnPty(
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
+  // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
+  // don't consume these, so the shell echoes them as visible garbage.
   const headlessOnDataDisposable = headless.onData((data: string) => {
+    if (data.startsWith("\x1b]")) return;
     proc.write(data);
   });
 
