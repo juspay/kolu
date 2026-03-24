@@ -1,13 +1,12 @@
 /** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
 
-import { createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
-import { createSignal } from "solid-js";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
