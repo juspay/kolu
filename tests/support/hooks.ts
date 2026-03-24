@@ -106,6 +106,7 @@ Before(async function (this: KoluWorld) {
     viewport: { width: 1280, height: 720 },
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
+    permissions: ["clipboard-read", "clipboard-write"],
   });
   this.page = await this.context.newPage();
   this.errors = [];
