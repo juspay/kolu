@@ -1,6 +1,7 @@
 import { type Component, Show, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
+import HeaderTooltip from "./HeaderTooltip";
 import type { WsStatus } from "./rpc";
 import type { CwdInfo } from "kolu-common";
 
@@ -27,26 +28,27 @@ const Header: Component<{
 
   return (
     <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
-      <button
-        data-testid="sidebar-toggle"
-        class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        onClick={() => props.onToggleSidebar?.()}
-        title="Toggle sidebar"
-      >
-        <svg
-          class="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
+      <HeaderTooltip label="Toggle sidebar">
+        <button
+          data-testid="sidebar-toggle"
+          class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          onClick={() => props.onToggleSidebar?.()}
         >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
-      </button>
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16"
+            />
+          </svg>
+        </button>
+      </HeaderTooltip>
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm hidden sm:inline">
         {props.appTitle ?? "kolu"}
@@ -85,53 +87,59 @@ const Header: Component<{
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
-          <button
-            data-testid="theme-name"
-            class="px-2 py-0.5 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onThemeClick?.()}
-            title="Change theme"
-          >
-            {props.themeName}
-          </button>
+          <HeaderTooltip label="Change theme">
+            <button
+              data-testid="theme-name"
+              class="px-2 py-0.5 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              onClick={() => props.onThemeClick?.()}
+            >
+              {props.themeName}
+            </button>
+          </HeaderTooltip>
         )}
-        <button
-          class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          onClick={() => props.onSearch?.()}
-          title={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
+        <HeaderTooltip
+          label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
-          <svg
-            class="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+          <button
+            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={() => props.onSearch?.()}
           >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-        </button>
-        <button
-          data-testid="palette-trigger"
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          onClick={() => props.onOpenPalette?.()}
-          title="Command palette"
-        >
-          <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-            {formatKeybind(SHORTCUTS.commandPalette.keybind)}
-          </kbd>
-        </button>
-        <button
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          onClick={() => props.onShortcutsHelp?.()}
-          title="Keyboard shortcuts"
-        >
-          <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-            {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
-          </kbd>
-        </button>
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          </button>
+        </HeaderTooltip>
+        <HeaderTooltip label="Command palette">
+          <button
+            data-testid="palette-trigger"
+            class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={() => props.onOpenPalette?.()}
+          >
+            <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
+              {formatKeybind(SHORTCUTS.commandPalette.keybind)}
+            </kbd>
+          </button>
+        </HeaderTooltip>
+        <HeaderTooltip label="Keyboard shortcuts">
+          <button
+            class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={() => props.onShortcutsHelp?.()}
+          >
+            <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
+              {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
+            </kbd>
+          </button>
+        </HeaderTooltip>
         {props.renderer && (
           <span class="text-xs text-fg-3 hidden sm:inline">
             {props.renderer}

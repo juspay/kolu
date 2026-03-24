@@ -12,6 +12,7 @@ import {
   ErrorBoundary,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
+import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
@@ -92,6 +93,17 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        toastOptions={{
+          style: {
+            background: "var(--color-surface-1)",
+            color: "var(--color-fg)",
+            border: "1px solid var(--color-edge-bright)",
+          },
+        }}
+      />
       <CommandPalette
         commands={commands}
         open={paletteOpen()}

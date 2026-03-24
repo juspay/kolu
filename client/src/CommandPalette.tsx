@@ -1,8 +1,9 @@
 /**
  * Command palette — searchable overlay for terminal and theme actions.
  *
- * Always mounted. Keyboard navigation handled internally.
- * Open state and Cmd/Ctrl+K shortcut are controlled externally via useShortcuts.
+ * Uses cmdk-solid for keyboard navigation and item selection,
+ * wrapped in a Corvu Dialog for focus trapping and accessibility.
+ * Filtering uses shouldFilter={false} to preserve the custom prefix-gating logic.
  */
 
 import {
@@ -15,149 +16,122 @@ import {
   For,
   Show,
 } from "solid-js";
-import { makeEventListener } from "@solid-primitives/event-listener";
-import Overlay from "./Overlay";
+import Dialog from "@corvu/dialog";
+import { Command, useCommandState } from "cmdk-solid";
 
 /** A command that can be executed from the palette. */
-export interface Command {
+export interface PaletteCommand {
   name: string;
   onSelect: () => void;
   /** If set, command is hidden unless the query starts with this prefix. */
   showOnPrefix?: string;
 }
 
-/** Ctrl+key → normalized key for readline-style navigation. */
-const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
+/** Refocus the active terminal after a dialog closes. */
+function refocusTerminal() {
+  document
+    .querySelector<HTMLElement>("[data-visible][data-terminal-id]")
+    ?.click();
+}
+
+/** Palette item that applies selected styling via cmdk's data-selected attribute. */
+const PaletteItem: Component<{
+  value: string;
+  onSelect: () => void;
+}> = (props) => {
+  const selectedValue = useCommandState((state) => state.value);
+  return (
+    <Command.Item
+      class="px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
+      classList={{
+        "bg-surface-3 text-fg border-accent": selectedValue() === props.value,
+        "text-fg-2 hover:bg-surface-2 border-transparent":
+          selectedValue() !== props.value,
+      }}
+      value={props.value}
+      onSelect={props.onSelect}
+    >
+      {props.value}
+    </Command.Item>
+  );
+};
 
 const CommandPalette: Component<{
-  commands: Accessor<Command[]>;
+  commands: Accessor<PaletteCommand[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialQuery?: string;
 }> = (props) => {
-  let inputRef!: HTMLInputElement;
-  const [query, setQuery] = createSignal("");
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
+  const [search, setSearch] = createSignal("");
 
+  // Custom filtering: prefix-gated commands only shown when query starts with prefix
   const filtered = createMemo(() => {
-    const q = query().toLowerCase();
-    const cmds = props.commands();
-    return cmds.filter(
-      (cmd) =>
-        (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
-        (!q || cmd.name.toLowerCase().includes(q)),
-    );
+    const q = search().toLowerCase();
+    return props
+      .commands()
+      .filter(
+        (cmd) =>
+          (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
+          (!q || cmd.name.toLowerCase().includes(q)),
+      );
   });
 
-  function execute(cmd: Command) {
-    cmd.onSelect();
-    props.onOpenChange(false);
-  }
-
-  function handleKeyDown(e: KeyboardEvent) {
-    if (!props.open) return;
-    const items = filtered();
-    const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
-    const key = (isCtrl && CTRL_KEY_MAP[e.key]) || e.key;
-    switch (key) {
-      case "ArrowDown":
-        if (items.length === 0) return;
-        setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
-        break;
-      case "ArrowUp":
-        if (items.length === 0) return;
-        setSelectedIndex((i) => Math.max(i - 1, 0));
-        break;
-      case "Tab":
-        if (items.length === 0) return;
-        setSelectedIndex((i) =>
-          e.shiftKey
-            ? (i - 1 + items.length) % items.length
-            : (i + 1) % items.length,
-        );
-        break;
-      case "Enter": {
-        const selected = items[selectedIndex()];
-        if (selected) execute(selected);
-        break;
-      }
-      case "Escape":
-        props.onOpenChange(false);
-        break;
-      default:
-        return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  // Capture phase: intercept before terminal's keydown handler
-  makeEventListener(window, "keydown", handleKeyDown, { capture: true });
-
-  // Reset query and selection when opening
+  // Reset search to initialQuery when opening
   createEffect(
     on(
       () => props.open,
       (isOpen) => {
-        if (isOpen) {
-          setQuery(props.initialQuery ?? "");
-          setSelectedIndex(0);
-          requestAnimationFrame(() => inputRef?.focus());
-        }
+        if (isOpen) setSearch(props.initialQuery ?? "");
       },
     ),
   );
 
-  // Reset selection when filter results change (defer: skip initial run)
-  createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
-
   return (
-    <Overlay open={props.open} onClose={() => props.onOpenChange(false)}>
-      <div
-        data-testid="command-palette"
-        class="w-full max-w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
-        style={{ height: "24rem" }}
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Type a command..."
-          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge-bright outline-none placeholder-fg-3"
-          value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
-        />
-        <div class="flex-1 min-h-0 overflow-y-auto">
-          <Show
-            when={filtered().length > 0}
-            fallback={
-              <div class="px-4 py-3 text-sm text-fg-2">
-                No matching commands
-              </div>
-            }
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      restoreFocus={false}
+      onFinalFocus={(e) => {
+        e.preventDefault();
+        refocusTerminal();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay class="fixed inset-0 z-50 bg-black/50" />
+        <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none">
+          <Dialog.Content
+            data-testid="command-palette"
+            class="pointer-events-auto w-full max-w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
+            style={{ height: "24rem" }}
           >
-            <ul class="py-1">
-              <For each={filtered()}>
-                {(cmd, i) => (
-                  <li
-                    class="px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
-                    classList={{
-                      "bg-surface-3 text-fg border-accent":
-                        selectedIndex() === i(),
-                      "text-fg-2 hover:bg-surface-2 border-transparent":
-                        selectedIndex() !== i(),
-                    }}
-                    onMouseEnter={() => setSelectedIndex(i())}
-                    onClick={() => execute(cmd)}
-                  >
-                    {cmd.name}
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
+            <Command shouldFilter={false} loop>
+              <Command.Input
+                class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge-bright outline-none placeholder-fg-3"
+                placeholder="Type a command..."
+                value={search()}
+                onValueChange={setSearch}
+              />
+              <Command.List class="flex-1 min-h-0 overflow-y-auto">
+                <Command.Empty class="px-4 py-3 text-sm text-fg-2">
+                  No matching commands
+                </Command.Empty>
+                <For each={filtered()}>
+                  {(cmd) => (
+                    <PaletteItem
+                      value={cmd.name}
+                      onSelect={() => {
+                        cmd.onSelect();
+                        props.onOpenChange(false);
+                      }}
+                    />
+                  )}
+                </For>
+              </Command.List>
+            </Command>
+          </Dialog.Content>
         </div>
-      </div>
-    </Overlay>
+      </Dialog.Portal>
+    </Dialog>
   );
 };
 

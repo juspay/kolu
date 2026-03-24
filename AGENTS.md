@@ -4,6 +4,7 @@
 
 - After making changes, automatically run `/code-review` before declaring work complete.
 - Run `just pc` (pre-commit hooks) before declaring done.
+- **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, cmdk-solid, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
 ## Testing
 
