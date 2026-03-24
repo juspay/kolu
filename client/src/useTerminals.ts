@@ -5,7 +5,6 @@ import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
-import { useWebView } from "./useWebView";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 import { createSignal } from "solid-js";
 
@@ -171,8 +170,6 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
-  const { toggleWebView } = useWebView();
-
   /** Command palette entries for terminal + theme actions. */
   const commands = createMemo(
     (): Array<{
@@ -183,10 +180,6 @@ export function useTerminals() {
       {
         name: "Create new terminal",
         onSelect: () => void handleCreate(),
-      },
-      {
-        name: "Toggle web view",
-        onSelect: toggleWebView,
       },
       ...(activeCwd()
         ? [

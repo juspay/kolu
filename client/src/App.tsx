@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   createResource,
   Show,
@@ -76,6 +77,12 @@ const App: Component = () => {
     toggleWebView,
   });
 
+  // Merge terminal commands with web view command
+  const allCommands = createMemo(() => [
+    ...commands(),
+    { name: "Toggle web view", onSelect: toggleWebView },
+  ]);
+
   function openPaletteWith(query: string) {
     setPaletteInitialQuery(query);
     setPaletteOpen(true);
@@ -86,6 +93,51 @@ const App: Component = () => {
     setPaletteOpen(open);
     if (!open) setPaletteInitialQuery("");
   }
+
+  const terminalArea = (
+    <div
+      class="h-full rounded border border-edge overflow-hidden p-1"
+      style={{ "background-color": activeTheme().background }}
+    >
+      <ErrorBoundary
+        fallback={(err) => (
+          <div class="text-danger p-4">Failed to connect: {String(err)}</div>
+        )}
+      >
+        <Suspense
+          fallback={
+            <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+              Connecting...
+            </div>
+          }
+        >
+          {/* Read the resource to trigger Suspense while it loads */}
+          {void existingTerminals()}
+          <Show when={terminalIds().length === 0}>
+            <div
+              data-testid="empty-state"
+              class="flex items-center justify-center h-full text-fg-3 text-sm"
+            >
+              Click + to create a terminal
+            </div>
+          </Show>
+          <For each={terminalIds()}>
+            {(id) => (
+              <Terminal
+                terminalId={id}
+                visible={activeId() === id}
+                theme={getThemeByName(
+                  getMeta(id)?.themeName ?? activeThemeName(),
+                )}
+                searchOpen={searchOpen()}
+                onSearchOpenChange={setSearchOpen}
+              />
+            )}
+          </For>
+        </Suspense>
+      </ErrorBoundary>
+    </div>
+  );
 
   return (
     <div
@@ -99,7 +151,7 @@ const App: Component = () => {
     >
       <Title>{appTitle()}</Title>
       <CommandPalette
-        commands={commands}
+        commands={allCommands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialQuery={paletteInitialQuery()}
@@ -134,61 +186,20 @@ const App: Component = () => {
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* Resizable split: terminal + optional web view */}
-        <Resizable orientation="horizontal" class="flex-1 min-h-0 min-w-0">
-          {/* Terminal panel */}
-          <Resizable.Panel
-            initialSize={webViewOpen() ? 0.6 : 1}
-            minSize={0.2}
-            class="min-w-0 p-1"
-          >
-            <div
-              class="h-full rounded border border-edge overflow-hidden p-1"
-              style={{ "background-color": activeTheme().background }}
+        {/* Terminal area + optional web view split */}
+        {webViewOpen() ? (
+          <Resizable orientation="horizontal" class="flex-1 min-h-0 min-w-0">
+            <Resizable.Panel
+              initialSize={0.6}
+              minSize={0.2}
+              class="min-w-0 p-1"
             >
-              <ErrorBoundary
-                fallback={(err) => (
-                  <div class="text-danger p-4">
-                    Failed to connect: {String(err)}
-                  </div>
-                )}
-              >
-                <Suspense
-                  fallback={
-                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                      Connecting...
-                    </div>
-                  }
-                >
-                  {/* Read the resource to trigger Suspense while it loads */}
-                  {void existingTerminals()}
-                  <Show when={terminalIds().length === 0}>
-                    <div
-                      data-testid="empty-state"
-                      class="flex items-center justify-center h-full text-fg-3 text-sm"
-                    >
-                      Click + to create a terminal
-                    </div>
-                  </Show>
-                  <For each={terminalIds()}>
-                    {(id) => (
-                      <Terminal
-                        terminalId={id}
-                        visible={activeId() === id}
-                        theme={getThemeByName(
-                          getMeta(id)?.themeName ?? activeThemeName(),
-                        )}
-                        searchOpen={searchOpen()}
-                        onSearchOpenChange={setSearchOpen}
-                      />
-                    )}
-                  </For>
-                </Suspense>
-              </ErrorBoundary>
-            </div>
-          </Resizable.Panel>
-          <Show when={webViewOpen()}>
-            <Resizable.Handle class="w-1.5 bg-surface-1 hover:bg-accent/30 transition-colors cursor-col-resize shrink-0" />
+              {terminalArea}
+            </Resizable.Panel>
+            <Resizable.Handle
+              data-testid="web-view-handle"
+              class="w-1.5 bg-surface-1 hover:bg-accent/30 transition-colors cursor-col-resize shrink-0"
+            />
             <Resizable.Panel initialSize={0.4} minSize={0.15} class="min-w-0">
               <WebView
                 url={webViewUrl()}
@@ -196,8 +207,10 @@ const App: Component = () => {
                 onClose={toggleWebView}
               />
             </Resizable.Panel>
-          </Show>
-        </Resizable>
+          </Resizable>
+        ) : (
+          <div class="flex-1 min-h-0 min-w-0 p-1">{terminalArea}</div>
+        )}
       </div>
     </div>
   );

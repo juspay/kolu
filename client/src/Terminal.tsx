@@ -72,6 +72,7 @@ const Terminal: Component<{
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
 }> = (props) => {
+  const { openUrl } = useWebView();
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
@@ -172,7 +173,6 @@ const Terminal: Component<{
 
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    const { openUrl } = useWebView();
     term.loadAddon(
       new WebLinksAddon((event: MouseEvent, uri: string) => {
         if (event.ctrlKey || event.metaKey) {
