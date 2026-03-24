@@ -12,6 +12,7 @@ const Sidebar: Component<{
   onCreate: () => void;
   open: boolean;
   onClose: () => void;
+  hasWebView?: (id: TerminalId) => boolean;
 }> = (props) => {
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
@@ -81,6 +82,21 @@ const Sidebar: Component<{
                       }}
                     />
                     <span class="flex-1">{m()?.name ?? `Terminal ${id}`}</span>
+                    <Show when={props.hasWebView?.(id)}>
+                      <svg
+                        class="w-3 h-3 shrink-0 text-fg-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
+                        />
+                      </svg>
+                    </Show>
                     <span
                       data-testid="close-terminal"
                       class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"

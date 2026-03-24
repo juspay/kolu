@@ -45,6 +45,7 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const {
+    getState: getWebViewState,
     openUrl,
     toggleWebView: toggleWebViewForId,
     setUrl: setWebViewUrl,
@@ -198,6 +199,7 @@ const App: Component = () => {
           onCreate={() => handleCreate()}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          hasWebView={(id) => getWebViewState(id)?.open ?? false}
         />
         {/* Terminal area + optional web view split */}
         {activeWebViewOpen() ? (
