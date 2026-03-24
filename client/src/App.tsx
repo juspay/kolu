@@ -3,6 +3,8 @@
 import {
   type Component,
   createSignal,
+  createEffect,
+  on,
   createResource,
   Show,
   For,
@@ -53,6 +55,10 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
+  // Terminal search bar state — close when switching terminals
+  const [searchOpen, setSearchOpen] = createSignal(false);
+  createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+
   useShortcuts({
     terminalIds,
     activeId,
@@ -61,6 +67,7 @@ const App: Component = () => {
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
+    setSearchOpen,
   });
 
   function openPaletteWith(query: string) {
@@ -103,6 +110,7 @@ const App: Component = () => {
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
+        onSearch={() => setSearchOpen(true)}
         renderer={renderer()}
         appTitle={appTitle()}
       />
@@ -156,6 +164,8 @@ const App: Component = () => {
                       theme={getThemeByName(
                         getMeta(id)?.themeName ?? activeThemeName(),
                       )}
+                      searchOpen={searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
                     />
                   )}
                 </For>

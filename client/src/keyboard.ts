@@ -90,4 +90,8 @@ export const SHORTCUTS = {
     label: "Command palette",
   },
   shortcutsHelp: { keybind: { key: "/", mod: true }, label: "Shortcuts help" },
+  findInTerminal: {
+    keybind: { key: "f", mod: true },
+    label: "Find in terminal",
+  },
 } as const satisfies Record<string, Shortcut>;
