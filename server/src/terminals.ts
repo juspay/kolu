@@ -3,12 +3,7 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalRunning,
-  TerminalExited,
-} from "kolu-common";
+import type { TerminalId, TerminalInfo } from "kolu-common";
 import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
@@ -26,7 +21,8 @@ export interface TerminalEvents {
   activity: [isActive: boolean];
 }
 
-interface TerminalBase {
+/** Server-side terminal state. Owns a PtyHandle and event emitter. */
+export interface TerminalEntry {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   name: string;
@@ -39,30 +35,23 @@ interface TerminalBase {
   clipboardDir: string;
 }
 
-/** Server-side terminal state. Status discriminant derived from common TerminalInfo. */
-export type TerminalEntry =
-  | (TerminalBase & Pick<TerminalRunning, "status">)
-  | (TerminalBase & Pick<TerminalExited, "status" | "exitCode">);
-
 const terminals = new Map<TerminalId, TerminalEntry>();
 let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  const base = {
+  return {
     id,
     name: entry.name,
     pid: entry.handle.pid,
     themeName: entry.themeName,
+    isActive: entry.isActive,
   };
-  return entry.status === "exited"
-    ? { ...base, status: "exited", exitCode: entry.exitCode }
-    : { ...base, status: "running", isActive: entry.isActive };
 }
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 
 /** Mark terminal active and reset the idle timer. */
-function touchActivity(entry: TerminalBase): void {
+function touchActivity(entry: TerminalEntry): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.isActive) {
     entry.isActive = true;
@@ -90,14 +79,11 @@ export function createTerminal(cwd?: string): TerminalInfo {
         if (entry) touchActivity(entry);
         emitter.emit("data", data);
       },
-      // On natural exit: transition to "exited" so onExit stream can yield the code
+      // On natural exit: emit event so onExit stream can yield the exit code
       onExit: (exitCode) => {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
-        if (entry) {
-          if (entry.idleTimer) clearTimeout(entry.idleTimer);
-          terminals.set(id, { ...entry, status: "exited", exitCode });
-        }
+        if (entry && entry.idleTimer) clearTimeout(entry.idleTimer);
         emitter.emit("exit", exitCode);
       },
       onCwd: (cwd) => emitter.emit("cwd", cwd),
@@ -109,7 +95,6 @@ export function createTerminal(cwd?: string): TerminalInfo {
   const entry: TerminalEntry = {
     handle,
     name,
-    status: "running",
     emitter,
     isActive: true,
     clipboardDir,
@@ -138,8 +123,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
-  const exitCode = entry.status === "exited" ? entry.exitCode : -1;
-  const info = toInfo(id, { ...entry, status: "exited", exitCode });
+  const info = toInfo(id, entry);
   terminals.delete(id);
   return info;
 }
@@ -147,7 +131,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 /** Set the theme name for a terminal. */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
-  if (entry) terminals.set(id, { ...entry, themeName });
+  if (entry) entry.themeName = themeName;
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
@@ -155,7 +139,7 @@ export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
-    if (entry.status === "running") entry.handle.dispose();
+    entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
   terminals.clear();

@@ -1,13 +1,12 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
-import type { TerminalId } from "kolu-common";
-import type { TerminalMeta } from "./useTerminals";
+import type { TerminalId, TerminalInfo } from "kolu-common";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => TerminalMeta | undefined;
+  getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
   onKill: (id: TerminalId) => void;
   onCreate: () => void;

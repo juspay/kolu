@@ -1,26 +1,22 @@
-/** Terminal session state: single store for all per-terminal metadata, sorted ID memo for ordering. */
+/** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
+import { createSignal } from "solid-js";
 
-/** Per-terminal metadata stored client-side. */
-export interface TerminalMeta {
-  name: string;
-  themeName?: string;
-  cwd?: CwdInfo;
-  isActive: boolean;
-}
+/** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
+type TerminalState = Omit<TerminalInfo, "id">;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals() {
   // Single store: all per-terminal metadata keyed by numeric ID.
   // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
-  const [meta, setMeta] = createStore<Record<TerminalId, TerminalMeta>>({});
+  const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
@@ -40,7 +36,7 @@ export function useTerminals() {
   );
 
   /** Get metadata for a terminal. */
-  function getMeta(id: TerminalId): TerminalMeta | undefined {
+  function getMeta(id: TerminalId): TerminalState | undefined {
     return meta[id];
   }
 
@@ -120,33 +116,30 @@ export function useTerminals() {
     }
   }
 
+  /** Convert a TerminalInfo (wire type) to store entry (strip id, used as key). */
+  function infoToState(t: TerminalInfo): TerminalState {
+    const { id: _, ...state } = t;
+    return state;
+  }
+
   // Restore existing terminals on page load (e.g. after browser refresh).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
     if (existing.length > 0) {
       // Build initial metadata store from server state
-      const initial: Record<TerminalId, TerminalMeta> = {};
-      for (const t of existing) {
-        initial[t.id] = {
-          name: t.name,
-          themeName: t.themeName,
-          isActive: t.status === "running" ? t.isActive : false,
-        };
-      }
+      const initial: Record<TerminalId, TerminalState> = {};
+      for (const t of existing) initial[t.id] = infoToState(t);
       setMeta(reconcile(initial));
 
-      // Keep persisted active terminal if it still exists; otherwise pick a running one
+      // Keep persisted active terminal if it still exists; otherwise pick first
       const persisted = activeId();
       const ids = terminalIds();
       if (persisted === null || !ids.includes(persisted)) {
-        const running = existing.find((t) => t.status === "running");
-        setActiveId(running?.id ?? ids[0] ?? null);
+        setActiveId(ids[0] ?? null);
       }
 
-      // Subscribe to live updates for running terminals
-      for (const t of existing) {
-        if (t.status === "running") subscribeAll(t.id);
-      }
+      // Subscribe to live updates for all terminals
+      for (const t of existing) subscribeAll(t.id);
     }
     return existing;
   });
@@ -154,7 +147,7 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    setMeta(info.id, { name: info.name, isActive: true });
+    setMeta(info.id, infoToState(info));
     setActiveId(info.id);
     subscribeAll(info.id);
   }

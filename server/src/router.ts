@@ -130,12 +130,6 @@ export const appRouter = t.router({
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 
-      // If already exited, yield immediately
-      if (entry.status === "exited") {
-        yield entry.exitCode;
-        return;
-      }
-
       // Use subscribeAndYield instead of events.once() — it handles abort
       // gracefully (clean return, no thrown AbortError) when clients disconnect.
       for await (const exitCode of subscribeAndYield<number>(
