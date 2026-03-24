@@ -253,15 +253,12 @@ const Terminal: Component<{
     // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();
 
-    // Send user input to PTY. Filter out terminal query responses — the server's
-    // headless xterm already answers these; duplicates arriving late over the
-    // network get printed as visible garbage.
-    // CSI: DA1/DA2/DSR/CPR (e.g. "62;4;9;22c")
-    // OSC: color queries like OSC 10/11/12 (e.g. "11;rgb:1d1d/1f1f/2121")
-    const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnR]/;
-    const oscResponse = /\x1b\]/;
+    // Filter terminal query responses from onData before sending to PTY.
+    // The server's headless xterm already answers these; duplicates arriving
+    // late over the network get printed as visible garbage.
+    const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
     term.onData((data: string) => {
-      if (csiResponse.test(data) || oscResponse.test(data)) return;
+      if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
