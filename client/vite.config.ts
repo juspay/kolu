@@ -5,17 +5,16 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
 
-const commitHash =
-  process.env.KOLU_COMMIT_HASH ||
-  (() => {
-    try {
-      return execSync("git rev-parse --short HEAD", {
-        encoding: "utf-8",
-      }).trim();
-    } catch {
-      return "dev";
-    }
-  })();
+let commitHash = process.env.KOLU_COMMIT_HASH;
+if (!commitHash) {
+  try {
+    commitHash = execSync("git rev-parse --short HEAD", {
+      encoding: "utf-8",
+    }).trim();
+  } catch {
+    commitHash = "dev";
+  }
+}
 
 const themesJsonPath = process.env.KOLU_THEMES_JSON;
 if (!themesJsonPath) {

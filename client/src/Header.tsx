@@ -46,17 +46,11 @@ const Header: Component<{
           />
         </svg>
       </button>
-      <img
-        src="/favicon.svg"
-        alt="kolu"
-        class="w-5 h-5"
-        title={`kolu @ ${__KOLU_COMMIT__}`}
-      />
-      <span
-        class="font-semibold text-sm hidden sm:inline"
-        title={`kolu @ ${__KOLU_COMMIT__}`}
-      >
-        {props.appTitle ?? "kolu"}
+      <span class="flex items-center gap-1" title={`kolu @ ${__KOLU_COMMIT__}`}>
+        <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
+        <span class="font-semibold text-sm hidden sm:inline">
+          {props.appTitle ?? "kolu"}
+        </span>
       </span>
       <Show when={props.cwd}>
         {(cwdInfo) => (
