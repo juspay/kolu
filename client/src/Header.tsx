@@ -50,7 +50,14 @@ const Header: Component<{
       <span class="font-semibold text-sm hidden sm:inline">
         {props.appTitle ?? "kolu"}
       </span>
-      <span class="text-xs text-fg-3">{__KOLU_COMMIT__}</span>
+      <a
+        href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="text-xs text-fg-3 hover:text-accent transition-colors"
+      >
+        {__KOLU_COMMIT__}
+      </a>
       <Show when={props.cwd}>
         {(cwdInfo) => (
           <span
