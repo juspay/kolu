@@ -261,6 +261,23 @@ const Terminal: Component<{
     // letting us intercept images while text paste falls through to xterm.
     // Uses the native paste event (not navigator.clipboard.read) so no explicit
     // clipboard-read permission is needed.
+    async function uploadPastedImage(file: File) {
+      const base64 = bufferToBase64(await file.arrayBuffer());
+      try {
+        await client.terminal.pasteImage({
+          id: props.terminalId,
+          data: base64,
+        });
+      } catch (err) {
+        console.error("Failed to upload clipboard image:", err);
+      }
+      // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
+      void client.terminal.sendInput({
+        id: props.terminalId,
+        data: "\x16",
+      });
+    }
+
     makeEventListener(
       containerRef,
       "paste",
@@ -268,37 +285,17 @@ const Terminal: Component<{
         const items = e.clipboardData?.items;
         if (!items) return;
 
-        let imageFile: File | null = null;
-        for (const item of items) {
-          if (item.type.startsWith("image/")) {
-            imageFile = item.getAsFile();
-            break;
-          }
-        }
-        if (!imageFile) return; // No image — let xterm handle text paste
+        const imageItem = Array.from(items).find((i) =>
+          i.type.startsWith("image/"),
+        );
+        const file = imageItem?.getAsFile();
+        if (!file) return; // No image — let xterm handle text paste
 
         // Must stop propagation synchronously before the async upload,
         // otherwise xterm's paste handler would paste the image as garbled text.
         e.stopPropagation();
         e.preventDefault();
-
-        const file = imageFile;
-        void (async () => {
-          const base64 = bufferToBase64(await file.arrayBuffer());
-          try {
-            await client.terminal.pasteImage({
-              id: props.terminalId,
-              data: base64,
-            });
-          } catch (err) {
-            console.error("Failed to upload clipboard image:", err);
-          }
-          // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
-          void client.terminal.sendInput({
-            id: props.terminalId,
-            data: "\x16",
-          });
-        })();
+        void uploadPastedImage(file);
       },
       { capture: true },
     );
