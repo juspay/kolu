@@ -2,29 +2,32 @@ import { When } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 
 /**
- * Upload a small test image (4-byte PNG-like payload) to the active terminal
- * via the pasteImage RPC endpoint. The shim scripts will serve this data
- * when xclip/wl-paste are called inside the PTY.
+ * Simulate the full image paste flow: write a valid PNG to the browser
+ * clipboard, then press Ctrl+V so the browser fires a real paste event
+ * with the image in clipboardData. The terminal's capture-phase paste
+ * listener reads it and uploads to the server shim.
+ *
+ * Only clipboard-write permission is needed (for test setup). The paste
+ * event provides clipboard data without clipboard-read permission —
+ * matching production behavior.
  */
-When(
-  "I upload a test image to the active terminal",
-  async function (this: KoluWorld) {
-    const container = this.page.locator("[data-visible][data-terminal-id]");
-    const rawId = await container.getAttribute("data-terminal-id");
-    if (!rawId) throw new Error("No active terminal found");
+When("I paste an image into the terminal", async function (this: KoluWorld) {
+  // Write a 1×1 PNG to the system clipboard
+  await this.page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(1, 1);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "red";
+    ctx.fillRect(0, 0, 1, 1);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+  });
 
-    // 4 bytes of test data so "wc -c" returns "4"
-    const base64Data = Buffer.from([0x01, 0x02, 0x03, 0x04]).toString("base64");
+  // Focus the terminal and press Ctrl+V — the browser fires a real paste
+  // event with the clipboard image data (no clipboard-read needed).
+  await this.canvas.click();
+  await this.page.keyboard.press("Control+v");
 
-    const resp = await this.page.request.fetch("/rpc/terminal/pasteImage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { id: Number(rawId), data: base64Data } }),
-    });
-    if (!resp.ok()) {
-      throw new Error(
-        `pasteImage RPC failed: ${resp.status()} ${await resp.text()}`,
-      );
-    }
-  },
-);
+  // Wait for the async upload RPC to complete (goes over WebSocket,
+  // so Playwright's waitForResponse can't observe it).
+  await this.page.waitForTimeout(1500);
+});
