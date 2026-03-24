@@ -271,12 +271,12 @@ const Terminal: Component<{
     // If the default 80×24 matches the container, no event fires — sync manually.
     void syncResize();
 
-    // Send user input to PTY. Filter out DA1/DA2/DSR responses — the server's
-    // headless xterm already answers these; a duplicate arriving late over the
-    // network gets printed as visible garbage (e.g. "62;4;9;22c").
-    const deviceResponse = /\x1b\[[\?>=]?[\d;]*[cnR]/;
+    // Filter terminal query responses from onData before sending to PTY.
+    // The server's headless xterm already answers these; duplicates arriving
+    // late over the network get printed as visible garbage.
+    const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
     term.onData((data: string) => {
-      if (deviceResponse.test(data)) return;
+      if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
       void client.terminal.sendInput({ id: props.terminalId, data });
     });
 
