@@ -19,6 +19,7 @@ const Header: Component<{
   cwd?: CwdInfo | null;
   onToggleSidebar?: () => void;
   onShortcutsHelp?: () => void;
+  onSearch?: () => void;
   renderer?: string;
   appTitle?: string;
 }> = (rawProps) => {
@@ -81,6 +82,25 @@ const Header: Component<{
             {props.themeName}
           </button>
         )}
+        <button
+          class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          onClick={() => props.onSearch?.()}
+          title={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </button>
         <button
           data-testid="palette-trigger"
           class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"

@@ -110,6 +110,7 @@ const App: Component = () => {
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
+        onSearch={() => setSearchOpen(true)}
         renderer={renderer()}
         appTitle={appTitle()}
       />
