@@ -100,10 +100,7 @@ const Sidebar: Component<{
                         {cwdBasename(cwdInfo().cwd)}
                         <Show when={cwdInfo().git}>
                           {(git) => (
-                            <span
-                              class="text-fg-3"
-                              data-testid="sidebar-branch"
-                            >
+                            <span data-testid="sidebar-branch">
                               {" "}
                               &middot; {git().branch}
                             </span>
