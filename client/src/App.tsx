@@ -44,8 +44,20 @@ const App: Component = () => {
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
-  const { webViewOpen, toggleWebView, webViewUrl, setWebViewUrl } =
-    useWebView();
+  const {
+    openUrl,
+    toggleWebView: toggleWebViewForId,
+    setUrl: setWebViewUrl,
+    closeWebView,
+    activeWebViewOpen,
+    activeWebViewUrl,
+  } = useWebView(activeId);
+
+  /** Toggle web view for the active terminal. */
+  function toggleWebView() {
+    const id = activeId();
+    if (id !== null) toggleWebViewForId(id);
+  }
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -131,6 +143,7 @@ const App: Component = () => {
                 )}
                 searchOpen={searchOpen()}
                 onSearchOpenChange={setSearchOpen}
+                onOpenUrl={(url) => openUrl(id, url)}
               />
             )}
           </For>
@@ -170,7 +183,7 @@ const App: Component = () => {
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
         onToggleWebView={toggleWebView}
-        webViewOpen={webViewOpen()}
+        webViewOpen={activeWebViewOpen()}
         renderer={renderer()}
         appTitle={appTitle()}
       />
@@ -187,7 +200,7 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* Terminal area + optional web view split */}
-        {webViewOpen() ? (
+        {activeWebViewOpen() ? (
           <Resizable orientation="horizontal" class="flex-1 min-h-0 min-w-0">
             <Resizable.Panel
               initialSize={0.6}
@@ -202,9 +215,15 @@ const App: Component = () => {
             />
             <Resizable.Panel initialSize={0.4} minSize={0.15} class="min-w-0">
               <WebView
-                url={webViewUrl()}
-                onUrlChange={setWebViewUrl}
-                onClose={toggleWebView}
+                url={activeWebViewUrl()}
+                onUrlChange={(url) => {
+                  const id = activeId();
+                  if (id !== null) setWebViewUrl(id, url);
+                }}
+                onClose={() => {
+                  const id = activeId();
+                  if (id !== null) closeWebView(id);
+                }}
               />
             </Resizable.Panel>
           </Resizable>

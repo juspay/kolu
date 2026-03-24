@@ -32,7 +32,6 @@ import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
-import { useWebView } from "./useWebView";
 import SearchBar from "./SearchBar";
 
 const FONT_SIZE_KEY = "kolu-font-size";
@@ -71,8 +70,8 @@ const Terminal: Component<{
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
+  onOpenUrl: (url: string) => void;
 }> = (props) => {
-  const { openUrl } = useWebView();
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
@@ -176,7 +175,7 @@ const Terminal: Component<{
     term.loadAddon(
       new WebLinksAddon((event: MouseEvent, uri: string) => {
         if (event.ctrlKey || event.metaKey) {
-          openUrl(uri);
+          props.onOpenUrl(uri);
         } else {
           window.open(uri, "_blank");
         }

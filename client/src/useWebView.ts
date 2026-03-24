@@ -1,31 +1,79 @@
-/** Web view panel state — singleton module. Persists URL and open state to localStorage. */
+/** Per-terminal web view state — keyed store persisted to localStorage. */
 
-import { createSignal } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
+import { createStore } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
+import type { TerminalId } from "kolu-common";
 
-const [webViewOpen, setWebViewOpen] = makePersisted(createSignal(false), {
-  name: "kolu-webview-open",
-  serialize: String,
-  deserialize: (s) => s === "true",
-});
-
-const [webViewUrl, setWebViewUrl] = makePersisted(createSignal(""), {
-  name: "kolu-webview-url",
-});
-
-/** Set URL and open the panel. */
-function openUrl(url: string) {
-  setWebViewUrl(url);
-  setWebViewOpen(true);
+interface WebViewState {
+  url: string;
+  open: boolean;
 }
 
-export function useWebView() {
+const [store, setStore] = makePersisted(
+  createStore<Record<TerminalId, WebViewState>>({}),
+  { name: "kolu-webview" },
+);
+
+/**
+ * Per-terminal web view state hook.
+ * Takes `activeId` accessor from useTerminals to derive active terminal's web view state.
+ */
+export function useWebView(activeId: Accessor<TerminalId | null>) {
+  /** Get web view state for a specific terminal. */
+  function getState(id: TerminalId): WebViewState | undefined {
+    return store[id];
+  }
+
+  /** Set URL and open the panel for a specific terminal. */
+  function openUrl(id: TerminalId, url: string) {
+    setStore(id, { url, open: true });
+  }
+
+  /** Toggle the web view panel for a specific terminal. */
+  function toggleWebView(id: TerminalId) {
+    const current = store[id];
+    if (current) {
+      setStore(id, "open", !current.open);
+    } else {
+      setStore(id, { url: "", open: true });
+    }
+  }
+
+  /** Set the URL for a specific terminal (without changing open state). */
+  function setUrl(id: TerminalId, url: string) {
+    const current = store[id];
+    if (current) {
+      setStore(id, "url", url);
+    } else {
+      setStore(id, { url, open: true });
+    }
+  }
+
+  /** Close the web view panel for a specific terminal. */
+  function closeWebView(id: TerminalId) {
+    const current = store[id];
+    if (current) setStore(id, "open", false);
+  }
+
+  // Derived memos for the active terminal
+  const activeWebViewOpen = createMemo(() => {
+    const id = activeId();
+    return id !== null && (store[id]?.open ?? false);
+  });
+
+  const activeWebViewUrl = createMemo(() => {
+    const id = activeId();
+    return id !== null ? (store[id]?.url ?? "") : "";
+  });
+
   return {
-    webViewOpen,
-    setWebViewOpen,
-    toggleWebView: () => setWebViewOpen((prev) => !prev),
-    webViewUrl,
-    setWebViewUrl,
+    getState,
     openUrl,
+    toggleWebView,
+    setUrl,
+    closeWebView,
+    activeWebViewOpen,
+    activeWebViewUrl,
   } as const;
 }

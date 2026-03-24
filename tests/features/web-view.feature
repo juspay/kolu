@@ -59,6 +59,26 @@ Feature: Web View
     Then the canvas should be wider than before
     And there should be no page errors
 
+  Scenario: Independent per-terminal web view state
+    # Create two terminals explicitly so we can switch between them by index
+    When I create a terminal
+    # Terminal 1 — open web view with URL A
+    When I press the toggle web view shortcut
+    And I enter "about:blank" in the web view URL bar
+    Then the web view panel should be visible
+    # Create terminal 2
+    When I create a terminal
+    Then the web view panel should not be visible
+    # Open web view on terminal 2 with a different URL
+    When I press the toggle web view shortcut
+    And I enter "about:srcdoc" in the web view URL bar
+    Then the web view URL bar should contain "about:srcdoc"
+    # Switch back to terminal 1 — should show terminal 1's URL
+    When I select terminal 1 in the sidebar
+    Then the web view panel should be visible
+    And the web view URL bar should contain "about:blank"
+    And there should be no page errors
+
   # Ctrl+Click on terminal URLs is handled by xterm's WebLinksAddon with a custom
   # handler. Testing this reliably in headless mode is impractical because link
   # detection requires precise hover coordinates on the WebGL canvas. The handler
