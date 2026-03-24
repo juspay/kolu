@@ -3,12 +3,12 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { CwdInfo } from "kolu-common";
+import type { TerminalId, CwdInfo } from "kolu-common";
 
 interface ShortcutDeps {
-  terminalIds: Accessor<string[]>;
-  activeId: Accessor<string | null>;
-  setActiveId: Setter<string | null>;
+  terminalIds: Accessor<TerminalId[]>;
+  activeId: Accessor<TerminalId | null>;
+  setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
   activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
@@ -77,7 +77,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   const ids = deps.terminalIds();
   if (ids.length === 0) return;
-  const current = ids.indexOf(deps.activeId() ?? "");
+  const current = ids.indexOf(deps.activeId() ?? -1);
   const next = (current + direction + ids.length) % ids.length;
   deps.setActiveId(ids[next]!);
 }

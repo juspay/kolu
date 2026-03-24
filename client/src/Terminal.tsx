@@ -28,6 +28,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import type { TerminalId } from "kolu-common";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
@@ -67,7 +68,7 @@ function bufferToBase64(buf: ArrayBuffer): string {
  * If no image is found or the Clipboard API is unavailable, \x16 is
  * still forwarded so text-mode Ctrl+V works unchanged.
  */
-async function uploadClipboardImage(terminalId: string): Promise<void> {
+async function uploadClipboardImage(terminalId: TerminalId): Promise<void> {
   // Read clipboard — expected to fail (permission denied, API unavailable, no image).
   // Errors here are normal; only the RPC upload should surface failures.
   let base64: string | undefined;
@@ -95,7 +96,7 @@ async function uploadClipboardImage(terminalId: string): Promise<void> {
 }
 
 const Terminal: Component<{
-  terminalId: string;
+  terminalId: TerminalId;
   visible: boolean;
   theme: ITheme;
 }> = (props) => {

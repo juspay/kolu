@@ -1,21 +1,20 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
-import type { CwdInfo } from "kolu-common";
-import type { TerminalHandle } from "./useTerminals";
+import type { TerminalId } from "kolu-common";
+import type { TerminalMeta } from "./useTerminals";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
-  terminals: TerminalHandle[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-  onKill: (id: string) => void;
+  terminalIds: TerminalId[];
+  activeId: TerminalId | null;
+  getMeta: (id: TerminalId) => TerminalMeta | undefined;
+  onSelect: (id: TerminalId) => void;
+  onKill: (id: TerminalId) => void;
   onCreate: () => void;
   open: boolean;
   onClose: () => void;
-  getCwd: (id: string) => CwdInfo | undefined;
-  getActive: (id: string) => boolean;
 }> = (props) => {
-  function handleSelect(id: string) {
+  function handleSelect(id: TerminalId) {
     props.onSelect(id);
     // Auto-close on mobile
     if (window.innerWidth < 640) {
@@ -54,66 +53,69 @@ const Sidebar: Component<{
           + New terminal
         </button>
         <nav class="flex-1 overflow-y-auto">
-          <For each={props.terminals}>
-            {({ id, name }) => (
-              <button
-                data-terminal-id={id}
-                class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
-                classList={{
-                  "border-accent bg-surface-2/50 text-fg":
-                    props.activeId === id,
-                  "border-transparent text-fg-2 hover:text-fg hover:bg-surface-2":
-                    props.activeId !== id,
-                }}
-                onClick={() => handleSelect(id)}
-                // Prevent button from stealing focus — terminal canvas must keep focus
-                // so keyboard input flows to the PTY, even when clicking the already-active tab.
-                onMouseDown={(e) => e.preventDefault()}
-                title={props.getCwd(id)?.cwd ?? id}
-              >
-                <div class="flex items-center gap-1.5">
-                  <span
-                    data-testid="activity-indicator"
-                    class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-                    classList={{
-                      "bg-ok animate-activity-pulse": props.getActive(id),
-                      "bg-fg-3": !props.getActive(id),
-                    }}
-                  />
-                  <span class="flex-1">{name}</span>
-                  <span
-                    data-testid="close-terminal"
-                    class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm("Close this terminal?")) props.onKill(id);
-                    }}
-                    onMouseDown={(e) => e.preventDefault()}
-                    title="Close terminal"
-                  >
-                    ×
-                  </span>
-                </div>
-                <Show when={props.getCwd(id)}>
-                  {(cwdInfo) => (
-                    <div class="text-xs text-fg-3 truncate ml-3.5">
-                      {cwdBasename(cwdInfo().cwd)}
-                      <Show when={cwdInfo().git}>
-                        {(git) => (
-                          <span
-                            class="text-fg-3/60"
-                            data-testid="sidebar-branch"
-                          >
-                            {" "}
-                            &middot; {git().branch}
-                          </span>
-                        )}
-                      </Show>
-                    </div>
-                  )}
-                </Show>
-              </button>
-            )}
+          <For each={props.terminalIds}>
+            {(id) => {
+              const m = () => props.getMeta(id);
+              return (
+                <button
+                  data-terminal-id={id}
+                  class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
+                  classList={{
+                    "border-accent bg-surface-2/50 text-fg":
+                      props.activeId === id,
+                    "border-transparent text-fg-2 hover:text-fg hover:bg-surface-2":
+                      props.activeId !== id,
+                  }}
+                  onClick={() => handleSelect(id)}
+                  // Prevent button from stealing focus — terminal canvas must keep focus
+                  // so keyboard input flows to the PTY, even when clicking the already-active tab.
+                  onMouseDown={(e) => e.preventDefault()}
+                  title={m()?.cwd?.cwd ?? String(id)}
+                >
+                  <div class="flex items-center gap-1.5">
+                    <span
+                      data-testid="activity-indicator"
+                      class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
+                      classList={{
+                        "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+                        "bg-fg-3": !(m()?.isActive ?? false),
+                      }}
+                    />
+                    <span class="flex-1">{m()?.name ?? `Terminal ${id}`}</span>
+                    <span
+                      data-testid="close-terminal"
+                      class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("Close this terminal?")) props.onKill(id);
+                      }}
+                      onMouseDown={(e) => e.preventDefault()}
+                      title="Close terminal"
+                    >
+                      ×
+                    </span>
+                  </div>
+                  <Show when={m()?.cwd}>
+                    {(cwdInfo) => (
+                      <div class="text-xs text-fg-3 truncate ml-3.5">
+                        {cwdBasename(cwdInfo().cwd)}
+                        <Show when={cwdInfo().git}>
+                          {(git) => (
+                            <span
+                              class="text-fg-3/60"
+                              data-testid="sidebar-branch"
+                            >
+                              {" "}
+                              &middot; {git().branch}
+                            </span>
+                          )}
+                        </Show>
+                      </div>
+                    )}
+                  </Show>
+                </button>
+              );
+            }}
           </For>
         </nav>
       </aside>

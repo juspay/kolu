@@ -24,19 +24,16 @@ import { useShortcuts } from "./useShortcuts";
 
 const App: Component = () => {
   const {
-    terminals,
     terminalIds,
     activeId,
     setActiveId,
+    getMeta,
     activeThemeName,
     activeTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
     handleKill,
-    getTerminalThemeName,
-    getTerminalCwd,
-    getTerminalActive,
     commands,
   } = useTerminals();
 
@@ -112,15 +109,14 @@ const App: Component = () => {
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Sidebar
-          terminals={terminals()}
+          terminalIds={terminalIds()}
           activeId={activeId()}
+          getMeta={getMeta}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
           open={sidebarOpen()}
           onClose={closeSidebar}
-          getCwd={getTerminalCwd}
-          getActive={getTerminalActive}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-1">
@@ -157,7 +153,9 @@ const App: Component = () => {
                     <Terminal
                       terminalId={id}
                       visible={activeId() === id}
-                      theme={getThemeByName(getTerminalThemeName(id))}
+                      theme={getThemeByName(
+                        getMeta(id)?.themeName ?? activeThemeName(),
+                      )}
                     />
                   )}
                 </For>

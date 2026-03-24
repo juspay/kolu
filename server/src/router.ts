@@ -25,7 +25,7 @@ import { toCwdInfo } from "./git.ts";
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
-function requireTerminal(id: string): TerminalEntry {
+function requireTerminal(id: number): TerminalEntry {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;

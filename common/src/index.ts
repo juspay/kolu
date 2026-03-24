@@ -5,7 +5,7 @@ import { z } from "zod";
 
 // --- Zod schemas ---
 
-const TerminalIdSchema = z.string();
+const TerminalIdSchema = z.number().int();
 
 // Shared fields spread into each discriminant variant
 const terminalBaseFields = {
