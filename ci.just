@@ -53,8 +53,8 @@ _host:
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
-    trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
     just ci::_guard
+    trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
     just ci::_signoff "{{ name }}@{{ system }}" pending
     esc=$'\033'
     name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
