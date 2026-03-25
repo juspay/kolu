@@ -1,9 +1,15 @@
-# CI steps — pure just + gh, no external CI tool needed.
+# CI steps — pure just + gh + ssh, no external CI tool needed.
 
 sha := `git rev-parse HEAD`
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
+system := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
+local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 
-default: nix-toplevel nix-home e2e
+default:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    CI_SYSTEM=x86_64-linux just ci::nix-toplevel ci::nix-home ci::e2e
+    CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e
 
 # Post GitHub commit status
 _signoff name status:
@@ -23,19 +29,44 @@ _guard:
         exit 1
     fi
 
+# Look up SSH host for current system, prompting on first use. Saved to .ci.json.
+_host:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    config=".ci.json"
+    if [[ ! -f "$config" ]]; then
+        echo '{"hosts":{}}' > "$config"
+    fi
+    host=$(jq -r ".hosts.\"{{ system }}\" // empty" "$config")
+    if [[ -z "$host" ]]; then
+        read -p "Enter SSH hostname for {{ system }}: " host
+        jq ".hosts.\"{{ system }}\" = \"$host\"" "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+        echo "Saved to $config" >&2
+    fi
+    echo "$host"
+
 # Run command with GitHub status lifecycle (pending → success/failure)
-# Output is colored and prefixed with [name] for readability.
+# Routes to local exec or remote (git archive + ssh) based on system.
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
-    trap 'just ci::_signoff "{{ name }}" failure' ERR
+    trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
     just ci::_guard
-    just ci::_signoff "{{ name }}" pending
+    just ci::_signoff "{{ name }}@{{ system }}" pending
     esc=$'\033'
     color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
-    prefix=$(printf "%-9s" "{{ name }}")
-    {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
-    just ci::_signoff "{{ name }}" success
+    prefix=$(printf "%-24s" "{{ name }}@{{ system }}")
+    if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+        {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
+    else
+        host=$(just ci::_host)
+        tmp=$(ssh "$host" mktemp -d)
+        trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
+        git archive {{ sha }} | ssh "$host" "tar -C $tmp -x"
+        ssh "$host" "cd $tmp && {{ cmd }}" 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
+        ssh "$host" "rm -rf $tmp"
+    fi
+    just ci::_signoff "{{ name }}@{{ system }}" success
 
 # Build all flake outputs via devour-flake. Sub-flakes (path != ".") get --override-input flake/kolu .
 _devour-flake name path:
