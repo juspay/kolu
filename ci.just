@@ -57,16 +57,18 @@ _run name +cmd:
     color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
     prefix=$(printf "%-24s" "{{ name }}@{{ system }}")
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+        icon="⌂"
         echo "${esc}[${color}m▶ {{ name }}@{{ system }} (local)${esc}[0m"
-        {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
+        {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m${icon} [${prefix}]${esc}[0m |"
     else
+        icon="⇄"
         host=$(just ci::_host)
         echo "${esc}[${color}m▶ {{ name }}@{{ system }} (ssh: $host)${esc}[0m"
         tmp=$(ssh "$host" mktemp -d)
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all | ssh "$host" "cat > $tmp/repo.bundle && git clone $tmp/repo.bundle $tmp/src && cd $tmp/src && git checkout {{ sha }}"
-        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
+        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|${esc}[${color}m${icon} [${prefix}]${esc}[0m |"
         ssh "$host" "rm -rf $tmp"
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
