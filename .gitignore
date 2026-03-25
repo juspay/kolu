@@ -7,4 +7,4 @@ result
 .pre-commit-config.yaml
 test-results/
 tests/reports/
-client/public/fonts/
+client/public/fonts
