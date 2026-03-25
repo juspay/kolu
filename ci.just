@@ -57,21 +57,32 @@ _run name +cmd:
     just ci::_guard
     just ci::_signoff "{{ name }}@{{ system }}" pending
     esc=$'\033'
-    color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
-    prefix=$(printf "%-24s" "{{ name }}@{{ system }}")
+    name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
+    sys_color=$((31 + $(printf '%s' '{{ system }}' | cksum | cut -d' ' -f1) % 6))
+    # Ensure system color differs from name color
+    if [[ "$sys_color" == "$name_color" ]]; then
+        sys_color=$(( (sys_color - 31 + 3) % 6 + 31 ))
+    fi
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         icon="⌂"
-        echo "${esc}[${color}m▶ {{ name }}@{{ system }} (local)${esc}[0m"
-        {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m${icon} [${prefix}]${esc}[0m |"
     else
         icon="⇄"
+    fi
+    prefix="${esc}[${name_color}m{{ name }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m"
+    # Pad with spaces to align (visible length: name + @ + icon + space + system = +2 for icon+space)
+    visible="{{ name }}@x {{ system }}"
+    padding=$(printf "%-$((26 - ${#visible}))s" "")
+    if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+        echo "▶ ${prefix}"
+        {{ cmd }} 2>&1 | sed "s|^|[${prefix}${padding}] |"
+    else
         host=$(just ci::_host)
-        echo "${esc}[${color}m▶ {{ name }}@{{ system }} (ssh: $host)${esc}[0m"
+        echo "▶ ${prefix} ($host)"
         tmp=$(ssh "$host" mktemp -d)
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all | ssh "$host" "cat > $tmp/repo.bundle && git clone $tmp/repo.bundle $tmp/src && cd $tmp/src && git checkout {{ sha }}"
-        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|${esc}[${color}m${icon} [${prefix}]${esc}[0m |"
+        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|[${prefix}${padding}] |"
         ssh "$host" "rm -rf $tmp"
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
