@@ -126,3 +126,28 @@ _summary:
 # Build all flake outputs via devour-flake
 _devour-flake name +args:
     just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths {{ args }}
+
+# Set up branch protection requiring all CI status checks posted for the current sha
+protect branch=`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    contexts=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq \
+      '[.[].context | select(startswith("ci/"))] | unique | .[]')
+    if [[ -z "$contexts" ]]; then
+        echo "ERROR: no CI statuses found for {{ sha }} — run CI first" >&2
+        exit 1
+    fi
+    echo "Setting required status checks on {{ branch }}:"
+    args=()
+    while IFS= read -r ctx; do
+        echo "  - $ctx"
+        args+=(-f "required_status_checks[checks][][context]=$ctx")
+    done <<< "$contexts"
+    gh api "repos/{{ repo }}/branches/{{ branch }}/protection" -X PUT \
+      -F "required_status_checks[strict]=true" \
+      "${args[@]}" \
+      -F "enforce_admins=false" \
+      -F "restrictions=null" \
+      -F "required_pull_request_reviews=null" \
+      --silent
+    echo "Done — {{ branch }} now requires CI to pass."
