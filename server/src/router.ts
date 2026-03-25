@@ -20,7 +20,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
-import { toCwdInfo } from "./git.ts";
+import { toCwdInfo, listWorktrees } from "./git.ts";
 
 const t = implement(contract);
 
@@ -36,6 +36,11 @@ export const appRouter = t.router({
     info: t.server.info.handler(async () => ({
       hostname: serverHostname,
     })),
+  },
+  git: {
+    listWorktrees: t.git.listWorktrees.handler(async ({ input }) =>
+      listWorktrees(input.repoRoot),
+    ),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

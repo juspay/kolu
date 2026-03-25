@@ -63,6 +63,20 @@ export const TerminalPasteImageInputSchema = z.object({
   data: z.string(),
 });
 
+// --- Git worktree ---
+
+export const WorktreeEntrySchema = z.object({
+  path: z.string(),
+  branch: z.string().nullable(),
+  isBare: z.boolean(),
+});
+
+export const WorktreeListInputSchema = z.object({
+  repoRoot: z.string(),
+});
+
+export const WorktreeListOutputSchema = z.array(WorktreeEntrySchema);
+
 export const ServerInfoSchema = z.object({
   hostname: z.string(),
 });
@@ -74,3 +88,4 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type CwdInfo = z.infer<typeof CwdInfoSchema>;
+export type WorktreeEntry = z.infer<typeof WorktreeEntrySchema>;

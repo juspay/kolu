@@ -25,6 +25,24 @@
   --animate-activity-pulse: activity-pulse 600ms ease-out;
 }
 
+/* Disclosure expand/collapse animations (Corvu provides --corvu-disclosure-content-height) */
+@keyframes expand {
+  0% {
+    height: 0px;
+  }
+  100% {
+    height: var(--corvu-disclosure-content-height);
+  }
+}
+@keyframes collapse {
+  0% {
+    height: var(--corvu-disclosure-content-height);
+  }
+  100% {
+    height: 0px;
+  }
+}
+
 /* Brief pulse when a terminal becomes active in the background */
 @keyframes activity-pulse {
   0% {

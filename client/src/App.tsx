@@ -18,6 +18,7 @@ import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import InfoPanel from "./InfoPanel";
 import { getThemeByName } from "./theme";
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
@@ -126,6 +127,7 @@ const App: Component = () => {
         renderer={renderer()}
         appTitle={appTitle()}
       />
+      <InfoPanel cwd={activeCwd()} />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Sidebar
