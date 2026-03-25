@@ -3,7 +3,7 @@
 sha := `git rev-parse HEAD`
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 
-default: (_devour-flake "nix" ".") (_devour-flake "nix/home" "./nix/home/example") e2e
+default: nix-toplevel nix-home e2e
 
 # Post GitHub commit status
 _signoff name status:
@@ -33,5 +33,11 @@ _devour-flake name path:
     fi
     just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths $args
 
-e2e: (_devour-flake "nix" ".")
+nix-toplevel:
+    just ci::_devour-flake nix .
+
+nix-home: nix-toplevel
+    just ci::_devour-flake nix/home ./nix/home/example
+
+e2e: nix-toplevel
     just ci::_run e2e just test
