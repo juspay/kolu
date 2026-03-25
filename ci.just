@@ -11,12 +11,16 @@ _signoff name status:
       -f state="{{ status }}" -f context="ci/{{ name }}" --silent
 
 # Run command with GitHub status lifecycle (pending → success/failure)
+# Output is colored and prefixed with [name] for readability.
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
     trap 'just ci::_signoff "{{ name }}" failure' ERR
     just ci::_signoff "{{ name }}" pending
-    {{ cmd }}
+    esc=$'\033'
+    color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
+    prefix=$(printf "%-9s" "{{ name }}")
+    {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
     just ci::_signoff "{{ name }}" success
 
 nix:
