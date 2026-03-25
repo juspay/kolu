@@ -23,7 +23,7 @@ _guard:
 _host:
     #!/usr/bin/env bash
     set -euo pipefail
-    config=".ci.json"
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/ci-hosts.json"
     if [[ ! -f "$config" ]]; then
         echo '{"hosts":{}}' > "$config"
     fi
