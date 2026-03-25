@@ -15,6 +15,8 @@ Run `just ci` to build and test across all systems. It:
 - Posts GitHub commit statuses per step
 - Prints a summary table at the end
 
+**Always run CI in background** (`run_in_background`). Builds take several minutes.
+
 Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
 Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 
