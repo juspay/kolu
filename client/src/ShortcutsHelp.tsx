@@ -13,6 +13,9 @@ const DISPLAY_SHORTCUTS = [
   SHORTCUTS.prevTerminal,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
   SHORTCUTS.findInTerminal,
+  SHORTCUTS.zoomIn,
+  SHORTCUTS.zoomOut,
+  SHORTCUTS.zoomReset,
   SHORTCUTS.shortcutsHelp,
 ];
 
