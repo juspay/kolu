@@ -1,10 +1,11 @@
 # Reusable CI library — pure just + gh + ssh.
 # Expects the importer to define: sha, repo, system, local_system, root, systems (space-separated)
 
-# Resolve all SSH hosts before running steps (prompts user if unconfigured)
+# Preflight: guard checks + resolve SSH hosts before running steps
 _preflight:
     #!/usr/bin/env bash
     set -euo pipefail
+    just ci::_guard
     for sys in {{ systems }}; do
         if [[ "$sys" != "{{ local_system }}" ]]; then
             CI_SYSTEM="$sys" just ci::_host > /dev/null
@@ -54,6 +55,7 @@ _host:
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
+    # Re-check guard per step: user may have dirtied the repo mid-run
     just ci::_guard
     trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
     just ci::_signoff "{{ name }}@{{ system }}" pending
