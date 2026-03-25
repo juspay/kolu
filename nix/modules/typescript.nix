@@ -65,9 +65,7 @@
           node-gyp rebuild
           popd
 
-          rm -rf client/public/fonts
-          mkdir -p client/public/fonts
-          cp -r $KOLU_FONTS_DIR/* client/public/fonts/
+          ln -sfn $KOLU_FONTS_DIR client/public/fonts
           pnpm --filter kolu-client build
           runHook postBuild
         '';
