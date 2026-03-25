@@ -13,7 +13,7 @@ Use the localci MCP tools — never run build/test commands directly.
 1. Make changes, commit
 2. Start CI by calling each step tool in parallel (list available tools to see them)
 3. Poll `mcp__localci__status-all` (every 10s) to check progress until all complete
-    - Do NOT call `status-all` before starting steps — it only polls, doesn't start anything.
+   - Do NOT call `status-all` before starting steps — it only polls, doesn't start anything.
 4. If failures: fix, commit, re-start failed steps
 5. Once green and pushed: steps auto-post GitHub statuses
 
