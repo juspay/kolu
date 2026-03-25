@@ -1,6 +1,9 @@
 # CI steps for localci (https://github.com/srid/localci)
 # Each recipe declares target systems and dependencies via metadata attributes.
 
+default:
+    @echo "ERR: Must be run through srid/localci"
+
 [metadata("systems", "x86_64-linux", "aarch64-darwin")]
 nix:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
