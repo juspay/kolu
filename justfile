@@ -6,7 +6,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' 
 localci_ref := "justfile-config"
 localci := "nix run github:srid/localci/" + localci_ref + " --"
 
-mod ci
+mod ci 'ci/'
 
 # List available recipes
 default:
