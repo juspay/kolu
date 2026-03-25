@@ -8,8 +8,6 @@ A web-based terminal multiplexer for managing multiple repos and branches in par
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
-<img width="2446" height="2030" alt="image" src="https://github.com/user-attachments/assets/5d6bbb17-25c4-4c04-9389-66004dee3b9c" />
-
 ## Features
 
 - **Multi-terminal** — create, switch, and kill terminals from a collapsible sidebar
