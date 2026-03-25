@@ -42,6 +42,17 @@ Feature: Kill terminal
     And the terminal canvas should be visible
     And there should be no page errors
 
+  Scenario: Killed terminal stays gone after browser refresh
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I close terminal 1 via sidebar
+    Then the sidebar should have 1 terminal entry
+    When I refresh the page
+    Then the sidebar should have 1 terminal entry
+    And the terminal canvas should be visible
+    And there should be no page errors
+
   Scenario: Natural PTY exit removes terminal
     When I open the app
     And I create a terminal
