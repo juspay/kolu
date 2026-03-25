@@ -1,6 +1,6 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
 # localci branch/ref to use (override: just localci_ref=main run-ci)
 localci_ref := "justfile-config"
