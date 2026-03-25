@@ -9,6 +9,7 @@
 ## Local CI
 
 Run `just ci` to build and test across all systems. It:
+
 - Runs preflight checks (clean worktree, commit pushed)
 - Builds on x86_64-linux and aarch64-darwin in parallel
 - Posts GitHub commit statuses per step
