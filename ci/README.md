@@ -84,11 +84,11 @@ just ci::_summary    # show current status table
 
 The library expects these variables from the importer:
 
-| Variable | Description |
-|---|---|
-| `sha` | Git commit SHA to test |
-| `repo` | GitHub `owner/repo` |
-| `system` | Current nix system (overridable via `CI_SYSTEM`) |
-| `local_system` | The machine's native nix system |
-| `root` | Git repo root path |
-| `systems` | Space-separated list of all target systems |
+| Variable       | Description                                      |
+| -------------- | ------------------------------------------------ |
+| `sha`          | Git commit SHA to test                           |
+| `repo`         | GitHub `owner/repo`                              |
+| `system`       | Current nix system (overridable via `CI_SYSTEM`) |
+| `local_system` | The machine's native nix system                  |
+| `root`         | Git repo root path                               |
+| `systems`      | Space-separated list of all target systems       |
