@@ -16,16 +16,16 @@ default: _run-all
 _run-all: _linux _darwin
 
 _linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix-toplevel ci::nix-home ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
 
 _darwin: _preflight
-    CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e || true
+    CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
 
-nix-toplevel:
-    just ci::_devour-flake nix-toplevel --override-input flake .
+nix:
+    just ci::_devour-flake nix --override-input flake .
 
-nix-home: nix-toplevel
-    just ci::_devour-flake nix-home --override-input flake ./nix/home/example --override-input flake/kolu .
+home-manager: nix
+    just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
 
-e2e: nix-toplevel
+e2e: nix
     just ci::_run e2e just test
