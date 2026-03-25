@@ -30,7 +30,7 @@ When(
     await palette.locator("input").fill("Close terminal");
     await this.page.waitForTimeout(200);
     // Click the matching result
-    await palette.locator("[cmdk-item]", { hasText: "Close terminal" }).click();
+    await palette.locator("li", { hasText: "Close terminal" }).click();
     await this.page.waitForTimeout(500);
   },
 );
