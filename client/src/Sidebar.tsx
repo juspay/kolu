@@ -9,11 +9,11 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import { cwdBasename } from "./path";
-import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
+import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 
-/** Stable hash → hue (0-360) for a string. Same string always gets the same color. */
+/** Stable hash -> hue (0-360) for a string. Same string always gets the same color. */
 function stringToHue(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -35,15 +35,13 @@ const SidebarEntry: Component<{
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
-  onKill: (id: TerminalId) => void;
+  onContextMenu: (e: MouseEvent, id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
   const pos = () => props.index + 1;
-  const shortcutLabel = () =>
-    pos() <= 9 ? formatKeybind({ mod: true, key: String(pos()) }) : undefined;
   const repoColor = () => repoColorFor(m());
 
   return (
@@ -77,52 +75,43 @@ const SidebarEntry: Component<{
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          props.onContextMenu(e, props.id);
+        }}
         title={m()?.cwd?.cwd ?? String(props.id)}
       >
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-          <span
-            data-testid="activity-indicator"
-            class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-            classList={{
-              "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-              "bg-fg-3": !(m()?.isActive ?? false),
-            }}
-          />
+          <Tip label={pos() <= 9 ? `Switch: Mod+${pos()}` : ""}>
+            <span
+              data-testid="activity-indicator"
+              class="inline-flex items-center justify-center shrink-0 transition-colors duration-300"
+              classList={{
+                "w-4 h-4 text-[0.6rem] font-bold rounded": pos() <= 9,
+                "w-2 h-2 rounded-full": pos() > 9,
+                "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+                "bg-fg-3": !(m()?.isActive ?? false),
+              }}
+            >
+              <Show when={pos() <= 9}>{pos()}</Show>
+            </span>
+          </Tip>
           <Show when={m()?.cwd}>
             {(cwdInfo) => (
-              <>
-                <span class="truncate" style={{ color: repoColor() }}>
-                  {cwdBasename(cwdInfo().cwd)}
-                  <Show when={cwdInfo().git}>
-                    {(git) => (
-                      <span data-testid="sidebar-branch" class="text-fg-2">
-                        {" "}
-                        &middot; {git().branch}
-                      </span>
-                    )}
-                  </Show>
-                </span>
-                <Tip label="Close terminal">
-                  <span
-                    data-testid="close-terminal"
-                    class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm("Close this terminal?"))
-                        props.onKill(props.id);
-                    }}
-                    onMouseDown={(e) => e.preventDefault()}
-                  >
-                    ×
-                  </span>
-                </Tip>
-              </>
+              <span class="truncate" style={{ color: repoColor() }}>
+                {cwdBasename(cwdInfo().cwd)}
+                <Show when={cwdInfo().git}>
+                  {(git) => (
+                    <span data-testid="sidebar-branch" class="text-fg-2">
+                      {" "}
+                      &middot; {git().branch}
+                    </span>
+                  )}
+                </Show>
+              </span>
             )}
           </Show>
         </div>
-        <Show when={shortcutLabel()}>
-          {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
-        </Show>
       </button>
     </div>
   );
@@ -135,10 +124,12 @@ const Sidebar: Component<{
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
   onKill: (id: TerminalId) => void;
-  onCreate: () => void;
+  onCreate: (cwd?: string) => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
+  randomTheme: boolean;
+  onRandomThemeChange: (on: boolean) => void;
 }> = (props) => {
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
@@ -148,6 +139,44 @@ const Sidebar: Component<{
   const [dragFrom, setDragFrom] = createSignal<number | null>(null);
   const [dropTarget, setDropTarget] = createSignal<TerminalId | null>(null);
   const [activeItem, setActiveItem] = createSignal<TerminalId | null>(null);
+
+  // Context menu state
+  const [ctxMenu, setCtxMenu] = createSignal<{
+    x: number;
+    y: number;
+    id: TerminalId;
+  } | null>(null);
+
+  function handleContextMenu(e: MouseEvent, id: TerminalId) {
+    setCtxMenu({ x: e.clientX, y: e.clientY, id });
+  }
+
+  function contextMenuItems(): ContextMenuItem[] {
+    const ctx = ctxMenu();
+    if (!ctx) return [];
+    const meta = props.getMeta(ctx.id);
+    return [
+      ...(meta?.cwd
+        ? [
+            {
+              label: "New terminal here",
+              onSelect: () => props.onCreate(meta.cwd!.cwd),
+            },
+          ]
+        : []),
+      {
+        label: props.randomTheme ? "Random themes: ON" : "Random themes: OFF",
+        onSelect: () => props.onRandomThemeChange(!props.randomTheme),
+      },
+      {
+        label: "Close",
+        danger: true,
+        onSelect: () => {
+          if (confirm("Close this terminal?")) props.onKill(ctx.id);
+        },
+      },
+    ];
+  }
 
   function handleDragEnd({ draggable, droppable }: DragEvent) {
     setActiveItem(null);
@@ -189,7 +218,7 @@ const Sidebar: Component<{
           <button
             data-testid="create-terminal"
             class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
-            onClick={props.onCreate}
+            onClick={() => props.onCreate()}
           >
             + New terminal
           </button>
@@ -226,7 +255,7 @@ const Sidebar: Component<{
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
                       onSelect={handleSelect}
-                      onKill={props.onKill}
+                      onContextMenu={handleContextMenu}
                       dropEdge={edge()}
                     />
                   );
@@ -254,6 +283,18 @@ const Sidebar: Component<{
           </DragDropProvider>
         </nav>
       </aside>
+
+      {/* Context menu — rendered outside sidebar to avoid clipping */}
+      <Show when={ctxMenu()}>
+        {(ctx) => (
+          <ContextMenu
+            x={ctx().x}
+            y={ctx().y}
+            items={contextMenuItems()}
+            onClose={() => setCtxMenu(null)}
+          />
+        )}
+      </Show>
     </>
   );
 };

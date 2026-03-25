@@ -12,9 +12,9 @@ When(
     );
     // Auto-accept the confirmation dialog
     this.page.once("dialog", (dialog) => dialog.accept());
-    // Hover to reveal the close button
-    await entry.hover();
-    await entry.locator('[data-testid="close-terminal"]').click();
+    // Right-click to open context menu, then click Close
+    await entry.click({ button: "right" });
+    await this.page.locator("button", { hasText: "Close" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
   },
