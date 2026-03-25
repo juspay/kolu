@@ -6,10 +6,19 @@
 - Run `just pc` (pre-commit hooks) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
-## Testing
+## Local CI
 
-- Use the localci MCP tools (`mcp__localci__<step>`) to build and test — never run build or test commands directly.
-- After making changes: commit, run localci MCP tools to verify, fix if needed, push when green.
+Run `just ci` to build and test across all systems. It:
+
+- Runs preflight checks (clean worktree, commit pushed)
+- Builds on x86_64-linux and aarch64-darwin in parallel
+- Posts GitHub commit statuses per step
+- Prints a summary table at the end
+
+**Always run CI in background** (`run_in_background`). Builds take several minutes.
+
+Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
+Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 
 ## UI
 

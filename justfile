@@ -1,10 +1,8 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
-# localci branch/ref to use (override: just localci_ref=main ci)
-localci_ref := "master"
-localci := "nix run github:srid/localci/" + localci_ref + " --"
+mod ci 'ci/mod.just'
 
 # List available recipes
 default:
@@ -34,7 +32,7 @@ client: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix build --print-out-paths)/bin/kolu"
+    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
@@ -44,12 +42,6 @@ test-dev: install
     cd tests \
         && {{ nix_shell }} pnpm install \
         && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
-
-# Run CI: build all flake outputs on each platform, run e2e tests
-# Uses localci (https://github.com/srid/localci) to run commands and post GitHub commit statuses.
-# TODO: add cache push (nix copy) after builds https://github.com/srid/localci/issues/4
-ci:
-    {{ localci }} --tui -f localci.json
 
 # Run pre-commit hooks on all files
 pc:
