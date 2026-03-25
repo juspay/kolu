@@ -13,9 +13,10 @@ _preflight:
     done
 
 # Post GitHub commit status
-_signoff name status:
+_signoff name status description="":
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
-      -f state="{{ status }}" -f context="ci/{{ name }}" --silent
+      -f state="{{ status }}" -f context="ci/{{ name }}" \
+      -f description="{{ description }}" --silent
 
 # Assert worktree is clean and HEAD matches expected sha
 _guard:
@@ -57,8 +58,10 @@ _run name +cmd:
     set -euo pipefail
     # Re-check guard per step: user may have dirtied the repo mid-run
     just ci::_guard
-    trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
-    just ci::_signoff "{{ name }}@{{ system }}" pending
+    user=$(whoami)
+    start=$SECONDS
+    trap 'elapsed=$(( SECONDS - start )); just ci::_signoff "{{ name }}@{{ system }}" failure "${user} · failed after ${elapsed}s"' ERR
+    just ci::_signoff "{{ name }}@{{ system }}" pending "${user} · running"
     esc=$'\033'
     name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
     sys_color=$((31 + $(printf '%s' '{{ system }}' | cksum | cut -d' ' -f1) % 6))
@@ -82,13 +85,14 @@ _run name +cmd:
         host=$(just ci::_host)
         echo "▶ ${prefix} ($host)"
         tmp=$(ssh "$host" mktemp -d)
-        trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
+        trap 'ssh "$host" "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "{{ name }}@{{ system }}" failure "${user} · failed after ${elapsed}s"' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
         ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|[${prefix}${padding}] |"
         ssh "$host" "rm -rf $tmp"
     fi
-    just ci::_signoff "{{ name }}@{{ system }}" success
+    elapsed=$(( SECONDS - start ))
+    just ci::_signoff "{{ name }}@{{ system }}" success "${user} · ${elapsed}s"
 
 # Auto-extract step@system contexts from justfile structure.
 # Parses _linux/_darwin recipe bodies which contain "CI_SYSTEM=<sys> just ci::<step> ..."
