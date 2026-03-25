@@ -16,6 +16,9 @@ importers:
       '@corvu/dialog':
         specifier: ^0.2.4
         version: 0.2.4(solid-js@1.9.11)
+      '@corvu/disclosure':
+        specifier: ^0.2.2
+        version: 0.2.2(solid-js@1.9.11)
       '@corvu/drawer':
         specifier: ^0.2.2
         version: 0.2.4(solid-js@1.9.11)
@@ -713,6 +716,11 @@ packages:
 
   '@corvu/dialog@0.2.4':
     resolution: {integrity: sha512-n54vJq+fOy8GVrnYBdJpD6JXNuyx7LOeMrRxwzAvZnYGpW8+AA12tnb/P/2emJj/HjOO5otheGKb0breshdFlA==}
+    peerDependencies:
+      solid-js: ^1.8
+
+  '@corvu/disclosure@0.2.2':
+    resolution: {integrity: sha512-d2E9zS0w9peeOiBDc8/ZcqS56ZeOIiKJcwMFpLjuhlfrtVAepwyhbwFHNQTb48VeRHW8amfrGliymT//VQFF9g==}
     peerDependencies:
       solid-js: ^1.8
 
@@ -4071,6 +4079,12 @@ snapshots:
       solid-js: 1.9.11
       solid-presence: 0.2.0(solid-js@1.9.11)
       solid-prevent-scroll: 0.1.10(solid-js@1.9.11)
+
+  '@corvu/disclosure@0.2.2(solid-js@1.9.11)':
+    dependencies:
+      '@corvu/utils': 0.4.2(solid-js@1.9.11)
+      solid-js: 1.9.11
+      solid-presence: 0.2.0(solid-js@1.9.11)
 
   '@corvu/drawer@0.2.4(solid-js@1.9.11)':
     dependencies:

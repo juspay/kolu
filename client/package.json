@@ -25,6 +25,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "@corvu/dialog": "^0.2.4",
+    "@corvu/disclosure": "^0.2.2",
     "@corvu/drawer": "^0.2.2",
     "@corvu/tooltip": "^0.2.2",
     "partysocket": "^1.1.16",

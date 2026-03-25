@@ -2,11 +2,42 @@
 
 import path from "node:path";
 import { simpleGit } from "simple-git";
-import type { GitInfo, CwdInfo } from "kolu-common";
+import type { GitInfo, CwdInfo, WorktreeEntry } from "kolu-common";
 
 /** Build a CwdInfo by resolving git context for the given path. */
 export async function toCwdInfo(cwd: string): Promise<CwdInfo> {
   return { cwd, git: await resolveGitInfo(cwd) };
+}
+
+/** List worktrees for a git repo. Parses `git worktree list --porcelain`. */
+export async function listWorktrees(
+  repoRoot: string,
+): Promise<WorktreeEntry[]> {
+  const git = simpleGit(repoRoot);
+  const raw = await git.raw(["worktree", "list", "--porcelain"]);
+  const entries: WorktreeEntry[] = [];
+  let current: Partial<WorktreeEntry> = {};
+
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      current = { path: line.slice("worktree ".length), isBare: false };
+    } else if (line === "bare") {
+      current.isBare = true;
+    } else if (line.startsWith("branch ")) {
+      // "branch refs/heads/main" → "main"
+      current.branch = line.slice("branch ".length).replace("refs/heads/", "");
+    } else if (line === "") {
+      if (current.path) {
+        entries.push({
+          path: current.path,
+          branch: current.branch ?? null,
+          isBare: current.isBare ?? false,
+        });
+      }
+      current = {};
+    }
+  }
+  return entries;
 }
 
 /** Resolve git context for a directory. Returns null if not in a git repo. */

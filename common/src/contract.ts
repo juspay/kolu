@@ -18,12 +18,19 @@ import {
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
   ServerInfoSchema,
+  WorktreeListInputSchema,
+  WorktreeListOutputSchema,
 } from "./index";
 import { z } from "zod";
 
 export const contract = oc.router({
   server: {
     info: oc.output(ServerInfoSchema),
+  },
+  git: {
+    listWorktrees: oc
+      .input(WorktreeListInputSchema)
+      .output(WorktreeListOutputSchema),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
