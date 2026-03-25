@@ -15,6 +15,7 @@ import {
   killTerminal,
   killAllTerminals,
   setTerminalTheme,
+  reorderTerminals,
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
@@ -25,7 +26,7 @@ import { toCwdInfo } from "./git.ts";
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
-function requireTerminal(id: number): TerminalEntry {
+function requireTerminal(id: string): TerminalEntry {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
@@ -89,6 +90,10 @@ export const appRouter = t.router({
       const info = killTerminal(input.id);
       if (!info) throw new TerminalNotFoundError(input.id);
       return info;
+    }),
+
+    reorder: t.terminal.reorder.handler(async ({ input }) => {
+      reorderTerminals(input.ids);
     }),
 
     killAll: t.terminal.killAll.handler(async () => {

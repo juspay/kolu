@@ -5,7 +5,7 @@ import { z } from "zod";
 
 // --- Zod schemas ---
 
-const TerminalIdSchema = z.number().int();
+const TerminalIdSchema = z.string().uuid();
 
 // --- Git context (enriches CWD stream) ---
 
@@ -25,7 +25,6 @@ export const CwdInfoSchema = z.object({
 
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
-  name: z.string(),
   pid: z.number(),
   themeName: z.string().optional(),
   isActive: z.boolean(),
@@ -61,6 +60,10 @@ export const TerminalPasteImageInputSchema = z.object({
   id: TerminalIdSchema,
   /** Base64-encoded image data (PNG, JPEG, etc.) */
   data: z.string(),
+});
+
+export const TerminalReorderInputSchema = z.object({
+  ids: z.array(TerminalIdSchema),
 });
 
 export const ServerInfoSchema = z.object({

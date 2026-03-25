@@ -36,14 +36,14 @@ export class KoluWorld extends World {
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
   savedSidebarCount?: number;
-  createdTerminalIds: number[] = [];
+  createdTerminalIds: string[] = [];
 
   get canvas(): Locator {
     return this.page.locator("[data-visible] .xterm-screen");
   }
 
   /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
-  async createTerminal(timeout = READY_TIMEOUT): Promise<number> {
+  async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
     // Wait for app to settle (onMount may still be restoring terminals from server)
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
@@ -67,7 +67,7 @@ export class KoluWorld extends World {
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout: 5000 },
     );
-    return Number(rawId);
+    return rawId;
   }
 
   /** Wait for the app to reach a stable state (restored terminals or empty state). */

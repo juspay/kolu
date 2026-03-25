@@ -37,6 +37,7 @@ const App: Component = () => {
     existingTerminals,
     handleCreate,
     handleKill,
+    reorderTerminals,
     commands,
     randomTheme,
     setRandomTheme,
@@ -139,6 +140,7 @@ const App: Component = () => {
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
+          onReorder={reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
