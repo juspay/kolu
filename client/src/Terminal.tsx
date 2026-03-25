@@ -79,7 +79,7 @@ const Terminal: Component<{
     fitRaf = requestAnimationFrame(() => fitAddon?.fit());
   }
 
-  const fontSize = createZoom(() => props.visible);
+  const fontSize = createZoom(props.terminalId, () => props.visible);
 
   let streamAbort: AbortController | null = null;
 

@@ -94,4 +94,7 @@ export const SHORTCUTS = {
     keybind: { key: "f", mod: true },
     label: "Find in terminal",
   },
+  zoomIn: { keybind: { key: "+", mod: true }, label: "Zoom in" },
+  zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
+  zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
 } as const satisfies Record<string, Shortcut>;
