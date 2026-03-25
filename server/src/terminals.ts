@@ -36,7 +36,6 @@ export interface TerminalEntry {
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
-let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
   return {
@@ -65,8 +64,8 @@ function touchActivity(entry: TerminalEntry): void {
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
 export function createTerminal(cwd?: string): TerminalInfo {
-  const id = nextId++;
-  const name = `${id}`;
+  const id = crypto.randomUUID();
+  const name = id;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
@@ -143,5 +142,4 @@ export function killAllTerminals(): void {
     cleanupClipboardDir(entry.clipboardDir);
   }
   terminals.clear();
-  nextId = 1;
 }

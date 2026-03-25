@@ -1,7 +1,15 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
+import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
 import type { TerminalId, TerminalInfo } from "kolu-common";
+
+/** Stable hash → hue (0-360) for a string. Same string always gets the same color. */
+function stringToHue(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return ((h % 360) + 360) % 360;
+}
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
 const Sidebar: Component<{
@@ -55,17 +63,32 @@ const Sidebar: Component<{
         </Tip>
         <nav class="flex-1 overflow-y-auto">
           <For each={props.terminalIds}>
-            {(id) => {
+            {(id, index) => {
               const m = () => props.getMeta(id);
+              const pos = () => index() + 1;
+              const shortcutLabel = () =>
+                pos() <= 9
+                  ? formatKeybind({ mod: true, key: String(pos()) })
+                  : undefined;
+              const repoColor = () => {
+                const key =
+                  m()?.cwd?.git?.repoName ?? cwdBasename(m()?.cwd?.cwd ?? "");
+                return key ? `hsl(${stringToHue(key)} 60% 65%)` : undefined;
+              };
               return (
                 <button
                   data-terminal-id={id}
-                  class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
+                  class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150"
                   classList={{
-                    "border-accent bg-surface-2/50 text-fg":
+                    "border-l-[3px] bg-surface-2 text-fg":
                       props.activeId === id,
-                    "border-transparent text-fg-2 hover:text-fg hover:bg-surface-2":
+                    "border-l-2 text-fg-2 hover:text-fg hover:bg-surface-2":
                       props.activeId !== id,
+                  }}
+                  style={{
+                    "border-left-color":
+                      repoColor() ??
+                      (props.activeId === id ? "var(--accent)" : "transparent"),
                   }}
                   onClick={() => handleSelect(id)}
                   // Prevent button from stealing focus — terminal canvas must keep focus
@@ -85,7 +108,7 @@ const Sidebar: Component<{
                             "bg-fg-3": !(m()?.isActive ?? false),
                           }}
                         />
-                        <span class="truncate">
+                        <span class="truncate" style={{ color: repoColor() }}>
                           {cwdBasename(cwdInfo().cwd)}
                           <Show when={cwdInfo().git}>
                             {(git) => (
@@ -128,7 +151,11 @@ const Sidebar: Component<{
                         }}
                       />
                     </Show>
-                    <span class="text-xs text-fg-3 ml-3.5">{id}</span>
+                    <Show when={shortcutLabel()}>
+                      {(label) => (
+                        <span class="text-xs text-fg-3 ml-3.5">{label()}</span>
+                      )}
+                    </Show>
                   </div>
                 </button>
               );

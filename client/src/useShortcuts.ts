@@ -83,7 +83,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   const ids = deps.terminalIds();
   if (ids.length === 0) return;
-  const current = ids.indexOf(deps.activeId() ?? -1);
+  const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;
   deps.setActiveId(ids[next]!);
 }

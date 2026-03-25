@@ -82,8 +82,6 @@ Then(
     );
     const rawId = await activeContainer.getAttribute("data-terminal-id");
     assert.ok(rawId, "No active terminal found");
-    const terminalId = Number(rawId);
-
     // Poll screen state until expected content appears (echo may still be in-flight,
     // or terminal may still be reconnecting after a page refresh).
     // Use generous timeout: after refresh, the client sends a resize that triggers
@@ -93,7 +91,7 @@ Then(
       const resp = await this.page.request.fetch("/rpc/terminal/screenState", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ json: { id: terminalId } }),
+        data: JSON.stringify({ json: { id: rawId } }),
       });
       const body = await resp.json();
       screenState =

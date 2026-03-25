@@ -5,7 +5,7 @@ import { z } from "zod";
 
 // --- Zod schemas ---
 
-const TerminalIdSchema = z.number().int();
+const TerminalIdSchema = z.string().uuid();
 
 // --- Git context (enriches CWD stream) ---
 

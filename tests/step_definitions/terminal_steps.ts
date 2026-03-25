@@ -87,13 +87,12 @@ async function fetchActiveScreenState(world: KoluWorld): Promise<string> {
   const container = world.page.locator("[data-visible][data-terminal-id]");
   const rawId = await container.getAttribute("data-terminal-id");
   assert.ok(rawId, "No active terminal found");
-  const id = Number(rawId);
   let state = "";
   for (let attempt = 0; attempt < 20; attempt++) {
     const resp = await world.page.request.fetch("/rpc/terminal/screenState", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { id } }),
+      data: JSON.stringify({ json: { id: rawId } }),
     });
     const body = await resp.json();
     state = typeof body.json === "string" ? body.json : JSON.stringify(body);
