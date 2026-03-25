@@ -18,7 +18,7 @@ _preflight:
         fi
     done
 
-default: _preflight _run-all
+default: _preflight && _run-all
 
 [parallel]
 _run-all: _linux _darwin
