@@ -80,11 +80,20 @@ export function useTerminals() {
     );
   }
 
-  /** Subscribe to activity state changes for a terminal. */
+  /** Subscribe to activity state changes for a terminal.
+   *  Toasts when a background terminal finishes work (active → inactive). */
   function subscribeActivity(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => setMeta(id, "isActive", isActive),
+      (isActive) => {
+        const wasActive = meta[id]?.isActive ?? false;
+        setMeta(id, "isActive", isActive);
+        // Notify when a background terminal stops being active (command finished)
+        if (wasActive && !isActive && activeId() !== id) {
+          const name = meta[id]?.name ?? `Terminal ${id}`;
+          toast(`${name} finished`);
+        }
+      },
     );
   }
 
