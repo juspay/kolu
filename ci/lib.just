@@ -90,6 +90,21 @@ _run name +cmd:
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
 
+# Auto-extract step@system contexts from justfile structure.
+# Parses _linux/_darwin recipe bodies which contain "CI_SYSTEM=<sys> just ci::<step> ..."
+_contexts:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just --dump --dump-format json | jq -r '
+      .modules.ci.recipes
+      | to_entries[]
+      | select(.value.body[0][0] // "" | test("^CI_SYSTEM="))
+      | .value.body[0][0]
+      | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
+      | .system as $sys
+      | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
+      | . + "@" + $sys'
+
 # Print summary table of all CI statuses for the current sha
 _summary:
     #!/usr/bin/env bash
@@ -97,24 +112,24 @@ _summary:
     esc=$'\033'
     echo ""
     echo "━━━ CI Summary ({{ sha }}) ━━━"
-    statuses=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq '
+    # Fetch all statuses once
+    all_statuses=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq '
       [.[] | select(.context | startswith("ci/"))]
       | group_by(.context)
       | map(max_by(.updated_at))
-      | sort_by(.context)
-      | .[] | [.context, .state] | @tsv')
+      | .[] | {(.context): .state}' 2>/dev/null | jq -s 'add // {}')
     failed=0
-    while IFS=$'\t' read -r context state; do
+    while IFS= read -r ctx; do
+        context="ci/$ctx"
+        state=$(echo "$all_statuses" | jq -r ".\"$context\" // \"not run\"")
         case "$state" in
             success) symbol="${esc}[32m✓${esc}[0m" ;;
             failure) symbol="${esc}[31m✗${esc}[0m"; failed=1 ;;
             pending) symbol="${esc}[33m●${esc}[0m" ;;
-            *)       symbol="?" ;;
+            *)       symbol="${esc}[90m-${esc}[0m"; failed=1 ;;
         esac
-        # Strip "ci/" prefix for display
-        name="${context#ci/}"
-        printf "  %b  %-30s %s\n" "$symbol" "$name" "$state"
-    done <<< "$statuses"
+        printf "  %b  %-30s %s\n" "$symbol" "$ctx" "$state"
+    done <<< "$(just ci::_contexts)"
     echo ""
     if [[ "$failed" -eq 1 ]]; then
         echo "${esc}[31mCI FAILED${esc}[0m"
@@ -127,21 +142,18 @@ _summary:
 _devour-flake name +args:
     just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths {{ args }}
 
-# Set up branch protection requiring all CI status checks posted for the current sha
+# Set up branch protection requiring all CI status checks.
+# Contexts are auto-derived from justfile — no prior CI run needed.
 protect branch=`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`:
     #!/usr/bin/env bash
     set -euo pipefail
-    contexts=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq \
-      '[.[].context | select(startswith("ci/"))] | unique | .[]')
-    if [[ -z "$contexts" ]]; then
-        echo "ERROR: no CI statuses found for {{ sha }} — run CI first" >&2
-        exit 1
-    fi
+    contexts=$(just ci::_contexts)
     echo "Setting required status checks on {{ branch }}:"
     args=()
     while IFS= read -r ctx; do
-        echo "  - $ctx"
-        args+=(-f "required_status_checks[checks][][context]=$ctx")
+        full="ci/$ctx"
+        echo "  - $full"
+        args+=(-f "required_status_checks[checks][][context]=$full")
     done <<< "$contexts"
     gh api "repos/{{ repo }}/branches/{{ branch }}/protection" -X PUT \
       -F "required_status_checks[strict]=true" \
