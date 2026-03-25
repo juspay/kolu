@@ -36,7 +36,7 @@ client: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix build --print-out-paths)/bin/kolu"
+    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
