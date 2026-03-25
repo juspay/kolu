@@ -71,25 +71,19 @@ _run name +cmd:
     padding=$(printf "%-$((26 - ${#visible}))s" "")
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${prefix}"
-        {{ cmd }} 2>&1 | sed "s|^|[${prefix}${padding}] |"
+        (cd "{{ root }}" && {{ cmd }}) 2>&1 | sed "s|^|[${prefix}${padding}] |"
     else
         host=$(just ci::_host)
         echo "▶ ${prefix} ($host)"
         tmp=$(ssh "$host" mktemp -d)
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
-        git bundle create - --all | ssh "$host" "cat > $tmp/repo.bundle && git clone $tmp/repo.bundle $tmp/src && cd $tmp/src && git checkout {{ sha }}"
+        git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
         ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|[${prefix}${padding}] |"
         ssh "$host" "rm -rf $tmp"
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
 
-# Build all flake outputs via devour-flake. Sub-flakes (path != root) get --override-input flake/kolu <root>
-_devour-flake name path:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    args="--override-input flake {{ path }}"
-    if [[ "{{ path }}" != "{{ root }}" ]]; then
-        args="$args --override-input flake/kolu {{ root }}"
-    fi
-    just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths $args
+# Build all flake outputs via devour-flake
+_devour-flake name +args:
+    just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths {{ args }}

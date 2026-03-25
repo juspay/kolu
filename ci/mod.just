@@ -19,10 +19,10 @@ _darwin: _preflight
     CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e
 
 nix-toplevel:
-    just ci::_devour-flake nix {{ root }}
+    just ci::_devour-flake nix --override-input flake .
 
 nix-home: nix-toplevel
-    just ci::_devour-flake nix/home {{ root }}/nix/home/example
+    just ci::_devour-flake nix/home --override-input flake ./nix/home/example --override-input flake/kolu .
 
 e2e: nix-toplevel
     just ci::_run e2e just test
