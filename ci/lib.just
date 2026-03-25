@@ -84,6 +84,39 @@ _run name +cmd:
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
 
+# Print summary table of all CI statuses for the current sha
+_summary:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    esc=$'\033'
+    echo ""
+    echo "━━━ CI Summary ({{ sha }}) ━━━"
+    statuses=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq '
+      [.[] | select(.context | startswith("ci/"))]
+      | group_by(.context)
+      | map(max_by(.updated_at))
+      | sort_by(.context)
+      | .[] | [.context, .state] | @tsv')
+    failed=0
+    while IFS=$'\t' read -r context state; do
+        case "$state" in
+            success) symbol="${esc}[32m✓${esc}[0m" ;;
+            failure) symbol="${esc}[31m✗${esc}[0m"; failed=1 ;;
+            pending) symbol="${esc}[33m●${esc}[0m" ;;
+            *)       symbol="?" ;;
+        esac
+        # Strip "ci/" prefix for display
+        name="${context#ci/}"
+        printf "  %b  %-30s %s\n" "$symbol" "$name" "$state"
+    done <<< "$statuses"
+    echo ""
+    if [[ "$failed" -eq 1 ]]; then
+        echo "${esc}[31mCI FAILED${esc}[0m"
+        exit 1
+    else
+        echo "${esc}[32mCI PASSED${esc}[0m"
+    fi
+
 # Build all flake outputs via devour-flake
 _devour-flake name +args:
     just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths {{ args }}

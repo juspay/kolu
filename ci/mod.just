@@ -9,14 +9,17 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
+default: _run-all
+    just ci::_summary
+
 [parallel]
-default: _linux _darwin
+_run-all: _linux _darwin
 
 _linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix-toplevel ci::nix-home ci::e2e
+    CI_SYSTEM=x86_64-linux just ci::nix-toplevel ci::nix-home ci::e2e || true
 
 _darwin: _preflight
-    CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e
+    CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e || true
 
 nix-toplevel:
     just ci::_devour-flake nix --override-input flake .
