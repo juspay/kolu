@@ -18,7 +18,7 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeAndYield, switchMap, prepend, map } from "./streaming.ts";
+import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
 import { toCwdInfo, watchGitDir } from "./git.ts";
 
@@ -100,20 +100,41 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
+      let gitWatchAc: AbortController | null = null;
+      let watchedCwd: string | null = null;
 
-      // Build a CWD source: current value first, then OSC 7 changes.
-      const cwdChanges = prepend(
-        subscribeAndYield<string>(entry.emitter, "cwd", signal),
-        entry.handle.cwd,
-      );
+      // Watch .git/HEAD for the current CWD. On change, re-emit a
+      // "cwd" event so the main loop re-resolves git context naturally.
+      // Only restarts the watcher when CWD actually changes.
+      const ensureGitWatch = (cwd: string) => {
+        if (cwd === watchedCwd) return;
+        gitWatchAc?.abort();
+        gitWatchAc = new AbortController();
+        watchedCwd = cwd;
+        void (async () => {
+          for await (const _ of watchGitDir(cwd, gitWatchAc!.signal)) {
+            entry.emitter.emit("cwd", cwd);
+          }
+        })();
+      };
 
-      // For each CWD, watch .git/HEAD for branch changes. Re-resolve
-      // CwdInfo on every git change (and once immediately via prepend).
-      yield* switchMap(cwdChanges, (cwd, innerSignal) =>
-        map(prepend(watchGitDir(cwd, innerSignal), undefined), () =>
-          toCwdInfo(cwd),
-        ),
-      );
+      try {
+        // Yield current CWD with git context immediately
+        yield await toCwdInfo(entry.handle.cwd);
+        ensureGitWatch(entry.handle.cwd);
+
+        // Stream changes — from OSC 7 prompts AND git watcher re-emits
+        for await (const rawCwd of subscribeAndYield<string>(
+          entry.emitter,
+          "cwd",
+          signal,
+        )) {
+          yield await toCwdInfo(rawCwd);
+          ensureGitWatch(rawCwd);
+        }
+      } finally {
+        gitWatchAc?.abort();
+      }
     }),
 
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({

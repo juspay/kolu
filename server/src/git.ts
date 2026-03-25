@@ -61,27 +61,27 @@ export async function* watchGitDir(
     return; // Not a git repo — nothing to watch
   }
 
-  // Watch the HEAD file — it changes on branch switch, commit, rebase, etc.
   const headPath = path.join(gitDir, "HEAD");
   const glog = log.child({ gitDir });
   glog.debug({ headPath }, "watching git HEAD");
 
-  const queue: void[] = [];
+  // Coalescing flag — multiple rapid fs events collapse into one yield.
+  let pending = false;
   let resolveNext: (() => void) | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const enqueue = () => {
+  const onChange = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      queue.push(undefined);
+      pending = true;
       resolveNext?.();
     }, GIT_WATCH_DEBOUNCE_MS);
   };
 
   let watcher: fs.FSWatcher;
   try {
-    watcher = fs.watch(headPath, { persistent: false }, () => enqueue());
+    watcher = fs.watch(headPath, { persistent: false }, onChange);
   } catch {
     glog.debug("failed to watch HEAD file");
     return; // HEAD file doesn't exist or not watchable
@@ -95,7 +95,7 @@ export async function* watchGitDir(
     refsWatcher = fs.watch(
       refsDir,
       { persistent: false, recursive: true },
-      () => enqueue(),
+      onChange,
     );
   } catch {
     // refs/heads may not exist yet (empty repo) — that's fine
@@ -111,8 +111,8 @@ export async function* watchGitDir(
 
   try {
     while (!signal.aborted) {
-      if (queue.length > 0) {
-        queue.shift();
+      if (pending) {
+        pending = false;
         glog.debug("git HEAD changed");
         yield;
         continue;
