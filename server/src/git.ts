@@ -74,7 +74,7 @@ export async function* watchGitDir(
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      queue.push();
+      queue.push(undefined);
       resolveNext?.();
     }, GIT_WATCH_DEBOUNCE_MS);
   };
