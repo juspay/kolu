@@ -10,12 +10,26 @@ _signoff name status:
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
       -f state="{{ status }}" -f context="ci/{{ name }}" --silent
 
+# Assert worktree is clean and HEAD matches expected sha
+_guard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "ERROR: worktree is dirty — commit or stash before running CI" >&2
+        exit 1
+    fi
+    if [[ "$(git rev-parse HEAD)" != "{{ sha }}" ]]; then
+        echo "ERROR: HEAD has moved since CI started (expected {{ sha }})" >&2
+        exit 1
+    fi
+
 # Run command with GitHub status lifecycle (pending → success/failure)
 # Output is colored and prefixed with [name] for readability.
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
     trap 'just ci::_signoff "{{ name }}" failure' ERR
+    just ci::_guard
     just ci::_signoff "{{ name }}" pending
     esc=$'\033'
     color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
