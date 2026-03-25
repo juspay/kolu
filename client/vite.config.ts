@@ -13,6 +13,13 @@ if (!themesJsonPath) {
   );
 }
 
+const fontsDir = process.env.KOLU_FONTS_DIR;
+if (!fontsDir) {
+  throw new Error(
+    "KOLU_FONTS_DIR env var is not set. Run inside the Nix devShell (just dev).",
+  );
+}
+
 export default defineConfig({
   plugins: [
     solid(),
@@ -28,6 +35,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "ghostty-themes": themesJsonPath,
+      "kolu-fonts": `${fontsDir}/fonts.css`,
     },
   },
   server: {
