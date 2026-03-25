@@ -28,6 +28,10 @@ _guard:
         echo "ERROR: HEAD has moved since CI started (expected {{ sha }})" >&2
         exit 1
     fi
+    if ! git branch -r --contains {{ sha }} 2>/dev/null | grep -q .; then
+        echo "ERROR: {{ sha }} not pushed to remote — push first" >&2
+        exit 1
+    fi
 
 # Look up SSH host for current system, prompting on first use. Saved to .ci.json.
 _host:
