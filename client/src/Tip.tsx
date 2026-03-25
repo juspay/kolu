@@ -1,9 +1,9 @@
-/** Reusable tooltip wrapper for header icon buttons. */
+/** Tooltip wrapper — wraps any element with a Corvu Tooltip on hover. */
 
 import { type Component, type JSX } from "solid-js";
 import Tooltip from "@corvu/tooltip";
 
-const HeaderTooltip: Component<{
+const Tip: Component<{
   label: string;
   children: JSX.Element;
 }> = (props) => {
@@ -19,4 +19,4 @@ const HeaderTooltip: Component<{
   );
 };
 
-export default HeaderTooltip;
+export default Tip;

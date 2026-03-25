@@ -1,7 +1,7 @@
 import { type Component, Show, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
-import HeaderTooltip from "./HeaderTooltip";
+import Tip from "./Tip";
 import type { WsStatus } from "./rpc";
 import type { CwdInfo } from "kolu-common";
 
@@ -28,7 +28,7 @@ const Header: Component<{
 
   return (
     <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
-      <HeaderTooltip label="Toggle sidebar">
+      <Tip label="Toggle sidebar">
         <button
           data-testid="sidebar-toggle"
           class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -48,7 +48,7 @@ const Header: Component<{
             />
           </svg>
         </button>
-      </HeaderTooltip>
+      </Tip>
       <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
       <span class="font-semibold text-sm hidden sm:inline">
         {props.appTitle ?? "kolu"}
@@ -87,7 +87,7 @@ const Header: Component<{
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
-          <HeaderTooltip label="Change theme">
+          <Tip label="Change theme">
             <button
               data-testid="theme-name"
               class="px-2 py-0.5 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -95,9 +95,9 @@ const Header: Component<{
             >
               {props.themeName}
             </button>
-          </HeaderTooltip>
+          </Tip>
         )}
-        <HeaderTooltip
+        <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
           <button
@@ -118,8 +118,8 @@ const Header: Component<{
               />
             </svg>
           </button>
-        </HeaderTooltip>
-        <HeaderTooltip label="Command palette">
+        </Tip>
+        <Tip label="Command palette">
           <button
             data-testid="palette-trigger"
             class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -129,8 +129,8 @@ const Header: Component<{
               {formatKeybind(SHORTCUTS.commandPalette.keybind)}
             </kbd>
           </button>
-        </HeaderTooltip>
-        <HeaderTooltip label="Keyboard shortcuts">
+        </Tip>
+        <Tip label="Keyboard shortcuts">
           <button
             class="flex items-center gap-1.5 px-2 py-1 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onShortcutsHelp?.()}
@@ -139,7 +139,7 @@ const Header: Component<{
               {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
             </kbd>
           </button>
-        </HeaderTooltip>
+        </Tip>
         {props.renderer && (
           <span class="text-xs text-fg-3 hidden sm:inline">
             {props.renderer}
