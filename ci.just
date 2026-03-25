@@ -5,10 +5,13 @@ repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 system := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
 local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 
-default:
-    #!/usr/bin/env bash
-    set -euo pipefail
+[parallel]
+default: _linux _darwin
+
+_linux:
     CI_SYSTEM=x86_64-linux just ci::nix-toplevel ci::nix-home ci::e2e
+
+_darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e
 
 # Post GitHub commit status
