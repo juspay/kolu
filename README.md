@@ -80,4 +80,3 @@ A home-manager module runs kolu as a systemd user service:
 ```
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
-
