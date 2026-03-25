@@ -2,12 +2,12 @@
 # Expects the importer to define: sha, repo, system, local_system
 
 # Post GitHub commit status
-_signoff name status:
+@_signoff name status:
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
       -f state="{{ status }}" -f context="ci/{{ name }}" --silent
 
 # Assert worktree is clean and HEAD matches expected sha
-_guard:
+@_guard:
     #!/usr/bin/env bash
     set -euo pipefail
     if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -20,7 +20,7 @@ _guard:
     fi
 
 # Look up SSH host for current system, prompting on first use. Saved to .ci.json.
-_host:
+@_host:
     #!/usr/bin/env bash
     set -euo pipefail
     config=".ci.json"
@@ -61,7 +61,7 @@ _run name +cmd:
     padding=$(printf "%-$((26 - ${#visible}))s" "")
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${prefix}"
-        {{ cmd }} 2>&1 | sed "s|^|[${prefix}${padding}] |"
+        {{ cmd }} 2>&1 | grep -v $'\033\\]' | sed "s|^|[${prefix}${padding}] |"
     else
         host=$(just ci::_host)
         echo "▶ ${prefix} ($host)"
@@ -69,7 +69,7 @@ _run name +cmd:
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all | ssh "$host" "cat > $tmp/repo.bundle && git clone $tmp/repo.bundle $tmp/src && cd $tmp/src && git checkout {{ sha }}"
-        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | sed "s|^|[${prefix}${padding}] |"
+        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | grep -v $'\033\\]' | sed "s|^|[${prefix}${padding}] |"
         ssh "$host" "rm -rf $tmp"
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
