@@ -3,7 +3,7 @@
 sha := `git rev-parse HEAD`
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 
-default: nix nix-home-example e2e
+default: (_devour-flake "nix" ".") (_devour-flake "nix/home" "./nix/home/example") e2e
 
 # Post GitHub commit status
 _signoff name status:
@@ -23,11 +23,15 @@ _run name +cmd:
     {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
     just ci::_signoff "{{ name }}" success
 
-nix:
-    just ci::_run nix nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+# Build all flake outputs via devour-flake. Sub-flakes (path != ".") get --override-input flake/kolu .
+_devour-flake name path:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args="--override-input flake {{ path }}"
+    if [[ "{{ path }}" != "." ]]; then
+        args="$args --override-input flake/kolu ."
+    fi
+    just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths $args
 
-nix-home-example: nix
-    just ci::_run nix/home nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
-
-e2e: nix
+e2e: (_devour-flake "nix" ".")
     just ci::_run e2e just test
