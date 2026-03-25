@@ -100,7 +100,7 @@ export function useTerminals() {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const name = meta[id]?.name ?? `Terminal ${id}`;
+        const name = meta[id]?.name ?? `${id}`;
         toast(
           code === 0 ? `${name} exited` : `${name} exited with code ${code}`,
         );
@@ -227,7 +227,7 @@ export function useTerminals() {
           }),
       },
       ...terminalIds().map((id) => ({
-        name: `Switch to ${meta[id]?.name ?? `Terminal ${id}`}`,
+        name: `Switch to ${meta[id]?.name ?? `${id}`}`,
         onSelect: () => setActiveId(id),
       })),
       ...availableThemes

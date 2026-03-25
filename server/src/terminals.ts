@@ -66,7 +66,7 @@ function touchActivity(entry: TerminalEntry): void {
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
 export function createTerminal(cwd?: string): TerminalInfo {
   const id = nextId++;
-  const name = `Terminal ${id}`;
+  const name = `${id}`;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
