@@ -57,9 +57,11 @@ _run name +cmd:
     color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
     prefix=$(printf "%-24s" "{{ name }}@{{ system }}")
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+        echo "${esc}[${color}m▶ {{ name }}@{{ system }} (local)${esc}[0m"
         {{ cmd }} 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
     else
         host=$(just ci::_host)
+        echo "${esc}[${color}m▶ {{ name }}@{{ system }} (ssh: $host)${esc}[0m"
         tmp=$(ssh "$host" mktemp -d)
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
         git archive {{ sha }} | ssh "$host" "tar -C $tmp -x"
