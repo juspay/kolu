@@ -1,19 +1,29 @@
-# CI steps for localci (https://github.com/srid/localci)
-# Each recipe declares target systems and dependencies via metadata attributes.
+# CI steps — pure just + gh, no external CI tool needed.
 
-default:
-    @echo "ERR: Must be run through srid/localci"
+sha := `git rev-parse HEAD`
+repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 
-[metadata("systems", "x86_64-linux", "aarch64-darwin")]
+default: nix nix-home-example e2e
+
+# Post GitHub commit status
+_signoff name status:
+    gh api "repos/{{ repo }}/statuses/{{ sha }}" \
+      -f state="{{ status }}" -f context="ci/{{ name }}" --silent
+
+# Run command with GitHub status lifecycle (pending → success/failure)
+_run name +cmd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'just ci::_signoff "{{ name }}" failure' ERR
+    just ci::_signoff "{{ name }}" pending
+    {{ cmd }}
+    just ci::_signoff "{{ name }}" success
+
 nix:
-    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
+    just ci::_run nix nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
-[metadata("systems", "x86_64-linux")]
-[metadata("depends_on", "nix")]
-nix-home-example:
-    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
+nix-home-example: nix
+    just ci::_run nix/home nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
 
-[metadata("systems", "x86_64-linux", "aarch64-darwin")]
-[metadata("depends_on", "nix")]
-e2e:
-    just test
+e2e: nix
+    just ci::_run e2e just test
