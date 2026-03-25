@@ -6,6 +6,7 @@ sha := `git rev-parse HEAD`
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 system := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
 local_system := `nix eval --raw --impure --expr builtins.currentSystem`
+root := `git rev-parse --show-toplevel`
 
 [parallel]
 default: _linux _darwin
@@ -17,10 +18,10 @@ _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix-toplevel ci::e2e
 
 nix-toplevel:
-    just ci::_devour-flake nix .
+    just ci::_devour-flake nix {{ root }}
 
 nix-home: nix-toplevel
-    just ci::_devour-flake nix/home ./nix/home/example
+    just ci::_devour-flake nix/home {{ root }}/nix/home/example
 
 e2e: nix-toplevel
     just ci::_run e2e just test

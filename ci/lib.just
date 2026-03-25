@@ -1,5 +1,5 @@
 # Reusable CI library — pure just + gh + ssh.
-# Expects the importer to define: sha, repo, system, local_system
+# Expects the importer to define: sha, repo, system, local_system, root
 
 # Post GitHub commit status
 _signoff name status:
@@ -74,12 +74,12 @@ _run name +cmd:
     fi
     just ci::_signoff "{{ name }}@{{ system }}" success
 
-# Build all flake outputs via devour-flake. Sub-flakes (path != ".") get --override-input flake/kolu .
+# Build all flake outputs via devour-flake. Sub-flakes (path != root) get --override-input flake/kolu <root>
 _devour-flake name path:
     #!/usr/bin/env bash
     set -euo pipefail
     args="--override-input flake {{ path }}"
-    if [[ "{{ path }}" != "." ]]; then
-        args="$args --override-input flake/kolu ."
+    if [[ "{{ path }}" != "{{ root }}" ]]; then
+        args="$args --override-input flake/kolu {{ root }}"
     fi
     just ci::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths $args
