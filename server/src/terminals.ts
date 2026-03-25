@@ -25,7 +25,6 @@ export interface TerminalEvents {
 export interface TerminalEntry {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
-  name: string;
   themeName?: string;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
@@ -40,7 +39,6 @@ const terminals = new Map<TerminalId, TerminalEntry>();
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
   return {
     id,
-    name: entry.name,
     pid: entry.handle.pid,
     themeName: entry.themeName,
     isActive: entry.isActive,
@@ -65,7 +63,6 @@ function touchActivity(entry: TerminalEntry): void {
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
 export function createTerminal(cwd?: string): TerminalInfo {
   const id = crypto.randomUUID();
-  const name = id;
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
@@ -93,7 +90,6 @@ export function createTerminal(cwd?: string): TerminalInfo {
 
   const entry: TerminalEntry = {
     handle,
-    name,
     emitter,
     isActive: true,
     clipboardDir,

@@ -25,7 +25,6 @@ export const CwdInfoSchema = z.object({
 
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
-  name: z.string(),
   pid: z.number(),
   themeName: z.string().optional(),
   isActive: z.boolean(),

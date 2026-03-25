@@ -9,7 +9,7 @@
 export class TerminalNotFoundError extends Error {
   readonly code = "TERMINAL_NOT_FOUND" as const;
 
-  constructor(id: number | string) {
+  constructor(id: string) {
     super(`Terminal ${id} not found`);
     this.name = "TerminalNotFoundError";
   }
