@@ -12,10 +12,8 @@ import { makePersisted } from "@solid-primitives/storage";
 import Disclosure from "@corvu/disclosure";
 import { toast } from "solid-sonner";
 import { client } from "./rpc";
-import { shortenCwd } from "./path";
+import { cwdBasename } from "./path";
 import type { CwdInfo } from "kolu-common";
-
-const PANEL_EXPANDED_KEY = "kolu-info-panel-expanded";
 
 /** Copy text to clipboard and show a toast. */
 function copyToClipboard(text: string) {
@@ -34,7 +32,7 @@ const CopyButton: Component<{ text: string }> = (props) => (
 );
 
 const CommandRow: Component<{ command: string }> = (props) => (
-  <div class="flex items-center gap-2 group">
+  <div class="flex items-center gap-2">
     <code class="text-xs text-fg-2 font-mono truncate flex-1">
       {props.command}
     </code>
@@ -50,7 +48,7 @@ const SectionLabel: Component<{ label: string }> = (props) => (
 
 const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
   const [expanded, setExpanded] = makePersisted(createSignal(false), {
-    name: PANEL_EXPANDED_KEY,
+    name: "kolu-info-panel-expanded",
     serialize: (v) => String(v),
     deserialize: (s) => s === "true",
   });
@@ -58,9 +56,8 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
   const gitInfo = createMemo(() => props.cwd?.git ?? null);
   const repoRoot = createMemo(() => gitInfo()?.repoRoot ?? null);
 
-  // Fetch worktrees when repoRoot changes
+  // createResource skips the fetcher when source is falsy
   const [worktrees] = createResource(repoRoot, async (root) => {
-    if (!root) return [];
     try {
       return await client.git.listWorktrees({ repoRoot: root });
     } catch {
@@ -79,7 +76,7 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
     return checkedOutWorktrees().filter((w) => w.path !== currentPath);
   });
 
-  /** Detect the default branch (look for main/master among worktrees, fallback to first). */
+  /** Detect the default branch (prefer main/master, fallback to first worktree's branch). */
   const defaultBranch = createMemo(() => {
     const wts = checkedOutWorktrees();
     const common = wts.find(
@@ -93,7 +90,6 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
   const newWorktreeCmd = createMemo(() => {
     const root = repoRoot();
     if (!root) return "";
-    // Use parent of repoRoot for worktree paths (sibling directories)
     const parent = root.replace(/\/[^/]+$/, "");
     return `git worktree add ${parent}/<branch> -b <branch> origin/${defaultBranch()}`;
   });
@@ -112,7 +108,9 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
             data-testid="info-panel-trigger"
           >
             <span class="text-fg-3">📂</span>
-            <span class="text-fg-2 font-medium">{git().repoName}</span>
+            <span class="text-fg-2 font-medium" title={git().repoRoot}>
+              {git().repoName}
+            </span>
             <span class="text-fg-3">·</span>
             <span class="text-accent">{git().branch}</span>
             <Show when={hasWorktrees()}>
@@ -128,30 +126,18 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
           {/* Expanded content */}
           <Disclosure.Content class="overflow-hidden border-b border-edge bg-surface-0/50 data-[collapsed]:animate-[collapse_200ms_linear] data-[expanded]:animate-[expand_200ms_linear]">
             <div class="px-3 py-2 space-y-1">
-              {/* Repo info */}
-              <div class="flex items-center gap-2 text-xs">
-                <span class="text-fg-3">Repo:</span>
-                <span class="text-fg-2 truncate" title={git().repoRoot}>
-                  {shortenCwd(git().repoRoot)}
-                </span>
-                <span class="text-fg-3">Branch:</span>
-                <span class="text-accent">{git().branch}</span>
-              </div>
-
               <Show when={hasWorktrees()}>
                 <div class="text-xs text-fg-3">
                   Worktrees:{" "}
                   {checkedOutWorktrees()
-                    .map((w) => w.branch ?? basename(w.path))
+                    .map((w) => w.branch ?? cwdBasename(w.path))
                     .join(", ")}
                 </div>
               </Show>
 
-              {/* New worktree command */}
               <SectionLabel label="New worktree" />
               <CommandRow command={newWorktreeCmd()} />
 
-              {/* Switch to existing worktrees */}
               <Show when={otherWorktrees().length > 0}>
                 <SectionLabel label="Switch to worktree" />
                 <For each={otherWorktrees()}>
@@ -165,10 +151,5 @@ const InfoPanel: Component<{ cwd: CwdInfo | null }> = (props) => {
     </Show>
   );
 };
-
-/** Extract the last path segment. */
-function basename(p: string): string {
-  return p.split("/").pop() ?? p;
-}
 
 export default InfoPanel;
