@@ -1,5 +1,15 @@
 # Reusable CI library — pure just + gh + ssh.
-# Expects the importer to define: sha, repo, system, local_system, root
+# Expects the importer to define: sha, repo, system, local_system, root, systems (space-separated)
+
+# Resolve all SSH hosts before running steps (prompts user if unconfigured)
+_preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for sys in {{ systems }}; do
+        if [[ "$sys" != "{{ local_system }}" ]]; then
+            CI_SYSTEM="$sys" just ci::_host > /dev/null
+        fi
+    done
 
 # Post GitHub commit status
 _signoff name status:
