@@ -8,17 +8,14 @@
 
 ## Local CI
 
-Use the localci MCP tools — never run build/test commands directly.
+Run `just ci` to build and test across all systems. It:
+- Runs preflight checks (clean worktree, commit pushed)
+- Builds on x86_64-linux and aarch64-darwin in parallel
+- Posts GitHub commit statuses per step
+- Prints a summary table at the end
 
-1. Make changes, commit
-2. Start CI by calling each step tool in parallel (list available tools to see them)
-3. Poll `mcp__localci__status-all` (every 10s) to check progress until all complete
-   - Do NOT call `status-all` before starting steps — it only polls, doesn't start anything.
-4. If failures: fix, commit, re-start failed steps
-5. Once green and pushed: steps auto-post GitHub statuses
-
-If a step fails while others are still running, start investigating/fixing
-the failure immediately — don't wait for all steps to complete.
+Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
+Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 
 ## UI
 

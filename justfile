@@ -2,10 +2,6 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
-# localci branch/ref to use (override: just localci_ref=main run-ci)
-localci_ref := "justfile-config"
-localci := "nix run github:srid/localci/" + localci_ref + " --"
-
 mod ci 'ci/mod.just'
 
 # List available recipes
@@ -46,12 +42,6 @@ test-dev: install
     cd tests \
         && {{ nix_shell }} pnpm install \
         && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
-
-# Run CI: build all flake outputs on each platform, run e2e tests
-# Uses localci (https://github.com/srid/localci) to run commands and post GitHub commit statuses.
-# TODO: add cache push (nix copy) after builds https://github.com/srid/localci/issues/4
-run-ci:
-    {{ localci }} --tui
 
 # Run pre-commit hooks on all files
 pc:
