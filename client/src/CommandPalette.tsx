@@ -64,6 +64,7 @@ const CommandPalette: Component<{
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Content
+        forceMount
         data-testid="command-palette"
         class="w-full max-w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
         style={{ height: "24rem" }}
