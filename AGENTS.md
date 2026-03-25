@@ -6,7 +6,7 @@
 - Run `just pc` (pre-commit hooks) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
- # Dev workflow
+# Dev workflow
 
 Use the localci MCP tools — never run build/test commands directly.
 
