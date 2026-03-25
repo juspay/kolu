@@ -1,8 +1,8 @@
 /**
- * Terminal component — owns xterm.js lifecycle, oRPC streaming, resize fitting, keyboard zoom.
+ * Terminal component — owns xterm.js lifecycle, oRPC streaming, and resize fitting.
  *
- * These concerns share the same volatility (all change together when
- * terminal behavior changes), so they belong in one module.
+ * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here
+ * reactively via a fontSize signal.
  */
 
 import {
@@ -16,7 +16,6 @@ import {
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { makePersisted } from "@solid-primitives/storage";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -30,11 +29,8 @@ import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
-import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 import SearchBar from "./SearchBar";
-
-const FONT_SIZE_KEY = "kolu-font-size";
+import { createZoom } from "./zoom";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -83,10 +79,7 @@ const Terminal: Component<{
     fitRaf = requestAnimationFrame(() => fitAddon?.fit());
   }
 
-  const [fontSize, setFontSize] = makePersisted(
-    createSignal(DEFAULT_FONT_SIZE),
-    { name: FONT_SIZE_KEY, serialize: String, deserialize: Number },
-  );
+  const fontSize = createZoom(() => props.visible);
 
   let streamAbort: AbortController | null = null;
 
@@ -140,23 +133,18 @@ const Terminal: Component<{
     }
   }
 
-  function updateFontSize(newSize: number) {
-    if (!terminal) return;
-    setFontSize(newSize);
-    terminal.options.fontSize = newSize;
-    debouncedFit();
-  }
-
-  /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
-  function handleZoomKeys(e: KeyboardEvent) {
-    if (!props.visible) return;
-    if (!isPlatformModifier(e)) return;
-    const delta = ZOOM_KEYS[e.key];
-    if (!delta) return;
-    e.preventDefault();
-    e.stopPropagation();
-    updateFontSize(fontSize() + delta);
-  }
+  // Apply font-size changes reactively (initial value handled by XTerm constructor)
+  createEffect(
+    on(
+      fontSize,
+      (size) => {
+        if (!terminal) return;
+        terminal.options.fontSize = size;
+        debouncedFit();
+      },
+      { defer: true },
+    ),
+  );
 
   onMount(() => {
     const term = new XTerm({
@@ -250,7 +238,6 @@ const Terminal: Component<{
         if (props.visible) debouncedFit();
       },
     );
-    makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),
