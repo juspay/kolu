@@ -1,4 +1,4 @@
-/** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
+/** Terminal session state: single store keyed by UUID, using TerminalInfo from common. */
 
 import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
@@ -220,7 +220,7 @@ export function useTerminals() {
         onSelect: () =>
           // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
           void client.terminal.resize({
-            id: -1,
+            id: "00000000-0000-0000-0000-000000000000",
             cols: 1,
             rows: 1,
           }),

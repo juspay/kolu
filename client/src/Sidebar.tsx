@@ -48,12 +48,17 @@ const SidebarEntry: Component<{
 
   return (
     <div class="relative" style={sortable.style}>
-      {/* Drop indicator line */}
-      <Show when={props.dropEdge === "above"}>
-        <div class="absolute top-0 left-1 right-1 h-0.5 bg-accent rounded-full" />
-      </Show>
-      <Show when={props.dropEdge === "below"}>
-        <div class="absolute bottom-0 left-1 right-1 h-0.5 bg-accent rounded-full" />
+      {/* Drop indicator line — positioned at the edge where the item will be inserted */}
+      <Show when={props.dropEdge}>
+        {(edge) => (
+          <div
+            class="absolute left-1 right-1 h-0.5 bg-accent rounded-full"
+            classList={{
+              "top-0": edge() === "above",
+              "bottom-0": edge() === "below",
+            }}
+          />
+        )}
       </Show>
       <button
         ref={sortable.ref}
@@ -74,59 +79,50 @@ const SidebarEntry: Component<{
         onMouseDown={(e) => e.preventDefault()}
         title={m()?.cwd?.cwd ?? String(props.id)}
       >
-        <Show when={m()?.cwd}>
-          {(cwdInfo) => (
-            <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-              <span
-                data-testid="activity-indicator"
-                class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-                classList={{
-                  "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-                  "bg-fg-3": !(m()?.isActive ?? false),
-                }}
-              />
-              <span class="truncate" style={{ color: repoColor() }}>
-                {cwdBasename(cwdInfo().cwd)}
-                <Show when={cwdInfo().git}>
-                  {(git) => (
-                    <span data-testid="sidebar-branch" class="text-fg-2">
-                      {" "}
-                      &middot; {git().branch}
-                    </span>
-                  )}
-                </Show>
-              </span>
-              <Tip label="Close terminal">
-                <span
-                  data-testid="close-terminal"
-                  class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (confirm("Close this terminal?")) props.onKill(props.id);
-                  }}
-                  onMouseDown={(e) => e.preventDefault()}
-                >
-                  ×
+        <div class="flex items-center gap-1.5 text-sm font-medium truncate">
+          <span
+            data-testid="activity-indicator"
+            class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
+            classList={{
+              "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+              "bg-fg-3": !(m()?.isActive ?? false),
+            }}
+          />
+          <Show when={m()?.cwd}>
+            {(cwdInfo) => (
+              <>
+                <span class="truncate" style={{ color: repoColor() }}>
+                  {cwdBasename(cwdInfo().cwd)}
+                  <Show when={cwdInfo().git}>
+                    {(git) => (
+                      <span data-testid="sidebar-branch" class="text-fg-2">
+                        {" "}
+                        &middot; {git().branch}
+                      </span>
+                    )}
+                  </Show>
                 </span>
-              </Tip>
-            </div>
-          )}
-        </Show>
-        <div class="flex items-center gap-1.5">
-          <Show when={!m()?.cwd}>
-            <span
-              data-testid="activity-indicator"
-              class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-              classList={{
-                "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-                "bg-fg-3": !(m()?.isActive ?? false),
-              }}
-            />
-          </Show>
-          <Show when={shortcutLabel()}>
-            {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
+                <Tip label="Close terminal">
+                  <span
+                    data-testid="close-terminal"
+                    class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm("Close this terminal?"))
+                        props.onKill(props.id);
+                    }}
+                    onMouseDown={(e) => e.preventDefault()}
+                  >
+                    ×
+                  </span>
+                </Tip>
+              </>
+            )}
           </Show>
         </div>
+        <Show when={shortcutLabel()}>
+          {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
+        </Show>
       </button>
     </div>
   );
