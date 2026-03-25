@@ -249,6 +249,10 @@ export function useTerminals() {
     existingTerminals,
     handleCreate,
     handleKill,
+    reorderTerminals: (ids: TerminalId[]) => {
+      setIdOrder(ids);
+      void client.terminal.reorder({ ids });
+    },
     commands,
     randomTheme,
     setRandomTheme,

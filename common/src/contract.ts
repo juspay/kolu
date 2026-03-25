@@ -14,6 +14,7 @@ import {
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
+  TerminalReorderInputSchema,
   CwdInfoSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
@@ -51,6 +52,8 @@ export const contract = oc.router({
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     // Kill a single terminal
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
+    // Reorder terminals to match the given ID list
+    reorder: oc.input(TerminalReorderInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

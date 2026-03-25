@@ -133,6 +133,22 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
   if (entry) entry.themeName = themeName;
 }
 
+/** Reorder terminals to match the given ID array. IDs not in the list are appended at the end. */
+export function reorderTerminals(ids: TerminalId[]): void {
+  const reordered = new Map<TerminalId, TerminalEntry>();
+  for (const id of ids) {
+    const entry = terminals.get(id);
+    if (entry) reordered.set(id, entry);
+  }
+  // Append any IDs not in the provided list (shouldn't happen, but be safe)
+  for (const [id, entry] of terminals) {
+    if (!reordered.has(id)) reordered.set(id, entry);
+  }
+  terminals.clear();
+  for (const [id, entry] of reordered) terminals.set(id, entry);
+  log.debug({ count: ids.length }, "terminals reordered");
+}
+
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");

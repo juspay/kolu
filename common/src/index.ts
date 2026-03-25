@@ -63,6 +63,10 @@ export const TerminalPasteImageInputSchema = z.object({
   data: z.string(),
 });
 
+export const TerminalReorderInputSchema = z.object({
+  ids: z.array(TerminalIdSchema),
+});
+
 export const ServerInfoSchema = z.object({
   hostname: z.string(),
 });
