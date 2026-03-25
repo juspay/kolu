@@ -5,11 +5,9 @@
       "command": "nix",
       "args": [
         "run",
-        "github:srid/localci/drop-process-compose-mcp-go",
+        "github:srid/localci/justfile-config",
         "--",
-        "--mcp",
-        "-f",
-        "localci.json"
+        "--mcp"
       ]
     }
   }

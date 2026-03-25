@@ -2,9 +2,11 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
 
-# localci branch/ref to use (override: just localci_ref=main ci)
-localci_ref := "master"
+# localci branch/ref to use (override: just localci_ref=main run-ci)
+localci_ref := "justfile-config"
 localci := "nix run github:srid/localci/" + localci_ref + " --"
+
+mod ci
 
 # List available recipes
 default:
@@ -48,8 +50,8 @@ test-dev: install
 # Run CI: build all flake outputs on each platform, run e2e tests
 # Uses localci (https://github.com/srid/localci) to run commands and post GitHub commit statuses.
 # TODO: add cache push (nix copy) after builds https://github.com/srid/localci/issues/4
-ci:
-    {{ localci }} --tui -f localci.json
+run-ci:
+    {{ localci }} --tui
 
 # Run pre-commit hooks on all files
 pc:
