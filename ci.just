@@ -64,7 +64,8 @@ _run name +cmd:
         echo "${esc}[${color}m▶ {{ name }}@{{ system }} (ssh: $host)${esc}[0m"
         tmp=$(ssh "$host" mktemp -d)
         trap 'ssh "$host" "rm -rf '"$tmp"'"; just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
-        git archive {{ sha }} | ssh "$host" "tar -C $tmp -x"
+        # Bundle full repo (not git archive) so remote has .git — needed for nix builds that read git revision
+        git bundle create - {{ sha }} | ssh "$host" "cd $tmp && git clone --single-branch /dev/stdin . && git checkout {{ sha }}"
         ssh "$host" "cd $tmp && {{ cmd }}" 2>&1 | sed "s|^|${esc}[${color}m[${prefix}]${esc}[0m |"
         ssh "$host" "rm -rf $tmp"
     fi
