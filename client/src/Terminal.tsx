@@ -1,19 +1,16 @@
 /**
- * Terminal component — owns ghostty lifecycle, oRPC streaming, resize fitting, keyboard zoom.
+ * Terminal component — owns ghostty lifecycle, oRPC streaming, and resize fitting.
  *
- * These concerns share the same volatility (all change together when
- * terminal behavior changes), so they belong in one module.
+ * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here
+ * reactively via a fontSize signal.
  */
 
-import { type Component, onMount, onCleanup, createSignal } from "solid-js";
+import { type Component, onMount, onCleanup, createEffect } from "solid-js";
 import { initGhostty, type Terminal as GhosttyTerminal } from "./ghostty";
 import { TERMINAL_DEFAULTS } from "./theme";
 import { client } from "./rpc";
+import { createZoom } from "./zoom";
 
-const FONT_SIZE_KEY = "kolu-font-size";
-const DEFAULT_FONT_SIZE = 14;
-// Includes iPad/iPhone because browser keyboard events use metaKey on all Apple devices
-const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 // Module-level to avoid re-creating on every write callback
 const encoder = new TextEncoder();
 
@@ -61,8 +58,6 @@ function fitToContainer(
   };
 }
 
-const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
-
 const Terminal: Component<{
   terminalId: string;
   onConnected?: () => void;
@@ -75,9 +70,7 @@ const Terminal: Component<{
   let currentCols = 80;
   let currentRows = 24;
 
-  const [fontSize, setFontSize] = createSignal(
-    Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE,
-  );
+  const fontSize = createZoom();
 
   let streamAbort: AbortController | null = null;
 
@@ -111,23 +104,13 @@ const Terminal: Component<{
     });
   }
 
-  function updateFontSize(newSize: number) {
+  // Apply font-size changes reactively (initial value handled by Terminal constructor)
+  createEffect(() => {
+    const size = fontSize();
     if (!terminal) return;
-    setFontSize(newSize);
-    localStorage.setItem(FONT_SIZE_KEY, String(newSize));
-    terminal.options.fontSize = newSize;
+    terminal.options.fontSize = size;
     remeasureAndFit();
-  }
-
-  /** Intercept Cmd/Ctrl +/- for zoom. */
-  function handleZoomKeys(e: KeyboardEvent) {
-    if (!(isMac ? e.metaKey : e.ctrlKey)) return;
-    const delta = ZOOM_KEYS[e.key];
-    if (!delta) return;
-    e.preventDefault();
-    e.stopPropagation();
-    updateFontSize(fontSize() + delta);
-  }
+  });
 
   onMount(async () => {
     const ghostty = await initGhostty();
@@ -175,11 +158,8 @@ const Terminal: Component<{
 
     const observer = new ResizeObserver(() => void fit());
     observer.observe(containerRef);
-    // Capture phase: intercept before ghostty's own keydown handler in bubble phase
-    window.addEventListener("keydown", handleZoomKeys, { capture: true });
 
     onCleanup(() => {
-      window.removeEventListener("keydown", handleZoomKeys, { capture: true });
       observer.disconnect();
       streamAbort?.abort();
       terminal?.dispose();
