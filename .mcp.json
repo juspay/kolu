@@ -5,7 +5,7 @@
       "command": "nix",
       "args": [
         "run",
-        "github:srid/localci",
+        "github:srid/localci/drop-process-compose-mcp-go",
         "--",
         "--mcp",
         "-f",
