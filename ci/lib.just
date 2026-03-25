@@ -42,6 +42,7 @@ _run name +cmd:
     set -euo pipefail
     just ci::_guard
     trap 'just ci::_signoff "{{ name }}@{{ system }}" failure' ERR
+    trap 'exit 130' INT TERM  # ctrl+c exits cleanly without posting failure to GitHub
     just ci::_signoff "{{ name }}@{{ system }}" pending
     esc=$'\033'
     name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
