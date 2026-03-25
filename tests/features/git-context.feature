@@ -12,6 +12,15 @@ Feature: Git context in header and sidebar
     And the sidebar should show a branch name
     And there should be no page errors
 
+  Scenario: Branch updates live when git HEAD changes
+    When I run "git init /tmp/kolu-branch-test"
+    And I run "cd /tmp/kolu-branch-test"
+    Then the header should show a branch name
+    When I run "git checkout -b new-test-branch"
+    Then the header branch should show "new-test-branch"
+    And the sidebar branch should show "new-test-branch"
+    And there should be no page errors
+
   Scenario: Header and sidebar hide git context outside a repo
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"

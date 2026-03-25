@@ -35,6 +35,32 @@ Then("the sidebar should show a branch name", async function (this: KoluWorld) {
 });
 
 Then(
+  "the header branch should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const text = await pollTestId(this, "header-branch", (t) =>
+      t.includes(expected),
+    );
+    assert.ok(
+      text.includes(expected),
+      `Expected header branch to contain "${expected}" but got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the sidebar branch should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const text = await pollTestId(this, "sidebar-branch", (t) =>
+      t.includes(expected),
+    );
+    assert.ok(
+      text.includes(expected),
+      `Expected sidebar branch to contain "${expected}" but got "${text}"`,
+    );
+  },
+);
+
+Then(
   "the header should not show git context",
   async function (this: KoluWorld) {
     const count = await this.page

@@ -2,7 +2,8 @@
  * Streaming helpers for async event-driven endpoints.
  *
  * Reusable for any oRPC streaming handler that bridges an EventEmitter
- * to an AsyncGenerator.
+ * to an AsyncGenerator. Also provides generic async iterable combinators
+ * (switchMap, map, prepend) for composing streams.
  */
 
 import type { EventEmitter } from "node:events";
@@ -48,5 +49,51 @@ export async function* subscribeAndYield<T = string>(
   } finally {
     cleanup();
     signal?.removeEventListener("abort", cleanup);
+  }
+}
+
+/**
+ * For each value from `source`, start a new inner iterable via `fn` and
+ * tear down the previous one. Yields from the active inner only.
+ *
+ * Modelled after RxJS/IxJS switchMap for async iterables.
+ */
+export async function* switchMap<T, U>(
+  source: AsyncIterable<T>,
+  fn: (value: T, signal: AbortSignal) => AsyncIterable<U>,
+): AsyncGenerator<U> {
+  let innerAc: AbortController | null = null;
+
+  try {
+    for await (const outer of source) {
+      // Tear down previous inner
+      innerAc?.abort();
+      innerAc = new AbortController();
+
+      for await (const inner of fn(outer, innerAc.signal)) {
+        yield inner;
+      }
+    }
+  } finally {
+    innerAc?.abort();
+  }
+}
+
+/** Yield `value` first, then everything from `source`. */
+export async function* prepend<T>(
+  source: AsyncIterable<T>,
+  value: T,
+): AsyncGenerator<T> {
+  yield value;
+  yield* source;
+}
+
+/** Transform each value from `source` through `fn`. */
+export async function* map<T, U>(
+  source: AsyncIterable<T>,
+  fn: (value: T) => U | Promise<U>,
+): AsyncGenerator<U> {
+  for await (const item of source) {
+    yield await fn(item);
   }
 }

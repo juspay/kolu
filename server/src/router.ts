@@ -18,9 +18,9 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeAndYield } from "./streaming.ts";
+import { subscribeAndYield, switchMap, prepend, map } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
-import { toCwdInfo } from "./git.ts";
+import { toCwdInfo, watchGitDir } from "./git.ts";
 
 const t = implement(contract);
 
@@ -101,17 +101,19 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current CWD with git context immediately
-      yield await toCwdInfo(entry.handle.cwd);
+      // Build a CWD source: current value first, then OSC 7 changes.
+      const cwdChanges = prepend(
+        subscribeAndYield<string>(entry.emitter, "cwd", signal),
+        entry.handle.cwd,
+      );
 
-      // Then stream changes, enriching each with git context
-      for await (const rawCwd of subscribeAndYield(
-        entry.emitter,
-        "cwd",
-        signal,
-      )) {
-        yield await toCwdInfo(rawCwd);
-      }
+      // For each CWD, watch .git/HEAD for branch changes. Re-resolve
+      // CwdInfo on every git change (and once immediately via prepend).
+      yield* switchMap(cwdChanges, (cwd, innerSignal) =>
+        map(prepend(watchGitDir(cwd, innerSignal), undefined), () =>
+          toCwdInfo(cwd),
+        ),
+      );
     }),
 
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({
