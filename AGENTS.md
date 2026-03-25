@@ -6,10 +6,15 @@
 - Run `just pc` (pre-commit hooks) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
-## Testing
+ # Dev workflow
 
-- Use the localci MCP tools (`mcp__localci__<step>`) to build and test — never run build or test commands directly.
-- After making changes: commit, run localci MCP tools to verify, fix if needed, push when green.
+Use the localci MCP tools — never run build/test commands directly.
+
+1. Make changes, commit
+2. Start CI by calling each step tool in parallel (list available tools to see them)
+3. Poll `mcp__localci__status-all` to check progress until all complete
+4. If failures: fix, commit, re-start failed steps
+5. Once green and pushed: steps auto-post GitHub statuses
 
 ## UI
 
