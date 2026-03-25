@@ -75,12 +75,16 @@ export function createTerminal(cwd?: string): TerminalInfo {
         if (entry) touchActivity(entry);
         emitter.emit("data", data);
       },
-      // On natural exit: emit event so onExit stream can yield the exit code
+      // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
-        if (entry && entry.idleTimer) clearTimeout(entry.idleTimer);
+        if (entry) {
+          if (entry.idleTimer) clearTimeout(entry.idleTimer);
+          cleanupClipboardDir(entry.clipboardDir);
+        }
         emitter.emit("exit", exitCode);
+        terminals.delete(id);
       },
       onCwd: (cwd) => emitter.emit("cwd", cwd),
     },
