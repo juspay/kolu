@@ -44,10 +44,10 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal">
+        <Tip label="New terminal" class="w-full">
           <button
             data-testid="create-terminal"
-            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
             onClick={props.onCreate}
           >
             + New terminal
