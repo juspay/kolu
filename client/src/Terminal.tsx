@@ -146,7 +146,12 @@ const Terminal: Component<{
     ),
   );
 
-  onMount(() => {
+  onMount(async () => {
+    // Wait for the terminal font to load before measuring cell dimensions.
+    // Without this, the first terminal may mount before the font is available,
+    // causing xterm to measure with the fallback monospace font — wrong metrics.
+    await document.fonts.load(`1em ${FONT_FAMILY}`);
+
     const term = new XTerm({
       fontFamily: FONT_FAMILY,
       theme: props.theme,

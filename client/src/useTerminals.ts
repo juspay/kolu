@@ -12,11 +12,18 @@ import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 type TerminalState = Omit<TerminalInfo, "id">;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
+const RANDOM_THEME_KEY = "kolu-random-theme";
 
 export function useTerminals() {
   // Single store: all per-terminal metadata keyed by numeric ID.
   // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
+
+  const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
+    name: RANDOM_THEME_KEY,
+    serialize: String,
+    deserialize: (s) => s !== "false",
+  });
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
@@ -153,9 +160,14 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    setMeta(info.id, infoToState(info));
+    const themeName = randomTheme()
+      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+          .name
+      : undefined;
+    setMeta(info.id, { ...infoToState(info), ...(themeName && { themeName }) });
     setActiveId(info.id);
     subscribeAll(info.id);
+    if (themeName) void client.terminal.setTheme({ id: info.id, themeName });
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
@@ -239,5 +251,7 @@ export function useTerminals() {
     handleCreate,
     handleKill,
     commands,
+    randomTheme,
+    setRandomTheme,
   };
 }

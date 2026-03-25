@@ -112,6 +112,10 @@ Before(async function (this: KoluWorld) {
     permissions: ["clipboard-write"],
   });
   this.page = await this.context.newPage();
+  // Disable random theme so tests get deterministic default theme
+  await this.page.addInitScript(() =>
+    localStorage.setItem("kolu-random-theme", "false"),
+  );
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
 });
