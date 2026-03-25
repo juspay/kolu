@@ -1,5 +1,9 @@
 # Nix derivation that fetches and bundles all web font assets.
 # Inter (variable weight 400–600) from Google Fonts, FiraCode Nerd Font from nerdfont-webfonts.
+#
+# Outputs:
+#   $out/*.woff2   — font files (copied into client/public/fonts/ at build time)
+#   $out/fonts.css — @font-face declarations (imported via vite alias "kolu-fonts")
 { pkgs }:
 let
   fetchFont = name: url: hash:
@@ -8,21 +12,53 @@ let
   inter = subset: url: hash:
     fetchFont "inter-${subset}.woff2" url hash;
 
-  fonts = [
-    (inter "latin" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2"
-      "sha256-MQDndehhbNJhG+7PojpCY9cDdYZ4m0PwNSNqLm+9TGI=")
-    (inter "latin-ext" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2"
-      "sha256-NLnFBMq3pz43t0Y0OkSRMuVs97VIGvLLgdx03P8lyVY=")
-    (inter "cyrillic" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2"
-      "sha256-cdXuk8wenx1SCjqLZkVt4Yx4edjfCdV/zS6v91/vAHU=")
-    (inter "cyrillic-ext" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2"
-      "sha256-yhVwYzOaxK1BjyFPOr/tEZsHmKtNN3OGzlyeWnpDXr0=")
-    (inter "greek" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2"
-      "sha256-G+NEjikvvwX/4Xb+HkPxNQE9ULHn0yStGlWPYj07tvY=")
-    (inter "greek-ext" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2"
-      "sha256-bp4CCiX5tW1BjywIWx08CXJaTaI/5pOltGMGRgZzIZA=")
-    (inter "vietnamese" "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2"
-      "sha256-XGb54H6QxtSsSSLMaNYN4mwXsYWOZ3+15gP845UrP/I=")
+  # Each entry: { name, unicodeRange }
+  interSubsets = [
+    {
+      subset = "cyrillic-ext";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2JL7SUc.woff2";
+      hash = "sha256-yhVwYzOaxK1BjyFPOr/tEZsHmKtNN3OGzlyeWnpDXr0=";
+      unicodeRange = "U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F";
+    }
+    {
+      subset = "cyrillic";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa0ZL7SUc.woff2";
+      hash = "sha256-cdXuk8wenx1SCjqLZkVt4Yx4edjfCdV/zS6v91/vAHU=";
+      unicodeRange = "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116";
+    }
+    {
+      subset = "greek-ext";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2ZL7SUc.woff2";
+      hash = "sha256-bp4CCiX5tW1BjywIWx08CXJaTaI/5pOltGMGRgZzIZA=";
+      unicodeRange = "U+1F00-1FFF";
+    }
+    {
+      subset = "greek";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1pL7SUc.woff2";
+      hash = "sha256-G+NEjikvvwX/4Xb+HkPxNQE9ULHn0yStGlWPYj07tvY=";
+      unicodeRange = "U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF";
+    }
+    {
+      subset = "vietnamese";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa2pL7SUc.woff2";
+      hash = "sha256-XGb54H6QxtSsSSLMaNYN4mwXsYWOZ3+15gP845UrP/I=";
+      unicodeRange = "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB";
+    }
+    {
+      subset = "latin-ext";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa25L7SUc.woff2";
+      hash = "sha256-NLnFBMq3pz43t0Y0OkSRMuVs97VIGvLLgdx03P8lyVY=";
+      unicodeRange = "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF";
+    }
+    {
+      subset = "latin";
+      url = "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2";
+      hash = "sha256-MQDndehhbNJhG+7PojpCY9cDdYZ4m0PwNSNqLm+9TGI=";
+      unicodeRange = "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD";
+    }
+  ];
+
+  firacode = [
     (fetchFont "FiraCodeNerdFont-Regular.woff2"
       "https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/fonts/FiraCodeNerdFont-Regular.woff2"
       "sha256-71OZLN9GnUAk0u/CnVHAWmVCXRymkOUF+rgCI5gKBn0=")
@@ -30,8 +66,49 @@ let
       "https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/fonts/FiraCodeNerdFont-Bold.woff2"
       "sha256-7LYtNpPVIeYD1I6Jeb9bdOB2/vOjfnrSPD3l4SMMgzs=")
   ];
+
+  allFonts = map (s: fetchFont "inter-${s.subset}.woff2" s.url s.hash) interSubsets ++ firacode;
+
+  # Generate @font-face CSS. URLs use /fonts/ (absolute) so they resolve
+  # correctly whether the CSS is loaded via vite alias or from the public dir.
+  interFaces = builtins.concatStringsSep "\n" (map
+    (s: ''
+      /* ${s.subset} */
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 400 600;
+        font-display: swap;
+        src: url("/fonts/inter-${s.subset}.woff2") format("woff2");
+        unicode-range: ${s.unicodeRange};
+      }
+    '')
+    interSubsets);
+
+  fontsCss = ''
+    /* Auto-generated by nix/fonts — do not edit manually */
+    ${interFaces}
+    @font-face {
+      font-family: "FiraCode Nerd Font";
+      font-style: normal;
+      font-weight: 400;
+      font-display: swap;
+      src: url("/fonts/FiraCodeNerdFont-Regular.woff2") format("woff2");
+    }
+
+    @font-face {
+      font-family: "FiraCode Nerd Font";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("/fonts/FiraCodeNerdFont-Bold.woff2") format("woff2");
+    }
+  '';
 in
 pkgs.runCommand "kolu-fonts" { } ''
   mkdir -p $out
-  ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $out/${f.name}") fonts}
+  ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $out/${f.name}") allFonts}
+  cat > $out/fonts.css << 'ENDCSS'
+  ${fontsCss}
+  ENDCSS
 ''
