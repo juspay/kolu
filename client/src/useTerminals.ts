@@ -1,12 +1,12 @@
 /** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
 
-import { createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
+import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
-import { createSignal } from "solid-js";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
@@ -88,11 +88,17 @@ export function useTerminals() {
     );
   }
 
-  /** Subscribe to exit events for a terminal. On exit, remove it and auto-switch. */
+  /** Subscribe to exit events for a terminal. On exit, notify and remove. */
   function subscribeExit(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
-      () => removeAndAutoSwitch(id),
+      (code) => {
+        const name = meta[id]?.name ?? `Terminal ${id}`;
+        toast(
+          code === 0 ? `${name} exited` : `${name} exited with code ${code}`,
+        );
+        removeAndAutoSwitch(id);
+      },
     );
   }
 

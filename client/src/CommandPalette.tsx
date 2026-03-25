@@ -1,8 +1,8 @@
 /**
  * Command palette — searchable overlay for terminal and theme actions.
  *
- * Always mounted. Keyboard navigation handled internally.
- * Open state and Cmd/Ctrl+K shortcut are controlled externally via useShortcuts.
+ * Always mounted via ModalDialog (forceMount). Keyboard navigation handled
+ * internally with capture-phase listener to intercept before terminal.
  */
 
 import {
@@ -16,10 +16,11 @@ import {
   Show,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import Overlay from "./Overlay";
+import Dialog from "@corvu/dialog";
+import ModalDialog from "./ModalDialog";
 
 /** A command that can be executed from the palette. */
-export interface Command {
+export interface PaletteCommand {
   name: string;
   onSelect: () => void;
   /** If set, command is hidden unless the query starts with this prefix. */
@@ -30,7 +31,7 @@ export interface Command {
 const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
 
 const CommandPalette: Component<{
-  commands: Accessor<Command[]>;
+  commands: Accessor<PaletteCommand[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialQuery?: string;
@@ -41,15 +42,16 @@ const CommandPalette: Component<{
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
-    const cmds = props.commands();
-    return cmds.filter(
-      (cmd) =>
-        (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
-        (!q || cmd.name.toLowerCase().includes(q)),
-    );
+    return props
+      .commands()
+      .filter(
+        (cmd) =>
+          (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
+          (!q || cmd.name.toLowerCase().includes(q)),
+      );
   });
 
-  function execute(cmd: Command) {
+  function execute(cmd: PaletteCommand) {
     cmd.onSelect();
     props.onOpenChange(false);
   }
@@ -81,9 +83,6 @@ const CommandPalette: Component<{
         if (selected) execute(selected);
         break;
       }
-      case "Escape":
-        props.onOpenChange(false);
-        break;
       default:
         return;
     }
@@ -112,8 +111,9 @@ const CommandPalette: Component<{
   createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
 
   return (
-    <Overlay open={props.open} onClose={() => props.onOpenChange(false)}>
-      <div
+    <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+      <Dialog.Content
+        forceMount
         data-testid="command-palette"
         class="w-full max-w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
         style={{ height: "24rem" }}
@@ -156,8 +156,8 @@ const CommandPalette: Component<{
             </ul>
           </Show>
         </div>
-      </div>
-    </Overlay>
+      </Dialog.Content>
+    </ModalDialog>
   );
 };
 

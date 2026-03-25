@@ -10,6 +10,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import Tip from "./Tip";
 import type {
   SearchAddon,
   ISearchResultChangeEvent,
@@ -31,17 +32,18 @@ const SEARCH_OPTIONS: ISearchOptions = {
 /** Small icon button used for prev/next/close actions. */
 function IconButton(props: {
   onClick: () => void;
-  title: string;
+  label: string;
   children: JSX.Element;
 }) {
   return (
-    <button
-      class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
-      onClick={props.onClick}
-      title={props.title}
-    >
-      {props.children}
-    </button>
+    <Tip label={props.label}>
+      <button
+        class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
+        onClick={props.onClick}
+      >
+        {props.children}
+      </button>
+    </Tip>
   );
 }
 
@@ -149,7 +151,7 @@ const SearchBar: Component<{
         <span class="text-xs text-fg-3 min-w-[3.5rem] text-center tabular-nums">
           {resultLabel()}
         </span>
-        <IconButton onClick={findPrevious} title="Previous match (Shift+Enter)">
+        <IconButton onClick={findPrevious} label="Previous match (Shift+Enter)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"
@@ -161,7 +163,7 @@ const SearchBar: Component<{
             <path d="M12 10L8 6L4 10" />
           </svg>
         </IconButton>
-        <IconButton onClick={findNext} title="Next match (Enter)">
+        <IconButton onClick={findNext} label="Next match (Enter)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"
@@ -173,7 +175,7 @@ const SearchBar: Component<{
             <path d="M4 6L8 10L12 6" />
           </svg>
         </IconButton>
-        <IconButton onClick={() => props.onClose()} title="Close (Escape)">
+        <IconButton onClick={() => props.onClose()} label="Close (Escape)">
           <svg
             class="w-3.5 h-3.5"
             viewBox="0 0 16 16"

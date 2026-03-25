@@ -8,6 +8,7 @@ import { createSignal } from "solid-js";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/websocket";
 import { WebSocket as PartySocket } from "partysocket";
+import { toast } from "solid-sonner";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
 
@@ -22,8 +23,16 @@ const ws = new PartySocket(wsUrl);
 
 // Track WebSocket connection status as a reactive signal
 const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
-ws.addEventListener("open", () => setWsStatus("open"));
-ws.addEventListener("close", () => setWsStatus("closed"));
+let wasConnected = false;
+ws.addEventListener("open", () => {
+  setWsStatus("open");
+  if (wasConnected) toast.success("Reconnected to server");
+  wasConnected = true;
+});
+ws.addEventListener("close", () => {
+  setWsStatus("closed");
+  if (wasConnected) toast.error("Disconnected from server");
+});
 
 export { wsStatus };
 
