@@ -1,5 +1,6 @@
 import { type Component, For, Show } from "solid-js";
 import { cwdBasename } from "./path";
+import Tip from "./Tip";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 
 /** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
@@ -43,14 +44,15 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <button
-          data-testid="create-terminal"
-          class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-          onClick={props.onCreate}
-          title="New terminal"
-        >
-          + New terminal
-        </button>
+        <Tip label="New terminal">
+          <button
+            data-testid="create-terminal"
+            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            onClick={props.onCreate}
+          >
+            + New terminal
+          </button>
+        </Tip>
         <nav class="flex-1 overflow-y-auto">
           <For each={props.terminalIds}>
             {(id) => {
@@ -81,18 +83,19 @@ const Sidebar: Component<{
                       }}
                     />
                     <span class="flex-1">{m()?.name ?? `Terminal ${id}`}</span>
-                    <span
-                      data-testid="close-terminal"
-                      class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm("Close this terminal?")) props.onKill(id);
-                      }}
-                      onMouseDown={(e) => e.preventDefault()}
-                      title="Close terminal"
-                    >
-                      ×
-                    </span>
+                    <Tip label="Close terminal">
+                      <span
+                        data-testid="close-terminal"
+                        class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm("Close this terminal?")) props.onKill(id);
+                        }}
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        ×
+                      </span>
+                    </Tip>
                   </div>
                   <Show when={m()?.cwd}>
                     {(cwdInfo) => (
