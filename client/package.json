@@ -11,6 +11,7 @@
   "dependencies": {
     "@corvu/dialog": "^0.2.4",
     "@corvu/drawer": "^0.2.2",
+    "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
     "@orpc/client": "^1.13.9",
     "@orpc/contract": "^1.13.9",

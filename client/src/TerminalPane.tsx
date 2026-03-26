@@ -1,6 +1,7 @@
 /** TerminalPane — wraps a main terminal + optional resizable sub-panel below. */
 
 import { type Component, Show, For } from "solid-js";
+import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
@@ -29,32 +30,11 @@ const TerminalPane: Component<{
   const isExpanded = () => hasSubs() && !panelState().collapsed;
   const activeSubTab = () => panelState().activeSubTab;
 
-  let flexContainerRef!: HTMLDivElement;
-
-  /** Start drag-resize of the sub-panel. Uses the flex container for height reference. */
-  function startResize(e: MouseEvent) {
-    e.preventDefault();
-    const subPanelEl =
-      flexContainerRef.querySelector<HTMLElement>("[data-sub-panel]");
-    if (!subPanelEl) return;
-    const startY = e.clientY;
-    const startHeight = subPanelEl.offsetHeight;
-    const containerHeight = flexContainerRef.offsetHeight;
-
-    function onMove(ev: MouseEvent) {
-      const delta = startY - ev.clientY;
-      const newHeight = Math.max(
-        60,
-        Math.min(containerHeight * 0.8, startHeight + delta),
-      );
-      subPanel.setPanelSize(props.terminalId, newHeight / containerHeight);
+  function handleSizesChange(sizes: number[]) {
+    // Persist the bottom panel size when user drags the handle
+    if (sizes[1] !== undefined && sizes[1] > 0.02) {
+      subPanel.setPanelSize(props.terminalId, sizes[1]);
     }
-    function onUp() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
   }
 
   function subTheme(subId: TerminalId): ITheme {
@@ -65,17 +45,12 @@ const TerminalPane: Component<{
   return (
     <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
       {/*
-        Layout strategy:
-        - No subs: main terminal fills the pane
-        - Subs expanded: flex column with main + handle + sub-panel
-        - Subs collapsed: main fills, indicator bar at bottom
-
-        Main terminal is always mounted once. Sub-terminals mount when
-        first created (via Show/For) and stay mounted across collapse/expand.
+        No subs: plain terminal. With subs: Resizable split.
+        Sub-terminals mount once via Show+For and stay alive across collapse.
       */}
-      <div ref={flexContainerRef} class="h-full flex flex-col">
-        {/* Main terminal — grows to fill available space */}
-        <div class="flex-1 min-h-0 overflow-hidden">
+      <Show
+        when={hasSubs()}
+        fallback={
           <Terminal
             terminalId={props.terminalId}
             visible={props.visible}
@@ -83,38 +58,74 @@ const TerminalPane: Component<{
             searchOpen={props.searchOpen}
             onSearchOpenChange={props.onSearchOpenChange}
           />
-        </div>
+        }
+      >
+        <Resizable
+          orientation="vertical"
+          sizes={
+            isExpanded()
+              ? [1 - panelState().panelSize, panelState().panelSize]
+              : [1, 0]
+          }
+          onSizesChange={handleSizesChange}
+          class="h-full"
+        >
+          <Resizable.Panel
+            as="div"
+            class="min-h-0 overflow-hidden"
+            minSize={0.2}
+          >
+            <Terminal
+              terminalId={props.terminalId}
+              visible={props.visible}
+              theme={props.theme}
+              searchOpen={props.searchOpen}
+              onSearchOpenChange={props.onSearchOpenChange}
+            />
+          </Resizable.Panel>
 
-        {/* Sub-panel section — only rendered when sub-terminals exist */}
-        <Show when={hasSubs()}>
-          {/* Resize handle — only visible when expanded */}
-          <div
-            classList={{ hidden: !isExpanded() }}
-            class="h-1 bg-edge hover:bg-accent-bright transition-colors cursor-row-resize shrink-0"
-            onMouseDown={startResize}
+          {/* Handle + collapsed indicator: always visible when subs exist */}
+          <Resizable.Handle
+            class={`shrink-0 transition-colors ${
+              isExpanded()
+                ? "h-1 bg-edge hover:bg-accent-bright cursor-row-resize"
+                : "h-1 bg-accent/60 hover:bg-accent cursor-pointer"
+            }`}
+            aria-label={
+              isExpanded()
+                ? "Resize sub-panel"
+                : `${props.subTerminalIds.length} sub-terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
+            }
+            onClick={() => {
+              if (!isExpanded()) subPanel.expandPanel(props.terminalId);
+            }}
           />
 
-          {/* Sub-panel content */}
-          <div
-            data-sub-panel
-            class="overflow-hidden flex flex-col shrink-0"
-            classList={{ hidden: !isExpanded() }}
-            style={{
-              height: isExpanded() ? `${panelState().panelSize * 100}%` : "0",
-            }}
+          <Resizable.Panel
+            as="div"
+            class="min-h-0 overflow-hidden flex flex-col"
+            minSize={0}
+            collapsible
+            collapsedSize={0}
+            onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+            onExpand={() => subPanel.expandPanel(props.terminalId)}
           >
-            <SubPanelTabBar
-              subIds={props.subTerminalIds}
-              activeSubTab={activeSubTab()}
-              getMeta={props.getMeta}
-              onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
-              onCreate={() =>
-                props.onCreateSubTerminal(
-                  props.terminalId,
-                  props.activeCwd?.cwd,
-                )
-              }
-            />
+            <Show when={isExpanded()}>
+              <SubPanelTabBar
+                subIds={props.subTerminalIds}
+                activeSubTab={activeSubTab()}
+                getMeta={props.getMeta}
+                onSelect={(id) =>
+                  subPanel.setActiveSubTab(props.terminalId, id)
+                }
+                onCreate={() =>
+                  props.onCreateSubTerminal(
+                    props.terminalId,
+                    props.activeCwd?.cwd,
+                  )
+                }
+              />
+            </Show>
             <div class="flex-1 min-h-0">
               <For each={props.subTerminalIds}>
                 {(subId) => (
@@ -130,18 +141,9 @@ const TerminalPane: Component<{
                 )}
               </For>
             </div>
-          </div>
-
-          {/* Collapsed indicator bar */}
-          <Show when={!isExpanded()}>
-            <button
-              class="h-1 w-full bg-accent/60 hover:bg-accent hover:h-1.5 transition-all cursor-pointer shrink-0"
-              onClick={() => subPanel.expandPanel(props.terminalId)}
-              title={`${props.subTerminalIds.length} sub-terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`}
-            />
-          </Show>
-        </Show>
-      </div>
+          </Resizable.Panel>
+        </Resizable>
+      </Show>
     </div>
   );
 };
