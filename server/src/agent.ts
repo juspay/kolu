@@ -47,6 +47,42 @@ export function resolveAgentStatus(
   return { agent, state: classifyFromTranscript(terminalCwd) };
 }
 
+// --- JSONL transcript watcher (triggers re-emit on state change) ---
+
+const WATCH_DEBOUNCE_MS = 150;
+
+/**
+ * Watch the Claude Code JSONL transcript for the given CWD.
+ * Calls onChange when the file is modified (new entry written = state may have changed).
+ * Returns a cleanup function. No-op if no active session found.
+ */
+export function watchTranscript(
+  terminalCwd: string,
+  onChange: () => void,
+): () => void {
+  const session = findSession(terminalCwd);
+  if (!session) return () => {};
+
+  const jsonlPath = path.join(session.projectDir, `${session.sessionId}.jsonl`);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let watcher: fs.FSWatcher | undefined;
+  try {
+    watcher = fs.watch(jsonlPath, (event) => {
+      if (event !== "change") return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(onChange, WATCH_DEBOUNCE_MS);
+    });
+  } catch {
+    return () => {};
+  }
+
+  return () => {
+    if (timer) clearTimeout(timer);
+    watcher?.close();
+  };
+}
+
 // --- Claude Code transcript-based state classification ---
 
 /** Encode a CWD path to the ~/.claude/projects/ directory name format. */
@@ -127,11 +163,11 @@ function classifyFromTranscript(terminalCwd: string): AgentState {
   if (!entry) return "waiting"; // empty transcript → at initial prompt
 
   const type = entry.type as string | undefined;
-  const message = entry.message as
-    | { content?: Array<{ type?: string }> }
-    | undefined;
-  const contentTypes =
-    message?.content?.map((c) => c.type).filter(Boolean) ?? [];
+  const content = (entry.message as Record<string, unknown> | undefined)
+    ?.content;
+  const contentTypes = Array.isArray(content)
+    ? content.map((c: { type?: string }) => c.type).filter(Boolean)
+    : [];
 
   if (type === "assistant") {
     // Assistant responded — check if it's a tool call or a text response

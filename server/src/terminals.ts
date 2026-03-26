@@ -14,7 +14,11 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { watchGitHead } from "./git.ts";
-import { resolveAgentStatus } from "./agent.ts";
+import {
+  resolveAgentStatus,
+  detectAgentByProcess,
+  watchTranscript,
+} from "./agent.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -41,6 +45,8 @@ export interface TerminalEntry {
   lastForegroundProcess?: string;
   /** Cleanup function for the .git/HEAD file watcher. */
   stopGitWatch: () => void;
+  /** Cleanup function for the JSONL transcript watcher (active when agent detected). */
+  stopTranscriptWatch: () => void;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
@@ -73,7 +79,19 @@ function touchActivity(entry: TerminalEntry): void {
   // so the activity stream delivers updated agent context to the client.
   const fg = fgProcess(entry);
   const fgChanged = fg !== entry.lastForegroundProcess;
-  if (fgChanged) entry.lastForegroundProcess = fg;
+  if (fgChanged) {
+    entry.lastForegroundProcess = fg;
+    // Start/stop JSONL transcript watcher based on whether an agent is running.
+    // When active, transcript changes trigger re-emit for instant state updates.
+    entry.stopTranscriptWatch();
+    if (detectAgentByProcess(fg)) {
+      entry.stopTranscriptWatch = watchTranscript(entry.handle.cwd, () =>
+        entry.emitter.emit("activity", entry.isActive),
+      );
+    } else {
+      entry.stopTranscriptWatch = () => {};
+    }
+  }
 
   if (!entry.isActive) {
     entry.isActive = true;
@@ -111,6 +129,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         if (entry) {
           if (entry.idleTimer) clearTimeout(entry.idleTimer);
           entry.stopGitWatch();
+          entry.stopTranscriptWatch();
           cleanupClipboardDir(entry.clipboardDir);
         }
         emitter.emit("exit", exitCode);
@@ -142,6 +161,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     stopGitWatch: watchGitHead(handle.cwd, () =>
       emitter.emit("cwd", handle.cwd),
     ),
+    stopTranscriptWatch: () => {},
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
@@ -166,6 +186,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.stopGitWatch();
+  entry.stopTranscriptWatch();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
@@ -210,6 +231,7 @@ export function killAllTerminals(): void {
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopGitWatch();
+    entry.stopTranscriptWatch();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
