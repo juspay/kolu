@@ -27,6 +27,22 @@ When("I press the prev terminal shortcut", async function (this: KoluWorld) {
   await this.page.waitForTimeout(200);
 });
 
+When(
+  "I press the next terminal tab shortcut",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press("Control+Tab");
+    await this.page.waitForTimeout(200);
+  },
+);
+
+When(
+  "I press the prev terminal tab shortcut",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press("Control+Shift+Tab");
+    await this.page.waitForTimeout(200);
+  },
+);
+
 When("I press the create terminal shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+t`);
   await this.page.waitForTimeout(500);

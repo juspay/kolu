@@ -94,6 +94,14 @@ export const SHORTCUTS = {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     label: "Previous terminal",
   },
+  nextTerminalTab: {
+    keybind: { key: "Tab", code: "Tab", ctrl: true },
+    label: "Next terminal",
+  },
+  prevTerminalTab: {
+    keybind: { key: "Tab", code: "Tab", ctrl: true, shift: true },
+    label: "Previous terminal",
+  },
   commandPalette: {
     keybind: { key: "k", mod: true },
     label: "Command palette",
