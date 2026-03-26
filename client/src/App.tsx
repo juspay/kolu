@@ -19,7 +19,7 @@ import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
-import { getThemeByName } from "./theme";
+
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
@@ -36,6 +36,8 @@ const App: Component = () => {
     getActivityHistory,
     activeThemeName,
     activeTheme,
+    getTerminalTheme,
+    isPreviewingTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
@@ -134,6 +136,7 @@ const App: Component = () => {
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
+        transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -202,9 +205,7 @@ const App: Component = () => {
                     <TerminalPane
                       terminalId={id}
                       visible={activeId() === id}
-                      theme={getThemeByName(
-                        getMeta(id)?.themeName ?? activeThemeName(),
-                      )}
+                      theme={getTerminalTheme(id)}
                       searchOpen={searchOpen()}
                       onSearchOpenChange={setSearchOpen}
                       subTerminalIds={getSubTerminalIds(id)}
