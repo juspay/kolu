@@ -8,7 +8,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kolu-shell"
 
 # Cache key: content hash of all nix input files
-CACHE_KEY=$(cat "$DIR/shell.nix" "$DIR/nix/nixpkgs.nix" \
+CACHE_KEY=$(cat "$DIR/shell.nix" "$DIR/default.nix" "$DIR/nix/nixpkgs.nix" \
     "$DIR"/nix/fonts/default.nix "$DIR"/nix/ghostty-themes/default.nix \
     "$DIR"/nix/ghostty-themes/parse-themes.py 2>/dev/null | sha256sum | cut -d' ' -f1)
 ENV_FILE="$CACHE_DIR/$CACHE_KEY.env"
