@@ -39,6 +39,14 @@ Feature: Responsive sidebar layout
     When I select terminal 1 in the sidebar
     Then the sidebar should not be visible
 
+  Scenario: Sidebar resize handle is visible on desktop
+    Then the sidebar resize handle should be visible
+
+  Scenario: Dragging resize handle changes sidebar width
+    Given I note the sidebar width
+    When I drag the sidebar resize handle 100 pixels to the right
+    Then the sidebar should be wider than before
+
   Scenario: Sidebar does not overlap header on mobile
     When I resize the viewport to 375x667
     And I click the sidebar toggle
