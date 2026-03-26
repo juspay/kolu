@@ -108,6 +108,44 @@ Feature: Command Palette
     Then the last palette item should be selected
     And there should be no page errors
 
+  Scenario: Backspace drills out of nested group
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then the palette breadcrumb should show "Switch terminal"
+    When I press Backspace
+    Then the palette breadcrumb should not be visible
+    And there should be no page errors
+
+  Scenario: Breadcrumb click navigates back to root
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then the palette breadcrumb should show "Switch terminal"
+    When I click breadcrumb "Commands" in the palette
+    Then the palette breadcrumb should not be visible
+    And there should be no page errors
+
+  Scenario: Group commands show chevron indicator
+    When I open the command palette
+    Then palette item "Theme" should have a chevron
+    And there should be no page errors
+
+  Scenario: Keyboard shortcut hints shown on commands
+    When I open the command palette
+    Then palette item "Create new terminal" should show shortcut "T"
+    And there should be no page errors
+
+  Scenario: Shortcut hints shown in nested group
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then palette item "Switch to terminal 1" should show shortcut "1"
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette

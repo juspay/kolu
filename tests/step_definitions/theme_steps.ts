@@ -48,41 +48,12 @@ Then(
   },
 );
 
-const PALETTE_SELECTOR = '[data-testid="command-palette"]';
-
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page.locator('[data-testid="theme-name"]');
   await themeButton.waitFor({ state: "visible", timeout: 3000 });
   await themeButton.click();
   await this.page.waitForTimeout(200);
 });
-
-Then(
-  "the palette input should contain {string}",
-  async function (this: KoluWorld, expected: string) {
-    const input = this.page.locator(`${PALETTE_SELECTOR} input`);
-    await input.waitFor({ state: "visible", timeout: 3000 });
-    const value = await input.inputValue();
-    assert.strictEqual(
-      value,
-      expected,
-      `Expected palette input to contain "${expected}" but got "${value}"`,
-    );
-  },
-);
-
-Then(
-  "the palette breadcrumb should show {string}",
-  async function (this: KoluWorld, expected: string) {
-    const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
-    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
-    const text = await breadcrumb.textContent();
-    assert.ok(
-      text?.includes(expected),
-      `Expected breadcrumb to contain "${expected}" but got "${text}"`,
-    );
-  },
-);
 
 Then(
   "the header should show theme {string}",

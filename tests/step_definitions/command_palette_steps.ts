@@ -97,6 +97,69 @@ Then(
   },
 );
 
+When(
+  "I click breadcrumb {string} in the palette",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator(PALETTE_SELECTOR);
+    const breadcrumb = palette.locator("nav button", { hasText: text });
+    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
+    await breadcrumb.click();
+    await this.page.waitForTimeout(200);
+  },
+);
+
+Then(
+  "the palette breadcrumb should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
+    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
+    const text = await breadcrumb.textContent();
+    assert.ok(
+      text?.includes(expected),
+      `Expected breadcrumb to contain "${expected}" but got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the palette breadcrumb should not be visible",
+  async function (this: KoluWorld) {
+    const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
+    await assert.rejects(
+      breadcrumb.waitFor({ state: "visible", timeout: 500 }),
+    );
+  },
+);
+
+Then(
+  "palette item {string} should have a chevron",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator(PALETTE_SELECTOR);
+    const item = palette.locator("li", { hasText: text });
+    await item.waitFor({ state: "visible", timeout: 3000 });
+    const content = await item.textContent();
+    assert.ok(
+      content?.includes("→"),
+      `Expected "${text}" to have a chevron (→) but got "${content}"`,
+    );
+  },
+);
+
+Then(
+  "palette item {string} should show shortcut {string}",
+  async function (this: KoluWorld, text: string, shortcut: string) {
+    const palette = this.page.locator(PALETTE_SELECTOR);
+    const item = palette.locator("li", { hasText: text });
+    await item.waitFor({ state: "visible", timeout: 3000 });
+    const kbd = item.locator("kbd");
+    const kbdText = await kbd.textContent();
+    assert.ok(
+      kbdText?.includes(shortcut),
+      `Expected "${text}" to show shortcut "${shortcut}" but got "${kbdText}"`,
+    );
+  },
+);
+
 Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
