@@ -28,6 +28,9 @@ import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 
+/** Minimum sidebar panel fraction (below this it collapses to closed). */
+const SIDEBAR_MIN = 0.05;
+
 const App: Component = () => {
   const {
     terminalIds,
@@ -175,14 +178,16 @@ const App: Component = () => {
           }
           onSizesChange={(sizes) => {
             const s = sizes[0];
-            if (sidebarOpen() && s !== undefined && s > 0.02) setSidebarSize(s);
+            // Only persist when panel is meaningfully open (not mid-collapse)
+            if (sidebarOpen() && s !== undefined && s >= SIDEBAR_MIN)
+              setSidebarSize(s);
           }}
           class="flex flex-1 min-h-0"
         >
           <Resizable.Panel
             as="div"
             class="min-w-0 overflow-hidden"
-            minSize={0.05}
+            minSize={SIDEBAR_MIN}
             collapsible
             collapsedSize={0}
             onCollapse={closeSidebar}
@@ -206,8 +211,8 @@ const App: Component = () => {
             aria-label="Resize sidebar"
           />
 
+          {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
           <Resizable.Panel as="div" class="min-w-0 min-h-0" minSize={0.3}>
-            {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
             <div class="h-full p-1">
               <div
                 class="h-full rounded border border-edge overflow-hidden p-1"
