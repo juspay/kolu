@@ -119,7 +119,11 @@ const SidebarEntry: Component<{
                   "text-fg-3": agent().state === "idle",
                 }}
               >
-                {agent().state === "waiting" ? "waiting" : agent().agent}
+                {agent().state === "thinking"
+                  ? "thinking"
+                  : agent().state === "waiting"
+                    ? "waiting"
+                    : agent().agent}
               </span>
             )}
           </Show>

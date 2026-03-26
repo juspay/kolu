@@ -19,6 +19,7 @@ import {
   reorderTerminals,
   type TerminalEntry,
 } from "./terminals.ts";
+import path from "node:path";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
@@ -135,7 +136,7 @@ export const appRouter = t.router({
 
       /** Enrich a raw activity boolean with foreground process + agent context. */
       function toActivityInfo(isActive: boolean): ActivityInfo {
-        const fg = entry.handle.foregroundProcess;
+        const fg = path.basename(entry.handle.foregroundProcess);
         return {
           isActive,
           foregroundProcess: fg,

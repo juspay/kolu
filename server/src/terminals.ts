@@ -2,6 +2,7 @@
  * Terminal state management: PTY lifecycle and per-terminal metadata.
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
+import path from "node:path";
 import { spawnPty, type PtyHandle } from "./pty.ts";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
@@ -36,22 +37,30 @@ export interface TerminalEntry {
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId?: string;
+  /** Last-seen foreground process name (basename). Re-emit activity when it changes. */
+  lastForegroundProcess?: string;
   /** Cleanup function for the .git/HEAD file watcher. */
   stopGitWatch: () => void;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
 
+/** Get the foreground process basename (node-pty may return full paths on NixOS). */
+function fgProcess(entry: TerminalEntry): string {
+  return path.basename(entry.handle.foregroundProcess);
+}
+
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
+  const fg = fgProcess(entry);
   return {
     id,
     pid: entry.handle.pid,
     themeName: entry.themeName,
     isActive: entry.isActive,
     parentId: entry.parentId,
-    foregroundProcess: entry.handle.foregroundProcess,
+    foregroundProcess: fg,
     agentStatus: resolveAgentStatus(
-      entry.handle.foregroundProcess,
+      fg,
       entry.isActive,
       entry.handle.getScreenState(),
     ),
@@ -63,10 +72,21 @@ const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 /** Mark terminal active and reset the idle timer. */
 function touchActivity(entry: TerminalEntry): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
+
+  // Detect foreground process changes (e.g. shell → claude) and re-emit
+  // so the activity stream delivers updated agent context to the client.
+  const fg = fgProcess(entry);
+  const fgChanged = fg !== entry.lastForegroundProcess;
+  if (fgChanged) entry.lastForegroundProcess = fg;
+
   if (!entry.isActive) {
     entry.isActive = true;
     entry.emitter.emit("activity", true);
+  } else if (fgChanged) {
+    // Already active but process changed — re-emit to push new agent status
+    entry.emitter.emit("activity", true);
   }
+
   entry.idleTimer = setTimeout(() => {
     entry.isActive = false;
     entry.emitter.emit("activity", false);
