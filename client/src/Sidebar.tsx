@@ -19,8 +19,9 @@ import type { ActivitySample } from "./useTerminals";
 function repoColorKey(
   meta: Omit<TerminalInfo, "id"> | undefined,
 ): string | undefined {
-  const key = meta?.cwd?.git?.repoName ?? cwdBasename(meta?.cwd?.cwd ?? "");
-  return key || undefined;
+  return (
+    meta?.cwd?.git?.repoName || cwdBasename(meta?.cwd?.cwd ?? "") || undefined
+  );
 }
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
@@ -143,19 +144,19 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  // Assign unique hues via golden-angle spacing over sorted unique repo keys.
+  // Assign unique hues via golden-angle (137.5°) spacing over sorted unique repo keys.
+  // OKLCH gives perceptually uniform hue spacing (unlike HSL).
   const colorMap = createMemo(() => {
     const keys = new Set<string>();
     for (const id of props.terminalIds) {
       const key = repoColorKey(props.getMeta(id));
       if (key) keys.add(key);
     }
-    const sorted = [...keys].sort();
-    const map = new Map<string, string>();
-    sorted.forEach((key, i) => {
-      map.set(key, `hsl(${(i * 137.508) % 360} 60% 65%)`);
-    });
-    return map;
+    return new Map(
+      [...keys]
+        .sort()
+        .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+    );
   });
 
   function colorFor(
