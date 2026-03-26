@@ -99,16 +99,12 @@ const SidebarEntry: Component<{
             </span>
           </Show>
         </div>
-        <Show when={m()?.cwd?.git}>
-          {(git) => (
-            <div
-              data-testid="sidebar-branch"
-              class="text-xs text-fg-2 ml-3.5 truncate"
-            >
-              {git().branch}
-            </div>
-          )}
-        </Show>
+        <div
+          data-testid="sidebar-branch"
+          class="text-xs text-fg-2 ml-3.5 truncate"
+        >
+          {m()?.cwd?.git?.branch ?? "\u00A0"}
+        </div>
         <Show when={props.activityHistory.length > 0}>
           <div class="ml-3.5 mt-0.5">
             <ActivityGraph samples={props.activityHistory} />
