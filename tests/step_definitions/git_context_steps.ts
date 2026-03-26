@@ -87,13 +87,16 @@ Then(
 Then(
   "the sidebar should not show git context",
   async function (this: KoluWorld) {
-    const count = await this.page
-      .locator('[data-testid="sidebar-branch"]')
-      .count();
+    const text = (
+      await this.page
+        .locator('[data-testid="sidebar-branch"]')
+        .first()
+        .textContent()
+    )?.trim();
     assert.strictEqual(
-      count,
-      0,
-      `Expected no git context in sidebar but found ${count} branch elements`,
+      text ?? "",
+      "",
+      `Expected empty branch in sidebar but found "${text}"`,
     );
   },
 );
