@@ -1,3 +1,33 @@
 #!/usr/bin/env bash
 # Fast equivalent of `nix develop -c` using nix-shell.
-exec nix-shell "$(dirname "$0")/shell.nix" --run "$(printf '%q ' "$@")"
+# Caches the derivation path to skip re-evaluation when shell.nix
+# and flake.lock haven't changed.
+set -euo pipefail
+
+SHELL_NIX="$(dirname "$0")/shell.nix"
+LOCK_FILE="$(dirname "$0")/flake.lock"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kolu-shell"
+
+# Cache key: hash of shell.nix + flake.lock + nix/nixpkgs.nix + nix/fonts + nix/ghostty-themes
+cache_inputs() {
+  local dir
+  dir="$(dirname "$0")"
+  cat "$SHELL_NIX" "$LOCK_FILE" "$dir/nix/nixpkgs.nix" \
+      "$dir"/nix/fonts/default.nix "$dir"/nix/ghostty-themes/default.nix \
+      "$dir"/nix/ghostty-themes/parse-themes.py 2>/dev/null
+}
+
+CACHE_KEY=$(cache_inputs | sha256sum | cut -d' ' -f1)
+CACHE_FILE="$CACHE_DIR/$CACHE_KEY.drv"
+
+if [[ -f "$CACHE_FILE" ]] && nix-store --check-validity "$(cat "$CACHE_FILE")" 2>/dev/null; then
+  DRV="$(cat "$CACHE_FILE")"
+else
+  DRV=$(nix-instantiate "$SHELL_NIX" 2>/dev/null)
+  mkdir -p "$CACHE_DIR"
+  # Clean old cache entries
+  find "$CACHE_DIR" -name '*.drv' -not -name "$CACHE_KEY.drv" -delete 2>/dev/null || true
+  echo "$DRV" > "$CACHE_FILE"
+fi
+
+exec nix-shell "$DRV" --run "$(printf '%q ' "$@")"
