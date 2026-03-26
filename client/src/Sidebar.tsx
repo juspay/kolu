@@ -44,6 +44,8 @@ const SidebarEntry: Component<{
   const shortcutLabel = () =>
     pos() <= 9 ? formatKeybind({ mod: true, key: String(pos()) }) : undefined;
   const repoColor = () => props.repoColor;
+  const agentState = () => m()?.agentStatus?.state;
+  const active = () => m()?.isActive ?? false;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -83,16 +85,13 @@ const SidebarEntry: Component<{
             data-testid="activity-indicator"
             class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
             classList={{
-              // Agent-aware indicator colors
-              "bg-accent animate-activity-pulse":
-                m()?.agentStatus?.state === "thinking",
-              "bg-warning animate-pulse": m()?.agentStatus?.state === "waiting",
-              // Default activity indicator (no agent)
-              "bg-ok animate-activity-pulse":
-                !m()?.agentStatus && (m()?.isActive ?? false),
+              "bg-accent animate-activity-pulse": agentState() === "thinking",
+              "bg-warning animate-pulse": agentState() === "waiting",
+              "bg-ok animate-activity-pulse": !agentState() && active(),
               "bg-fg-3":
-                !m()?.agentStatus?.state?.match(/thinking|waiting/) &&
-                !(m()?.isActive ?? false),
+                agentState() !== "thinking" &&
+                agentState() !== "waiting" &&
+                !active(),
             }}
           />
           <Show when={m()?.agentStatus}>

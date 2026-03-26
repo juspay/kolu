@@ -13,7 +13,6 @@ import type {
   TerminalId,
   TerminalInfo,
   CwdInfo,
-  AgentStatus,
   ActivityInfo,
 } from "kolu-common";
 

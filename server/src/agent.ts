@@ -36,12 +36,10 @@ const PROFILES: AgentProfile[] = [
  * Returns the agent ID (e.g. "claude-code") or null if no match.
  */
 export function detectAgent(data: string): string | null {
-  for (const profile of PROFILES) {
-    for (const pattern of profile.outputPatterns) {
-      if (pattern.test(data)) return profile.id;
-    }
-  }
-  return null;
+  const match = PROFILES.find((p) =>
+    p.outputPatterns.some((re) => re.test(data)),
+  );
+  return match?.id ?? null;
 }
 
 /**
@@ -58,10 +56,9 @@ export function classifyAgentState(
   // Strip ANSI/VT escape sequences for cleaner pattern matching
   const plain = stripAnsi(screenState);
 
-  for (const pattern of profile.waitingPatterns) {
-    if (pattern.test(plain)) return "waiting";
-  }
-  return "idle";
+  return profile.waitingPatterns.some((re) => re.test(plain))
+    ? "waiting"
+    : "idle";
 }
 
 /** Build an AgentStatus from entry state, or null if no agent detected. */
@@ -77,11 +74,13 @@ export function resolveAgentStatus(
   return { agent: detectedAgent, state };
 }
 
-/** Strip ANSI escape sequences from a string. */
+/** Strip ANSI/VT escape sequences for plain-text pattern matching. */
 function stripAnsi(s: string): string {
+  // CSI sequences (\x1b[...X), OSC sequences (\x1b]...\x07 or \x1b]...\x1b\\),
+  // character set designators (\x1b(X, \x1b)X), and simple two-byte escapes (\x1bX)
   // eslint-disable-next-line no-control-regex
   return s.replace(
-    /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][^\n]/g,
+    /\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][^\n]|[a-zA-Z])/g,
     "",
   );
 }
