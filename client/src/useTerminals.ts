@@ -215,9 +215,7 @@ export function useTerminals() {
           ]
         : []),
       {
-        name: randomTheme()
-          ? "Random themes: ON (click to disable)"
-          : "Random themes: OFF (click to enable)",
+        name: `Toggle random themes (${randomTheme() ? "on" : "off"})`,
         onSelect: () => setRandomTheme(!randomTheme()),
       },
       {

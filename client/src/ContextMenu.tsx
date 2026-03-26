@@ -1,6 +1,7 @@
 /** Minimal positioned context menu — renders at (x, y) with action items. */
 
-import { type Component, For, onMount, onCleanup } from "solid-js";
+import { type Component, For, onMount } from "solid-js";
+import { makeEventListener } from "@solid-primitives/event-listener";
 
 export interface ContextMenuItem {
   label: string;
@@ -16,21 +17,20 @@ const ContextMenu: Component<{
 }> = (props) => {
   let ref!: HTMLDivElement;
 
-  onMount(() => {
-    // Close on click outside or escape
-    function handleClick(e: MouseEvent) {
-      if (!ref.contains(e.target as Node)) props.onClose();
-    }
-    function handleKey(e: KeyboardEvent) {
+  // Auto-cleaned-up on component disposal
+  makeEventListener(document, "mousedown", (e: MouseEvent) => {
+    if (!ref.contains(e.target as Node)) props.onClose();
+  });
+  makeEventListener(
+    document,
+    "keydown",
+    (e: KeyboardEvent) => {
       if (e.key === "Escape") props.onClose();
-    }
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey, { capture: true });
-    onCleanup(() => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey, { capture: true });
-    });
+    },
+    { capture: true },
+  );
 
+  onMount(() => {
     // Clamp to viewport so the menu doesn't overflow offscreen
     const rect = ref.getBoundingClientRect();
     if (rect.right > window.innerWidth)
@@ -51,7 +51,7 @@ const ContextMenu: Component<{
             class="w-full px-3 py-1.5 text-sm text-left transition-colors"
             classList={{
               "text-fg-2 hover:text-fg hover:bg-surface-3": !item.danger,
-              "text-danger hover:bg-danger/10": item.danger ?? false,
+              "text-danger hover:bg-danger/10": !!item.danger,
             }}
             onClick={() => {
               item.onSelect();

@@ -9,6 +9,7 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import { cwdBasename } from "./path";
+import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -82,20 +83,29 @@ const SidebarEntry: Component<{
         title={m()?.cwd?.cwd ?? String(props.id)}
       >
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-          <Tip label={pos() <= 9 ? `Switch: Mod+${pos()}` : ""}>
+          {pos() <= 9 ? (
+            <Tip label={formatKeybind({ mod: true, key: String(pos()) })}>
+              <span
+                data-testid="activity-indicator"
+                class="inline-flex items-center justify-center w-4 h-4 text-[0.6rem] font-bold rounded shrink-0 transition-colors duration-300"
+                classList={{
+                  "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+                  "bg-fg-3": !(m()?.isActive ?? false),
+                }}
+              >
+                {pos()}
+              </span>
+            </Tip>
+          ) : (
             <span
               data-testid="activity-indicator"
-              class="inline-flex items-center justify-center shrink-0 transition-colors duration-300"
+              class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
               classList={{
-                "w-4 h-4 text-[0.6rem] font-bold rounded": pos() <= 9,
-                "w-2 h-2 rounded-full": pos() > 9,
                 "bg-ok animate-activity-pulse": m()?.isActive ?? false,
                 "bg-fg-3": !(m()?.isActive ?? false),
               }}
-            >
-              <Show when={pos() <= 9}>{pos()}</Show>
-            </span>
-          </Tip>
+            />
+          )}
           <Show when={m()?.cwd}>
             {(cwdInfo) => (
               <span class="truncate" style={{ color: repoColor() }}>
@@ -154,28 +164,26 @@ const Sidebar: Component<{
   function contextMenuItems(): ContextMenuItem[] {
     const ctx = ctxMenu();
     if (!ctx) return [];
-    const meta = props.getMeta(ctx.id);
-    return [
-      ...(meta?.cwd
-        ? [
-            {
-              label: "New terminal here",
-              onSelect: () => props.onCreate(meta.cwd!.cwd),
-            },
-          ]
-        : []),
-      {
-        label: props.randomTheme ? "Random themes: ON" : "Random themes: OFF",
-        onSelect: () => props.onRandomThemeChange(!props.randomTheme),
-      },
-      {
-        label: "Close",
-        danger: true,
-        onSelect: () => {
-          if (confirm("Close this terminal?")) props.onKill(ctx.id);
+    const cwd = props.getMeta(ctx.id)?.cwd?.cwd;
+    return (
+      [
+        cwd && {
+          label: "New terminal here",
+          onSelect: () => props.onCreate(cwd),
         },
-      },
-    ];
+        {
+          label: `Random themes: ${props.randomTheme ? "ON" : "OFF"}`,
+          onSelect: () => props.onRandomThemeChange(!props.randomTheme),
+        },
+        {
+          label: "Close",
+          danger: true,
+          onSelect: () => {
+            if (confirm("Close this terminal?")) props.onKill(ctx.id);
+          },
+        },
+      ] as (ContextMenuItem | false)[]
+    ).filter(Boolean) as ContextMenuItem[];
   }
 
   function handleDragEnd({ draggable, droppable }: DragEvent) {
