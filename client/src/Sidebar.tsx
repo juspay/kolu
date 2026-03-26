@@ -61,8 +61,8 @@ const SidebarEntry: Component<{
         data-activity={m()?.isActive ? "active" : "sleeping"}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
-          "border-l-[3px] bg-surface-2 text-fg": props.isActive,
-          "border-l-2 text-fg-2 hover:text-fg hover:bg-surface-2":
+          "border-l-4 bg-surface-3 text-fg": props.isActive,
+          "border-l-2 text-fg-3 hover:text-fg-2 hover:bg-surface-2":
             !props.isActive,
           "opacity-25": sortable.isActiveDraggable,
         }}
