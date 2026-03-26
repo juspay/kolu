@@ -4,6 +4,7 @@
 
 - After making changes, automatically run `/code-review` before declaring work complete.
 - Run `just pc` (pre-commit hooks) before declaring done.
+- **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
 ## Local CI

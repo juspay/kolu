@@ -1,4 +1,4 @@
-import { type Component, For, Show, createSignal } from "solid-js";
+import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -15,19 +15,13 @@ import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 
-/** Stable hash → hue (0-360) for a string. Same string always gets the same color. */
-function stringToHue(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return ((h % 360) + 360) % 360;
-}
-
-/** Deterministic HSL color for a terminal's repo (or cwd fallback). */
-function repoColorFor(
+/** Extract the color-grouping key for a terminal (repo name, or cwd basename fallback). */
+function repoColorKey(
   meta: Omit<TerminalInfo, "id"> | undefined,
 ): string | undefined {
-  const key = meta?.cwd?.git?.repoName ?? cwdBasename(meta?.cwd?.cwd ?? "");
-  return key ? `hsl(${stringToHue(key)} 60% 65%)` : undefined;
+  return (
+    meta?.cwd?.git?.repoName || cwdBasename(meta?.cwd?.cwd ?? "") || undefined
+  );
 }
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
@@ -42,13 +36,14 @@ const SidebarEntry: Component<{
   subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
+  repoColor: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
   const pos = () => props.index + 1;
   const shortcutLabel = () =>
     pos() <= 9 ? formatKeybind({ mod: true, key: String(pos()) }) : undefined;
-  const repoColor = () => repoColorFor(m());
+  const repoColor = () => props.repoColor;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -145,6 +140,28 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
+  // Assign unique hues via golden-angle (137.5°) spacing over sorted unique repo keys.
+  // OKLCH gives perceptually uniform hue spacing (unlike HSL).
+  const colorMap = createMemo(() => {
+    const keys = new Set<string>();
+    for (const id of props.terminalIds) {
+      const key = repoColorKey(props.getMeta(id));
+      if (key) keys.add(key);
+    }
+    return new Map(
+      [...keys]
+        .sort()
+        .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+    );
+  });
+
+  function colorFor(
+    meta: Omit<TerminalInfo, "id"> | undefined,
+  ): string | undefined {
+    const key = repoColorKey(meta);
+    return key ? colorMap().get(key) : undefined;
+  }
+
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
     if (window.innerWidth < 640) props.onClose();
@@ -234,6 +251,7 @@ const Sidebar: Component<{
                       subCount={props.getSubTerminalIds(id).length}
                       onSelect={handleSelect}
                       dropEdge={edge()}
+                      repoColor={colorFor(props.getMeta(id))}
                     />
                   );
                 }}
@@ -243,7 +261,7 @@ const Sidebar: Component<{
               <Show when={activeItem()}>
                 {(dragId) => {
                   const dm = () => props.getMeta(dragId());
-                  const color = () => repoColorFor(dm());
+                  const color = () => colorFor(dm());
                   return (
                     <div
                       class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
