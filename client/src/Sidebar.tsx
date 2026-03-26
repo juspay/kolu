@@ -126,9 +126,11 @@ const SidebarEntry: Component<{
         <Show when={shortcutLabel()}>
           {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
         </Show>
-        <div class="ml-3.5 mt-0.5">
-          <ActivityGraph samples={props.activityHistory} />
-        </div>
+        <Show when={props.activityHistory.length > 0}>
+          <div class="ml-3.5 mt-0.5">
+            <ActivityGraph samples={props.activityHistory} />
+          </div>
+        </Show>
       </button>
     </div>
   );
