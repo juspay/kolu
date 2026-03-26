@@ -5,11 +5,14 @@ import Tooltip from "@corvu/tooltip";
 
 const Tip: Component<{
   label: string;
+  class?: string;
   children: JSX.Element;
 }> = (props) => {
   return (
     <Tooltip openDelay={400} closeDelay={0}>
-      <Tooltip.Trigger as="div">{props.children}</Tooltip.Trigger>
+      <Tooltip.Trigger as="div" class={props.class}>
+        {props.children}
+      </Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content class="z-50 px-2 py-1 text-xs text-fg bg-surface-2 rounded shadow-lg border border-edge-bright">
           {props.label}

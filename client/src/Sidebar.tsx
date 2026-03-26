@@ -1,25 +1,189 @@
-import { type Component, For, Show } from "solid-js";
+import { type Component, For, Show, createMemo, createSignal } from "solid-js";
+import {
+  DragDropProvider,
+  DragDropSensors,
+  DragOverlay,
+  SortableProvider,
+  createSortable,
+  closestCenter,
+  type DragEvent,
+} from "@thisbeyond/solid-dnd";
 import { cwdBasename } from "./path";
+import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
+import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { ActivitySample } from "./useTerminals";
 
-/** Sidebar — collapsible terminal list. Overlays on mobile, pushes content on desktop. */
+/** Extract the color-grouping key for a terminal (repo name, or cwd basename fallback). */
+function repoColorKey(
+  meta: Omit<TerminalInfo, "id"> | undefined,
+): string | undefined {
+  return (
+    meta?.cwd?.git?.repoName || cwdBasename(meta?.cwd?.cwd ?? "") || undefined
+  );
+}
+
+/** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
+const SidebarEntry: Component<{
+  id: TerminalId;
+  index: number;
+  isActive: boolean;
+  meta: Omit<TerminalInfo, "id"> | undefined;
+  onSelect: (id: TerminalId) => void;
+  activityHistory: ActivitySample[];
+  /** Number of sub-terminals attached to this terminal. */
+  subCount: number;
+  /** "above" | "below" | null — where the drop line should render on this entry */
+  dropEdge: "above" | "below" | null;
+  repoColor: string | undefined;
+}> = (props) => {
+  const sortable = createSortable(props.id);
+  const m = () => props.meta;
+  const pos = () => props.index + 1;
+  const shortcutLabel = () =>
+    pos() <= 9 ? formatKeybind({ mod: true, key: String(pos()) }) : undefined;
+  const repoColor = () => props.repoColor;
+
+  return (
+    <div class="relative" style={sortable.style}>
+      {/* Drop indicator line — positioned at the edge where the item will be inserted */}
+      <Show when={props.dropEdge}>
+        {(edge) => (
+          <div
+            class="absolute left-1 right-1 h-0.5 bg-accent rounded-full"
+            classList={{
+              "top-0": edge() === "above",
+              "bottom-0": edge() === "below",
+            }}
+          />
+        )}
+      </Show>
+      <button
+        ref={sortable.ref}
+        {...sortable.dragActivators}
+        data-terminal-id={props.id}
+        class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 touch-none"
+        classList={{
+          "border-l-[3px] bg-surface-2 text-fg": props.isActive,
+          "border-l-2 text-fg-2 hover:text-fg hover:bg-surface-2":
+            !props.isActive,
+          "opacity-25": sortable.isActiveDraggable,
+        }}
+        style={{
+          "border-left-color":
+            repoColor() ?? (props.isActive ? "var(--accent)" : "transparent"),
+        }}
+        onClick={() => props.onSelect(props.id)}
+        onMouseDown={(e) => e.preventDefault()}
+        title={m()?.cwd?.cwd ?? String(props.id)}
+      >
+        <div class="flex items-center gap-1.5 text-sm font-medium truncate">
+          <span
+            data-testid="activity-indicator"
+            class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
+            classList={{
+              "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+              "bg-fg-3": !(m()?.isActive ?? false),
+            }}
+          />
+          <Show when={m()?.cwd}>
+            {(cwdInfo) => (
+              <>
+                <span class="truncate" style={{ color: repoColor() }}>
+                  {cwdBasename(cwdInfo().cwd)}
+                  <Show when={cwdInfo().git}>
+                    {(git) => (
+                      <span data-testid="sidebar-branch" class="text-fg-2">
+                        {" "}
+                        &middot; {git().branch}
+                      </span>
+                    )}
+                  </Show>
+                </span>
+              </>
+            )}
+          </Show>
+          {/* Sub-terminal count badge */}
+          <Show when={props.subCount > 0}>
+            <span
+              data-testid="sub-count"
+              class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+            >
+              +{props.subCount}
+            </span>
+          </Show>
+        </div>
+        <Show when={shortcutLabel()}>
+          {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
+        </Show>
+        <Show when={props.activityHistory.length > 0}>
+          <div class="ml-3.5 mt-0.5">
+            <ActivityGraph samples={props.activityHistory} />
+          </div>
+        </Show>
+      </button>
+    </div>
+  );
+};
+
+/** Sidebar — collapsible terminal list with drag-to-reorder. */
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getActivityHistory: (id: TerminalId) => ActivitySample[];
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
   onSelect: (id: TerminalId) => void;
-  onKill: (id: TerminalId) => void;
   onCreate: () => void;
+  onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
 }> = (props) => {
+  // Assign unique hues via golden-angle (137.5°) spacing over sorted unique repo keys.
+  // OKLCH gives perceptually uniform hue spacing (unlike HSL).
+  const colorMap = createMemo(() => {
+    const keys = new Set<string>();
+    for (const id of props.terminalIds) {
+      const key = repoColorKey(props.getMeta(id));
+      if (key) keys.add(key);
+    }
+    return new Map(
+      [...keys]
+        .sort()
+        .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+    );
+  });
+
+  function colorFor(
+    meta: Omit<TerminalInfo, "id"> | undefined,
+  ): string | undefined {
+    const key = repoColorKey(meta);
+    return key ? colorMap().get(key) : undefined;
+  }
+
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
-    // Auto-close on mobile
-    if (window.innerWidth < 640) {
-      props.onClose();
-    }
+    if (window.innerWidth < 640) props.onClose();
+  }
+
+  const [dragFrom, setDragFrom] = createSignal<number | null>(null);
+  const [dropTarget, setDropTarget] = createSignal<TerminalId | null>(null);
+  const [activeItem, setActiveItem] = createSignal<TerminalId | null>(null);
+
+  function handleDragEnd({ draggable, droppable }: DragEvent) {
+    setActiveItem(null);
+    setDragFrom(null);
+    setDropTarget(null);
+    if (!draggable || !droppable || draggable.id === droppable.id) return;
+    const ids = props.terminalIds;
+    const fromIdx = ids.indexOf(draggable.id as TerminalId);
+    const toIdx = ids.indexOf(droppable.id as TerminalId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const reordered = [...ids];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved!);
+    props.onReorder(reordered);
   }
 
   return (
@@ -39,83 +203,79 @@ const Sidebar: Component<{
         class="flex flex-col w-44 bg-surface-1 border-r border-edge transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
-          // Mobile closed: slide off-screen; desktop closed: display:none
           "-translate-x-full sm:hidden": !props.open,
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal">
+        <Tip label="New terminal" class="w-full">
           <button
             data-testid="create-terminal"
-            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
             onClick={props.onCreate}
           >
             + New terminal
           </button>
         </Tip>
         <nav class="flex-1 overflow-y-auto">
-          <For each={props.terminalIds}>
-            {(id) => {
-              const m = () => props.getMeta(id);
-              return (
-                <button
-                  data-terminal-id={id}
-                  class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 border-l-2"
-                  classList={{
-                    "border-accent bg-surface-2/50 text-fg":
-                      props.activeId === id,
-                    "border-transparent text-fg-2 hover:text-fg hover:bg-surface-2":
-                      props.activeId !== id,
-                  }}
-                  onClick={() => handleSelect(id)}
-                  // Prevent button from stealing focus — terminal canvas must keep focus
-                  // so keyboard input flows to the PTY, even when clicking the already-active tab.
-                  onMouseDown={(e) => e.preventDefault()}
-                  title={m()?.cwd?.cwd ?? String(id)}
-                >
-                  <div class="flex items-center gap-1.5">
-                    <span
-                      data-testid="activity-indicator"
-                      class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-                      classList={{
-                        "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-                        "bg-fg-3": !(m()?.isActive ?? false),
-                      }}
-                    />
-                    <span class="flex-1">{m()?.name ?? `Terminal ${id}`}</span>
-                    <Tip label="Close terminal">
-                      <span
-                        data-testid="close-terminal"
-                        class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm("Close this terminal?")) props.onKill(id);
-                        }}
-                        onMouseDown={(e) => e.preventDefault()}
-                      >
-                        ×
-                      </span>
-                    </Tip>
-                  </div>
-                  <Show when={m()?.cwd}>
-                    {(cwdInfo) => (
-                      <div class="text-xs text-fg-3 truncate ml-3.5">
-                        {cwdBasename(cwdInfo().cwd)}
-                        <Show when={cwdInfo().git}>
-                          {(git) => (
-                            <span data-testid="sidebar-branch">
-                              {" "}
-                              &middot; {git().branch}
-                            </span>
-                          )}
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
-                </button>
+          <DragDropProvider
+            collisionDetector={closestCenter}
+            onDragStart={({ draggable }) => {
+              setActiveItem(draggable.id as TerminalId);
+              setDragFrom(
+                props.terminalIds.indexOf(draggable.id as TerminalId),
               );
             }}
-          </For>
+            onDragOver={({ droppable }) =>
+              setDropTarget(droppable ? (droppable.id as TerminalId) : null)
+            }
+            onDragEnd={handleDragEnd}
+          >
+            <DragDropSensors />
+            <SortableProvider ids={props.terminalIds}>
+              <For each={props.terminalIds}>
+                {(id, index) => {
+                  const edge = (): "above" | "below" | null => {
+                    const from = dragFrom();
+                    const target = dropTarget();
+                    if (from === null || target !== id) return null;
+                    const toIdx = index();
+                    return from > toIdx ? "above" : "below";
+                  };
+                  return (
+                    <SidebarEntry
+                      id={id}
+                      index={index()}
+                      isActive={props.activeId === id}
+                      meta={props.getMeta(id)}
+                      activityHistory={props.getActivityHistory(id)}
+                      subCount={props.getSubTerminalIds(id).length}
+                      onSelect={handleSelect}
+                      dropEdge={edge()}
+                      repoColor={colorFor(props.getMeta(id))}
+                    />
+                  );
+                }}
+              </For>
+            </SortableProvider>
+            <DragOverlay>
+              <Show when={activeItem()}>
+                {(dragId) => {
+                  const dm = () => props.getMeta(dragId());
+                  const color = () => colorFor(dm());
+                  return (
+                    <div
+                      class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
+                      style={{ "border-left-color": color() }}
+                    >
+                      <span style={{ color: color() }}>
+                        {cwdBasename(dm()?.cwd?.cwd ?? "") || "terminal"}
+                      </span>
+                    </div>
+                  );
+                }}
+              </Show>
+            </DragOverlay>
+          </DragDropProvider>
         </nav>
       </aside>
     </>

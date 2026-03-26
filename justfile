@@ -1,10 +1,8 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
-# localci branch/ref to use (override: just localci_ref=main ci)
-localci_ref := "master"
-localci := "nix run github:srid/localci/" + localci_ref + " --"
+mod ci 'ci/mod.just'
 
 # List available recipes
 default:
@@ -34,22 +32,37 @@ client: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix build --print-out-paths)/bin/kolu"
+    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
 
-# Run Cucumber e2e tests against an already-running dev server (just dev)
-test-dev: install
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
-
-# Run CI: build all flake outputs on each platform, run e2e tests
-# Uses localci (https://github.com/srid/localci) to run commands and post GitHub commit statuses.
-# TODO: add cache push (nix copy) after builds https://github.com/srid/localci/issues/4
-ci:
-    {{ localci }} --tui -f localci.json
+# Fast self-contained e2e tests (no nix build, no separate dev server).
+# Builds client via pnpm, spawns server from source on random ports.
+# Examples:
+#   just test-quick                                              # all tests
+#   just test-quick features/command-palette.feature:149         # single scenario by line
+#   just test-quick features/command-palette.feature             # single feature file
+test-quick *args: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ nix_shell }} pnpm --filter kolu-client build
+    # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
+    # Without nix build there's no `kolu` binary, so we create a temp wrapper
+    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
+    wrapper="$(mktemp)"
+    trap 'rm -f "$wrapper"' EXIT
+    cat > "$wrapper" <<SCRIPT
+    #!/bin/sh
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" "\$@"
+    SCRIPT
+    chmod +x "$wrapper"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
+        ./node_modules/@cucumber/cucumber/bin/cucumber-js \
+        --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+        {{ if args == "" { "--profile ui" } else { args } }}
 
 # Run pre-commit hooks on all files
 pc:

@@ -1,8 +1,8 @@
 /**
- * Terminal component — owns xterm.js lifecycle, oRPC streaming, resize fitting, keyboard zoom.
+ * Terminal component — owns xterm.js lifecycle, oRPC streaming, and resize fitting.
  *
- * These concerns share the same volatility (all change together when
- * terminal behavior changes), so they belong in one module.
+ * Keyboard zoom is handled by createZoom() (zoom.ts) and consumed here
+ * reactively via a fontSize signal.
  */
 
 import {
@@ -16,7 +16,6 @@ import {
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { makePersisted } from "@solid-primitives/storage";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -29,12 +28,10 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
-import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 import SearchBar from "./SearchBar";
-
-const FONT_SIZE_KEY = "kolu-font-size";
+import { createZoom } from "./zoom";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -67,6 +64,8 @@ function bufferToBase64(buf: ArrayBuffer): string {
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
+  /** When true, this terminal should grab keyboard focus. */
+  focused?: boolean;
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
@@ -83,10 +82,7 @@ const Terminal: Component<{
     fitRaf = requestAnimationFrame(() => fitAddon?.fit());
   }
 
-  const [fontSize, setFontSize] = makePersisted(
-    createSignal(DEFAULT_FONT_SIZE),
-    { name: FONT_SIZE_KEY, serialize: String, deserialize: Number },
-  );
+  const fontSize = createZoom(props.terminalId, () => props.visible);
 
   let streamAbort: AbortController | null = null;
 
@@ -99,6 +95,19 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         debouncedFit();
         terminal.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Grab focus when the focused prop transitions to true (e.g. sub-panel toggle).
+  createEffect(
+    on(
+      () => props.focused,
+      (focused) => {
+        if (focused && props.visible && terminal) {
+          terminal.focus();
+        }
       },
       { defer: true },
     ),
@@ -140,25 +149,25 @@ const Terminal: Component<{
     }
   }
 
-  function updateFontSize(newSize: number) {
-    if (!terminal) return;
-    setFontSize(newSize);
-    terminal.options.fontSize = newSize;
-    debouncedFit();
-  }
+  // Apply font-size changes reactively (initial value handled by XTerm constructor)
+  createEffect(
+    on(
+      fontSize,
+      (size) => {
+        if (!terminal) return;
+        terminal.options.fontSize = size;
+        debouncedFit();
+      },
+      { defer: true },
+    ),
+  );
 
-  /** Intercept Cmd/Ctrl +/- for zoom — only for the active (visible) terminal. */
-  function handleZoomKeys(e: KeyboardEvent) {
-    if (!props.visible) return;
-    if (!isPlatformModifier(e)) return;
-    const delta = ZOOM_KEYS[e.key];
-    if (!delta) return;
-    e.preventDefault();
-    e.stopPropagation();
-    updateFontSize(fontSize() + delta);
-  }
+  onMount(async () => {
+    // Wait for the terminal font to load before measuring cell dimensions.
+    // Without this, the first terminal may mount before the font is available,
+    // causing xterm to measure with the fallback monospace font — wrong metrics.
+    await document.fonts.load(`1em ${FONT_FAMILY}`);
 
-  onMount(() => {
     const term = new XTerm({
       fontFamily: FONT_FAMILY,
       theme: props.theme,
@@ -210,6 +219,9 @@ const Terminal: Component<{
       // paste listener uploads images; xterm's own paste handler covers text.
       if (e.ctrlKey && e.key === "v") return false;
 
+      // Let any registered app shortcut bubble through to the capture-phase dispatcher
+      if (matchesAnyShortcut(e)) return false;
+
       return true;
     });
 
@@ -250,7 +262,6 @@ const Terminal: Component<{
         if (props.visible) debouncedFit();
       },
     );
-    makeEventListener(window, "keydown", handleZoomKeys, { capture: true });
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),

@@ -2,7 +2,7 @@
  * Cucumber hooks — browser lifecycle + server health check.
  *
  * KOLU_SERVER controls how the server is provided:
- *  - URL (http://...) → reuse an existing server (e.g. `just test-dev`)
+ *  - URL (http://...) → reuse an existing server
  *  - file path        → each worker spawns the binary on a random port
  *
  * Random ports (via get-port) let parallel runs across worktrees
@@ -112,6 +112,10 @@ Before(async function (this: KoluWorld) {
     permissions: ["clipboard-write"],
   });
   this.page = await this.context.newPage();
+  // Disable random theme so tests get deterministic default theme
+  await this.page.addInitScript(() =>
+    localStorage.setItem("kolu-random-theme", "false"),
+  );
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
 });

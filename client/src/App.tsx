@@ -15,15 +15,17 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
-import Terminal from "./Terminal";
+import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import { refocusTerminal } from "./ModalDialog";
 import { getThemeByName } from "./theme";
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
+import { useSubPanel } from "./useSubPanel";
 
 const App: Component = () => {
   const {
@@ -31,16 +33,23 @@ const App: Component = () => {
     activeId,
     setActiveId,
     getMeta,
+    getActivityHistory,
     activeThemeName,
     activeTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateSubTerminal,
     handleKill,
+    getSubTerminalIds,
+    reorderTerminals,
     commands,
+    randomTheme,
+    setRandomTheme,
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+  const subPanel = useSubPanel();
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -51,7 +60,9 @@ const App: Component = () => {
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
-  const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
+  const [paletteInitialGroup, setPaletteInitialGroup] = createSignal<
+    string | undefined
+  >();
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
@@ -65,21 +76,35 @@ const App: Component = () => {
     activeId,
     setActiveId,
     handleCreate: (cwd?: string) => void handleCreate(cwd),
+    handleCreateSubTerminal: (parentId, cwd) =>
+      void handleCreateSubTerminal(parentId, cwd),
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    getSubTerminalIds,
+    cycleSubTab: (parentId, direction) =>
+      subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
   });
 
-  function openPaletteWith(query: string) {
-    setPaletteInitialQuery(query);
+  function openPalette() {
+    setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
   }
 
-  // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
+  function openPaletteGroup(group: string) {
+    setPaletteInitialGroup(group);
+    setPaletteOpen(true);
+  }
+
+  // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
-    if (!open) setPaletteInitialQuery("");
+    if (!open) {
+      setPaletteInitialGroup(undefined);
+      requestAnimationFrame(refocusTerminal);
+    }
   }
 
   return (
@@ -108,7 +133,7 @@ const App: Component = () => {
         commands={commands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
-        initialQuery={paletteInitialQuery()}
+        initialGroup={paletteInitialGroup()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -116,8 +141,8 @@ const App: Component = () => {
       />
       <Header
         status={wsStatus()}
-        onOpenPalette={() => openPaletteWith("")}
-        onThemeClick={() => openPaletteWith("Theme: ")}
+        onOpenPalette={() => openPalette()}
+        onThemeClick={() => openPaletteGroup("Theme")}
         themeName={activeThemeName()}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
@@ -125,6 +150,8 @@ const App: Component = () => {
         onSearch={() => setSearchOpen(true)}
         renderer={renderer()}
         appTitle={appTitle()}
+        randomTheme={randomTheme()}
+        onRandomThemeChange={setRandomTheme}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
@@ -132,9 +159,11 @@ const App: Component = () => {
           terminalIds={terminalIds()}
           activeId={activeId()}
           getMeta={getMeta}
+          getActivityHistory={getActivityHistory}
+          getSubTerminalIds={getSubTerminalIds}
           onSelect={setActiveId}
-          onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
+          onReorder={reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
@@ -170,7 +199,7 @@ const App: Component = () => {
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
-                    <Terminal
+                    <TerminalPane
                       terminalId={id}
                       visible={activeId() === id}
                       theme={getThemeByName(
@@ -178,6 +207,12 @@ const App: Component = () => {
                       )}
                       searchOpen={searchOpen()}
                       onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={getSubTerminalIds(id)}
+                      getMeta={getMeta}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void handleCreateSubTerminal(parentId, cwd)
+                      }
+                      activeCwd={activeCwd()}
                     />
                   )}
                 </For>

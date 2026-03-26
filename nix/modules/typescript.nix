@@ -5,6 +5,7 @@
       nodejs = pkgs.nodejs;
       pnpm = pkgs.pnpm;
       ghosttyThemes = pkgs.callPackage ../ghostty-themes { };
+      fonts = pkgs.callPackage ../fonts { };
 
       src = lib.fileset.toSource {
         root = ../..;
@@ -23,7 +24,7 @@
         pname = "kolu";
         version = "0.1.0";
         inherit src;
-        hash = "sha256-USzhrvRu+YkRxKxN0MAN8gnqdkPAJtYkNycROPUTWwQ=";
+        hash = "sha256-G3Vc7SxAPiaCzM4HEcfpo/bQ8pLDHVIKS8FkT07RXUM=";
         fetcherVersion = 3;
       };
 
@@ -50,6 +51,7 @@
         env.npm_config_nodedir = nodejs;
         env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
         env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+        env.KOLU_FONTS_DIR = "${fonts}";
         env.KOLU_COMMIT_HASH = inputs.self.shortRev or inputs.self.dirtyShortRev or "dev";
 
         buildPhase = ''
@@ -63,6 +65,7 @@
           node-gyp rebuild
           popd
 
+          ln -sfn $KOLU_FONTS_DIR client/public/fonts
           pnpm --filter kolu-client build
           runHook postBuild
         '';
@@ -85,7 +88,7 @@
     in
     {
       packages = {
-        inherit kolu ghosttyThemes;
+        inherit kolu ghosttyThemes fonts;
 
         default = pkgs.writeShellApplication {
           name = "kolu";

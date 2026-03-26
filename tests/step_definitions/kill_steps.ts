@@ -7,14 +7,20 @@ When(
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
+    // Select the terminal first by clicking its sidebar entry
     const entry = this.page.locator(
       `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
     );
-    // Auto-accept the confirmation dialog
-    this.page.once("dialog", (dialog) => dialog.accept());
-    // Hover to reveal the close button
-    await entry.hover();
-    await entry.locator('[data-testid="close-terminal"]').click();
+    await entry.click();
+    await this.page.waitForTimeout(200);
+    // Close via command palette (close button was removed from sidebar)
+    const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+    await this.page.keyboard.press(`${MOD_KEY}+k`);
+    await this.page.waitForTimeout(200);
+    const palette = this.page.locator('[data-testid="command-palette"]');
+    await palette.locator("input").fill("Close terminal");
+    await this.page.waitForTimeout(200);
+    await palette.locator("li", { hasText: "Close terminal" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
   },

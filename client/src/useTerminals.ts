@@ -1,4 +1,4 @@
-/** Terminal session state: single store keyed by numeric ID, using TerminalInfo from common. */
+/** Terminal session state: single store keyed by UUID, using TerminalInfo from common. */
 
 import { createSignal, createResource, createMemo } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
@@ -6,34 +6,78 @@ import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
+import { useSubPanel } from "./useSubPanel";
+import { SHORTCUTS } from "./keyboard";
+import type { PaletteCommand } from "./CommandPalette";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
 
+/** A timestamped activity transition: [epochMs, isActive]. */
+export type ActivitySample = [time: number, active: boolean];
+
+/** Rolling window for activity history (shared with ActivityGraph for rendering). */
+export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
+const RANDOM_THEME_KEY = "kolu-random-theme";
 
 export function useTerminals() {
-  // Single store: all per-terminal metadata keyed by numeric ID.
+  // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
+  // Explicit ordering — UUIDs don't sort chronologically, so track insertion order.
+  // Only top-level terminals (no parentId) live here.
+  const [idOrder, setIdOrder] = createSignal<TerminalId[]>([]);
+  // Sub-terminal ordering per parent.
+  const [subOrder, setSubOrder] = createSignal<
+    Record<TerminalId, TerminalId[]>
+  >({});
+
+  const subPanel = useSubPanel();
+
+  // Activity history: array of transitions per terminal for sparkline rendering.
+  const [activityHistory, setActivityHistory] = createStore<
+    Record<TerminalId, ActivitySample[]>
+  >({});
+
+  /** Append an activity sample and trim old entries beyond the rolling window. */
+  function pushActivity(id: TerminalId, active: boolean) {
+    const now = Date.now();
+    const cutoff = now - ACTIVITY_WINDOW_MS;
+    setActivityHistory(id, (prev) => [
+      ...(prev ?? []).filter(([t]) => t >= cutoff),
+      [now, active],
+    ]);
+  }
+
+  /** Get activity history for a terminal (for sparkline rendering). */
+  function getActivityHistory(id: TerminalId): ActivitySample[] {
+    return activityHistory[id] ?? [];
+  }
+
+  const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
+    name: RANDOM_THEME_KEY,
+    serialize: String,
+    deserialize: (s) => s !== "false",
+  });
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
     {
       name: ACTIVE_TERMINAL_KEY,
-      // localStorage stores strings; convert to/from number
-      serialize: (v) => (v === null ? "" : String(v)),
-      deserialize: (s) => (s === "" ? null : Number(s)),
+      serialize: (v) => (v === null ? "" : v),
+      deserialize: (s) => (s === "" ? null : (s as TerminalId)),
     },
   );
 
-  /** Sorted terminal IDs — derived from store keys, ordered by creation (numeric ID). */
-  const terminalIds = createMemo(() =>
-    Object.keys(meta)
-      .map(Number)
-      .sort((a, b) => a - b),
-  );
+  const terminalIds = idOrder;
+
+  /** Get sub-terminal IDs for a given parent. */
+  function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
+    return subOrder()[parentId] ?? [];
+  }
 
   /** Get metadata for a terminal. */
   function getMeta(id: TerminalId): TerminalState | undefined {
@@ -84,7 +128,10 @@ export function useTerminals() {
   function subscribeActivity(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => setMeta(id, "isActive", isActive),
+      (isActive) => {
+        setMeta(id, "isActive", isActive);
+        pushActivity(id, isActive);
+      },
     );
   }
 
@@ -93,9 +140,10 @@ export function useTerminals() {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const name = meta[id]?.name ?? `Terminal ${id}`;
+        const pos = terminalIds().indexOf(id) + 1;
+        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
         toast(
-          code === 0 ? `${name} exited` : `${name} exited with code ${code}`,
+          code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );
         removeAndAutoSwitch(id);
       },
@@ -111,13 +159,53 @@ export function useTerminals() {
 
   /** Remove a terminal from the store and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
+    const parentId = meta[id]?.parentId;
+
+    if (parentId) {
+      // This is a sub-terminal — remove from parent's sub-order
+      setSubOrder((prev) => {
+        const subs = (prev[parentId] ?? []).filter((x) => x !== id);
+        const next = { ...prev };
+        if (subs.length === 0) {
+          delete next[parentId];
+          subPanel.collapsePanel(parentId);
+        } else {
+          next[parentId] = subs;
+          // If this was the active sub-tab, switch to neighbor
+          const panel = subPanel.getSubPanel(parentId);
+          if (panel.activeSubTab === id) {
+            subPanel.setActiveSubTab(parentId, subs[0] ?? null);
+          }
+        }
+        return next;
+      });
+      setMeta(produce((s) => delete s[id]));
+      return;
+    }
+
+    // Top-level terminal — promote any sub-terminals to top-level (orphans)
+    const orphanIds = getSubTerminalIds(id);
+    for (const subId of orphanIds) {
+      setMeta(subId, "parentId", undefined);
+      void client.terminal.setParent({ id: subId, parentId: null });
+    }
+
     const ids = terminalIds();
     const idx = ids.indexOf(id);
     if (idx === -1) return;
+    const remaining = ids.filter((x) => x !== id);
+    // Insert orphans at the position of the killed parent
+    remaining.splice(idx, 0, ...orphanIds);
+    setIdOrder(remaining);
     setMeta(produce((s) => delete s[id]));
+    subPanel.removePanel(id);
+    setSubOrder((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setActivityHistory(produce((s) => delete s[id]));
     if (activeId() === id) {
-      // terminalIds() still has the old value here; compute remaining manually
-      const remaining = ids.filter((x) => x !== id);
       setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
   }
@@ -132,10 +220,31 @@ export function useTerminals() {
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
     const existing = await client.terminal.list();
     if (existing.length > 0) {
-      // Build initial metadata store from server state
+      // Build initial metadata store from server state (preserving server order)
       const initial: Record<TerminalId, TerminalState> = {};
       for (const t of existing) initial[t.id] = infoToState(t);
       setMeta(reconcile(initial));
+
+      // Partition into top-level and sub-terminals
+      const topLevel: TerminalId[] = [];
+      const subs: Record<TerminalId, TerminalId[]> = {};
+      for (const t of existing) {
+        if (t.parentId) {
+          (subs[t.parentId] ??= []).push(t.id);
+        } else {
+          topLevel.push(t.id);
+        }
+      }
+      setIdOrder(topLevel);
+      setSubOrder(subs);
+
+      // Initialize sub-panel active tabs for parents that have sub-terminals
+      for (const [parentId, subIds] of Object.entries(subs)) {
+        const panel = subPanel.getSubPanel(parentId);
+        if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
+          subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
+        }
+      }
 
       // Keep persisted active terminal if it still exists; otherwise pick first
       const persisted = activeId();
@@ -153,8 +262,27 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    setMeta(info.id, infoToState(info));
+    const themeName = randomTheme()
+      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+          .name
+      : undefined;
+    setMeta(info.id, { ...infoToState(info), ...(themeName && { themeName }) });
+    setIdOrder((prev) => [...prev, info.id]);
     setActiveId(info.id);
+    subscribeAll(info.id);
+    if (themeName) void client.terminal.setTheme({ id: info.id, themeName });
+  }
+
+  /** Create a sub-terminal under a parent. */
+  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
+    const info = await client.terminal.create({ cwd, parentId });
+    setMeta(info.id, infoToState(info));
+    setSubOrder((prev) => ({
+      ...prev,
+      [parentId]: [...(prev[parentId] ?? []), info.id],
+    }));
+    subPanel.setActiveSubTab(parentId, info.id);
+    subPanel.expandPanel(parentId);
     subscribeAll(info.id);
   }
 
@@ -176,68 +304,113 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
-  /** Command palette entries for terminal + theme actions. */
-  const commands = createMemo(
-    (): Array<{
-      name: string;
-      showOnPrefix?: string;
-      onSelect: () => void;
-    }> => [
-      {
-        name: "Create new terminal",
-        onSelect: () => void handleCreate(),
-      },
-      ...(activeCwd()
-        ? [
-            {
-              name: "Create terminal in current directory",
-              onSelect: () => void handleCreate(activeCwd()!.cwd),
+  /** Command palette entries: leaf actions + nested groups for terminals and themes. */
+  const commands = createMemo((): PaletteCommand[] => [
+    {
+      name: "Create new terminal",
+      keybind: SHORTCUTS.createTerminal.keybind,
+      onSelect: () => void handleCreate(),
+    },
+    ...(activeCwd()
+      ? [
+          {
+            name: "Create terminal in current directory",
+            keybind: SHORTCUTS.createTerminalInCwd.keybind,
+            onSelect: () => void handleCreate(activeCwd()!.cwd),
+          },
+        ]
+      : []),
+    ...(activeId() !== null
+      ? [
+          {
+            name: "Close terminal",
+            onSelect: () => void handleKill(activeId()!),
+          },
+          {
+            name: "Toggle sub-panel",
+            keybind: SHORTCUTS.toggleSubPanel.keybind,
+            onSelect: () => {
+              const id = activeId()!;
+              if (getSubTerminalIds(id).length === 0) {
+                void handleCreateSubTerminal(id, activeCwd()?.cwd);
+              } else {
+                subPanel.togglePanel(id);
+              }
             },
-          ]
-        : []),
-      ...(activeId() !== null
-        ? [
-            {
-              name: "Close terminal",
-              onSelect: () => void handleKill(activeId()!),
-            },
-          ]
-        : []),
-      {
-        name: "Debug: trigger server error",
-        showOnPrefix: "debug",
-        onSelect: () =>
-          // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
-          void client.terminal.resize({
-            id: -1,
-            cols: 1,
-            rows: 1,
-          }),
-      },
-      ...terminalIds().map((id) => ({
-        name: `Switch to ${meta[id]?.name ?? `Terminal ${id}`}`,
-        onSelect: () => setActiveId(id),
-      })),
-      ...availableThemes
-        .filter((t) => t.name !== activeThemeName())
-        .map((t) => ({
-          name: `Theme: ${t.name}`,
-          onSelect: () => void handleSetTheme(t.name),
-        })),
-    ],
-  );
+          },
+          {
+            name: "New sub-terminal",
+            keybind: SHORTCUTS.createSubTerminal.keybind,
+            onSelect: () =>
+              void handleCreateSubTerminal(activeId()!, activeCwd()?.cwd),
+          },
+        ]
+      : []),
+    {
+      name: "Debug",
+      children: [
+        {
+          name: "Trigger server error",
+          onSelect: () =>
+            // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+            void client.terminal.resize({
+              id: "00000000-0000-0000-0000-000000000000",
+              cols: 1,
+              rows: 1,
+            }),
+        },
+      ],
+    },
+    ...(terminalIds().length > 0
+      ? [
+          {
+            name: "Switch terminal",
+            children: () =>
+              terminalIds().map((id, i) => ({
+                name: `Switch to terminal ${i + 1}`,
+                keybind:
+                  i < 9
+                    ? SHORTCUTS[
+                        `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
+                      ].keybind
+                    : undefined,
+                onSelect: () => setActiveId(id),
+              })),
+          },
+        ]
+      : []),
+    {
+      name: "Theme",
+      children: () =>
+        availableThemes
+          .filter((t) => t.name !== activeThemeName())
+          .map((t) => ({
+            name: t.name,
+            onSelect: () => void handleSetTheme(t.name),
+          })),
+    },
+  ]);
 
   return {
     terminalIds,
     activeId,
     setActiveId,
     getMeta,
+    getActivityHistory,
     activeThemeName,
     activeTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateSubTerminal,
     handleKill,
+    getSubTerminalIds,
+    reorderTerminals: (ids: TerminalId[]) => {
+      setIdOrder(ids);
+      void client.terminal.reorder({ ids });
+    },
     commands,
+    randomTheme,
+    setRandomTheme,
   };
 }

@@ -8,14 +8,13 @@ A web-based terminal multiplexer for managing multiple repos and branches in par
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
-<img width="2446" height="2030" alt="image" src="https://github.com/user-attachments/assets/5d6bbb17-25c4-4c04-9389-66004dee3b9c" />
-
 ## Features
 
 - **Multi-terminal** — create, switch, and kill terminals from a collapsible sidebar
 - **Git-aware** — header shows repo name, branch, and working directory (auto-detected via OSC 7)
 - **Command palette** — `Cmd/Ctrl+K` to search terminals, switch themes, and run actions
-- **200+ themes** — color schemes from [Ghostty](https://ghostty.org/), switchable at runtime
+- **200+ themes** — color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
+- **Sub-terminals** — `Ctrl+`` toggles a bottom split panel per terminal for dev servers, lazygit, etc. `Ctrl+Shift+``adds more tabs,`Ctrl+PageDown/Up` cycles
 - **Keyboard-driven** — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
 - **Clipboard & image paste** — `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
 - **WebGL rendering** — xterm.js with GPU acceleration, canvas fallback
@@ -55,14 +54,13 @@ nix run -- --host 127.0.0.1 --port 8080  # custom bind
 
 ## CI
 
-Uses [localci](https://github.com/srid/localci) to build all flake outputs on each platform and run e2e tests, posting GitHub commit statuses.
+`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
 
 ```sh
-just ci         # build + e2e, post statuses (requires clean worktree)
-just test       # run e2e only, no status posting
+just ci              # full CI run
+just ci::protect     # set branch protection
+just ci::_summary    # check current status
 ```
-
-Required statuses for merge: `localci/nix/x86_64-linux`, `localci/nix/aarch64-darwin`, `localci/nix/home-example/x86_64-linux`, `localci/e2e`.
 
 ## Deployment (NixOS + home-manager)
 
@@ -81,10 +79,3 @@ A home-manager module runs kolu as a systemd user service:
 ```
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
-
-## CI
-
-- **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
-- **E2E tests**: Cucumber + Playwright, run locally via `just ci` — posts `signoff/e2e` commit status to GitHub
-
-Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.

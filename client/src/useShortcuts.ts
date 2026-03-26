@@ -10,10 +10,14 @@ interface ShortcutDeps {
   activeId: Accessor<TerminalId | null>;
   setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
+  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  toggleSubPanel: (parentId: TerminalId) => void;
+  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
+  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -77,13 +81,45 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
+  if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
+    const id = deps.activeId();
+    if (id)
+      deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
+    const id = deps.activeId();
+    if (id) {
+      // If no sub-terminals exist yet, create one
+      if (deps.getSubTerminalIds(id).length === 0) {
+        deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+      } else {
+        deps.toggleSubPanel(id);
+      }
+    }
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
+    const id = deps.activeId();
+    if (id) deps.cycleSubTab(id, 1);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
+    const id = deps.activeId();
+    if (id) deps.cycleSubTab(id, -1);
+    return true;
+  }
+
   return false;
 }
 
 function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   const ids = deps.terminalIds();
   if (ids.length === 0) return;
-  const current = ids.indexOf(deps.activeId() ?? -1);
+  const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;
   deps.setActiveId(ids[next]!);
 }

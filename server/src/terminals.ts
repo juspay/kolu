@@ -25,7 +25,6 @@ export interface TerminalEvents {
 export interface TerminalEntry {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
-  name: string;
   themeName?: string;
   /** Current activity state. Transitions emit "activity" event. */
   isActive: boolean;
@@ -33,18 +32,19 @@ export interface TerminalEntry {
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
+  /** If set, this terminal is a sub-terminal of the given parent. */
+  parentId?: string;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
-let nextId = 1;
 
 function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
   return {
     id,
-    name: entry.name,
     pid: entry.handle.pid,
     themeName: entry.themeName,
     isActive: entry.isActive,
+    parentId: entry.parentId,
   };
 }
 
@@ -63,10 +63,9 @@ function touchActivity(entry: TerminalEntry): void {
   }, IDLE_MS);
 }
 
-/** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
-export function createTerminal(cwd?: string): TerminalInfo {
-  const id = nextId++;
-  const name = `Terminal ${id}`;
+/** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
+export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
+  const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
@@ -79,12 +78,16 @@ export function createTerminal(cwd?: string): TerminalInfo {
         if (entry) touchActivity(entry);
         emitter.emit("data", data);
       },
-      // On natural exit: emit event so onExit stream can yield the exit code
+      // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
-        if (entry && entry.idleTimer) clearTimeout(entry.idleTimer);
+        if (entry) {
+          if (entry.idleTimer) clearTimeout(entry.idleTimer);
+          cleanupClipboardDir(entry.clipboardDir);
+        }
         emitter.emit("exit", exitCode);
+        terminals.delete(id);
       },
       onCwd: (cwd) => emitter.emit("cwd", cwd),
     },
@@ -94,10 +97,10 @@ export function createTerminal(cwd?: string): TerminalInfo {
 
   const entry: TerminalEntry = {
     handle,
-    name,
     emitter,
     isActive: true,
     clipboardDir,
+    parentId,
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
@@ -128,10 +131,35 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   return info;
 }
 
+/** Set or clear a terminal's parent relationship. */
+export function setTerminalParent(
+  id: TerminalId,
+  parentId: string | null,
+): void {
+  const entry = terminals.get(id);
+  if (entry) entry.parentId = parentId ?? undefined;
+}
+
 /** Set the theme name for a terminal. */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) entry.themeName = themeName;
+}
+
+/** Reorder terminals to match the given ID array. IDs not in the list are appended at the end. */
+export function reorderTerminals(ids: TerminalId[]): void {
+  const reordered = new Map<TerminalId, TerminalEntry>();
+  for (const id of ids) {
+    const entry = terminals.get(id);
+    if (entry) reordered.set(id, entry);
+  }
+  // Append any IDs not in the provided list (shouldn't happen, but be safe)
+  for (const [id, entry] of terminals) {
+    if (!reordered.has(id)) reordered.set(id, entry);
+  }
+  terminals.clear();
+  for (const [id, entry] of reordered) terminals.set(id, entry);
+  log.debug({ count: ids.length }, "terminals reordered");
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
@@ -143,5 +171,4 @@ export function killAllTerminals(): void {
     cleanupClipboardDir(entry.clipboardDir);
   }
   terminals.clear();
-  nextId = 1;
 }
