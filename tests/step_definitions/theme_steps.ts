@@ -47,28 +47,3 @@ Then(
     );
   },
 );
-
-When("I click the theme name in the header", async function (this: KoluWorld) {
-  const themeButton = this.page.locator('[data-testid="theme-name"]');
-  await themeButton.waitFor({ state: "visible", timeout: 3000 });
-  await themeButton.click();
-  await this.page.waitForTimeout(200);
-});
-
-Then(
-  "the header should show theme {string}",
-  async function (this: KoluWorld, expectedTheme: string) {
-    const header = this.page.locator("header");
-    await header.waitFor({ state: "visible", timeout: 5_000 });
-    const text = await pollUntil(
-      this.page,
-      async () => (await header.textContent()) ?? "",
-      (t) => t.includes(expectedTheme),
-      { attempts: 30 },
-    );
-    assert.ok(
-      text.includes(expectedTheme),
-      `Expected header to contain "${expectedTheme}" but got "${text}"`,
-    );
-  },
-);

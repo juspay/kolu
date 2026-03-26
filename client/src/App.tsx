@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   createResource,
   Show,
@@ -16,12 +17,13 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
-import CommandPalette from "./CommandPalette";
+import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
 
 import { client, wsStatus } from "./rpc";
-import { renderer } from "./Terminal";
+import { SHORTCUTS } from "./keyboard";
+
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -46,8 +48,6 @@ const App: Component = () => {
     getSubTerminalIds,
     reorderTerminals,
     commands,
-    randomTheme,
-    setRandomTheme,
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
@@ -62,10 +62,6 @@ const App: Component = () => {
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
-  const [paletteInitialGroup, setPaletteInitialGroup] = createSignal<
-    string | undefined
-  >();
-
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
@@ -90,21 +86,25 @@ const App: Component = () => {
       subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
   });
 
-  function openPalette() {
-    setPaletteInitialGroup(undefined);
-    setPaletteOpen(true);
-  }
-
-  function openPaletteGroup(group: string) {
-    setPaletteInitialGroup(group);
-    setPaletteOpen(true);
-  }
+  /** Extend useTerminals commands with App-level palette entries (search, shortcuts). */
+  const allCommands = createMemo((): PaletteCommand[] => [
+    ...commands(),
+    {
+      name: "Find in terminal",
+      keybind: SHORTCUTS.findInTerminal.keybind,
+      onSelect: () => setSearchOpen(true),
+    },
+    {
+      name: "Keyboard shortcuts",
+      keybind: SHORTCUTS.shortcutsHelp.keybind,
+      onSelect: () => setShortcutsHelpOpen(true),
+    },
+  ]);
 
   // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
     if (!open) {
-      setPaletteInitialGroup(undefined);
       requestAnimationFrame(refocusTerminal);
     }
   }
@@ -132,10 +132,9 @@ const App: Component = () => {
         }}
       />
       <CommandPalette
-        commands={commands}
+        commands={allCommands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
-        initialGroup={paletteInitialGroup()}
         transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp
@@ -144,17 +143,10 @@ const App: Component = () => {
       />
       <Header
         status={wsStatus()}
-        onOpenPalette={() => openPalette()}
-        onThemeClick={() => openPaletteGroup("Theme")}
-        themeName={activeThemeName()}
+        onOpenPalette={() => setPaletteOpen(true)}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
-        onShortcutsHelp={() => setShortcutsHelpOpen(true)}
-        onSearch={() => setSearchOpen(true)}
-        renderer={renderer()}
         appTitle={appTitle()}
-        randomTheme={randomTheme()}
-        onRandomThemeChange={setRandomTheme}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

@@ -396,6 +396,10 @@ export function useTerminals() {
         ]
       : []),
     {
+      name: "Randomize new terminal colors",
+      onSelect: () => setRandomTheme(!randomTheme()),
+    },
+    {
       name: "Theme",
       onCancel: () => setPreviewThemeName(undefined),
       children: () =>
