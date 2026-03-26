@@ -8,11 +8,11 @@ const SM_QUERY = window.matchMedia("(min-width: 640px)");
 const [sidebarOpen, setSidebarOpen] = createSignal(SM_QUERY.matches);
 const [isDesktop, setIsDesktop] = createSignal(SM_QUERY.matches);
 
-/** Sidebar width in pixels. Only changes via user drag. */
-const DEFAULT_WIDTH_PX = 192;
-const [sidebarWidthPx, setSidebarWidthPx] = makePersisted(
-  createSignal(DEFAULT_WIDTH_PX),
-  { name: "kolu-sidebar-width-px" },
+/** Sidebar panel size as a fraction (0–1). Default ~11rem / typical viewport. */
+const DEFAULT_SIZE = 0.15;
+const [sidebarSize, setSidebarSize] = makePersisted(
+  createSignal(DEFAULT_SIZE),
+  { name: "kolu-sidebar-size" },
 );
 
 // Auto-close on mobile, auto-open on desktop when viewport crosses sm breakpoint
@@ -26,8 +26,8 @@ export function useSidebar() {
     sidebarOpen,
     toggleSidebar: () => setSidebarOpen((prev) => !prev),
     closeSidebar: () => setSidebarOpen(false),
-    sidebarWidthPx,
-    setSidebarWidthPx,
+    sidebarSize,
+    setSidebarSize,
     isDesktop,
   } as const;
 }
