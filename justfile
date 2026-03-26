@@ -13,19 +13,21 @@ install:
     {{ nix_shell }} pnpm install
 
 # Run server + client in parallel
+dev: install _dev
+
 [parallel]
-dev: install server client
+_dev: server client
 
 # Run TypeScript type checking across all packages
 watch: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
-server: install
+server:
     cd server && {{ nix_shell }} pnpm dev
 
 # Run client with Vite dev server (HMR)
-client: install
+client:
     cd client && {{ nix_shell }} pnpm dev
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
