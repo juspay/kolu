@@ -33,11 +33,13 @@ const PROFILES: AgentProfile[] = [
 
 /**
  * Scan a PTY output chunk for a known agent signature.
+ * Strips ANSI escape sequences first — agent banners are styled.
  * Returns the agent ID (e.g. "claude-code") or null if no match.
  */
 export function detectAgent(data: string): string | null {
+  const plain = stripAnsi(data);
   const match = PROFILES.find((p) =>
-    p.outputPatterns.some((re) => re.test(data)),
+    p.outputPatterns.some((re) => re.test(plain)),
   );
   return match?.id ?? null;
 }

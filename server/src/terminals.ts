@@ -72,7 +72,10 @@ function touchActivity(entry: TerminalEntry, data: string): void {
   if (!entry.detectedAgent && entry.agentScanCount < AGENT_SCAN_LIMIT) {
     entry.agentScanCount++;
     const agent = detectAgent(data);
-    if (agent) entry.detectedAgent = agent;
+    if (agent) {
+      entry.detectedAgent = agent;
+      log.info({ agent }, "agent detected");
+    }
   }
 
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
