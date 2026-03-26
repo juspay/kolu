@@ -14,6 +14,7 @@ Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the
 - **Git-aware** — header shows repo name, branch, and working directory (auto-detected via OSC 7)
 - **Command palette** — `Cmd/Ctrl+K` to search terminals, switch themes, and run actions
 - **200+ themes** — color schemes from [Ghostty](https://ghostty.org/), switchable at runtime
+- **Sub-terminals** — `Ctrl+`` toggles a bottom split panel per terminal for dev servers, lazygit, etc. `Ctrl+Shift+``adds more tabs,`Ctrl+PageDown/Up` cycles
 - **Keyboard-driven** — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
 - **Clipboard & image paste** — `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
 - **WebGL rendering** — xterm.js with GPU acceleration, canvas fallback
