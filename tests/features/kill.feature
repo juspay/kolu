@@ -1,7 +1,7 @@
 Feature: Kill terminal
-  Closing terminals via sidebar and auto-switching.
+  Closing terminals via sidebar context menu and auto-switching.
 
-  Scenario: Kill terminal via sidebar close button
+  Scenario: Kill terminal via sidebar context menu
     When I open the app
     And I create a terminal
     And I run "echo kill-test-marker"

@@ -215,6 +215,10 @@ export function useTerminals() {
           ]
         : []),
       {
+        name: `Toggle random themes (${randomTheme() ? "on" : "off"})`,
+        onSelect: () => setRandomTheme(!randomTheme()),
+      },
+      {
         name: "Debug: trigger server error",
         showOnPrefix: "debug",
         onSelect: () =>

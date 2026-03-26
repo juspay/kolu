@@ -139,10 +139,12 @@ const App: Component = () => {
           getMeta={getMeta}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
-          onCreate={() => handleCreate()}
+          onCreate={(cwd) => handleCreate(cwd)}
           onReorder={reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          randomTheme={randomTheme()}
+          onRandomThemeChange={setRandomTheme}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 p-1">
