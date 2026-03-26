@@ -37,18 +37,30 @@ test: install
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
 
-# Run e2e tests against a running dev server. Pass a feature file:line to run one scenario.
+# Fast self-contained e2e tests (no nix build, no separate dev server).
+# Builds client via pnpm, spawns server from source on random ports.
 # Examples:
-#   just test-dev                                              # all tests
-#   just test-dev features/command-palette.feature:149         # single scenario by line
-#   just test-dev features/command-palette.feature             # single feature file
-test-dev *args: install
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} node --import tsx \
-            ./node_modules/@cucumber/cucumber/bin/cucumber-js \
-            --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
-            {{ if args == "" { "--profile ui" } else { args } }}
+#   just test-quick                                              # all tests
+#   just test-quick features/command-palette.feature:149         # single scenario by line
+#   just test-quick features/command-palette.feature             # single feature file
+test-quick *args: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ nix_shell }} pnpm --filter kolu-client build
+    wrapper="$(mktemp)"
+    trap 'rm -f "$wrapper"' EXIT
+    cat > "$wrapper" <<SCRIPT
+    #!/usr/bin/env bash
+    export KOLU_CLIENT_DIST="$PWD/client/dist"
+    exec tsx "$PWD/server/src/index.ts" "\$@"
+    SCRIPT
+    chmod +x "$wrapper"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
+        ./node_modules/@cucumber/cucumber/bin/cucumber-js \
+        --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+        {{ if args == "" { "--profile ui" } else { args } }}
 
 # Run pre-commit hooks on all files
 pc:
