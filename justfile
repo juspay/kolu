@@ -47,6 +47,9 @@ test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
     {{ nix_shell }} pnpm --filter kolu-client build
+    # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
+    # Without nix build there's no `kolu` binary, so we create a temp wrapper
+    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
     wrapper="$(mktemp)"
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
