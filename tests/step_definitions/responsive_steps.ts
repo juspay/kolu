@@ -34,6 +34,20 @@ When(
   },
 );
 
+Then("the sidebar width should be unchanged", async function (this: KoluWorld) {
+  const sidebar = this.page.locator('[data-testid="sidebar"]');
+  const box = await sidebar.boundingBox();
+  assert.ok(box, "Sidebar has no bounding box");
+  assert.ok(
+    this.savedSidebarWidth !== undefined,
+    "No saved sidebar width — did you forget 'I note the sidebar width'?",
+  );
+  assert.ok(
+    Math.abs(box.width - this.savedSidebarWidth!) < 2,
+    `Expected sidebar width unchanged (~${this.savedSidebarWidth}), got ${box.width}`,
+  );
+});
+
 Then(
   "the sidebar should be wider than before",
   async function (this: KoluWorld) {
