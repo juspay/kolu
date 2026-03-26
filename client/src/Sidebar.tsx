@@ -83,10 +83,33 @@ const SidebarEntry: Component<{
             data-testid="activity-indicator"
             class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
             classList={{
-              "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-              "bg-fg-3": !(m()?.isActive ?? false),
+              // Agent-aware indicator colors
+              "bg-accent animate-activity-pulse":
+                m()?.agentStatus?.state === "thinking",
+              "bg-warning animate-pulse": m()?.agentStatus?.state === "waiting",
+              // Default activity indicator (no agent)
+              "bg-ok animate-activity-pulse":
+                !m()?.agentStatus && (m()?.isActive ?? false),
+              "bg-fg-3":
+                !m()?.agentStatus?.state?.match(/thinking|waiting/) &&
+                !(m()?.isActive ?? false),
             }}
           />
+          <Show when={m()?.agentStatus}>
+            {(agent) => (
+              <span
+                data-testid="agent-label"
+                class="text-[0.6rem] shrink-0"
+                classList={{
+                  "text-accent": agent().state === "thinking",
+                  "text-warning": agent().state === "waiting",
+                  "text-fg-3": agent().state === "idle",
+                }}
+              >
+                {agent().state === "waiting" ? "waiting" : agent().agent}
+              </span>
+            )}
+          </Show>
           <Show when={m()?.cwd}>
             {(cwdInfo) => (
               <>

@@ -9,7 +9,13 @@ import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import { SHORTCUTS } from "./keyboard";
 import type { PaletteCommand } from "./CommandPalette";
-import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  CwdInfo,
+  AgentStatus,
+  ActivityInfo,
+} from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
@@ -99,6 +105,19 @@ export function useTerminals() {
     return id !== null ? (meta[id]?.cwd ?? null) : null;
   });
 
+  /** Aggregate agent status counts across all terminals (for header badge). */
+  const agentSummary = createMemo(() => {
+    let thinking = 0;
+    let waiting = 0;
+    for (const id of terminalIds()) {
+      const agent = meta[id]?.agentStatus;
+      if (!agent) continue;
+      if (agent.state === "thinking") thinking++;
+      else if (agent.state === "waiting") waiting++;
+    }
+    return { thinking, waiting, any: thinking + waiting > 0 };
+  });
+
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
     startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
@@ -124,13 +143,34 @@ export function useTerminals() {
     );
   }
 
-  /** Subscribe to activity state changes for a terminal. */
+  /** Subscribe to activity state changes (enriched with agent context). */
   function subscribeActivity(id: TerminalId) {
+    let prevAgentState: string | undefined;
+    let isFirst = true;
     return subscribeStream(
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => {
-        setMeta(id, "isActive", isActive);
-        pushActivity(id, isActive);
+      (info: ActivityInfo) => {
+        setMeta(id, "isActive", info.isActive);
+        setMeta(id, "agentStatus", info.agent ?? undefined);
+        pushActivity(id, info.isActive);
+        // Toast on transition TO "waiting" (not on initial load or repeated waiting)
+        const curState = info.agent?.state;
+        if (
+          !isFirst &&
+          curState === "waiting" &&
+          prevAgentState !== "waiting"
+        ) {
+          const pos = terminalIds().indexOf(id) + 1;
+          const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+          toast(`${label}: ${info.agent!.agent} waiting for input`, {
+            action: {
+              label: "Go",
+              onClick: () => setActiveId(id),
+            },
+          });
+        }
+        prevAgentState = curState;
+        isFirst = false;
       },
     );
   }
@@ -397,6 +437,7 @@ export function useTerminals() {
     setActiveId,
     getMeta,
     getActivityHistory,
+    agentSummary,
     activeThemeName,
     activeTheme,
     activeCwd,

@@ -45,7 +45,7 @@ export const contract = oc.router({
     onCwdChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(CwdInfoSchema)),
-    // Stream activity state changes (active/sleeping) for a terminal
+    // Stream activity state changes, enriched with agent detection context
     onActivityChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalActivityOutputSchema)),

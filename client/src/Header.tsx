@@ -25,6 +25,7 @@ const Header: Component<{
   appTitle?: string;
   randomTheme?: boolean;
   onRandomThemeChange?: (on: boolean) => void;
+  agentSummary?: { thinking: number; waiting: number; any: boolean };
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
@@ -85,6 +86,29 @@ const Header: Component<{
             </Show>
           </span>
         )}
+      </Show>
+      <Show when={props.agentSummary?.any}>
+        <span
+          data-testid="agent-summary"
+          class="flex items-center gap-1.5 text-xs"
+        >
+          <Show when={props.agentSummary!.thinking > 0}>
+            <span class="flex items-center gap-1">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-activity-pulse" />
+              <span class="text-accent">
+                {props.agentSummary!.thinking} thinking
+              </span>
+            </span>
+          </Show>
+          <Show when={props.agentSummary!.waiting > 0}>
+            <span class="flex items-center gap-1">
+              <span class="inline-block w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+              <span class="text-warning">
+                {props.agentSummary!.waiting} waiting
+              </span>
+            </span>
+          </Show>
+        </span>
       </Show>
       <span class="text-xs text-fg-3 hidden sm:inline">
         <kbd class="font-[inherit] text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">

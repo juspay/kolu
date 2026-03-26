@@ -23,6 +23,8 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
 import { toCwdInfo } from "./git.ts";
+import { resolveAgentStatus } from "./agent.ts";
+import type { ActivityInfo } from "kolu-common";
 
 const t = implement(contract);
 
@@ -131,11 +133,29 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current state immediately (isActive lives on TerminalBase, always available)
-      yield entry.isActive;
+      /** Enrich a raw activity boolean with agent context. */
+      function toActivityInfo(isActive: boolean): ActivityInfo {
+        return {
+          isActive,
+          agent: resolveAgentStatus(
+            entry.detectedAgent,
+            isActive,
+            entry.handle.getScreenState(),
+          ),
+        };
+      }
 
-      // Then stream changes (activity events emit booleans)
-      yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);
+      // Yield current state immediately, enriched with agent context
+      yield toActivityInfo(entry.isActive);
+
+      // Then stream changes, enriching each with agent context
+      for await (const isActive of subscribeAndYield<boolean>(
+        entry.emitter,
+        "activity",
+        signal,
+      )) {
+        yield toActivityInfo(isActive);
+      }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
