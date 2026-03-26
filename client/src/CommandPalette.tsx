@@ -18,6 +18,7 @@ import {
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
+import { type Keybind, formatKeybind } from "./keyboard";
 
 /** A command that can be executed from the palette. */
 export interface PaletteCommand {
@@ -25,6 +26,8 @@ export interface PaletteCommand {
   onSelect: () => void;
   /** If set, command is hidden unless the query starts with this prefix. */
   showOnPrefix?: string;
+  /** Keyboard shortcut to display alongside the command name. */
+  keybind?: Keybind;
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -139,7 +142,7 @@ const CommandPalette: Component<{
               <For each={filtered()}>
                 {(cmd, i) => (
                   <li
-                    class="px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
+                    class="flex items-center px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
                     classList={{
                       "bg-surface-3 text-fg border-accent":
                         selectedIndex() === i(),
@@ -149,7 +152,14 @@ const CommandPalette: Component<{
                     onMouseEnter={() => setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
-                    {cmd.name}
+                    <span>{cmd.name}</span>
+                    <Show when={cmd.keybind}>
+                      {(kb) => (
+                        <kbd class="ml-auto pl-4 text-xs text-fg-3 font-mono">
+                          {formatKeybind(kb())}
+                        </kbd>
+                      )}
+                    </Show>
                   </li>
                 )}
               </For>

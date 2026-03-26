@@ -6,6 +6,8 @@ import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
+import { SHORTCUTS } from "./keyboard";
+import type { PaletteCommand } from "./CommandPalette";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
@@ -218,55 +220,59 @@ export function useTerminals() {
   }
 
   /** Command palette entries for terminal + theme actions. */
-  const commands = createMemo(
-    (): Array<{
-      name: string;
-      showOnPrefix?: string;
-      onSelect: () => void;
-    }> => [
-      {
-        name: "Create new terminal",
-        onSelect: () => void handleCreate(),
-      },
-      ...(activeCwd()
-        ? [
-            {
-              name: "Create terminal in current directory",
-              onSelect: () => void handleCreate(activeCwd()!.cwd),
-            },
-          ]
-        : []),
-      ...(activeId() !== null
-        ? [
-            {
-              name: "Close terminal",
-              onSelect: () => void handleKill(activeId()!),
-            },
-          ]
-        : []),
-      {
-        name: "Debug: trigger server error",
-        showOnPrefix: "debug",
-        onSelect: () =>
-          // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
-          void client.terminal.resize({
-            id: "00000000-0000-0000-0000-000000000000",
-            cols: 1,
-            rows: 1,
-          }),
-      },
-      ...terminalIds().map((id, i) => ({
-        name: `Switch to terminal ${i + 1}`,
-        onSelect: () => setActiveId(id),
+  const commands = createMemo((): PaletteCommand[] => [
+    {
+      name: "Create new terminal",
+      keybind: SHORTCUTS.createTerminal.keybind,
+      onSelect: () => void handleCreate(),
+    },
+    ...(activeCwd()
+      ? [
+          {
+            name: "Create terminal in current directory",
+            keybind: SHORTCUTS.createTerminalInCwd.keybind,
+            onSelect: () => void handleCreate(activeCwd()!.cwd),
+          },
+        ]
+      : []),
+    ...(activeId() !== null
+      ? [
+          {
+            name: "Close terminal",
+            onSelect: () => void handleKill(activeId()!),
+          },
+        ]
+      : []),
+    {
+      name: "Debug: trigger server error",
+      showOnPrefix: "debug",
+      onSelect: () =>
+        // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+        void client.terminal.resize({
+          id: "00000000-0000-0000-0000-000000000000",
+          cols: 1,
+          rows: 1,
+        }),
+    },
+    ...terminalIds().map((id, i) => ({
+      name: `Switch to terminal ${i + 1}`,
+      ...(i < 9
+        ? {
+            keybind:
+              SHORTCUTS[
+                `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
+              ].keybind,
+          }
+        : {}),
+      onSelect: () => setActiveId(id),
+    })),
+    ...availableThemes
+      .filter((t) => t.name !== activeThemeName())
+      .map((t) => ({
+        name: `Theme: ${t.name}`,
+        onSelect: () => void handleSetTheme(t.name),
       })),
-      ...availableThemes
-        .filter((t) => t.name !== activeThemeName())
-        .map((t) => ({
-          name: `Theme: ${t.name}`,
-          onSelect: () => void handleSetTheme(t.name),
-        })),
-    ],
-  );
+  ]);
 
   return {
     terminalIds,
