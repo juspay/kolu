@@ -17,7 +17,7 @@ import { watchGitHead } from "./git.ts";
 import {
   resolveAgentStatus,
   detectAgentByProcess,
-  watchTranscript,
+  watchAgentState,
 } from "./agent.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
@@ -43,6 +43,8 @@ export interface TerminalEntry {
   parentId?: string;
   /** Last-seen foreground process name (basename). Re-emit activity when it changes. */
   lastForegroundProcess?: string;
+  /** Whether the transcript watcher is actively watching (not a no-op). */
+  transcriptWatchActive: boolean;
   /** Cleanup function for the .git/HEAD file watcher. */
   stopGitWatch: () => void;
   /** Cleanup function for the JSONL transcript watcher (active when agent detected). */
@@ -81,16 +83,18 @@ function touchActivity(entry: TerminalEntry): void {
   const fgChanged = fg !== entry.lastForegroundProcess;
   if (fgChanged) {
     entry.lastForegroundProcess = fg;
-    // Start/stop JSONL transcript watcher based on whether an agent is running.
-    // When active, transcript changes trigger re-emit for instant state updates.
     entry.stopTranscriptWatch();
-    if (detectAgentByProcess(fg)) {
-      entry.stopTranscriptWatch = watchTranscript(entry.handle.cwd, () =>
-        entry.emitter.emit("activity", entry.isActive),
-      );
-    } else {
-      entry.stopTranscriptWatch = () => {};
-    }
+    entry.transcriptWatchActive = false;
+  }
+  // Start/retry transcript watcher if agent detected but watcher isn't active
+  // (session file may not exist yet when Claude is still starting up).
+  if (detectAgentByProcess(fg) && !entry.transcriptWatchActive) {
+    entry.stopTranscriptWatch();
+    const watch = watchAgentState(fg, entry.handle.cwd, () =>
+      entry.emitter.emit("activity", entry.isActive),
+    );
+    entry.stopTranscriptWatch = watch.cleanup;
+    entry.transcriptWatchActive = watch.active;
   }
 
   if (!entry.isActive) {
@@ -158,6 +162,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
+    transcriptWatchActive: false,
     stopGitWatch: watchGitHead(handle.cwd, () =>
       emitter.emit("cwd", handle.cwd),
     ),

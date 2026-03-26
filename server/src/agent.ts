@@ -1,184 +1,62 @@
 /**
- * Agent detection — identify AI agents by foreground process name,
- * classify state from session transcript files.
+ * Agent detection — generic dispatcher.
+ *
+ * Identifies agents by foreground process name, delegates state
+ * classification and file watching to per-agent modules in agents/.
+ * Adding a new agent = new file in agents/ + new entry in PROFILES.
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import type { AgentState, AgentStatus } from "kolu-common";
-import { log } from "./log.ts";
+import * as claudeCode from "./agents/claude-code.ts";
 
-const CLAUDE_DIR = path.join(os.homedir(), ".claude");
-const SESSIONS_DIR = path.join(CLAUDE_DIR, "sessions");
-const PROJECTS_DIR = path.join(CLAUDE_DIR, "projects");
-
-/** Known agent: binary names to match against PTY foreground process. */
+/** Per-agent profile: process names for detection + hooks for state/watching. */
 interface AgentProfile {
   id: string;
   processNames: string[];
+  classifyState: (terminalCwd: string) => AgentState;
+  watchState: (terminalCwd: string, onChange: () => void) => WatchResult;
 }
 
 const PROFILES: AgentProfile[] = [
-  { id: "claude-code", processNames: ["claude"] },
+  {
+    id: "claude-code",
+    processNames: ["claude"],
+    classifyState: claudeCode.classifyState,
+    watchState: claudeCode.watchState,
+  },
 ];
 
-/**
- * Detect which agent (if any) is the foreground process.
- */
-export function detectAgentByProcess(processName: string): string | null {
-  const match = PROFILES.find((p) =>
-    p.processNames.some((name) => processName === name),
-  );
-  return match?.id ?? null;
+function findProfile(processName: string): AgentProfile | undefined {
+  return PROFILES.find((p) => p.processNames.includes(processName));
 }
 
-/**
- * Resolve full agent status from foreground process + terminal CWD.
- * JSONL transcript is the sole source of truth for state — isActive is
- * not reliable (5s idle timer lag, banner output during launch, etc.).
- */
+/** Detect which agent (if any) is the foreground process. */
+export function detectAgentByProcess(processName: string): string | null {
+  return findProfile(processName)?.id ?? null;
+}
+
+/** Resolve agent status from foreground process + terminal CWD. */
 export function resolveAgentStatus(
   foregroundProcess: string,
   terminalCwd: string,
 ): AgentStatus | null {
-  const agent = detectAgentByProcess(foregroundProcess);
-  if (!agent) return null;
-  return { agent, state: classifyFromTranscript(terminalCwd) };
+  const profile = findProfile(foregroundProcess);
+  if (!profile) return null;
+  return { agent: profile.id, state: profile.classifyState(terminalCwd) };
 }
 
-// --- JSONL transcript watcher (triggers re-emit on state change) ---
+export interface WatchResult {
+  cleanup: () => void;
+  active: boolean;
+}
 
-const WATCH_DEBOUNCE_MS = 150;
-
-/**
- * Watch the Claude Code JSONL transcript for the given CWD.
- * Calls onChange when the file is modified (new entry written = state may have changed).
- * Returns a cleanup function. No-op if no active session found.
- */
-export function watchTranscript(
+/** Watch for agent state changes. active=false if no session found yet (retry later). */
+export function watchAgentState(
+  foregroundProcess: string,
   terminalCwd: string,
   onChange: () => void,
-): () => void {
-  const session = findSession(terminalCwd);
-  if (!session) return () => {};
-
-  const jsonlPath = path.join(session.projectDir, `${session.sessionId}.jsonl`);
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: fs.FSWatcher | undefined;
-  try {
-    watcher = fs.watch(jsonlPath, (event) => {
-      if (event !== "change") return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, WATCH_DEBOUNCE_MS);
-    });
-  } catch {
-    return () => {};
-  }
-
-  return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
-  };
-}
-
-// --- Claude Code transcript-based state classification ---
-
-/** Encode a CWD path to the ~/.claude/projects/ directory name format. */
-function encodeProjectPath(cwd: string): string {
-  return cwd.replace(/\//g, "-");
-}
-
-/** Find the active Claude Code session for a given CWD. */
-function findSession(
-  terminalCwd: string,
-): { sessionId: string; projectDir: string } | null {
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR);
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const pid = parseInt(path.basename(file, ".json"), 10);
-      if (isNaN(pid)) continue;
-      // Check PID is alive
-      try {
-        process.kill(pid, 0);
-      } catch {
-        continue;
-      }
-      const raw = fs.readFileSync(path.join(SESSIONS_DIR, file), "utf-8");
-      const session = JSON.parse(raw);
-      if (session.cwd === terminalCwd) {
-        const projectDir = path.join(
-          PROJECTS_DIR,
-          encodeProjectPath(session.cwd),
-        );
-        return { sessionId: session.sessionId, projectDir };
-      }
-    }
-  } catch (err) {
-    log.debug({ err }, "failed to scan claude sessions");
-  }
-  return null;
-}
-
-/** Read the last complete JSON line from a JSONL file (reads tail ~8KB). */
-function readLastJsonlEntry(filePath: string): Record<string, unknown> | null {
-  try {
-    const fd = fs.openSync(filePath, "r");
-    try {
-      const stat = fs.fstatSync(fd);
-      if (stat.size === 0) return null;
-      const readSize = Math.min(8192, stat.size);
-      const buf = Buffer.alloc(readSize);
-      fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
-      const text = buf.toString("utf-8");
-      const lines = text.split("\n").filter((l) => l.trim());
-      if (lines.length === 0) return null;
-      return JSON.parse(lines[lines.length - 1]);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Classify Claude Code state from its JSONL transcript.
- * Called when the terminal is idle (no PTY output) and claude is foreground.
- *
- * Last entry patterns:
- *   assistant + text content       → "waiting" (responded, awaiting user input)
- *   assistant + tool_use content   → "thinking" (tool execution in progress)
- *   user + tool_result             → "thinking" (tool result sent, awaiting response)
- *   user + text                    → "thinking" (user prompt sent, awaiting response)
- */
-function classifyFromTranscript(terminalCwd: string): AgentState {
-  const session = findSession(terminalCwd);
-  if (!session) return "waiting"; // no session yet → at initial prompt
-
-  const jsonlPath = path.join(session.projectDir, `${session.sessionId}.jsonl`);
-  const entry = readLastJsonlEntry(jsonlPath);
-  if (!entry) return "waiting"; // empty transcript → at initial prompt
-
-  const type = entry.type as string | undefined;
-  const content = (entry.message as Record<string, unknown> | undefined)
-    ?.content;
-  const contentTypes = Array.isArray(content)
-    ? content.map((c: { type?: string }) => c.type).filter(Boolean)
-    : [];
-
-  if (type === "assistant") {
-    // Assistant responded — check if it's a tool call or a text response
-    if (contentTypes.includes("tool_use")) return "thinking";
-    return "waiting";
-  }
-
-  if (type === "user") {
-    // User sent something (prompt or tool result) — Claude should be thinking
-    return "thinking";
-  }
-
-  return "idle";
+): WatchResult {
+  const profile = findProfile(foregroundProcess);
+  if (!profile) return { cleanup: () => {}, active: false };
+  return profile.watchState(terminalCwd, onChange);
 }
