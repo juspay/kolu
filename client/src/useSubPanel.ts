@@ -9,6 +9,8 @@ interface SubPanelState {
   /** Panel size as fraction (0–1). */
   panelSize: number;
   activeSubTab: TerminalId | null;
+  /** Which panel last had focus — restored when switching back to this terminal. */
+  focusTarget: "main" | "sub";
 }
 
 const DEFAULT_PANEL_SIZE = 0.3;
@@ -24,6 +26,7 @@ function ensureState(parentId: TerminalId): SubPanelState {
       collapsed: false,
       panelSize: DEFAULT_PANEL_SIZE,
       activeSubTab: null,
+      focusTarget: "sub",
     });
   }
   return state[parentId]!;
@@ -43,11 +46,13 @@ export function useSubPanel() {
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
+      setState(parentId, "focusTarget", "sub");
     },
 
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
+      setState(parentId, "focusTarget", "main");
     },
 
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
@@ -67,6 +72,11 @@ export function useSubPanel() {
       const current = subIds.indexOf(panel.activeSubTab as string);
       const next = (current + direction + subIds.length) % subIds.length;
       setState(parentId, "activeSubTab", subIds[next]!);
+    },
+
+    setFocusTarget(parentId: TerminalId, target: "main" | "sub") {
+      ensureState(parentId);
+      setState(parentId, "focusTarget", target);
     },
 
     /** Clean up state for a parent that no longer exists. */
