@@ -115,6 +115,91 @@ Then(
   },
 );
 
+When(
+  "I create another sub-terminal via command palette",
+  async function (this: KoluWorld) {
+    await paletteCommand(this, "New sub-terminal");
+  },
+);
+
+When(
+  "I click sub-panel tab {int}",
+  async function (this: KoluWorld, index: number) {
+    const tabs = this.page.locator(
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+    );
+    await tabs.nth(index - 1).click();
+    await this.page.waitForTimeout(300);
+  },
+);
+
+Then(
+  "the sub-panel tab bar should have {int} tab(s)",
+  async function (this: KoluWorld, expected: number) {
+    const tabs = this.page.locator(
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+    );
+    const count = await tabs.count();
+    assert.strictEqual(
+      count,
+      expected,
+      `Expected ${expected} sub-panel tabs, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "sub-panel tab {int} should be active",
+  async function (this: KoluWorld, index: number) {
+    const tabs = this.page.locator(
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+    );
+    const tab = tabs.nth(index - 1);
+    const classes = await tab.getAttribute("class");
+    assert.ok(
+      classes?.includes("font-medium"),
+      `Expected tab ${index} to be active (have font-medium class)`,
+    );
+  },
+);
+
+Then(
+  "the sub-panel should eventually collapse",
+  async function (this: KoluWorld) {
+    // Poll for the sub-panel tab bar to disappear (sub-terminal exited)
+    const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (!(await tabBar.isVisible())) return;
+      await this.page.waitForTimeout(500);
+    }
+    assert.fail("Sub-panel did not collapse after sub-terminal exit");
+  },
+);
+
+Then(
+  "the sidebar entry should not show a sub-terminal count",
+  async function (this: KoluWorld) {
+    const badge = this.page.locator(
+      '[data-testid="sidebar"] button[class*="bg-surface-2"] [data-testid="sub-count"]',
+    );
+    const count = await badge.count();
+    assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
+  },
+);
+
+Then(
+  "the collapsed indicator should be visible",
+  async function (this: KoluWorld) {
+    const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
+    await indicator.waitFor({ state: "visible", timeout: 5000 });
+  },
+);
+
+Then("the resize handle should be visible", async function (this: KoluWorld) {
+  const handle = this.page.locator('[data-testid="resize-handle"]');
+  await handle.waitFor({ state: "visible", timeout: 5000 });
+});
+
 Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {

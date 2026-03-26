@@ -99,6 +99,7 @@ const TerminalPane: Component<{
 
           {/* Handle + collapsed indicator: always visible when subs exist */}
           <Resizable.Handle
+            data-testid={isExpanded() ? "resize-handle" : "collapsed-indicator"}
             class={`shrink-0 transition-colors ${
               isExpanded()
                 ? "h-1 bg-edge hover:bg-accent-bright cursor-row-resize"
