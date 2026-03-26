@@ -95,14 +95,14 @@ export function startGitProvider(entry: TerminalEntry): () => void {
   let lastCwd = entry.metadata.cwd;
   let stopHeadWatch = watchGitHead(entry.metadata.cwd, handleHeadChange);
 
-  plog.debug({ cwd: lastCwd }, "started");
+  plog.info({ cwd: lastCwd }, "started");
 
   // Resolve immediately for initial CWD
   void resolve(entry.metadata.cwd);
 
   function onMetadata(meta: TerminalMetadata) {
     if (meta.cwd === lastCwd) return;
-    plog.debug({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
+    plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
     lastCwd = meta.cwd;
     // Restart HEAD watcher for new directory
     stopHeadWatch();
@@ -111,7 +111,7 @@ export function startGitProvider(entry: TerminalEntry): () => void {
   }
 
   function handleHeadChange() {
-    plog.debug("HEAD changed, re-resolving");
+    plog.info("HEAD changed, re-resolving");
     void resolve(lastCwd);
   }
 
@@ -121,10 +121,7 @@ export function startGitProvider(entry: TerminalEntry): () => void {
     entry.metadata.git = git;
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
-    plog.debug(
-      { repo: git?.repoName, branch: git?.branch },
-      "git info updated",
-    );
+    plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
     emitMetadata(entry);
   }
 
@@ -133,6 +130,6 @@ export function startGitProvider(entry: TerminalEntry): () => void {
   return () => {
     entry.emitter.off("metadata", onMetadata);
     stopHeadWatch();
-    plog.debug("stopped");
+    plog.info("stopped");
   };
 }

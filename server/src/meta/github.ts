@@ -101,7 +101,7 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
   let lastBranch: string | undefined = entry.metadata.git?.branch;
   let lastRepoRoot: string | undefined = entry.metadata.git?.repoRoot;
 
-  plog.debug({ branch: lastBranch }, "started");
+  plog.info({ branch: lastBranch }, "started");
 
   // Resolve immediately if we have git context
   if (lastBranch && lastRepoRoot) {
@@ -112,10 +112,7 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
     const branch = meta.git?.branch;
     const repoRoot = meta.git?.repoRoot;
     if (branch === lastBranch && repoRoot === lastRepoRoot) return;
-    plog.debug(
-      { from: lastBranch, to: branch },
-      "branch changed, re-resolving",
-    );
+    plog.info({ from: lastBranch, to: branch }, "branch changed, re-resolving");
     lastBranch = branch;
     lastRepoRoot = repoRoot;
     if (branch && repoRoot) {
@@ -133,8 +130,8 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
     const pr = await resolveGitHubPr(repoRoot, branch);
     if (prInfoEqual(pr, entry.metadata.pr)) return;
     entry.metadata.pr = pr;
-    plog.debug(
-      pr ? { pr: pr.number, title: pr.title } : { pr: null },
+    plog.info(
+      pr ? { pr: pr.number, title: pr.title, checks: pr.checks } : { pr: null },
       "pr info updated",
     );
     emitMetadata(entry);
@@ -153,6 +150,6 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
   return () => {
     entry.emitter.off("metadata", onMetadata);
     clearInterval(pollTimer);
-    plog.debug("stopped");
+    plog.info("stopped");
   };
 }

@@ -11,6 +11,7 @@ import type { TerminalMetadata } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
+import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string): TerminalMetadata {
@@ -19,7 +20,18 @@ export function createMetadata(cwd: string): TerminalMetadata {
 
 /** Emit the current metadata snapshot to all subscribers. */
 export function emitMetadata(entry: TerminalEntry): void {
-  entry.emitter.emit("metadata", { ...entry.metadata });
+  const m = entry.metadata;
+  log.info(
+    {
+      cwd: m.cwd,
+      repo: m.git?.repoName,
+      branch: m.git?.branch,
+      pr: m.pr?.number ?? null,
+      checks: m.pr?.checks ?? null,
+    },
+    "metadata emit",
+  );
+  entry.emitter.emit("metadata", { ...m });
 }
 
 /**
