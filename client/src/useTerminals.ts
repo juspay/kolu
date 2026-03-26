@@ -297,6 +297,22 @@ export function useTerminals() {
               name: "Close terminal",
               onSelect: () => void handleKill(activeId()!),
             },
+            {
+              name: "Toggle sub-panel",
+              onSelect: () => {
+                const id = activeId()!;
+                if (getSubTerminalIds(id).length === 0) {
+                  void handleCreateSubTerminal(id, activeCwd()?.cwd);
+                } else {
+                  subPanel.togglePanel(id);
+                }
+              },
+            },
+            {
+              name: "New sub-terminal",
+              onSelect: () =>
+                void handleCreateSubTerminal(activeId()!, activeCwd()?.cwd),
+            },
           ]
         : []),
       {
