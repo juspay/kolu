@@ -116,6 +116,10 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
+    // Re-emitting "cwd" to trigger CwdInfo re-resolution is a pragmatic
+    // shortcut for a single watcher. When a second external-state trigger
+    // arrives (e.g. LLM agent status), introduce a dedicated "refresh" event
+    // instead — separate "directory changed" from "please re-resolve."
     stopGitWatch: watchGitHead(handle.cwd, () =>
       emitter.emit("cwd", handle.cwd),
     ),
