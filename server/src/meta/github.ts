@@ -57,6 +57,27 @@ function deriveCheckStatus(
   return "pass";
 }
 
+/**
+ * Fetch the combined commit status for a ref (covers statuses set via
+ * the commit status API, which statusCheckRollup misses).
+ * Returns "pending" | "success" | "failure" | "error" | null.
+ */
+async function fetchCombinedStatus(
+  repoRoot: string,
+  headSha: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["api", `repos/{owner}/{repo}/commits/${headSha}/status`, "-q", ".state"],
+      { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Look up the GitHub PR for the current branch. Returns null on any failure. */
 async function resolveGitHubPr(
   repoRoot: string,
@@ -65,15 +86,39 @@ async function resolveGitHubPr(
   try {
     const { stdout } = await execFileAsync(
       "gh",
-      ["pr", "view", branch, "--json", "number,title,url,statusCheckRollup"],
+      [
+        "pr",
+        "view",
+        branch,
+        "--json",
+        "number,title,url,headRefOid,statusCheckRollup",
+      ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
     const data = JSON.parse(stdout);
+
+    // Fetch both check runs and commit statuses in parallel
+    const commitStatus = await fetchCombinedStatus(repoRoot, data.headRefOid);
+    const checkRunStatus = deriveCheckStatus(data.statusCheckRollup);
+
+    // Merge: worst status wins
+    let checks = checkRunStatus;
+    if (
+      commitStatus === "pending" ||
+      commitStatus === "failure" ||
+      commitStatus === "error"
+    ) {
+      const mapped =
+        commitStatus === "pending" ? ("pending" as const) : ("fail" as const);
+      if (!checks || checks === "pass") checks = mapped;
+      else if (checks === "pending" && mapped === "fail") checks = "fail";
+    }
+
     return {
       number: data.number,
       title: data.title,
       url: data.url,
-      checks: deriveCheckStatus(data.statusCheckRollup),
+      checks,
     };
   } catch {
     return null;
