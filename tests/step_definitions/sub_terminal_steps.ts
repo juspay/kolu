@@ -22,6 +22,13 @@ When(
   },
 );
 
+When("I click the main terminal", async function (this: KoluWorld) {
+  // Click the main terminal's xterm container (first data-visible terminal)
+  const main = this.page.locator("[data-terminal-id][data-visible]").first();
+  await main.click();
+  await this.page.waitForTimeout(300);
+});
+
 When(
   "I toggle the sub-panel via command palette",
   async function (this: KoluWorld) {

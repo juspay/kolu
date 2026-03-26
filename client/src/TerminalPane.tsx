@@ -27,6 +27,14 @@ const TerminalPane: Component<{
   const hasSubs = () => props.subTerminalIds.length > 0;
   const isExpanded = () => hasSubs() && !panelState().collapsed;
   const activeSubTab = () => panelState().activeSubTab;
+  const focusTarget = () => panelState().focusTarget;
+  const shouldFocusMain = () =>
+    props.visible && (!isExpanded() || focusTarget() === "main");
+  const shouldFocusSub = (subId: TerminalId) =>
+    props.visible &&
+    isExpanded() &&
+    activeSubTab() === subId &&
+    focusTarget() === "sub";
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle
@@ -71,10 +79,11 @@ const TerminalPane: Component<{
             <Terminal
               terminalId={props.terminalId}
               visible={props.visible}
-              focused={props.visible && !isExpanded()}
+              focused={shouldFocusMain()}
               theme={props.theme}
               searchOpen={props.searchOpen}
               onSearchOpenChange={props.onSearchOpenChange}
+              onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
             />
           </Resizable.Panel>
 
@@ -129,12 +138,13 @@ const TerminalPane: Component<{
                     visible={
                       props.visible && isExpanded() && activeSubTab() === subId
                     }
-                    focused={
-                      props.visible && isExpanded() && activeSubTab() === subId
-                    }
+                    focused={shouldFocusSub(subId)}
                     theme={props.theme}
                     searchOpen={false}
                     onSearchOpenChange={() => {}}
+                    onFocus={() =>
+                      subPanel.setFocusTarget(props.terminalId, "sub")
+                    }
                   />
                 )}
               </For>

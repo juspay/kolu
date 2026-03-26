@@ -69,6 +69,8 @@ const Terminal: Component<{
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
+  /** Fired when the user interacts with this terminal (click/keyboard focus). */
+  onFocus?: () => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
@@ -87,6 +89,7 @@ const Terminal: Component<{
   let streamAbort: AbortController | null = null;
 
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
+  // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
   createEffect(
     on(
@@ -94,7 +97,7 @@ const Terminal: Component<{
       (visible) => {
         if (!visible || !terminal) return;
         debouncedFit();
-        terminal.focus();
+        if (props.focused !== false) terminal.focus();
       },
       { defer: true },
     ),
@@ -227,6 +230,11 @@ const Terminal: Component<{
 
     fitAddon.fit();
     if (props.visible) term.focus();
+
+    // Track user-initiated focus for "remember last focused" in sub-panel
+    if (props.onFocus && term.textarea) {
+      makeEventListener(term.textarea, "focus", props.onFocus);
+    }
 
     // Sync PTY size after fit and on subsequent resizes
     term.onResize(() => void syncResize());
