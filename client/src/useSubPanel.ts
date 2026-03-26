@@ -60,6 +60,15 @@ export function useSubPanel() {
       setState(parentId, "panelSize", size);
     },
 
+    /** Cycle to the next/previous sub-tab within a parent's sub-panel. */
+    cycleSubTab(parentId: TerminalId, subIds: TerminalId[], direction: 1 | -1) {
+      if (subIds.length === 0) return;
+      const panel = ensureState(parentId);
+      const current = subIds.indexOf(panel.activeSubTab as string);
+      const next = (current + direction + subIds.length) % subIds.length;
+      setState(parentId, "activeSubTab", subIds[next]!);
+    },
+
     /** Clean up state for a parent that no longer exists. */
     removePanel(parentId: TerminalId) {
       setState(produce((s) => delete s[parentId]));

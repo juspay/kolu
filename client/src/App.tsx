@@ -81,14 +81,8 @@ const App: Component = () => {
     setSearchOpen,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
-    cycleSubTab: (parentId, direction) => {
-      const subs = getSubTerminalIds(parentId);
-      if (subs.length === 0) return;
-      const panel = subPanel.getSubPanel(parentId);
-      const current = subs.indexOf(panel.activeSubTab as string);
-      const next = (current + direction + subs.length) % subs.length;
-      subPanel.setActiveSubTab(parentId, subs[next]!);
-    },
+    cycleSubTab: (parentId, direction) =>
+      subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
   });
 
   function openPaletteWith(query: string) {
