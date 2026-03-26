@@ -23,7 +23,10 @@ export interface Keybind {
   key: string;
   /** Physical key code (KeyboardEvent.code). Preferred over `key` for matching when set. */
   code?: string;
+  /** Platform modifier: Cmd on macOS, Ctrl elsewhere. */
   mod?: boolean;
+  /** Always the physical Ctrl key, regardless of platform. Use for shortcuts where Cmd is captured by macOS (e.g. Cmd+`). */
+  ctrl?: boolean;
   shift?: boolean;
 }
 
@@ -38,8 +41,13 @@ export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
   // Prefer physical key code when specified (Shift changes e.key but not e.code)
   const keyMatch = kb.code ? e.code === kb.code : e.key === kb.key;
   if (!keyMatch) return false;
-  if (kb.mod && !isPlatformModifier(e)) return false;
-  if (!kb.mod && isPlatformModifier(e)) return false;
+  if (kb.ctrl) {
+    // ctrl: always the physical Ctrl key
+    if (!e.ctrlKey) return false;
+  } else {
+    if (kb.mod && !isPlatformModifier(e)) return false;
+    if (!kb.mod && isPlatformModifier(e)) return false;
+  }
   if (kb.shift && !e.shiftKey) return false;
   if (!kb.shift && e.shiftKey) return false;
   return true;
@@ -48,7 +56,8 @@ export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
 /** Platform-aware display string for a keybind (e.g. "⌘1" on macOS, "Ctrl+1" elsewhere). */
 export function formatKeybind(kb: Keybind): string {
   const parts: string[] = [];
-  if (kb.mod) parts.push(isMac ? "⌘" : "Ctrl");
+  if (kb.ctrl) parts.push(isMac ? "⌃" : "Ctrl");
+  else if (kb.mod) parts.push(isMac ? "⌘" : "Ctrl");
   if (kb.shift) parts.push(isMac ? "⇧" : "Shift");
   const displayKey = kb.key.length === 1 ? kb.key.toUpperCase() : kb.key;
   parts.push(displayKey);
@@ -98,19 +107,19 @@ export const SHORTCUTS = {
   zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
   toggleSubPanel: {
-    keybind: { key: "`", code: "Backquote", mod: true },
+    keybind: { key: "`", code: "Backquote", ctrl: true },
     label: "Toggle sub-panel",
   },
   createSubTerminal: {
-    keybind: { key: "`", code: "Backquote", mod: true, shift: true },
+    keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     label: "New sub-terminal",
   },
   nextSubTab: {
-    keybind: { key: "PageDown", code: "PageDown", mod: true },
+    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
     label: "Next sub-tab",
   },
   prevSubTab: {
-    keybind: { key: "PageUp", code: "PageUp", mod: true },
+    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous sub-tab",
   },
 } as const satisfies Record<string, Shortcut>;

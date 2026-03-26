@@ -209,7 +209,6 @@ const App: Component = () => {
                       onCreateSubTerminal={(parentId, cwd) =>
                         void handleCreateSubTerminal(parentId, cwd)
                       }
-                      onKillSubTerminal={(subId) => void handleKill(subId)}
                       activeCwd={activeCwd()}
                     />
                   )}

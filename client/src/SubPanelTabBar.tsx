@@ -9,7 +9,6 @@ const SubPanelTabBar: Component<{
   activeSubTab: TerminalId | null;
   getMeta: (id: TerminalId) => { cwd?: CwdInfo } | undefined;
   onSelect: (id: TerminalId) => void;
-  onClose: (id: TerminalId) => void;
   onCreate: () => void;
 }> = (props) => {
   return (
@@ -26,22 +25,13 @@ const SubPanelTabBar: Component<{
           const isActive = () => props.activeSubTab === id;
           return (
             <button
-              class="flex items-center gap-1.5 px-3 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer group"
+              class="px-3 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
               classList={{
                 "bg-surface-2 text-fg font-medium": isActive(),
               }}
               onClick={() => props.onSelect(id)}
             >
-              <span class="truncate max-w-[120px]">{label()}</span>
-              <span
-                class="opacity-0 group-hover:opacity-100 hover:text-danger transition-opacity text-xs leading-none"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  props.onClose(id);
-                }}
-              >
-                &times;
-              </span>
+              {label()}
             </button>
           );
         }}

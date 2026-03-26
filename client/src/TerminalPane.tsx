@@ -20,7 +20,6 @@ const TerminalPane: Component<{
   activeThemeName: string;
   getThemeByName: (name: string) => ITheme;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  onKillSubTerminal: (id: TerminalId) => void;
   activeCwd: CwdInfo | null;
 }> = (props) => {
   const subPanel = useSubPanel();
@@ -109,7 +108,6 @@ const TerminalPane: Component<{
               activeSubTab={activeSubTab()}
               getMeta={props.getMeta}
               onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
-              onClose={props.onKillSubTerminal}
               onCreate={() =>
                 props.onCreateSubTerminal(
                   props.terminalId,

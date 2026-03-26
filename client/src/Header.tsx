@@ -86,6 +86,9 @@ const Header: Component<{
           </span>
         )}
       </Show>
+      <span class="text-xs text-fg-3 hidden sm:inline">
+        {formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} sub-terminal
+      </span>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
