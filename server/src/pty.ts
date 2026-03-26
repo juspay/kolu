@@ -23,6 +23,8 @@ export interface PtyHandle {
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
   readonly cwd: string;
+  /** Name of the current foreground process (e.g. "claude", "zsh"). */
+  readonly foregroundProcess: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -115,6 +117,9 @@ export function spawnPty(
     pid: proc.pid,
     get cwd() {
       return currentCwd;
+    },
+    get foregroundProcess() {
+      return proc.process;
     },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {

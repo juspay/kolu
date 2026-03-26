@@ -94,7 +94,21 @@ const SidebarEntry: Component<{
                 !active(),
             }}
           />
-          <Show when={m()?.agentStatus}>
+          <Show
+            when={m()?.agentStatus}
+            fallback={
+              <Show when={m()?.foregroundProcess}>
+                {(fg) => (
+                  <span
+                    data-testid="fg-process"
+                    class="text-[0.6rem] text-fg-3 shrink-0"
+                  >
+                    {fg()}
+                  </span>
+                )}
+              </Show>
+            }
+          >
             {(agent) => (
               <span
                 data-testid="agent-label"

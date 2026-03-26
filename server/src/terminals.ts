@@ -13,7 +13,7 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { watchGitHead } from "./git.ts";
-import { detectAgent, resolveAgentStatus } from "./agent.ts";
+import { resolveAgentStatus } from "./agent.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -36,10 +36,6 @@ export interface TerminalEntry {
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId?: string;
-  /** Detected AI agent running in this terminal (e.g. "claude-code"), or null. */
-  detectedAgent: string | null;
-  /** Number of output chunks scanned for agent detection (stops after threshold). */
-  agentScanCount: number;
   /** Cleanup function for the .git/HEAD file watcher. */
   stopGitWatch: () => void;
 }
@@ -53,8 +49,9 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
     themeName: entry.themeName,
     isActive: entry.isActive,
     parentId: entry.parentId,
+    foregroundProcess: entry.handle.foregroundProcess,
     agentStatus: resolveAgentStatus(
-      entry.detectedAgent,
+      entry.handle.foregroundProcess,
       entry.isActive,
       entry.handle.getScreenState(),
     ),
@@ -63,21 +60,8 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 
-/** Max output chunks to scan for agent detection (avoid scanning forever). */
-const AGENT_SCAN_LIMIT = 50;
-
 /** Mark terminal active and reset the idle timer. */
-function touchActivity(entry: TerminalEntry, data: string): void {
-  // Agent detection: scan early output chunks for known agent signatures
-  if (!entry.detectedAgent && entry.agentScanCount < AGENT_SCAN_LIMIT) {
-    entry.agentScanCount++;
-    const agent = detectAgent(data);
-    if (agent) {
-      entry.detectedAgent = agent;
-      log.info({ agent }, "agent detected");
-    }
-  }
-
+function touchActivity(entry: TerminalEntry): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.isActive) {
     entry.isActive = true;
@@ -101,7 +85,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     {
       onData: (data) => {
         const entry = terminals.get(id);
-        if (entry) touchActivity(entry, data);
+        if (entry) touchActivity(entry);
         emitter.emit("data", data);
       },
       // On natural exit: notify clients, then remove from server state
@@ -139,8 +123,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
-    detectedAgent: null,
-    agentScanCount: 0,
     stopGitWatch: watchGitHead(handle.cwd, () =>
       emitter.emit("cwd", handle.cwd),
     ),

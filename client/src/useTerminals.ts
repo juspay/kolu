@@ -150,6 +150,7 @@ export function useTerminals() {
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
       (info: ActivityInfo) => {
         setMeta(id, "isActive", info.isActive);
+        setMeta(id, "foregroundProcess", info.foregroundProcess);
         setMeta(id, "agentStatus", info.agent ?? undefined);
         pushActivity(id, info.isActive);
         // Toast on transition TO "waiting" (not on initial load or repeated waiting)

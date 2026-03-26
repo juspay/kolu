@@ -32,6 +32,7 @@ export const AgentStatusSchema = z.object({
 
 export const ActivityInfoSchema = z.object({
   isActive: z.boolean(),
+  foregroundProcess: z.string(),
   agent: AgentStatusSchema.nullable(),
 });
 
@@ -44,6 +45,7 @@ export const TerminalInfoSchema = z.object({
   isActive: z.boolean(),
   cwd: CwdInfoSchema.optional(),
   parentId: TerminalIdSchema.optional(),
+  foregroundProcess: z.string().optional(),
   agentStatus: AgentStatusSchema.nullable().optional(),
 });
 

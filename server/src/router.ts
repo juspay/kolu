@@ -133,12 +133,14 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      /** Enrich a raw activity boolean with agent context. */
+      /** Enrich a raw activity boolean with foreground process + agent context. */
       function toActivityInfo(isActive: boolean): ActivityInfo {
+        const fg = entry.handle.foregroundProcess;
         return {
           isActive,
+          foregroundProcess: fg,
           agent: resolveAgentStatus(
-            entry.detectedAgent,
+            fg,
             isActive,
             entry.handle.getScreenState(),
           ),

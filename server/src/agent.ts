@@ -1,26 +1,23 @@
-/** Agent detection — pure functions to identify AI agents in terminal output. */
+/**
+ * Agent detection — identify AI agents by foreground process name,
+ * classify state from screen buffer content.
+ */
 
 import type { AgentState, AgentStatus } from "kolu-common";
 
-/** Known agent profile: patterns to match against output and screen state. */
+/** Known agent: binary names to match + prompt patterns for "waiting" detection. */
 interface AgentProfile {
   id: string;
-  /** Patterns matched against PTY output to identify the agent. */
-  outputPatterns: RegExp[];
-  /** Patterns matched against screen buffer to detect "waiting for input" state. */
+  /** Process names that identify this agent (matched against PTY foreground process). */
+  processNames: string[];
+  /** Screen buffer patterns that indicate the agent is waiting for user input. */
   waitingPatterns: RegExp[];
 }
 
 const PROFILES: AgentProfile[] = [
   {
     id: "claude-code",
-    // Claude Code prints its banner on startup with these distinctive markers.
-    // The ╭ box-drawing char is used in tool-use blocks.
-    // "Claude Code" appears in the startup banner.
-    outputPatterns: [/Claude Code/, /claude-code@/, /╭─/],
-    // When idle, Claude Code shows a prompt: ">" or permission prompts like "(y/n)".
-    // The ❯ (U+276F) prompt is used in some versions.
-    // Match common approval patterns too.
+    processNames: ["claude"],
     waitingPatterns: [
       /^>\s*$/m, // bare prompt line
       /❯\s*$/m, // heavy right-pointing angle
@@ -32,21 +29,20 @@ const PROFILES: AgentProfile[] = [
 ];
 
 /**
- * Scan a PTY output chunk for a known agent signature.
- * Strips ANSI escape sequences first — agent banners are styled.
- * Returns the agent ID (e.g. "claude-code") or null if no match.
+ * Detect which agent (if any) is the foreground process.
+ * Returns the agent ID or null.
  */
-export function detectAgent(data: string): string | null {
-  const plain = stripAnsi(data);
+export function detectAgentByProcess(processName: string): string | null {
   const match = PROFILES.find((p) =>
-    p.outputPatterns.some((re) => re.test(plain)),
+    p.processNames.some((name) => processName === name),
   );
   return match?.id ?? null;
 }
 
 /**
- * Classify agent state from the terminal's screen buffer content.
- * Called when the terminal goes idle (no output for the idle threshold).
+ * Classify agent state from the terminal's screen buffer.
+ * - "waiting" if a known prompt pattern is visible
+ * - "idle" otherwise (agent is doing something but not prompting)
  */
 export function classifyAgentState(
   screenState: string,
@@ -55,31 +51,31 @@ export function classifyAgentState(
   const profile = PROFILES.find((p) => p.id === agent);
   if (!profile) return "idle";
 
-  // Strip ANSI/VT escape sequences for cleaner pattern matching
   const plain = stripAnsi(screenState);
-
   return profile.waitingPatterns.some((re) => re.test(plain))
     ? "waiting"
     : "idle";
 }
 
-/** Build an AgentStatus from entry state, or null if no agent detected. */
+/**
+ * Resolve full agent status from foreground process + activity + screen buffer.
+ * Returns null if foreground process is not a known agent.
+ */
 export function resolveAgentStatus(
-  detectedAgent: string | null,
+  foregroundProcess: string,
   isActive: boolean,
   screenState: string,
 ): AgentStatus | null {
-  if (!detectedAgent) return null;
+  const agent = detectAgentByProcess(foregroundProcess);
+  if (!agent) return null;
   const state: AgentState = isActive
     ? "thinking"
-    : classifyAgentState(screenState, detectedAgent);
-  return { agent: detectedAgent, state };
+    : classifyAgentState(screenState, agent);
+  return { agent, state };
 }
 
 /** Strip ANSI/VT escape sequences for plain-text pattern matching. */
 function stripAnsi(s: string): string {
-  // CSI sequences (\x1b[...X), OSC sequences (\x1b]...\x07 or \x1b]...\x1b\\),
-  // character set designators (\x1b(X, \x1b)X), and simple two-byte escapes (\x1bX)
   // eslint-disable-next-line no-control-regex
   return s.replace(
     /\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()][^\n]|[a-zA-Z])/g,

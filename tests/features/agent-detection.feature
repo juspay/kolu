@@ -1,12 +1,11 @@
 Feature: Agent detection
-  Sidebar shows detected AI agent status (e.g. Claude Code) for terminals.
+  Sidebar shows foreground process name and detected AI agent status.
 
-  Scenario: Terminal output matching Claude Code is detected
+  Scenario: Sidebar shows foreground process name
     When I open the app
     And I create a terminal
-    And I run "echo 'Claude Code v1.0'"
     And I wait for the terminal to become idle
-    Then the sidebar should show agent "claude-code"
+    Then the sidebar should show a foreground process
 
   Scenario: Plain terminal does not show agent status
     When I open the app
