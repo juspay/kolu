@@ -50,9 +50,8 @@ test-quick *args: install
     wrapper="$(mktemp)"
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
-    #!/usr/bin/env bash
-    export KOLU_CLIENT_DIST="$PWD/client/dist"
-    exec tsx "$PWD/server/src/index.ts" "\$@"
+    #!/bin/sh
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" "\$@"
     SCRIPT
     chmod +x "$wrapper"
     cd tests
