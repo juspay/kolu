@@ -146,6 +146,15 @@ Feature: Command Palette
     Then palette item "Switch to terminal 1" should show shortcut "1"
     And there should be no page errors
 
+  Scenario: Terminal retains focus after palette command
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Theme" in the palette
+    And I select "Dracula" in the palette
+    Then the terminal should have keyboard focus
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette
