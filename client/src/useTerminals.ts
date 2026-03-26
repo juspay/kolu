@@ -14,8 +14,8 @@ type TerminalState = Omit<TerminalInfo, "id">;
 /** A timestamped activity transition: [epochMs, isActive]. */
 export type ActivitySample = [time: number, active: boolean];
 
-/** Rolling activity history per terminal. */
-const ACTIVITY_HISTORY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+/** Rolling window for activity history (shared with ActivityGraph for rendering). */
+export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 const RANDOM_THEME_KEY = "kolu-random-theme";
@@ -35,7 +35,7 @@ export function useTerminals() {
   /** Append an activity sample and trim old entries beyond the rolling window. */
   function pushActivity(id: TerminalId, active: boolean) {
     const now = Date.now();
-    const cutoff = now - ACTIVITY_HISTORY_WINDOW_MS;
+    const cutoff = now - ACTIVITY_WINDOW_MS;
     setActivityHistory(id, (prev) => [
       ...(prev ?? []).filter(([t]) => t >= cutoff),
       [now, active],

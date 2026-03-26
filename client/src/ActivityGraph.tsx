@@ -1,18 +1,26 @@
-import { type Component, createMemo } from "solid-js";
-import type { ActivitySample } from "./useTerminals";
+import { type Component, createMemo, createSignal, onCleanup } from "solid-js";
+import { type ActivitySample, ACTIVITY_WINDOW_MS } from "./useTerminals";
 
 const BUCKET_COUNT = 30;
-const WINDOW_MS = 5 * 60 * 1000; // 5 minutes — matches useTerminals history window
+
+/** Periodic tick interval to age off old bars even when no new events arrive. */
+const REFRESH_INTERVAL_MS = 10_000;
 
 /** Mini sparkline showing terminal activity over the last 5 minutes. */
 const ActivityGraph: Component<{
   samples: ActivitySample[];
 }> = (props) => {
+  // Tick signal: forces bucket recomputation so old activity ages off the graph.
+  const [tick, setTick] = createSignal(0);
+  const timer = setInterval(() => setTick((n) => n + 1), REFRESH_INTERVAL_MS);
+  onCleanup(() => clearInterval(timer));
+
   /** Compute activity fraction (0–1) per time bucket. */
   const buckets = createMemo(() => {
+    void tick(); // subscribe to periodic refresh
     const now = Date.now();
-    const windowStart = now - WINDOW_MS;
-    const bucketMs = WINDOW_MS / BUCKET_COUNT;
+    const windowStart = now - ACTIVITY_WINDOW_MS;
+    const bucketMs = ACTIVITY_WINDOW_MS / BUCKET_COUNT;
     const samples = props.samples;
     const result = new Float32Array(BUCKET_COUNT);
 
