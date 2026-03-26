@@ -1,6 +1,11 @@
 /**
  * Command palette — searchable overlay for terminal and theme actions.
  *
+ * Supports nested commands (groups with children) à la Raycast:
+ * - Empty query: browse the current level, drill into groups with Enter
+ * - Non-empty query: flatten all leaves and search globally
+ * - Backspace on empty query: navigate back up
+ *
  * Always mounted via ModalDialog (forceMount). Keyboard navigation handled
  * internally with capture-phase listener to intercept before terminal.
  */
@@ -20,14 +25,35 @@ import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import { type Keybind, formatKeybind } from "./keyboard";
 
-/** A command that can be executed from the palette. */
+/** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
   name: string;
-  onSelect: () => void;
+  /** Execute this command (leaf). Mutually exclusive with `children`. */
+  onSelect?: () => void;
+  /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
+  children?: PaletteCommand[] | (() => PaletteCommand[]);
   /** If set, command is hidden unless the query starts with this prefix. */
   showOnPrefix?: string;
   /** Keyboard shortcut to display alongside the command name. */
   keybind?: Keybind;
+}
+
+/** Resolve children, handling both static arrays and accessors. */
+function resolveChildren(cmd: PaletteCommand): PaletteCommand[] {
+  if (!cmd.children) return [];
+  return typeof cmd.children === "function" ? cmd.children() : cmd.children;
+}
+
+/** Whether a command is a group (has children rather than an action). */
+function isGroup(cmd: PaletteCommand): boolean {
+  return cmd.children !== undefined;
+}
+
+/** Recursively collect all leaf commands for global search. */
+function flattenLeaves(cmds: PaletteCommand[]): PaletteCommand[] {
+  return cmds.flatMap((cmd) =>
+    isGroup(cmd) ? flattenLeaves(resolveChildren(cmd)) : [cmd],
+  );
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -42,21 +68,55 @@ const CommandPalette: Component<{
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  // Navigation path: list of group commands we've drilled into
+  const [path, setPath] = createSignal<PaletteCommand[]>([]);
+
+  /** Commands at the current navigation level. */
+  const currentItems = createMemo(() => {
+    const p = path();
+    if (p.length === 0) return props.commands();
+    return resolveChildren(p[p.length - 1]!);
+  });
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
-    return props
-      .commands()
-      .filter(
-        (cmd) =>
-          (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
-          (!q || cmd.name.toLowerCase().includes(q)),
-      );
+    if (!q) {
+      // No query: show current level, hiding prefix-gated commands
+      return currentItems().filter((cmd) => !cmd.showOnPrefix);
+    }
+    // Query present: flatten all leaves and search globally
+    return flattenLeaves(props.commands()).filter(
+      (cmd) =>
+        (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
+        cmd.name.toLowerCase().includes(q),
+    );
   });
 
+  function drillIn(cmd: PaletteCommand) {
+    setPath((p) => [...p, cmd]);
+    setQuery("");
+    setSelectedIndex(0);
+  }
+
+  function drillOut() {
+    setPath((p) => p.slice(0, -1));
+    setQuery("");
+    setSelectedIndex(0);
+  }
+
+  function navigateTo(depth: number) {
+    setPath((p) => p.slice(0, depth));
+    setQuery("");
+    setSelectedIndex(0);
+  }
+
   function execute(cmd: PaletteCommand) {
-    cmd.onSelect();
-    props.onOpenChange(false);
+    if (isGroup(cmd)) {
+      drillIn(cmd);
+    } else {
+      cmd.onSelect?.();
+      props.onOpenChange(false);
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -81,6 +141,13 @@ const CommandPalette: Component<{
             : (i + 1) % items.length,
         );
         break;
+      case "Backspace":
+        // Drill out when backspacing on empty query
+        if (query() === "" && path().length > 0) {
+          drillOut();
+          break;
+        }
+        return;
       case "Enter": {
         const selected = items[selectedIndex()];
         if (selected) execute(selected);
@@ -96,7 +163,7 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Reset query and selection when opening
+  // Reset all state when opening
   createEffect(
     on(
       () => props.open,
@@ -104,6 +171,7 @@ const CommandPalette: Component<{
         if (isOpen) {
           setQuery(props.initialQuery ?? "");
           setSelectedIndex(0);
+          setPath([]);
           requestAnimationFrame(() => inputRef?.focus());
         }
       },
@@ -121,6 +189,30 @@ const CommandPalette: Component<{
         class="w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
         style={{ height: "24rem" }}
       >
+        {/* Breadcrumb — visible when drilled into a group */}
+        <Show when={path().length > 0}>
+          <nav class="flex items-center gap-1 px-4 pt-2 text-xs text-fg-3">
+            <button
+              class="hover:text-fg transition-colors"
+              onClick={() => navigateTo(0)}
+            >
+              Commands
+            </button>
+            <For each={path()}>
+              {(segment, i) => (
+                <>
+                  <span class="text-fg-3">›</span>
+                  <button
+                    class="hover:text-fg transition-colors"
+                    onClick={() => navigateTo(i() + 1)}
+                  >
+                    {segment.name}
+                  </button>
+                </>
+              )}
+            </For>
+          </nav>
+        </Show>
         <input
           ref={inputRef}
           type="text"
@@ -153,12 +245,15 @@ const CommandPalette: Component<{
                     onClick={() => execute(cmd)}
                   >
                     <span class="truncate">{cmd.name}</span>
-                    <Show when={cmd.keybind}>
-                      {(kb) => (
-                        <kbd class="ml-auto shrink-0 pl-4 text-xs text-fg-3 font-mono">
-                          {formatKeybind(kb())}
-                        </kbd>
-                      )}
+                    <Show when={isGroup(cmd)}>
+                      <span class="ml-auto shrink-0 pl-4 text-xs text-fg-3">
+                        →
+                      </span>
+                    </Show>
+                    <Show when={!isGroup(cmd) && cmd.keybind}>
+                      <kbd class="ml-auto shrink-0 pl-4 text-xs text-fg-3 font-mono">
+                        {formatKeybind(cmd.keybind!)}
+                      </kbd>
                     </Show>
                   </li>
                 )}

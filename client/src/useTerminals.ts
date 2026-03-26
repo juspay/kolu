@@ -219,7 +219,7 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
-  /** Command palette entries for terminal + theme actions. */
+  /** Command palette entries: leaf actions + nested groups for terminals and themes. */
   const commands = createMemo((): PaletteCommand[] => [
     {
       name: "Create new terminal",
@@ -254,21 +254,34 @@ export function useTerminals() {
           rows: 1,
         }),
     },
-    ...terminalIds().map((id, i) => ({
-      name: `Switch to terminal ${i + 1}`,
-      keybind:
-        i < 9
-          ? SHORTCUTS[`switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`]
-              .keybind
-          : undefined,
-      onSelect: () => setActiveId(id),
-    })),
-    ...availableThemes
-      .filter((t) => t.name !== activeThemeName())
-      .map((t) => ({
-        name: `Theme: ${t.name}`,
-        onSelect: () => void handleSetTheme(t.name),
-      })),
+    ...(terminalIds().length > 0
+      ? [
+          {
+            name: "Switch terminal",
+            children: () =>
+              terminalIds().map((id, i) => ({
+                name: `Switch to terminal ${i + 1}`,
+                keybind:
+                  i < 9
+                    ? SHORTCUTS[
+                        `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
+                      ].keybind
+                    : undefined,
+                onSelect: () => setActiveId(id),
+              })),
+          },
+        ]
+      : []),
+    {
+      name: "Theme",
+      children: () =>
+        availableThemes
+          .filter((t) => t.name !== activeThemeName())
+          .map((t) => ({
+            name: `Theme: ${t.name}`,
+            onSelect: () => void handleSetTheme(t.name),
+          })),
+    },
   ]);
 
   return {
