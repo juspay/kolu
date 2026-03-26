@@ -188,13 +188,16 @@ const CommandPalette: Component<{
   // Reset selection when filter results change (defer: skip initial run)
   createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
 
-  // Notify highlighted item when selection changes
-  createEffect(() => {
-    if (!props.open) return;
-    const items = filtered();
-    const idx = selectedIndex();
-    items[idx]?.onHighlight?.();
-  });
+  // Notify highlighted item when selection changes.
+  // Uses on() for stable dependency tracking — bare createEffect would drop
+  // filtered/selectedIndex tracking when props.open is false, creating
+  // flickering dependency sets across open/close cycles.
+  createEffect(
+    on([filtered, selectedIndex], ([items, idx]) => {
+      if (!props.open) return;
+      items[idx]?.onHighlight?.();
+    }),
+  );
 
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>

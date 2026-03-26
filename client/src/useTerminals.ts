@@ -103,6 +103,12 @@ export function useTerminals() {
   /** The active terminal's resolved theme (for container background). */
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
+  /** Resolve the display theme for a terminal, applying preview override for the active one. */
+  function getTerminalTheme(id: TerminalId): ITheme {
+    const preview = activeId() === id ? previewThemeName() : undefined;
+    return getThemeByName(preview ?? meta[id]?.themeName);
+  }
+
   /** The active terminal's CWD info (for header display). */
   const activeCwd = createMemo((): CwdInfo | null => {
     const id = activeId();
@@ -415,6 +421,7 @@ export function useTerminals() {
     getActivityHistory,
     activeThemeName,
     activeTheme,
+    getTerminalTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
