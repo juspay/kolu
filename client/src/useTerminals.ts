@@ -12,6 +12,12 @@ import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
 
+/** A timestamped activity transition: [epochMs, isActive]. */
+export type ActivitySample = [time: number, active: boolean];
+
+/** Rolling window for activity history (shared with ActivityGraph for rendering). */
+export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 const RANDOM_THEME_KEY = "kolu-random-theme";
 
@@ -28,6 +34,26 @@ export function useTerminals() {
   >({});
 
   const subPanel = useSubPanel();
+
+  // Activity history: array of transitions per terminal for sparkline rendering.
+  const [activityHistory, setActivityHistory] = createStore<
+    Record<TerminalId, ActivitySample[]>
+  >({});
+
+  /** Append an activity sample and trim old entries beyond the rolling window. */
+  function pushActivity(id: TerminalId, active: boolean) {
+    const now = Date.now();
+    const cutoff = now - ACTIVITY_WINDOW_MS;
+    setActivityHistory(id, (prev) => [
+      ...(prev ?? []).filter(([t]) => t >= cutoff),
+      [now, active],
+    ]);
+  }
+
+  /** Get activity history for a terminal (for sparkline rendering). */
+  function getActivityHistory(id: TerminalId): ActivitySample[] {
+    return activityHistory[id] ?? [];
+  }
 
   const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
     name: RANDOM_THEME_KEY,
@@ -100,7 +126,10 @@ export function useTerminals() {
   function subscribeActivity(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => setMeta(id, "isActive", isActive),
+      (isActive) => {
+        setMeta(id, "isActive", isActive);
+        pushActivity(id, isActive);
+      },
     );
   }
 
@@ -173,6 +202,7 @@ export function useTerminals() {
       delete next[id];
       return next;
     });
+    setActivityHistory(produce((s) => delete s[id]));
     if (activeId() === id) {
       setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
@@ -344,6 +374,7 @@ export function useTerminals() {
     activeId,
     setActiveId,
     getMeta,
+    getActivityHistory,
     activeThemeName,
     activeTheme,
     activeCwd,
