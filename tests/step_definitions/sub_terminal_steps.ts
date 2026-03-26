@@ -1,5 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
+import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
@@ -60,30 +61,31 @@ Then("the sub-panel should not be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Let focus settle (rAF in TerminalPane + xterm focus)
-    await this.page.waitForTimeout(500);
-    // The focused element should be inside the sub-panel area (second Resizable.Panel),
-    // not the main terminal. We identify this by checking that the focused terminal's ID
-    // differs from the main terminal (first sidebar entry).
-    const result = await this.page.evaluate(() => {
-      const active = document.activeElement;
-      if (!active) return { focused: false, reason: "no activeElement" };
-      const container = active.closest("[data-terminal-id]");
-      if (!container)
-        return { focused: false, reason: "focus not in terminal" };
-      const focusedId = container.getAttribute("data-terminal-id");
-      // The main terminal is the one matching the active sidebar entry
-      const activeEntry = document.querySelector(
-        '[data-testid="sidebar"] button[class*="bg-surface-3"]',
-      );
-      const mainId = activeEntry
-        ?.closest("[data-terminal-id]")
-        ?.getAttribute("data-terminal-id");
-      return {
-        focused: focusedId !== mainId,
-        reason: `focused=${focusedId} main=${mainId}`,
-      };
-    });
+    // Poll until focus settles in the sub-terminal (xterm focus can be slow under load)
+    const result = await pollUntil(
+      this.page,
+      () =>
+        this.page.evaluate(() => {
+          const active = document.activeElement;
+          if (!active) return { focused: false, reason: "no activeElement" };
+          const container = active.closest("[data-terminal-id]");
+          if (!container)
+            return { focused: false, reason: "focus not in terminal" };
+          const focusedId = container.getAttribute("data-terminal-id");
+          const activeEntry = document.querySelector(
+            '[data-testid="sidebar"] button[class*="bg-surface-3"]',
+          );
+          const mainId = activeEntry
+            ?.closest("[data-terminal-id]")
+            ?.getAttribute("data-terminal-id");
+          return {
+            focused: focusedId !== mainId,
+            reason: `focused=${focusedId} main=${mainId}`,
+          };
+        }),
+      (val) => val.focused,
+      { attempts: 30, intervalMs: 300 },
+    );
     assert.ok(
       result.focused,
       `Expected keyboard focus in the sub-terminal (${result.reason})`,
