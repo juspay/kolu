@@ -10,7 +10,9 @@ import {
   For,
   Suspense,
   ErrorBoundary,
+  createMemo,
 } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Resizable from "@corvu/resizable";
@@ -58,11 +60,21 @@ const App: Component = () => {
     sidebarOpen,
     toggleSidebar,
     closeSidebar,
-    sidebarSize,
-    setSidebarSize,
+    sidebarWidthPx,
+    setSidebarWidthPx,
     isDesktop,
   } = useSidebar();
   const subPanel = useSubPanel();
+
+  // Track the resizable container width so we can convert between pixels and fractions.
+  // Sidebar width is stored in pixels so it stays fixed during window resize.
+  const [containerRef, setContainerRef] = createSignal<HTMLElement>();
+  const [containerWidth, setContainerWidth] = createSignal(window.innerWidth);
+  createResizeObserver(containerRef, ({ width }) => setContainerWidth(width));
+  const sidebarFraction = createMemo(() => {
+    const cw = containerWidth();
+    return cw > 0 ? Math.min(sidebarWidthPx() / cw, 1 - 0.3) : 0.15;
+  });
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -170,21 +182,22 @@ const App: Component = () => {
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Resizable
+          ref={setContainerRef}
           orientation="horizontal"
           sizes={
             sidebarOpen() && isDesktop()
-              ? [sidebarSize(), 1 - sidebarSize()]
+              ? [sidebarFraction(), 1 - sidebarFraction()]
               : [0, 1]
           }
           onSizesChange={(sizes) => {
             const s = sizes[0];
-            // Only persist when panel is meaningfully open (not mid-collapse)
+            // Persist as pixels so the width is immune to window resize
             if (sidebarOpen() && s !== undefined && s >= SIDEBAR_MIN)
-              setSidebarSize(s);
+              setSidebarWidthPx(Math.round(s * containerWidth()));
           }}
           class="flex flex-1 min-h-0"
         >
-          {/* shrink-0: lock panel to exact flex-basis so content changes (e.g. branch names) can't influence width */}
+          {/* shrink-0: lock panel to exact flex-basis so content can't influence width */}
           <Resizable.Panel
             as="div"
             class="min-w-0 overflow-hidden shrink-0"
