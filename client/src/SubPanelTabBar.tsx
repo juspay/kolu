@@ -13,7 +13,7 @@ const SubPanelTabBar: Component<{
   onCreate: () => void;
 }> = (props) => {
   return (
-    <div class="flex items-center gap-0.5 px-1 py-0.5 bg-surface-0/50 border-b border-edge text-xs min-h-[24px] shrink-0">
+    <div class="flex items-center gap-1 px-2 py-1 bg-surface-0 border-b border-edge-bright text-sm min-h-[32px] shrink-0">
       <For each={props.subIds}>
         {(id, index) => {
           const label = () => {
@@ -26,13 +26,15 @@ const SubPanelTabBar: Component<{
           const isActive = () => props.activeSubTab === id;
           return (
             <button
-              class="flex items-center gap-1 px-2 py-0.5 rounded text-fg-2 hover:text-fg transition-colors cursor-pointer group"
-              classList={{ "bg-surface-1 text-fg": isActive() }}
+              class="flex items-center gap-1.5 px-3 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer group"
+              classList={{
+                "bg-surface-2 text-fg font-medium": isActive(),
+              }}
               onClick={() => props.onSelect(id)}
             >
-              <span class="truncate max-w-[100px]">{label()}</span>
+              <span class="truncate max-w-[120px]">{label()}</span>
               <span
-                class="opacity-0 group-hover:opacity-100 hover:text-danger transition-opacity text-[10px] leading-none"
+                class="opacity-0 group-hover:opacity-100 hover:text-danger transition-opacity text-xs leading-none"
                 onClick={(e) => {
                   e.stopPropagation();
                   props.onClose(id);
@@ -45,7 +47,7 @@ const SubPanelTabBar: Component<{
         }}
       </For>
       <button
-        class="px-1.5 py-0.5 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+        class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
         title="New sub-terminal"
       >
