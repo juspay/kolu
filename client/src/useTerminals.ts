@@ -244,15 +244,19 @@ export function useTerminals() {
         ]
       : []),
     {
-      name: "Debug: trigger server error",
-      showOnPrefix: "debug",
-      onSelect: () =>
-        // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
-        void client.terminal.resize({
-          id: "00000000-0000-0000-0000-000000000000",
-          cols: 1,
-          rows: 1,
-        }),
+      name: "Debug",
+      children: [
+        {
+          name: "Trigger server error",
+          onSelect: () =>
+            // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
+            void client.terminal.resize({
+              id: "00000000-0000-0000-0000-000000000000",
+              cols: 1,
+              rows: 1,
+            }),
+        },
+      ],
     },
     ...(terminalIds().length > 0
       ? [

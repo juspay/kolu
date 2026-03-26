@@ -32,8 +32,6 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteCommand[] | (() => PaletteCommand[]);
-  /** If set, command is hidden unless the query starts with this prefix. */
-  showOnPrefix?: string;
   /** Keyboard shortcut to display alongside the command name. */
   keybind?: Keybind;
 }
@@ -56,7 +54,6 @@ const CommandPalette: Component<{
   commands: Accessor<PaletteCommand[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialQuery?: string;
   /** If set, auto-drill into the group with this name on open. */
   initialGroup?: string;
 }> = (props) => {
@@ -75,11 +72,9 @@ const CommandPalette: Component<{
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
-    // Always search within the current level only (groups + leaves)
+    // Search within the current level only (groups + leaves)
     return currentItems().filter(
-      (cmd) =>
-        (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
-        (!q || cmd.name.toLowerCase().includes(q)),
+      (cmd) => !q || cmd.name.toLowerCase().includes(q),
     );
   });
 
@@ -160,7 +155,7 @@ const CommandPalette: Component<{
       () => props.open,
       (isOpen) => {
         if (isOpen) {
-          setQuery(props.initialQuery ?? "");
+          setQuery("");
           setSelectedIndex(0);
           const group = props.initialGroup
             ? props.commands().find((c) => c.name === props.initialGroup)

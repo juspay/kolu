@@ -55,7 +55,6 @@ const App: Component = () => {
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
-  const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
   const [paletteInitialGroup, setPaletteInitialGroup] = createSignal<
     string | undefined
   >();
@@ -79,13 +78,11 @@ const App: Component = () => {
   });
 
   function openPalette() {
-    setPaletteInitialQuery("");
     setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
   }
 
   function openPaletteGroup(group: string) {
-    setPaletteInitialQuery("");
     setPaletteInitialGroup(group);
     setPaletteOpen(true);
   }
@@ -93,10 +90,7 @@ const App: Component = () => {
   // Reset state on close so Cmd/Ctrl+K opens with a clean slate
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
-    if (!open) {
-      setPaletteInitialQuery("");
-      setPaletteInitialGroup(undefined);
-    }
+    if (!open) setPaletteInitialGroup(undefined);
   }
 
   return (
@@ -125,7 +119,6 @@ const App: Component = () => {
         commands={commands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
-        initialQuery={paletteInitialQuery()}
         initialGroup={paletteInitialGroup()}
       />
       <ShortcutsHelp
