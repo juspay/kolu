@@ -19,10 +19,11 @@ export function createMetadata(cwd: string): TerminalMetadata {
 }
 
 /** Emit the current metadata snapshot to all subscribers. */
-export function emitMetadata(entry: TerminalEntry): void {
+export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
   const m = entry.metadata;
   log.info(
     {
+      terminal: terminalId,
       cwd: m.cwd,
       repo: m.git?.repoName,
       branch: m.git?.branch,
@@ -38,9 +39,12 @@ export function emitMetadata(entry: TerminalEntry): void {
  * Start all metadata providers for a terminal.
  * Returns a cleanup function that stops all providers.
  */
-export function startProviders(entry: TerminalEntry): () => void {
-  const stopGit = startGitProvider(entry);
-  const stopGitHubPr = startGitHubPrProvider(entry);
+export function startProviders(
+  entry: TerminalEntry,
+  terminalId: string,
+): () => void {
+  const stopGit = startGitProvider(entry, terminalId);
+  const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();

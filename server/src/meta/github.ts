@@ -96,8 +96,11 @@ function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
  * Start the GitHub PR metadata provider for a terminal entry.
  * Resolves PR info on branch change and polls every 30s.
  */
-export function startGitHubPrProvider(entry: TerminalEntry): () => void {
-  const plog = log.child({ provider: "github-pr" });
+export function startGitHubPrProvider(
+  entry: TerminalEntry,
+  terminalId: string,
+): () => void {
+  const plog = log.child({ provider: "github-pr", terminal: terminalId });
   let lastBranch: string | undefined = entry.metadata.git?.branch;
   let lastRepoRoot: string | undefined = entry.metadata.git?.repoRoot;
 
@@ -121,7 +124,7 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
       // No longer in a git repo
       if (entry.metadata.pr !== null) {
         entry.metadata.pr = null;
-        emitMetadata(entry);
+        emitMetadata(entry, terminalId);
       }
     }
   }
@@ -134,7 +137,7 @@ export function startGitHubPrProvider(entry: TerminalEntry): () => void {
       pr ? { pr: pr.number, title: pr.title, checks: pr.checks } : { pr: null },
       "pr info updated",
     );
-    emitMetadata(entry);
+    emitMetadata(entry, terminalId);
   }
 
   // Periodic poll — PRs can be created/updated externally

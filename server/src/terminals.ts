@@ -100,7 +100,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const entry = terminals.get(id);
         if (entry) {
           entry.metadata.cwd = newCwd;
-          emitMetadata(entry);
+          emitMetadata(entry, id);
         }
       },
     },
@@ -120,7 +120,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   };
   // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);
-  entry.stopProviders = startProviders(entry);
+  entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   return toInfo(id, entry);

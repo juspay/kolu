@@ -90,8 +90,11 @@ function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * Start the git metadata provider for a terminal entry.
  * Resolves git info on CWD change and HEAD change, emits only on value change.
  */
-export function startGitProvider(entry: TerminalEntry): () => void {
-  const plog = log.child({ provider: "git" });
+export function startGitProvider(
+  entry: TerminalEntry,
+  terminalId: string,
+): () => void {
+  const plog = log.child({ provider: "git", terminal: terminalId });
   let lastCwd = entry.metadata.cwd;
   let stopHeadWatch = watchGitHead(entry.metadata.cwd, handleHeadChange);
 
@@ -122,7 +125,7 @@ export function startGitProvider(entry: TerminalEntry): () => void {
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
-    emitMetadata(entry);
+    emitMetadata(entry, terminalId);
   }
 
   entry.emitter.on("metadata", onMetadata);
