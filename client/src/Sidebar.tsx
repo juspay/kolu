@@ -11,7 +11,9 @@ import {
 import { cwdBasename } from "./path";
 import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
+import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { ActivitySample } from "./useTerminals";
 
 /** Stable hash → hue (0-360) for a string. Same string always gets the same color. */
 function stringToHue(s: string): number {
@@ -36,6 +38,7 @@ const SidebarEntry: Component<{
   meta: Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
   onKill: (id: TerminalId) => void;
+  activityHistory: ActivitySample[];
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
@@ -123,6 +126,9 @@ const SidebarEntry: Component<{
         <Show when={shortcutLabel()}>
           {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
         </Show>
+        <div class="ml-3.5 mt-0.5">
+          <ActivityGraph samples={props.activityHistory} />
+        </div>
       </button>
     </div>
   );
@@ -133,6 +139,7 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getActivityHistory: (id: TerminalId) => ActivitySample[];
   onSelect: (id: TerminalId) => void;
   onKill: (id: TerminalId) => void;
   onCreate: () => void;
@@ -225,6 +232,7 @@ const Sidebar: Component<{
                       index={index()}
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
+                      activityHistory={props.getActivityHistory(id)}
                       onSelect={handleSelect}
                       onKill={props.onKill}
                       dropEdge={edge()}
