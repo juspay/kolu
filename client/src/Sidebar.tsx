@@ -59,7 +59,7 @@ const SidebarEntry: Component<{
         {...sortable.dragActivators}
         data-terminal-id={props.id}
         data-activity={m()?.isActive ? "active" : "sleeping"}
-        class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 touch-none"
+        class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-[3px] bg-surface-2 text-fg": props.isActive,
           "border-l-2 text-fg-2 hover:text-fg hover:bg-surface-2":
@@ -118,9 +118,16 @@ const SidebarEntry: Component<{
                   />
                 )}
               </Show>
-              <span class="truncate">
-                #{pr().number} {pr().title}
-              </span>
+              <a
+                href={pr().url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="hover:text-accent shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                #{pr().number}
+              </a>
+              <span class="truncate">{pr().title}</span>
             </div>
           )}
         </Show>
