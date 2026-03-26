@@ -21,6 +21,16 @@ Feature: Git context in header and sidebar
     And the sidebar branch should contain "watcher-test"
     And there should be no page errors
 
+  Scenario: Git worktree shows its own branch
+    When I run "git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
+    And I run "cd /tmp/kolu-wt-main"
+    Then the header should show a branch name
+    When I run "git worktree add -b feature-branch /tmp/kolu-wt-feature"
+    And I run "cd /tmp/kolu-wt-feature"
+    Then the header branch should contain "feature-branch"
+    And the sidebar branch should contain "feature-branch"
+    And there should be no page errors
+
   Scenario: Header and sidebar hide git context outside a repo
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"
