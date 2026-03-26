@@ -156,7 +156,6 @@ const App: Component = () => {
           getMeta={getMeta}
           getActivityHistory={getActivityHistory}
           onSelect={setActiveId}
-          onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
           onReorder={reorderTerminals}
           open={sidebarOpen()}
