@@ -14,7 +14,7 @@ import Tip from "./Tip";
 import ContextMenu, { type ContextMenuItem } from "./ContextMenu";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 
-/** Stable hash -> hue (0-360) for a string. Same string always gets the same color. */
+/** Stable hash → hue (0-360) for a string. Same string always gets the same color. */
 function stringToHue(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
@@ -44,6 +44,10 @@ const SidebarEntry: Component<{
   const m = () => props.meta;
   const pos = () => props.index + 1;
   const repoColor = () => repoColorFor(m());
+  const activityClasses = () => ({
+    "bg-ok animate-activity-pulse": m()?.isActive ?? false,
+    "bg-fg-3": !(m()?.isActive ?? false),
+  });
 
   return (
     <div class="relative" style={sortable.style}>
@@ -88,10 +92,7 @@ const SidebarEntry: Component<{
               <span
                 data-testid="activity-indicator"
                 class="inline-flex items-center justify-center w-4 h-4 text-[0.6rem] font-bold rounded shrink-0 transition-colors duration-300"
-                classList={{
-                  "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-                  "bg-fg-3": !(m()?.isActive ?? false),
-                }}
+                classList={activityClasses()}
               >
                 {pos()}
               </span>
@@ -165,25 +166,24 @@ const Sidebar: Component<{
     const ctx = ctxMenu();
     if (!ctx) return [];
     const cwd = props.getMeta(ctx.id)?.cwd?.cwd;
-    return (
-      [
-        cwd && {
-          label: "New terminal here",
-          onSelect: () => props.onCreate(cwd),
-        },
-        {
-          label: `Random themes: ${props.randomTheme ? "ON" : "OFF"}`,
-          onSelect: () => props.onRandomThemeChange(!props.randomTheme),
-        },
-        {
-          label: "Close",
-          danger: true,
-          onSelect: () => {
-            if (confirm("Close this terminal?")) props.onKill(ctx.id);
-          },
-        },
-      ] as (ContextMenuItem | false)[]
-    ).filter(Boolean) as ContextMenuItem[];
+    const items: ContextMenuItem[] = [];
+    if (cwd)
+      items.push({
+        label: "New terminal here",
+        onSelect: () => props.onCreate(cwd),
+      });
+    items.push({
+      label: `Random themes: ${props.randomTheme ? "ON" : "OFF"}`,
+      onSelect: () => props.onRandomThemeChange(!props.randomTheme),
+    });
+    items.push({
+      label: "Close",
+      danger: true,
+      onSelect: () => {
+        if (confirm("Close this terminal?")) props.onKill(ctx.id);
+      },
+    });
+    return items;
   }
 
   function handleDragEnd({ draggable, droppable }: DragEvent) {
