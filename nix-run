@@ -1,33 +1,32 @@
 #!/usr/bin/env bash
-# Fast equivalent of `nix develop -c` using nix-shell.
-# Caches the derivation path to skip re-evaluation when shell.nix
-# and flake.lock haven't changed.
+# Fast equivalent of `nix develop -c` using nix-shell with env caching.
+# Caches the full shell environment to skip both nix evaluation and
+# nix-shell setup on subsequent calls.
 set -euo pipefail
 
-SHELL_NIX="$(dirname "$0")/shell.nix"
-LOCK_FILE="$(dirname "$0")/flake.lock"
+DIR="$(cd "$(dirname "$0")" && pwd)"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kolu-shell"
 
-# Cache key: hash of shell.nix + flake.lock + nix/nixpkgs.nix + nix/fonts + nix/ghostty-themes
-cache_inputs() {
-  local dir
-  dir="$(dirname "$0")"
-  cat "$SHELL_NIX" "$LOCK_FILE" "$dir/nix/nixpkgs.nix" \
-      "$dir"/nix/fonts/default.nix "$dir"/nix/ghostty-themes/default.nix \
-      "$dir"/nix/ghostty-themes/parse-themes.py 2>/dev/null
+# Cache key: content hash of all nix input files
+CACHE_KEY=$(cat "$DIR/shell.nix" "$DIR/flake.lock" "$DIR/nix/nixpkgs.nix" \
+    "$DIR"/nix/fonts/default.nix "$DIR"/nix/ghostty-themes/default.nix \
+    "$DIR"/nix/ghostty-themes/parse-themes.py 2>/dev/null | sha256sum | cut -d' ' -f1)
+ENV_FILE="$CACHE_DIR/$CACHE_KEY.env"
+
+# Validate cache: file exists and first nix store path in PATH is still valid
+cache_valid() {
+  [[ -f "$ENV_FILE" ]] || return 1
+  local store_path
+  store_path=$(grep '^declare -x PATH=' "$ENV_FILE" | grep -o '/nix/store/[^/:]*' | head -1)
+  [[ -n "$store_path" ]] && [[ -e "$store_path" ]]
 }
 
-CACHE_KEY=$(cache_inputs | sha256sum | cut -d' ' -f1)
-CACHE_FILE="$CACHE_DIR/$CACHE_KEY.drv"
-
-if [[ -f "$CACHE_FILE" ]] && nix-store --check-validity "$(cat "$CACHE_FILE")" 2>/dev/null; then
-  DRV="$(cat "$CACHE_FILE")"
-else
-  DRV=$(nix-instantiate "$SHELL_NIX" 2>/dev/null)
+if ! cache_valid; then
   mkdir -p "$CACHE_DIR"
-  # Clean old cache entries
-  find "$CACHE_DIR" -name '*.drv' -not -name "$CACHE_KEY.drv" -delete 2>/dev/null || true
-  echo "$DRV" > "$CACHE_FILE"
+  find "$CACHE_DIR" -maxdepth 1 -type f -not -name "$CACHE_KEY.*" -delete 2>/dev/null || true
+  nix-shell "$DIR/shell.nix" --run 'export -p' 2>/dev/null | grep '^declare -x ' > "$ENV_FILE.tmp"
+  mv "$ENV_FILE.tmp" "$ENV_FILE"
 fi
 
-exec nix-shell "$DRV" --run "$(printf '%q ' "$@")"
+eval "$(cat "$ENV_FILE")"
+exec "$@"
