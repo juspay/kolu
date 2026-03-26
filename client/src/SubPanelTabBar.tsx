@@ -15,10 +15,13 @@ const SubPanelTabBar: Component<{
   return (
     <div class="flex items-center gap-0.5 px-1 py-0.5 bg-surface-0/50 border-b border-edge text-xs min-h-[24px] shrink-0">
       <For each={props.subIds}>
-        {(id) => {
+        {(id, index) => {
           const label = () => {
             const m = props.getMeta(id);
-            return m?.cwd ? cwdBasename(m.cwd.cwd) : "terminal";
+            const base = m?.cwd ? cwdBasename(m.cwd.cwd) : "terminal";
+            // Append 1-based index when multiple tabs share the same name
+            if (props.subIds.length <= 1) return base;
+            return `${base} ${index() + 1}`;
           };
           const isActive = () => props.activeSubTab === id;
           return (
