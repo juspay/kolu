@@ -30,6 +30,32 @@ Feature: Theme switching
     And the palette breadcrumb should show "Theme"
     And there should be no page errors
 
+  Scenario: Theme preview while navigating palette
+    When I click the theme name in the header
+    And I type "Dracula" in the palette
+    Then the header should show theme "Dracula"
+    And the terminal background should be "#282a36"
+    When I press Escape
+    Then the header should show theme "Tomorrow Night"
+    And there should be no page errors
+
+  Scenario: Theme preview commits on selection
+    When I click the theme name in the header
+    And I type "Dracula" in the palette
+    And I press Enter
+    Then the header should show theme "Dracula"
+    And the terminal background should be "#282a36"
+    And there should be no page errors
+
+  Scenario: Theme preview restores on backspace drill-out
+    When I click the theme name in the header
+    And I type "Dracula" in the palette
+    Then the header should show theme "Dracula"
+    When I clear the palette input
+    And I press Backspace
+    Then the header should show theme "Tomorrow Night"
+    And there should be no page errors
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I select "Theme" in the palette

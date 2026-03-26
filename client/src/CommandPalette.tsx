@@ -34,6 +34,10 @@ export interface PaletteCommand {
   children?: PaletteCommand[] | (() => PaletteCommand[]);
   /** Keyboard shortcut to display alongside the command name. */
   keybind?: Keybind;
+  /** Called when this item becomes the highlighted item during navigation. */
+  onHighlight?: () => void;
+  /** Called when leaving this group without executing a child (Escape, Backspace, breadcrumb). */
+  onCancel?: () => void;
 }
 
 /** Resolve children, handling both static arrays and accessors. */
@@ -56,6 +60,8 @@ const CommandPalette: Component<{
   onOpenChange: (open: boolean) => void;
   /** If set, auto-drill into the group with this name on open. */
   initialGroup?: string;
+  /** When true, the backdrop is transparent so content behind is visible. */
+  transparentOverlay?: boolean;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
@@ -85,23 +91,33 @@ const CommandPalette: Component<{
   }
 
   function drillOut() {
-    setPath((p) => p.slice(0, -1));
+    const p = path();
+    p[p.length - 1]?.onCancel?.();
+    setPath(p.slice(0, -1));
     setQuery("");
     setSelectedIndex(0);
   }
 
   function navigateTo(depth: number) {
-    setPath((p) => p.slice(0, depth));
+    const p = path();
+    for (const g of p.slice(depth)) g.onCancel?.();
+    setPath(p.slice(0, depth));
     setQuery("");
     setSelectedIndex(0);
   }
+
+  // Track whether the palette is closing due to a selection (skip onCancel).
+  let didSelect = false;
 
   function execute(cmd: PaletteCommand) {
     if (isGroup(cmd)) {
       drillIn(cmd);
     } else {
-      cmd.onSelect?.();
+      // Close first so the highlight effect stops tracking filtered(),
+      // preventing onSelect's state changes from re-triggering a preview.
+      didSelect = true;
       props.onOpenChange(false);
+      cmd.onSelect?.();
     }
   }
 
@@ -149,7 +165,7 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Reset all state when opening; auto-drill into initialGroup if set
+  // Reset all state when opening; cancel groups on close (unless a command was selected)
   createEffect(
     on(
       () => props.open,
@@ -161,7 +177,11 @@ const CommandPalette: Component<{
             ? props.commands().find((c) => c.name === props.initialGroup)
             : undefined;
           setPath(group ? [group] : []);
+          didSelect = false;
           requestAnimationFrame(() => inputRef?.focus());
+        } else {
+          if (!didSelect) for (const g of path()) g.onCancel?.();
+          didSelect = false;
         }
       },
     ),
@@ -170,8 +190,23 @@ const CommandPalette: Component<{
   // Reset selection when filter results change (defer: skip initial run)
   createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
 
+  // Notify highlighted item when selection changes.
+  // Uses on() for stable dependency tracking — bare createEffect would drop
+  // filtered/selectedIndex tracking when props.open is false, creating
+  // flickering dependency sets across open/close cycles.
+  createEffect(
+    on([filtered, selectedIndex], ([items, idx]) => {
+      if (!props.open) return;
+      items[idx]?.onHighlight?.();
+    }),
+  );
+
   return (
-    <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+    <ModalDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      transparentOverlay={props.transparentOverlay}
+    >
       <Dialog.Content
         forceMount
         data-testid="command-palette"
@@ -223,6 +258,13 @@ const CommandPalette: Component<{
               <For each={filtered()}>
                 {(cmd, i) => (
                   <li
+                    ref={(el) => {
+                      // Auto-scroll selected item into view during keyboard navigation
+                      createEffect(() => {
+                        if (selectedIndex() === i())
+                          el.scrollIntoView({ block: "nearest" });
+                      });
+                    }}
                     class="flex items-center px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
                     classList={{
                       "bg-surface-3 text-fg border-accent":

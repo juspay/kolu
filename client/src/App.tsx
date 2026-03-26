@@ -10,22 +10,28 @@ import {
   For,
   Suspense,
   ErrorBoundary,
+  createMemo,
 } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
+import Resizable from "@corvu/resizable";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
-import { getThemeByName } from "./theme";
+
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
+
+/** Minimum sidebar panel fraction (below this it collapses to closed). */
+const SIDEBAR_MIN = 0.05;
 
 const App: Component = () => {
   const {
@@ -36,6 +42,8 @@ const App: Component = () => {
     getActivityHistory,
     activeThemeName,
     activeTheme,
+    getTerminalTheme,
+    isPreviewingTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
@@ -48,8 +56,25 @@ const App: Component = () => {
     setRandomTheme,
   } = useTerminals();
 
-  const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+  const {
+    sidebarOpen,
+    toggleSidebar,
+    closeSidebar,
+    sidebarWidthPx,
+    setSidebarWidthPx,
+    isDesktop,
+  } = useSidebar();
   const subPanel = useSubPanel();
+
+  // Track the resizable container width so we can convert between pixels and fractions.
+  // Sidebar width is stored in pixels so it stays fixed during window resize.
+  const [containerRef, setContainerRef] = createSignal<HTMLElement>();
+  const [containerWidth, setContainerWidth] = createSignal(window.innerWidth);
+  createResizeObserver(containerRef, ({ width }) => setContainerWidth(width));
+  const sidebarFraction = createMemo(() => {
+    const cw = containerWidth();
+    return cw > 0 ? Math.min(sidebarWidthPx() / cw, 1 - 0.3) : 0.15;
+  });
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -134,6 +159,7 @@ const App: Component = () => {
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
+        transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -155,71 +181,104 @@ const App: Component = () => {
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
-        <Sidebar
-          terminalIds={terminalIds()}
-          activeId={activeId()}
-          getMeta={getMeta}
-          getActivityHistory={getActivityHistory}
-          getSubTerminalIds={getSubTerminalIds}
-          onSelect={setActiveId}
-          onCreate={() => handleCreate()}
-          onReorder={reorderTerminals}
-          open={sidebarOpen()}
-          onClose={closeSidebar}
-        />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 p-1">
-          <div
-            class="h-full rounded border border-edge overflow-hidden p-1"
-            style={{ "background-color": activeTheme().background }}
+        <Resizable
+          ref={setContainerRef}
+          orientation="horizontal"
+          sizes={
+            sidebarOpen() && isDesktop()
+              ? [sidebarFraction(), 1 - sidebarFraction()]
+              : [0, 1]
+          }
+          onSizesChange={(sizes) => {
+            const s = sizes[0];
+            // Persist as pixels so the width is immune to window resize
+            if (sidebarOpen() && s !== undefined && s >= SIDEBAR_MIN)
+              setSidebarWidthPx(Math.round(s * containerWidth()));
+          }}
+          class="flex flex-1 min-h-0"
+        >
+          {/* shrink-0: lock panel to exact flex-basis so content can't influence width */}
+          <Resizable.Panel
+            as="div"
+            class="min-w-0 overflow-hidden shrink-0"
+            minSize={SIDEBAR_MIN}
+            collapsible
+            collapsedSize={0}
+            onCollapse={closeSidebar}
           >
-            <ErrorBoundary
-              fallback={(err) => (
-                <div class="text-danger p-4">
-                  Failed to connect: {String(err)}
-                </div>
-              )}
-            >
-              <Suspense
-                fallback={
-                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                    Connecting...
-                  </div>
-                }
+            <Sidebar
+              terminalIds={terminalIds()}
+              activeId={activeId()}
+              getMeta={getMeta}
+              getActivityHistory={getActivityHistory}
+              getSubTerminalIds={getSubTerminalIds}
+              onSelect={setActiveId}
+              onCreate={() => handleCreate()}
+              onReorder={reorderTerminals}
+              open={sidebarOpen()}
+              onClose={closeSidebar}
+            />
+          </Resizable.Panel>
+
+          <Resizable.Handle
+            class="w-1 bg-edge hover:bg-accent-bright cursor-col-resize shrink-0 transition-colors hidden sm:block"
+            aria-label="Resize sidebar"
+          />
+
+          {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
+          <Resizable.Panel as="div" class="min-w-0 min-h-0" minSize={0.3}>
+            <div class="h-full p-1">
+              <div
+                class="h-full rounded border border-edge overflow-hidden p-1"
+                style={{ "background-color": activeTheme().background }}
               >
-                {/* Read the resource to trigger Suspense while it loads */}
-                {void existingTerminals()}
-                <Show when={terminalIds().length === 0}>
-                  <div
-                    data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-fg-3 text-sm"
-                  >
-                    Click + to create a terminal
-                  </div>
-                </Show>
-                <For each={terminalIds()}>
-                  {(id) => (
-                    <TerminalPane
-                      terminalId={id}
-                      visible={activeId() === id}
-                      theme={getThemeByName(
-                        getMeta(id)?.themeName ?? activeThemeName(),
-                      )}
-                      searchOpen={searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                      subTerminalIds={getSubTerminalIds(id)}
-                      getMeta={getMeta}
-                      onCreateSubTerminal={(parentId, cwd) =>
-                        void handleCreateSubTerminal(parentId, cwd)
-                      }
-                      activeCwd={activeCwd()}
-                    />
+                <ErrorBoundary
+                  fallback={(err) => (
+                    <div class="text-danger p-4">
+                      Failed to connect: {String(err)}
+                    </div>
                   )}
-                </For>
-              </Suspense>
-            </ErrorBoundary>
-          </div>
-        </div>
+                >
+                  <Suspense
+                    fallback={
+                      <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                        Connecting...
+                      </div>
+                    }
+                  >
+                    {/* Read the resource to trigger Suspense while it loads */}
+                    {void existingTerminals()}
+                    <Show when={terminalIds().length === 0}>
+                      <div
+                        data-testid="empty-state"
+                        class="flex items-center justify-center h-full text-fg-3 text-sm"
+                      >
+                        Click + to create a terminal
+                      </div>
+                    </Show>
+                    <For each={terminalIds()}>
+                      {(id) => (
+                        <TerminalPane
+                          terminalId={id}
+                          visible={activeId() === id}
+                          theme={getTerminalTheme(id)}
+                          searchOpen={searchOpen()}
+                          onSearchOpenChange={setSearchOpen}
+                          subTerminalIds={getSubTerminalIds(id)}
+                          getMeta={getMeta}
+                          onCreateSubTerminal={(parentId, cwd) =>
+                            void handleCreateSubTerminal(parentId, cwd)
+                          }
+                          activeCwd={activeCwd()}
+                        />
+                      )}
+                    </For>
+                  </Suspense>
+                </ErrorBoundary>
+              </div>
+            </div>
+          </Resizable.Panel>
+        </Resizable>
       </div>
     </div>
   );

@@ -1,6 +1,69 @@
-import { When, Then } from "@cucumber/cucumber";
+import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 import * as assert from "node:assert";
+
+Then(
+  "the sidebar resize handle should be visible",
+  async function (this: KoluWorld) {
+    const handle = this.page.locator('[aria-label="Resize sidebar"]');
+    const visible = await handle.isVisible();
+    assert.ok(visible, "Expected sidebar resize handle to be visible");
+  },
+);
+
+Given("I note the sidebar width", async function (this: KoluWorld) {
+  const sidebar = this.page.locator('[data-testid="sidebar"]');
+  const box = await sidebar.boundingBox();
+  assert.ok(box, "Sidebar has no bounding box");
+  this.savedSidebarWidth = box.width;
+});
+
+When(
+  "I drag the sidebar resize handle {int} pixels to the right",
+  async function (this: KoluWorld, pixels: number) {
+    const handle = this.page.locator('[aria-label="Resize sidebar"]');
+    const box = await handle.boundingBox();
+    assert.ok(box, "Resize handle has no bounding box");
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await this.page.mouse.move(x, y);
+    await this.page.mouse.down();
+    await this.page.mouse.move(x + pixels, y, { steps: 10 });
+    await this.page.mouse.up();
+    await this.page.waitForTimeout(300);
+  },
+);
+
+Then("the sidebar width should be unchanged", async function (this: KoluWorld) {
+  const sidebar = this.page.locator('[data-testid="sidebar"]');
+  const box = await sidebar.boundingBox();
+  assert.ok(box, "Sidebar has no bounding box");
+  assert.ok(
+    this.savedSidebarWidth !== undefined,
+    "No saved sidebar width — did you forget 'I note the sidebar width'?",
+  );
+  assert.ok(
+    Math.abs(box.width - this.savedSidebarWidth!) < 2,
+    `Expected sidebar width unchanged (~${this.savedSidebarWidth}), got ${box.width}`,
+  );
+});
+
+Then(
+  "the sidebar should be wider than before",
+  async function (this: KoluWorld) {
+    const sidebar = this.page.locator('[data-testid="sidebar"]');
+    const box = await sidebar.boundingBox();
+    assert.ok(box, "Sidebar has no bounding box");
+    assert.ok(
+      this.savedSidebarWidth !== undefined,
+      "No saved sidebar width — did you forget 'I note the sidebar width'?",
+    );
+    assert.ok(
+      box.width > this.savedSidebarWidth!,
+      `Expected sidebar to be wider (was ${this.savedSidebarWidth}, now ${box.width})`,
+    );
+  },
+);
 
 When("I click the sidebar toggle", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="sidebar-toggle"]').click();
