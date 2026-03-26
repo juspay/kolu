@@ -73,7 +73,8 @@ async function fetchCombinedStatus(
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
     return stdout.trim() || null;
-  } catch {
+  } catch (err) {
+    log.warn({ err: String(err) }, "failed to fetch combined commit status");
     return null;
   }
 }
@@ -120,7 +121,8 @@ async function resolveGitHubPr(
       url: data.url,
       checks,
     };
-  } catch {
+  } catch (err) {
+    log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
     return null;
   }
 }
