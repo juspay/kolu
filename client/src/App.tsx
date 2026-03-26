@@ -15,7 +15,7 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
-import Terminal from "./Terminal";
+import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { getThemeByName } from "./theme";
@@ -24,6 +24,7 @@ import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
+import { useSubPanel } from "./useSubPanel";
 
 const App: Component = () => {
   const {
@@ -36,7 +37,9 @@ const App: Component = () => {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateSubTerminal,
     handleKill,
+    getSubTerminalIds,
     reorderTerminals,
     commands,
     randomTheme,
@@ -44,6 +47,7 @@ const App: Component = () => {
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+  const subPanel = useSubPanel();
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -68,10 +72,22 @@ const App: Component = () => {
     activeId,
     setActiveId,
     handleCreate: (cwd?: string) => void handleCreate(cwd),
+    handleCreateSubTerminal: (parentId, cwd) =>
+      void handleCreateSubTerminal(parentId, cwd),
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    getSubTerminalIds,
+    cycleSubTab: (parentId, direction) => {
+      const subs = getSubTerminalIds(parentId);
+      if (subs.length === 0) return;
+      const panel = subPanel.getSubPanel(parentId);
+      const current = subs.indexOf(panel.activeSubTab as string);
+      const next = (current + direction + subs.length) % subs.length;
+      subPanel.setActiveSubTab(parentId, subs[next]!);
+    },
   });
 
   function openPaletteWith(query: string) {
@@ -176,7 +192,7 @@ const App: Component = () => {
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
-                    <Terminal
+                    <TerminalPane
                       terminalId={id}
                       visible={activeId() === id}
                       theme={getThemeByName(
@@ -184,6 +200,15 @@ const App: Component = () => {
                       )}
                       searchOpen={searchOpen()}
                       onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={getSubTerminalIds(id)}
+                      getMeta={getMeta}
+                      activeThemeName={activeThemeName()}
+                      getThemeByName={getThemeByName}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void handleCreateSubTerminal(parentId, cwd)
+                      }
+                      onKillSubTerminal={(subId) => void handleKill(subId)}
+                      activeCwd={activeCwd()}
                     />
                   )}
                 </For>

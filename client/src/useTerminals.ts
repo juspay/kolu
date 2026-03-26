@@ -6,6 +6,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
+import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
@@ -19,7 +20,14 @@ export function useTerminals() {
   // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
   // Explicit ordering — UUIDs don't sort chronologically, so track insertion order.
+  // Only top-level terminals (no parentId) live here.
   const [idOrder, setIdOrder] = createSignal<TerminalId[]>([]);
+  // Sub-terminal ordering per parent.
+  const [subOrder, setSubOrder] = createSignal<
+    Record<TerminalId, TerminalId[]>
+  >({});
+
+  const subPanel = useSubPanel();
 
   const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
     name: RANDOM_THEME_KEY,
@@ -37,6 +45,11 @@ export function useTerminals() {
   );
 
   const terminalIds = idOrder;
+
+  /** Get sub-terminal IDs for a given parent. */
+  function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
+    return subOrder()[parentId] ?? [];
+  }
 
   /** Get metadata for a terminal. */
   function getMeta(id: TerminalId): TerminalState | undefined {
@@ -115,12 +128,51 @@ export function useTerminals() {
 
   /** Remove a terminal from the store and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
+    const parentId = meta[id]?.parentId;
+
+    if (parentId) {
+      // This is a sub-terminal — remove from parent's sub-order
+      setSubOrder((prev) => {
+        const subs = (prev[parentId] ?? []).filter((x) => x !== id);
+        const next = { ...prev };
+        if (subs.length === 0) {
+          delete next[parentId];
+          subPanel.collapsePanel(parentId);
+        } else {
+          next[parentId] = subs;
+          // If this was the active sub-tab, switch to neighbor
+          const panel = subPanel.getSubPanel(parentId);
+          if (panel.activeSubTab === id) {
+            subPanel.setActiveSubTab(parentId, subs[0] ?? null);
+          }
+        }
+        return next;
+      });
+      setMeta(produce((s) => delete s[id]));
+      return;
+    }
+
+    // Top-level terminal — promote any sub-terminals to top-level (orphans)
+    const orphanIds = getSubTerminalIds(id);
+    for (const subId of orphanIds) {
+      setMeta(subId, "parentId", undefined);
+      void client.terminal.setParent({ id: subId, parentId: null });
+    }
+
     const ids = terminalIds();
     const idx = ids.indexOf(id);
     if (idx === -1) return;
     const remaining = ids.filter((x) => x !== id);
+    // Insert orphans at the position of the killed parent
+    remaining.splice(idx, 0, ...orphanIds);
     setIdOrder(remaining);
     setMeta(produce((s) => delete s[id]));
+    subPanel.removePanel(id);
+    setSubOrder((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     if (activeId() === id) {
       setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
@@ -140,7 +192,27 @@ export function useTerminals() {
       const initial: Record<TerminalId, TerminalState> = {};
       for (const t of existing) initial[t.id] = infoToState(t);
       setMeta(reconcile(initial));
-      setIdOrder(existing.map((t) => t.id));
+
+      // Partition into top-level and sub-terminals
+      const topLevel: TerminalId[] = [];
+      const subs: Record<TerminalId, TerminalId[]> = {};
+      for (const t of existing) {
+        if (t.parentId) {
+          (subs[t.parentId] ??= []).push(t.id);
+        } else {
+          topLevel.push(t.id);
+        }
+      }
+      setIdOrder(topLevel);
+      setSubOrder(subs);
+
+      // Initialize sub-panel active tabs for parents that have sub-terminals
+      for (const [parentId, subIds] of Object.entries(subs)) {
+        const panel = subPanel.getSubPanel(parentId);
+        if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
+          subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
+        }
+      }
 
       // Keep persisted active terminal if it still exists; otherwise pick first
       const persisted = activeId();
@@ -167,6 +239,19 @@ export function useTerminals() {
     setActiveId(info.id);
     subscribeAll(info.id);
     if (themeName) void client.terminal.setTheme({ id: info.id, themeName });
+  }
+
+  /** Create a sub-terminal under a parent. */
+  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
+    const info = await client.terminal.create({ cwd, parentId });
+    setMeta(info.id, infoToState(info));
+    setSubOrder((prev) => ({
+      ...prev,
+      [parentId]: [...(prev[parentId] ?? []), info.id],
+    }));
+    subPanel.setActiveSubTab(parentId, info.id);
+    subPanel.expandPanel(parentId);
+    subscribeAll(info.id);
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
@@ -248,7 +333,9 @@ export function useTerminals() {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateSubTerminal,
     handleKill,
+    getSubTerminalIds,
     reorderTerminals: (ids: TerminalId[]) => {
       setIdOrder(ids);
       void client.terminal.reorder({ ids });

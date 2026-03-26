@@ -15,6 +15,7 @@ import {
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
   TerminalReorderInputSchema,
+  TerminalSetParentInputSchema,
   CwdInfoSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
@@ -54,6 +55,8 @@ export const contract = oc.router({
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     // Reorder terminals to match the given ID list
     reorder: oc.input(TerminalReorderInputSchema).output(z.void()),
+    // Set or clear a terminal's parent (for orphan promotion)
+    setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
   },

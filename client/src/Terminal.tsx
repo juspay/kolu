@@ -203,6 +203,13 @@ const Terminal: Component<{
       // paste listener uploads images; xterm's own paste handler covers text.
       if (e.ctrlKey && e.key === "v") return false;
 
+      // Let Ctrl+` and Ctrl+Shift+` bubble to app-level shortcut handler
+      if (e.ctrlKey && e.code === "Backquote") return false;
+
+      // Let Ctrl+PageDown/PageUp bubble for sub-tab cycling
+      if (e.ctrlKey && (e.code === "PageDown" || e.code === "PageUp"))
+        return false;
+
       return true;
     });
 

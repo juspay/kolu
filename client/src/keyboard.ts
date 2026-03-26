@@ -97,4 +97,20 @@ export const SHORTCUTS = {
   zoomIn: { keybind: { key: "+", mod: true }, label: "Zoom in" },
   zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
+  toggleSubPanel: {
+    keybind: { key: "`", code: "Backquote", mod: true },
+    label: "Toggle sub-panel",
+  },
+  createSubTerminal: {
+    keybind: { key: "`", code: "Backquote", mod: true, shift: true },
+    label: "New sub-terminal",
+  },
+  nextSubTab: {
+    keybind: { key: "PageDown", code: "PageDown", mod: true },
+    label: "Next sub-tab",
+  },
+  prevSubTab: {
+    keybind: { key: "PageUp", code: "PageUp", mod: true },
+    label: "Previous sub-tab",
+  },
 } as const satisfies Record<string, Shortcut>;

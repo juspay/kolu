@@ -32,6 +32,8 @@ export interface TerminalEntry {
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
+  /** If set, this terminal is a sub-terminal of the given parent. */
+  parentId?: string;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
@@ -42,6 +44,7 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
     pid: entry.handle.pid,
     themeName: entry.themeName,
     isActive: entry.isActive,
+    parentId: entry.parentId,
   };
 }
 
@@ -60,8 +63,8 @@ function touchActivity(entry: TerminalEntry): void {
   }, IDLE_MS);
 }
 
-/** Create a new terminal, spawn a PTY process. Optionally set initial CWD. */
-export function createTerminal(cwd?: string): TerminalInfo {
+/** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
+export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
   const emitter = new EventEmitter<TerminalEvents>();
@@ -97,6 +100,7 @@ export function createTerminal(cwd?: string): TerminalInfo {
     emitter,
     isActive: true,
     clipboardDir,
+    parentId,
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
@@ -125,6 +129,15 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const info = toInfo(id, entry);
   terminals.delete(id);
   return info;
+}
+
+/** Set or clear a terminal's parent relationship. */
+export function setTerminalParent(
+  id: TerminalId,
+  parentId: string | null,
+): void {
+  const entry = terminals.get(id);
+  if (entry) entry.parentId = parentId ?? undefined;
 }
 
 /** Set the theme name for a terminal. */
