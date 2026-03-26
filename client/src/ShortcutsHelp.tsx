@@ -9,8 +9,8 @@ import { SHORTCUTS, formatKeybind } from "./keyboard";
 const DISPLAY_SHORTCUTS = [
   SHORTCUTS.commandPalette,
   SHORTCUTS.createTerminal,
-  SHORTCUTS.nextTerminal,
-  SHORTCUTS.prevTerminal,
+  SHORTCUTS.nextTerminalTab,
+  SHORTCUTS.prevTerminalTab,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
   SHORTCUTS.findInTerminal,
   SHORTCUTS.zoomIn,

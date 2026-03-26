@@ -56,12 +56,18 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
+  if (
+    matchesKeybind(e, SHORTCUTS.nextTerminal.keybind) ||
+    matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)
+  ) {
     cycleTerminal(deps, 1);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
+  if (
+    matchesKeybind(e, SHORTCUTS.prevTerminal.keybind) ||
+    matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)
+  ) {
     cycleTerminal(deps, -1);
     return true;
   }

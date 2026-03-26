@@ -50,6 +50,20 @@ Feature: Keyboard Shortcuts
     Then the active terminal should show "cycle-third"
     And there should be no page errors
 
+  Scenario: Cycle terminals with Ctrl+Tab shortcuts
+    When I open the app
+    And I create a terminal
+    And I run "echo tab-second"
+    And I create a terminal
+    And I run "echo tab-third"
+    # We're on terminal 3 (last created). Prev should go to terminal 2.
+    When I press the prev terminal tab shortcut
+    Then the active terminal should show "tab-second"
+    # Next should go back to terminal 3.
+    When I press the next terminal tab shortcut
+    Then the active terminal should show "tab-third"
+    And there should be no page errors
+
   Scenario: Create terminal with shortcut
     Given I note the sidebar entry count
     When I press the create terminal shortcut
