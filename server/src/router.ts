@@ -140,7 +140,7 @@ export const appRouter = t.router({
         return {
           isActive,
           foregroundProcess: fg,
-          agent: resolveAgentStatus(fg, isActive, entry.handle.cwd),
+          agent: resolveAgentStatus(fg, entry.handle.cwd),
         };
       }
 

@@ -34,21 +34,17 @@ export function detectAgentByProcess(processName: string): string | null {
 }
 
 /**
- * Resolve full agent status from foreground process + activity + terminal CWD.
- * Reads Claude Code's JSONL transcript for precise state classification.
+ * Resolve full agent status from foreground process + terminal CWD.
+ * JSONL transcript is the sole source of truth for state — isActive is
+ * not reliable (5s idle timer lag, banner output during launch, etc.).
  */
 export function resolveAgentStatus(
   foregroundProcess: string,
-  isActive: boolean,
   terminalCwd: string,
 ): AgentStatus | null {
   const agent = detectAgentByProcess(foregroundProcess);
   if (!agent) return null;
-
-  const state: AgentState = isActive
-    ? "thinking"
-    : classifyFromTranscript(terminalCwd);
-  return { agent, state };
+  return { agent, state: classifyFromTranscript(terminalCwd) };
 }
 
 // --- Claude Code transcript-based state classification ---
@@ -124,11 +120,11 @@ function readLastJsonlEntry(filePath: string): Record<string, unknown> | null {
  */
 function classifyFromTranscript(terminalCwd: string): AgentState {
   const session = findSession(terminalCwd);
-  if (!session) return "idle";
+  if (!session) return "waiting"; // no session yet → at initial prompt
 
   const jsonlPath = path.join(session.projectDir, `${session.sessionId}.jsonl`);
   const entry = readLastJsonlEntry(jsonlPath);
-  if (!entry) return "idle";
+  if (!entry) return "waiting"; // empty transcript → at initial prompt
 
   const type = entry.type as string | undefined;
   const message = entry.message as

@@ -59,7 +59,7 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
     isActive: entry.isActive,
     parentId: entry.parentId,
     foregroundProcess: fg,
-    agentStatus: resolveAgentStatus(fg, entry.isActive, entry.handle.cwd),
+    agentStatus: resolveAgentStatus(fg, entry.handle.cwd),
   };
 }
 
