@@ -18,8 +18,6 @@ const TerminalPane: Component<{
   getMeta: (
     id: TerminalId,
   ) => { cwd?: CwdInfo; themeName?: string } | undefined;
-  activeThemeName: string;
-  getThemeByName: (name: string) => ITheme;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeCwd: CwdInfo | null;
 }> = (props) => {
@@ -35,11 +33,6 @@ const TerminalPane: Component<{
     if (sizes[1] !== undefined && sizes[1] > 0.02) {
       subPanel.setPanelSize(props.terminalId, sizes[1]);
     }
-  }
-
-  function subTheme(subId: TerminalId): ITheme {
-    const m = props.getMeta(subId);
-    return props.getThemeByName(m?.themeName ?? props.activeThemeName);
   }
 
   return (
@@ -134,7 +127,7 @@ const TerminalPane: Component<{
                     visible={
                       props.visible && isExpanded() && activeSubTab() === subId
                     }
-                    theme={subTheme(subId)}
+                    theme={props.theme}
                     searchOpen={false}
                     onSearchOpenChange={() => {}}
                   />

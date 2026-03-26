@@ -197,8 +197,6 @@ const App: Component = () => {
                       onSearchOpenChange={setSearchOpen}
                       subTerminalIds={getSubTerminalIds(id)}
                       getMeta={getMeta}
-                      activeThemeName={activeThemeName()}
-                      getThemeByName={getThemeByName}
                       onCreateSubTerminal={(parentId, cwd) =>
                         void handleCreateSubTerminal(parentId, cwd)
                       }
