@@ -80,6 +80,23 @@ Feature: Sub-terminals
     Then the sub-panel should be visible
     And there should be no page errors
 
+  Scenario: Switching away and back remembers main terminal focus
+    When I create a sub-terminal via command palette
+    And I click the main terminal
+    Then the main terminal should have keyboard focus
+    When I create a terminal
+    And I select sidebar entry 1
+    Then the main terminal should have keyboard focus
+    And there should be no page errors
+
+  Scenario: Switching away and back remembers sub-terminal focus
+    When I create a sub-terminal via command palette
+    Then the sub-terminal should have keyboard focus
+    When I create a terminal
+    And I select sidebar entry 1
+    Then the sub-terminal should have keyboard focus
+    And there should be no page errors
+
   Scenario: Resize handle visible when expanded
     When I create a sub-terminal via command palette
     Then the resize handle should be visible
