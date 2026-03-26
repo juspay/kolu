@@ -74,7 +74,7 @@ Then(
       const focusedId = container.getAttribute("data-terminal-id");
       // The main terminal is the one matching the active sidebar entry
       const activeEntry = document.querySelector(
-        '[data-testid="sidebar"] button[class*="bg-surface-2"]',
+        '[data-testid="sidebar"] button[class*="bg-surface-3"]',
       );
       const mainId = activeEntry
         ?.closest("[data-terminal-id]")
@@ -128,7 +128,7 @@ Then(
   async function (this: KoluWorld, expected: number) {
     // Look for the +N badge text in the active sidebar entry
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[class*="bg-surface-2"] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[class*="bg-surface-3"] [data-testid="sub-count"]',
     );
     const text = await badge.textContent({ timeout: 5000 });
     assert.strictEqual(text, `+${expected}`);
@@ -200,7 +200,7 @@ Then(
   "the sidebar entry should not show a sub-terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[class*="bg-surface-2"] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[class*="bg-surface-3"] [data-testid="sub-count"]',
     );
     const count = await badge.count();
     assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
