@@ -37,11 +37,18 @@ test: install
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
 
-# Run Cucumber e2e tests against an already-running dev server (just dev)
-test-dev: install
+# Run e2e tests against a running dev server. Pass a feature file:line to run one scenario.
+# Examples:
+#   just test-dev                                              # all tests
+#   just test-dev features/command-palette.feature:149         # single scenario by line
+#   just test-dev features/command-palette.feature             # single feature file
+test-dev *args: install
     cd tests \
         && {{ nix_shell }} pnpm install \
-        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
+        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} node --import tsx \
+            ./node_modules/@cucumber/cucumber/bin/cucumber-js \
+            --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+            {{ if args == "" { "--profile ui" } else { args } }}
 
 # Run pre-commit hooks on all files
 pc:
