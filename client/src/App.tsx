@@ -18,6 +18,7 @@ import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import { refocusTerminal } from "./ModalDialog";
 import { getThemeByName } from "./theme";
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
@@ -87,10 +88,13 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  // Reset state on close so Cmd/Ctrl+K opens with a clean slate
+  // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
-    if (!open) setPaletteInitialGroup(undefined);
+    if (!open) {
+      setPaletteInitialGroup(undefined);
+      requestAnimationFrame(refocusTerminal);
+    }
   }
 
   return (

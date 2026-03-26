@@ -12,7 +12,7 @@ import { type Component, type JSX } from "solid-js";
 import Dialog from "@corvu/dialog";
 
 /** Click the visible terminal to restore focus after a dialog closes. */
-function refocusTerminal() {
+export function refocusTerminal() {
   document
     .querySelector<HTMLElement>("[data-visible][data-terminal-id]")
     ?.click();
@@ -25,11 +25,7 @@ const ModalDialog: Component<{
 }> = (props) => (
   <Dialog
     open={props.open}
-    onOpenChange={(open) => {
-      props.onOpenChange(open);
-      // Refocus terminal when dialog closes — onFinalFocus is unreliable with forceMount
-      if (!open) requestAnimationFrame(refocusTerminal);
-    }}
+    onOpenChange={props.onOpenChange}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
   >
