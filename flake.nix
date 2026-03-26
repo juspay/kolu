@@ -5,7 +5,7 @@
     extra-substituters = "https://cache.nixos.asia/oss";
     extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";
   };
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
+  inputs.nixpkgs.url = "github:nixos/nixpkgs/fdc7b8f7b30fdbedec91b71ed82f36e1637483ed";
 
   outputs = { nixpkgs, self, ... }:
     let
