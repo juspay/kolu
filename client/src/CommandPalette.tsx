@@ -152,10 +152,10 @@ const CommandPalette: Component<{
                     onMouseEnter={() => setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
-                    <span>{cmd.name}</span>
+                    <span class="truncate">{cmd.name}</span>
                     <Show when={cmd.keybind}>
                       {(kb) => (
-                        <kbd class="ml-auto pl-4 text-xs text-fg-3 font-mono">
+                        <kbd class="ml-auto shrink-0 pl-4 text-xs text-fg-3 font-mono">
                           {formatKeybind(kb())}
                         </kbd>
                       )}

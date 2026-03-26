@@ -256,14 +256,11 @@ export function useTerminals() {
     },
     ...terminalIds().map((id, i) => ({
       name: `Switch to terminal ${i + 1}`,
-      ...(i < 9
-        ? {
-            keybind:
-              SHORTCUTS[
-                `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
-              ].keybind,
-          }
-        : {}),
+      keybind:
+        i < 9
+          ? SHORTCUTS[`switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`]
+              .keybind
+          : undefined,
       onSelect: () => setActiveId(id),
     })),
     ...availableThemes
