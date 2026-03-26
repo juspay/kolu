@@ -1,18 +1,27 @@
-import { type Component, createMemo, createSignal, onCleanup } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+} from "solid-js";
 import { type ActivitySample, ACTIVITY_WINDOW_MS } from "./useTerminals";
 
 const BUCKET_COUNT = 30;
 const BUCKET_MS = ACTIVITY_WINDOW_MS / BUCKET_COUNT;
 
 /** Periodic tick interval to age off old bars even when no new events arrive. */
-const REFRESH_INTERVAL_MS = 10_000;
+const REFRESH_INTERVAL_MS = 5_000;
 
 /**
  * Compute activity fraction (0–1) per time bucket from transition samples.
  * Single forward pass: walks samples once, accumulating active time per bucket.
  */
-function computeBuckets(samples: ActivitySample[], now: number): Float32Array {
-  const result = new Float32Array(BUCKET_COUNT);
+function computeBuckets(
+  samples: ActivitySample[],
+  now: number,
+): readonly number[] {
+  const result: number[] = new Array(BUCKET_COUNT).fill(0);
   if (samples.length === 0) return result;
 
   const windowStart = now - ACTIVITY_WINDOW_MS;
@@ -53,21 +62,26 @@ function computeBuckets(samples: ActivitySample[], now: number): Float32Array {
 const ActivityGraph: Component<{
   samples: ActivitySample[];
 }> = (props) => {
-  // Tick signal: forces bucket recomputation so old activity ages off the graph.
-  const [tick, setTick] = createSignal(0);
-  const timer = setInterval(() => setTick((n) => n + 1), REFRESH_INTERVAL_MS);
+  // Use a signal (not memo) so setInterval can trigger updates from outside reactive scope.
+  const [buckets, setBuckets] = createSignal<readonly number[]>(
+    new Array(BUCKET_COUNT).fill(0),
+    { equals: false },
+  );
+
+  const recompute = () => setBuckets(computeBuckets(props.samples, Date.now()));
+
+  // Recompute when samples change (reactive subscription via effect)
+  createEffect(() => {
+    // Access samples to subscribe to store changes
+    props.samples;
+    recompute();
+  });
+
+  // Periodic recompute: shifts the time window even when no new events arrive
+  const timer = setInterval(recompute, REFRESH_INTERVAL_MS);
   onCleanup(() => clearInterval(timer));
 
-  const buckets = createMemo(() => {
-    void tick();
-    return computeBuckets(props.samples, Date.now());
-  });
-
-  const hasData = createMemo(() => {
-    const b = buckets();
-    for (let i = 0; i < b.length; i++) if (b[i]! > 0) return true;
-    return false;
-  });
+  const hasData = createMemo(() => buckets().some((v) => v > 0));
 
   return (
     <svg
