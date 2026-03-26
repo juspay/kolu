@@ -10,7 +10,9 @@ async function getIndicatorActive(
 ): Promise<boolean> {
   const id = world.createdTerminalIds[index - 1];
   assert.ok(id, `No terminal created at index ${index}`);
-  const entry = world.page.locator(`[data-terminal-id="${id}"]`);
+  const entry = world.page.locator(
+    `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+  );
   const activity = await entry.getAttribute("data-activity");
   return activity === "active";
 }
