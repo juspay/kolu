@@ -108,13 +108,10 @@ const SidebarEntry: Component<{
         </div>
         <Show when={m()?.meta?.pr}>
           {(pr) => (
-            <a
-              href={pr().url}
-              target="_blank"
-              rel="noopener noreferrer"
-              class="flex items-center gap-1 text-xs text-fg-3 hover:text-accent ml-3.5 truncate"
+            <div
+              class="flex items-center gap-1 text-xs text-fg-3 ml-3.5 truncate"
               data-testid="sidebar-pr"
-              onClick={(e) => e.stopPropagation()}
+              title={`#${pr().number} ${pr().title}`}
             >
               <Show when={pr().checks}>
                 {(checks) => (
@@ -128,10 +125,10 @@ const SidebarEntry: Component<{
                   />
                 )}
               </Show>
-              <span class="truncate" title={`#${pr().number} ${pr().title}`}>
+              <span class="truncate">
                 #{pr().number} {pr().title}
               </span>
-            </a>
+            </div>
           )}
         </Show>
         <Show when={props.activityHistory.length > 0}>
