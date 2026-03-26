@@ -152,7 +152,8 @@ Feature: Command Palette
     And I open the command palette
     And I select "Theme" in the palette
     And I select "Dracula" in the palette
-    Then the terminal should have keyboard focus
+    Then the command palette should not be visible
+    And the terminal should have keyboard focus
     And there should be no page errors
 
   Scenario: Cmd/Ctrl+K does not leak to terminal

@@ -25,12 +25,13 @@ const ModalDialog: Component<{
 }> = (props) => (
   <Dialog
     open={props.open}
-    onOpenChange={props.onOpenChange}
-    restoreFocus={false}
-    onFinalFocus={(e) => {
-      e.preventDefault();
-      refocusTerminal();
+    onOpenChange={(open) => {
+      props.onOpenChange(open);
+      // Refocus terminal when dialog closes — onFinalFocus is unreliable with forceMount
+      if (!open) requestAnimationFrame(refocusTerminal);
     }}
+    restoreFocus={false}
+    onFinalFocus={(e) => e.preventDefault()}
   >
     <Dialog.Portal forceMount>
       <Dialog.Overlay

@@ -38,10 +38,10 @@ test: install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
 
 # Run Cucumber e2e tests against an already-running dev server (just dev)
-test-dev: install
+test-dev *args: install
     cd tests \
         && {{ nix_shell }} pnpm install \
-        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test
+        && KOLU_SERVER=http://localhost:5173 {{ nix_shell }} pnpm test {{ args }}
 
 # Run pre-commit hooks on all files
 pc:
