@@ -1,4 +1,5 @@
-import { Then } from "@cucumber/cucumber";
+import { When, Then } from "@cucumber/cucumber";
+import { execFileSync } from "node:child_process";
 import { KoluWorld } from "../support/world.ts";
 import * as assert from "node:assert";
 import { pollUntil } from "../support/poll.ts";
@@ -24,10 +25,45 @@ async function pollTestId(
   );
 }
 
+When(
+  "the branch is switched to {string} in {string}",
+  async function (this: KoluWorld, branch: string, repoPath: string) {
+    // Switch branch externally (not through the terminal), bypassing OSC 7.
+    // This exercises the .git/HEAD file watcher path.
+    execFileSync("git", ["checkout", "-b", branch], { cwd: repoPath });
+  },
+);
+
 Then("the header should show a branch name", async function (this: KoluWorld) {
   const text = await pollTestId(this, "header-branch", (t) => t.length > 0);
   assert.ok(text.length > 0, `Expected header to show a branch name`);
 });
+
+Then(
+  "the header branch should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const text = await pollTestId(this, "header-branch", (t) =>
+      t.includes(expected),
+    );
+    assert.ok(
+      text.includes(expected),
+      `Expected header branch to contain "${expected}", got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the sidebar branch should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const text = await pollTestId(this, "sidebar-branch", (t) =>
+      t.includes(expected),
+    );
+    assert.ok(
+      text.includes(expected),
+      `Expected sidebar branch to contain "${expected}", got "${text}"`,
+    );
+  },
+);
 
 Then("the sidebar should show a branch name", async function (this: KoluWorld) {
   const text = await pollTestId(this, "sidebar-branch", (t) => t.length > 0);
