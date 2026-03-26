@@ -28,6 +28,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
 import { createZoom } from "./zoom";
@@ -203,12 +204,8 @@ const Terminal: Component<{
       // paste listener uploads images; xterm's own paste handler covers text.
       if (e.ctrlKey && e.key === "v") return false;
 
-      // Let Ctrl+` and Ctrl+Shift+` bubble to app-level shortcut handler
-      if (e.ctrlKey && e.code === "Backquote") return false;
-
-      // Let Ctrl+PageDown/PageUp bubble for sub-tab cycling
-      if (e.ctrlKey && (e.code === "PageDown" || e.code === "PageUp"))
-        return false;
+      // Let any registered app shortcut bubble through to the capture-phase dispatcher
+      if (matchesAnyShortcut(e)) return false;
 
       return true;
     });

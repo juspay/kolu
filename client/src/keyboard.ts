@@ -123,3 +123,12 @@ export const SHORTCUTS = {
     label: "Previous sub-tab",
   },
 } as const satisfies Record<string, Shortcut>;
+
+/**
+ * Check if a KeyboardEvent matches any registered app shortcut.
+ * Used by xterm's key handler to let app shortcuts bubble through
+ * instead of being consumed by the terminal.
+ */
+export function matchesAnyShortcut(e: KeyboardEvent): boolean {
+  return Object.values(SHORTCUTS).some((s) => matchesKeybind(e, s.keybind));
+}
