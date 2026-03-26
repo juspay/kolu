@@ -31,6 +31,13 @@ When(
   },
 );
 
+When("I clear the palette input", async function (this: KoluWorld) {
+  const input = this.page.locator(`${PALETTE_SELECTOR} input`);
+  await input.waitFor({ state: "visible", timeout: 3000 });
+  await input.fill("");
+  await this.page.waitForTimeout(200);
+});
+
 When(
   "I select {string} in the palette",
   async function (this: KoluWorld, text: string) {

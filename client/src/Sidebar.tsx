@@ -9,7 +9,6 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import { cwdBasename } from "./path";
-import { formatKeybind } from "./keyboard";
 import Tip from "./Tip";
 import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -27,7 +26,6 @@ function repoColorKey(
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
-  index: number;
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
@@ -40,9 +38,6 @@ const SidebarEntry: Component<{
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
-  const pos = () => props.index + 1;
-  const shortcutLabel = () =>
-    pos() <= 9 ? formatKeybind({ mod: true, key: String(pos()) }) : undefined;
   const repoColor = () => props.repoColor;
   const agentState = () => m()?.agentStatus?.state;
   const active = () => m()?.isActive ?? false;
@@ -129,19 +124,9 @@ const SidebarEntry: Component<{
           </Show>
           <Show when={m()?.cwd}>
             {(cwdInfo) => (
-              <>
-                <span class="truncate" style={{ color: repoColor() }}>
-                  {cwdBasename(cwdInfo().cwd)}
-                  <Show when={cwdInfo().git}>
-                    {(git) => (
-                      <span data-testid="sidebar-branch" class="text-fg-2">
-                        {" "}
-                        &middot; {git().branch}
-                      </span>
-                    )}
-                  </Show>
-                </span>
-              </>
+              <span class="truncate" style={{ color: repoColor() }}>
+                {cwdBasename(cwdInfo().cwd)}
+              </span>
             )}
           </Show>
           {/* Sub-terminal count badge */}
@@ -154,9 +139,12 @@ const SidebarEntry: Component<{
             </span>
           </Show>
         </div>
-        <Show when={shortcutLabel()}>
-          {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
-        </Show>
+        <div
+          data-testid="sidebar-branch"
+          class="text-xs text-fg-2 ml-3.5 truncate"
+        >
+          {m()?.cwd?.git?.branch ?? "\u00A0"}
+        </div>
         <Show when={props.activityHistory.length > 0}>
           <div class="ml-3.5 mt-0.5">
             <ActivityGraph samples={props.activityHistory} />
@@ -284,7 +272,6 @@ const Sidebar: Component<{
                   return (
                     <SidebarEntry
                       id={id}
-                      index={index()}
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
                       activityHistory={props.getActivityHistory(id)}

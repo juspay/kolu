@@ -21,6 +21,8 @@ export function refocusTerminal() {
 const ModalDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When true, the backdrop is transparent so content behind is fully visible (e.g. theme preview). */
+  transparentOverlay?: boolean;
   children: JSX.Element;
 }> = (props) => (
   <Dialog
@@ -32,7 +34,11 @@ const ModalDialog: Component<{
     <Dialog.Portal forceMount>
       <Dialog.Overlay
         forceMount
-        class="fixed inset-0 z-50 bg-black/50 data-[closed]:hidden"
+        class="fixed inset-0 z-50 data-[closed]:hidden transition-colors"
+        classList={{
+          "bg-black/50": !props.transparentOverlay,
+          "bg-transparent": !!props.transparentOverlay,
+        }}
       />
       <div
         class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none"

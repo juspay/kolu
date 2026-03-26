@@ -1,6 +1,6 @@
 /** Terminal session state: single store keyed by UUID, using TerminalInfo from common. */
 
-import { createSignal, createResource, createMemo } from "solid-js";
+import { createSignal, createResource, createMemo, batch } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
@@ -89,14 +89,30 @@ export function useTerminals() {
     return meta[id];
   }
 
-  /** The active terminal's theme name (for header + palette filter). */
-  const activeThemeName = createMemo(() => {
+  /** The active terminal's committed theme name (for palette filter — not affected by preview). */
+  const committedThemeName = createMemo(() => {
     const id = activeId();
     return (id !== null && meta[id]?.themeName) || DEFAULT_THEME_NAME;
   });
 
+  /** Temporary preview override while navigating the theme palette. */
+  const [previewThemeName, setPreviewThemeName] = createSignal<
+    string | undefined
+  >(undefined);
+
+  /** The displayed theme name: preview if active, otherwise committed. */
+  const activeThemeName = createMemo(
+    () => previewThemeName() ?? committedThemeName(),
+  );
+
   /** The active terminal's resolved theme (for container background). */
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
+
+  /** Resolve the display theme for a terminal, applying preview override for the active one. */
+  function getTerminalTheme(id: TerminalId): ITheme {
+    const preview = activeId() === id ? previewThemeName() : undefined;
+    return getThemeByName(preview ?? meta[id]?.themeName);
+  }
 
   /** The active terminal's CWD info (for header display). */
   const activeCwd = createMemo((): CwdInfo | null => {
@@ -421,12 +437,18 @@ export function useTerminals() {
       : []),
     {
       name: "Theme",
+      onCancel: () => setPreviewThemeName(undefined),
       children: () =>
         availableThemes
-          .filter((t) => t.name !== activeThemeName())
+          .filter((t) => t.name !== committedThemeName())
           .map((t) => ({
             name: t.name,
-            onSelect: () => void handleSetTheme(t.name),
+            onHighlight: () => setPreviewThemeName(t.name),
+            onSelect: () =>
+              batch(() => {
+                setPreviewThemeName(undefined);
+                void handleSetTheme(t.name);
+              }),
           })),
     },
   ]);
@@ -440,6 +462,8 @@ export function useTerminals() {
     agentSummary,
     activeThemeName,
     activeTheme,
+    getTerminalTheme,
+    isPreviewingTheme: () => previewThemeName() !== undefined,
     activeCwd,
     existingTerminals,
     handleCreate,
