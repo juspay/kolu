@@ -1,6 +1,6 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { justfile_directory() + '/nix-run' }
 
 mod ci 'ci/mod.just'
 

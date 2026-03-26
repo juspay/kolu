@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Fast equivalent of `nix develop -c` using nix-shell.
+exec nix-shell "$(dirname "$0")/shell.nix" --run "$(printf '%q ' "$@")"
