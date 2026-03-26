@@ -178,14 +178,8 @@ const App: Component = () => {
           }
           onSizesChange={(sizes) => {
             const s = sizes[0];
-            // Only persist meaningful user-initiated changes (drag), not
-            // tiny floating-point drift from flex recalculation.
-            if (
-              sidebarOpen() &&
-              s !== undefined &&
-              s >= SIDEBAR_MIN &&
-              Math.abs(s - sidebarSize()) > 0.001
-            )
+            // Only persist when panel is meaningfully open (not mid-collapse)
+            if (sidebarOpen() && s !== undefined && s >= SIDEBAR_MIN)
               setSidebarSize(s);
           }}
           class="flex flex-1 min-h-0"
