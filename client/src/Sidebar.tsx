@@ -102,6 +102,7 @@ const SidebarEntry: Component<{
         <div
           data-testid="sidebar-branch"
           class="text-xs text-fg-2 ml-3.5 truncate"
+          title={m()?.meta?.git?.branch}
         >
           {m()?.meta?.git?.branch ?? "\u00A0"}
         </div>
@@ -127,7 +128,7 @@ const SidebarEntry: Component<{
                   />
                 )}
               </Show>
-              <span class="truncate">
+              <span class="truncate" title={`#${pr().number} ${pr().title}`}>
                 #{pr().number} {pr().title}
               </span>
             </a>
