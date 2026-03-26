@@ -111,7 +111,10 @@ const SidebarEntry: Component<{
           </Show>
           {/* Sub-terminal count badge */}
           <Show when={props.subCount > 0}>
-            <span class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0">
+            <span
+              data-testid="sub-count"
+              class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+            >
               +{props.subCount}
             </span>
           </Show>
