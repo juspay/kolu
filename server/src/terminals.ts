@@ -82,6 +82,10 @@ function touchActivity(entry: TerminalEntry): void {
   const fg = fgProcess(entry);
   const fgChanged = fg !== entry.lastForegroundProcess;
   if (fgChanged) {
+    log.info(
+      { from: entry.lastForegroundProcess, to: fg },
+      "fg process changed",
+    );
     entry.lastForegroundProcess = fg;
     entry.stopTranscriptWatch();
     entry.transcriptWatchActive = false;
@@ -90,18 +94,19 @@ function touchActivity(entry: TerminalEntry): void {
   // (session file may not exist yet when Claude is still starting up).
   if (detectAgentByProcess(fg) && !entry.transcriptWatchActive) {
     entry.stopTranscriptWatch();
-    const watch = watchAgentState(fg, entry.handle.cwd, () =>
-      entry.emitter.emit("activity", entry.isActive),
-    );
+    const watch = watchAgentState(fg, entry.handle.cwd, () => {
+      log.info("transcript changed, re-emitting activity");
+      entry.emitter.emit("activity", entry.isActive);
+    });
     entry.stopTranscriptWatch = watch.cleanup;
     entry.transcriptWatchActive = watch.active;
+    log.info({ fg, watchActive: watch.active }, "agent watch setup");
   }
 
   if (!entry.isActive) {
     entry.isActive = true;
     entry.emitter.emit("activity", true);
   } else if (fgChanged) {
-    // Already active but process changed — re-emit to push new agent status
     entry.emitter.emit("activity", true);
   }
 

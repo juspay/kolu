@@ -25,6 +25,7 @@ import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
 import { toCwdInfo } from "./git.ts";
 import { resolveAgentStatus } from "./agent.ts";
+import { log } from "./log.ts";
 import type { ActivityInfo } from "kolu-common";
 
 const t = implement(contract);
@@ -153,7 +154,12 @@ export const appRouter = t.router({
         "activity",
         signal,
       )) {
-        yield toActivityInfo(isActive);
+        const info = toActivityInfo(isActive);
+        log.debug(
+          { isActive, fg: info.foregroundProcess, agent: info.agent },
+          "activity stream yield",
+        );
+        yield info;
       }
     }),
 
