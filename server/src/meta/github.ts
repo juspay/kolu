@@ -17,7 +17,21 @@ const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 30_000;
 const GH_TIMEOUT_MS = 5_000;
 
-/** Derive combined check status from statusCheckRollup entries. */
+/**
+ * Derive combined check status from statusCheckRollup entries.
+ *
+ * The rollup contains two GraphQL types, discriminated by __typename:
+ *
+ * CheckRun — GitHub Actions / Apps
+ *   status:     QUEUED | IN_PROGRESS | COMPLETED | WAITING | PENDING | REQUESTED
+ *   conclusion: SUCCESS | FAILURE | CANCELLED | NEUTRAL | SKIPPED | STALE
+ *               | STARTUP_FAILURE | TIMED_OUT | ACTION_REQUIRED | null (not yet completed)
+ *
+ * StatusContext — commit statuses (set via REST status API)
+ *   state: SUCCESS | PENDING | FAILURE | ERROR | EXPECTED
+ *
+ * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
+ */
 function deriveCheckStatus(
   rollup:
     | Array<{
@@ -35,51 +49,38 @@ function deriveCheckStatus(
 
   for (const check of rollup) {
     if (check.__typename === "StatusContext") {
-      // Commit statuses use `state`: SUCCESS, PENDING, FAILURE, ERROR, EXPECTED
       const state = check.state?.toUpperCase();
       if (state === "FAILURE" || state === "ERROR") hasFailure = true;
       else if (state === "PENDING" || state === "EXPECTED") hasPending = true;
+      // SUCCESS → neither flag set → pass
     } else {
-      // CheckRun entries use `status` + `conclusion`
+      // CheckRun
       const status = check.status?.toUpperCase();
       const conclusion = check.conclusion?.toUpperCase();
-      if (conclusion === "FAILURE" || conclusion === "CANCELLED")
-        hasFailure = true;
-      else if (
-        status === "IN_PROGRESS" ||
-        status === "QUEUED" ||
-        status === "WAITING" ||
-        (status !== "COMPLETED" && !conclusion)
-      )
+
+      if (status === "COMPLETED") {
+        // Terminal state — check conclusion
+        if (
+          conclusion === "FAILURE" ||
+          conclusion === "CANCELLED" ||
+          conclusion === "TIMED_OUT" ||
+          conclusion === "STARTUP_FAILURE" ||
+          conclusion === "ACTION_REQUIRED" ||
+          conclusion === "STALE"
+        ) {
+          hasFailure = true;
+        }
+        // SUCCESS, NEUTRAL, SKIPPED → pass (neither flag set)
+      } else {
+        // Non-terminal: QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED
         hasPending = true;
+      }
     }
   }
 
   if (hasFailure) return "fail";
   if (hasPending) return "pending";
   return "pass";
-}
-
-/**
- * Fetch the combined commit status for a ref (covers statuses set via
- * the commit status API, which statusCheckRollup misses).
- * Returns "pending" | "success" | "failure" | "error" | null.
- */
-async function fetchCombinedStatus(
-  repoRoot: string,
-  headSha: string,
-): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "gh",
-      ["api", `repos/{owner}/{repo}/commits/${headSha}/status`, "-q", ".state"],
-      { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
-    );
-    return stdout.trim() || null;
-  } catch (err) {
-    log.warn({ err: String(err) }, "failed to fetch combined commit status");
-    return null;
-  }
 }
 
 /** Look up the GitHub PR for the current branch. Returns null on any failure. */
@@ -90,39 +91,15 @@ async function resolveGitHubPr(
   try {
     const { stdout } = await execFileAsync(
       "gh",
-      [
-        "pr",
-        "view",
-        branch,
-        "--json",
-        "number,title,url,headRefOid,statusCheckRollup",
-      ],
+      ["pr", "view", branch, "--json", "number,title,url,statusCheckRollup"],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
     const data = JSON.parse(stdout);
-
-    // Fetch both check runs and commit statuses in parallel
-    const commitStatus = await fetchCombinedStatus(repoRoot, data.headRefOid);
-    const checkRunStatus = deriveCheckStatus(data.statusCheckRollup);
-
-    // Merge: worst status wins
-    let checks = checkRunStatus;
-    if (
-      commitStatus === "pending" ||
-      commitStatus === "failure" ||
-      commitStatus === "error"
-    ) {
-      const mapped =
-        commitStatus === "pending" ? ("pending" as const) : ("fail" as const);
-      if (!checks || checks === "pass") checks = mapped;
-      else if (checks === "pending" && mapped === "fail") checks = "fail";
-    }
-
     return {
       number: data.number,
       title: data.title,
       url: data.url,
-      checks,
+      checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
     log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
