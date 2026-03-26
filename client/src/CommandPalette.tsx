@@ -258,6 +258,13 @@ const CommandPalette: Component<{
               <For each={filtered()}>
                 {(cmd, i) => (
                   <li
+                    ref={(el) => {
+                      // Auto-scroll selected item into view during keyboard navigation
+                      createEffect(() => {
+                        if (selectedIndex() === i())
+                          el.scrollIntoView({ block: "nearest" });
+                      });
+                    }}
                     class="flex items-center px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
                     classList={{
                       "bg-surface-3 text-fg border-accent":
