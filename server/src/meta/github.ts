@@ -20,7 +20,12 @@ const GH_TIMEOUT_MS = 5_000;
 /** Derive combined check status from statusCheckRollup entries. */
 function deriveCheckStatus(
   rollup:
-    | Array<{ status?: string; conclusion?: string; state?: string }>
+    | Array<{
+        __typename?: string;
+        status?: string;
+        conclusion?: string;
+        state?: string;
+      }>
     | undefined,
 ): GitHubPrInfo["checks"] {
   if (!rollup || rollup.length === 0) return null;
@@ -29,26 +34,24 @@ function deriveCheckStatus(
   let hasPending = false;
 
   for (const check of rollup) {
-    // GitHub Actions use status/conclusion; commit statuses use state
-    const state = check.state?.toUpperCase();
-    const status = check.status?.toUpperCase();
-    const conclusion = check.conclusion?.toUpperCase();
-
-    if (
-      state === "FAILURE" ||
-      state === "ERROR" ||
-      conclusion === "FAILURE" ||
-      conclusion === "CANCELLED"
-    ) {
-      hasFailure = true;
-    } else if (
-      state === "PENDING" ||
-      status === "IN_PROGRESS" ||
-      status === "QUEUED" ||
-      status === "WAITING" ||
-      !conclusion
-    ) {
-      if (status !== "COMPLETED") hasPending = true;
+    if (check.__typename === "StatusContext") {
+      // Commit statuses use `state`: SUCCESS, PENDING, FAILURE, ERROR, EXPECTED
+      const state = check.state?.toUpperCase();
+      if (state === "FAILURE" || state === "ERROR") hasFailure = true;
+      else if (state === "PENDING" || state === "EXPECTED") hasPending = true;
+    } else {
+      // CheckRun entries use `status` + `conclusion`
+      const status = check.status?.toUpperCase();
+      const conclusion = check.conclusion?.toUpperCase();
+      if (conclusion === "FAILURE" || conclusion === "CANCELLED")
+        hasFailure = true;
+      else if (
+        status === "IN_PROGRESS" ||
+        status === "QUEUED" ||
+        status === "WAITING" ||
+        (status !== "COMPLETED" && !conclusion)
+      )
+        hasPending = true;
     }
   }
 
