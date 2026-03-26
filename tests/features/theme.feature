@@ -10,7 +10,8 @@ Feature: Theme switching
 
   Scenario: Switch theme via command palette
     When I open the command palette
-    And I type "Theme: Dracula" in the palette
+    And I select "Theme" in the palette
+    And I type "Dracula" in the palette
     And I press Enter
     Then the header should show theme "Dracula"
     And the terminal background should be "#282a36"
@@ -18,20 +19,22 @@ Feature: Theme switching
 
   Scenario: Theme persists after page refresh
     When I open the command palette
-    And I type "Theme: Nord" in the palette
+    And I select "Theme" in the palette
+    And I type "Nord" in the palette
     And I press Enter
     And I refresh the page
     Then the header should show theme "Nord"
 
-  Scenario: Click theme name opens palette with prefix
+  Scenario: Click theme name opens palette with theme group
     When I click the theme name in the header
     Then the command palette should be visible
-    And the palette input should contain "Theme: "
+    And the palette breadcrumb should show "Theme"
     And there should be no page errors
 
   Scenario: Each terminal has independent theme
     When I open the command palette
-    And I type "Theme: Dracula" in the palette
+    And I select "Theme" in the palette
+    And I type "Dracula" in the palette
     And I press Enter
     And I create a terminal
     Then the header should show theme "Tomorrow Night"

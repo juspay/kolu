@@ -56,6 +56,9 @@ const App: Component = () => {
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
+  const [paletteInitialGroup, setPaletteInitialGroup] = createSignal<
+    string | undefined
+  >();
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
@@ -75,15 +78,25 @@ const App: Component = () => {
     setSearchOpen,
   });
 
-  function openPaletteWith(query: string) {
-    setPaletteInitialQuery(query);
+  function openPalette() {
+    setPaletteInitialQuery("");
+    setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
   }
 
-  // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
+  function openPaletteGroup(group: string) {
+    setPaletteInitialQuery("");
+    setPaletteInitialGroup(group);
+    setPaletteOpen(true);
+  }
+
+  // Reset state on close so Cmd/Ctrl+K opens with a clean slate
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
-    if (!open) setPaletteInitialQuery("");
+    if (!open) {
+      setPaletteInitialQuery("");
+      setPaletteInitialGroup(undefined);
+    }
   }
 
   return (
@@ -113,6 +126,7 @@ const App: Component = () => {
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialQuery={paletteInitialQuery()}
+        initialGroup={paletteInitialGroup()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -120,8 +134,8 @@ const App: Component = () => {
       />
       <Header
         status={wsStatus()}
-        onOpenPalette={() => openPaletteWith("")}
-        onThemeClick={() => openPaletteWith("Theme: ")}
+        onOpenPalette={() => openPalette()}
+        onThemeClick={() => openPaletteGroup("Theme")}
         themeName={activeThemeName()}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}

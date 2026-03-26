@@ -49,13 +49,6 @@ function isGroup(cmd: PaletteCommand): boolean {
   return cmd.children !== undefined;
 }
 
-/** Recursively collect all leaf commands for global search. */
-function flattenLeaves(cmds: PaletteCommand[]): PaletteCommand[] {
-  return cmds.flatMap((cmd) =>
-    isGroup(cmd) ? flattenLeaves(resolveChildren(cmd)) : [cmd],
-  );
-}
-
 /** Ctrl+key → normalized key for readline-style navigation. */
 const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
 
@@ -64,6 +57,8 @@ const CommandPalette: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialQuery?: string;
+  /** If set, auto-drill into the group with this name on open. */
+  initialGroup?: string;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
@@ -80,15 +75,11 @@ const CommandPalette: Component<{
 
   const filtered = createMemo(() => {
     const q = query().toLowerCase();
-    if (!q) {
-      // No query: show current level, hiding prefix-gated commands
-      return currentItems().filter((cmd) => !cmd.showOnPrefix);
-    }
-    // Query present: flatten all leaves and search globally
-    return flattenLeaves(props.commands()).filter(
+    // Always search within the current level only (groups + leaves)
+    return currentItems().filter(
       (cmd) =>
         (!cmd.showOnPrefix || q.startsWith(cmd.showOnPrefix.toLowerCase())) &&
-        cmd.name.toLowerCase().includes(q),
+        (!q || cmd.name.toLowerCase().includes(q)),
     );
   });
 
@@ -163,7 +154,7 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Reset all state when opening
+  // Reset all state when opening; auto-drill into initialGroup if set
   createEffect(
     on(
       () => props.open,
@@ -171,7 +162,10 @@ const CommandPalette: Component<{
         if (isOpen) {
           setQuery(props.initialQuery ?? "");
           setSelectedIndex(0);
-          setPath([]);
+          const group = props.initialGroup
+            ? props.commands().find((c) => c.name === props.initialGroup)
+            : undefined;
+          setPath(group ? [group] : []);
           requestAnimationFrame(() => inputRef?.focus());
         }
       },

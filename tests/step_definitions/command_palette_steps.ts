@@ -31,6 +31,17 @@ When(
   },
 );
 
+When(
+  "I select {string} in the palette",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator(PALETTE_SELECTOR);
+    const item = palette.locator("li", { hasText: text });
+    await item.waitFor({ state: "visible", timeout: 3000 });
+    await item.click();
+    await this.page.waitForTimeout(200);
+  },
+);
+
 Then("the command palette should be visible", async function (this: KoluWorld) {
   const palette = this.page.locator(PALETTE_SELECTOR);
   await palette.waitFor({ state: "visible", timeout: 3000 });

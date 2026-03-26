@@ -72,6 +72,19 @@ Then(
 );
 
 Then(
+  "the palette breadcrumb should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
+    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
+    const text = await breadcrumb.textContent();
+    assert.ok(
+      text?.includes(expected),
+      `Expected breadcrumb to contain "${expected}" but got "${text}"`,
+    );
+  },
+);
+
+Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {
     const header = this.page.locator("header");

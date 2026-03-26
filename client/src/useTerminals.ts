@@ -278,7 +278,7 @@ export function useTerminals() {
         availableThemes
           .filter((t) => t.name !== activeThemeName())
           .map((t) => ({
-            name: `Theme: ${t.name}`,
+            name: t.name,
             onSelect: () => void handleSetTheme(t.name),
           })),
     },

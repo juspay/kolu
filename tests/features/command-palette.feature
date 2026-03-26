@@ -30,6 +30,7 @@ Feature: Command Palette
     And I create a terminal
     And I create a terminal
     And I open the command palette
+    And I select "Switch terminal" in the palette
     And I type "Terminal 1" in the palette
     Then the command palette should show 1 result
     And there should be no page errors
@@ -41,6 +42,7 @@ Feature: Command Palette
     And I create a terminal
     And I run "echo palette-second"
     And I open the command palette
+    And I select "Switch terminal" in the palette
     # Terminal 1 is the Background terminal; Terminal 2 is the first explicitly created one
     And I type "Terminal 2" in the palette
     And I press Enter
