@@ -13,7 +13,8 @@ install:
     {{ nix_shell }} pnpm install
 
 # Run server + client in parallel
-dev: install (server) & (client)
+[parallel]
+dev: install server client
 
 # Run TypeScript type checking across all packages
 watch: install
