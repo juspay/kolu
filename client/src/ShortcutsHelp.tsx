@@ -16,6 +16,10 @@ const DISPLAY_SHORTCUTS = [
   SHORTCUTS.zoomIn,
   SHORTCUTS.zoomOut,
   SHORTCUTS.zoomReset,
+  SHORTCUTS.toggleSubPanel,
+  SHORTCUTS.createSubTerminal,
+  SHORTCUTS.nextSubTab,
+  SHORTCUTS.prevSubTab,
   SHORTCUTS.shortcutsHelp,
 ];
 
