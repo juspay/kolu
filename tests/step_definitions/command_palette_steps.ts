@@ -35,9 +35,12 @@ When(
   "I select {string} in the palette",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
-    const item = palette.locator("li", { hasText: text });
-    await item.waitFor({ state: "visible", timeout: 3000 });
-    await item.click();
+    // Use exact text match to avoid ambiguity (e.g. "Nord" vs "One Nord")
+    const item = palette
+      .locator("li")
+      .filter({ hasText: new RegExp(`^${text}`) });
+    await item.first().waitFor({ state: "visible", timeout: 3000 });
+    await item.first().click();
     await this.page.waitForTimeout(200);
   },
 );

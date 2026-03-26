@@ -20,8 +20,7 @@ Feature: Theme switching
   Scenario: Theme persists after page refresh
     When I open the command palette
     And I select "Theme" in the palette
-    And I type "Nord" in the palette
-    And I press Enter
+    And I select "Nord" in the palette
     And I refresh the page
     Then the header should show theme "Nord"
 
