@@ -87,19 +87,35 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    await this.page.waitForTimeout(300); // Let focus settle after rAF
-    const hasFocus = await this.page.evaluate(() => {
-      const active = document.activeElement;
-      if (!active) return false;
-      const container = active.closest("[data-terminal-id]");
-      if (!container) return false;
-      // Main terminal is the first data-visible terminal
-      const firstVisible = document.querySelector(
-        "[data-terminal-id][data-visible]",
+    await this.page.waitForTimeout(300);
+    // Type a unique marker and verify it appears in the main terminal's screen state
+    const marker = `focus-proof-${Date.now()}`;
+    await this.page.keyboard.type(`echo ${marker}`);
+    await this.page.keyboard.press("Enter");
+    // Get the main terminal ID (active sidebar entry)
+    const mainId = await this.page.evaluate(() => {
+      const entry = document.querySelector(
+        '[data-testid="sidebar"] button[class*="bg-surface-2"]',
       );
-      return container === firstVisible;
+      return entry
+        ?.closest("[data-terminal-id]")
+        ?.getAttribute("data-terminal-id");
     });
-    assert.ok(hasFocus, "Expected keyboard focus in the main terminal");
+    assert.ok(mainId, "Could not find main terminal ID");
+    // Poll screen state for the marker
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const resp = await this.page.request.fetch("/rpc/terminal/screenState", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({ json: { id: mainId } }),
+      });
+      const body = await resp.json();
+      const screen =
+        typeof body.json === "string" ? body.json : JSON.stringify(body);
+      if (screen.includes(marker)) return;
+      await this.page.waitForTimeout(300);
+    }
+    assert.fail(`Main terminal did not receive keystrokes (marker: ${marker})`);
   },
 );
 
