@@ -58,6 +58,7 @@ const SidebarEntry: Component<{
         ref={sortable.ref}
         {...sortable.dragActivators}
         data-terminal-id={props.id}
+        data-activity={m()?.isActive ? "active" : "sleeping"}
         class="group w-full py-1.5 px-2 text-sm text-left transition-colors duration-150 touch-none"
         classList={{
           "border-l-[3px] bg-surface-2 text-fg": props.isActive,
@@ -74,14 +75,6 @@ const SidebarEntry: Component<{
         title={m()?.meta?.cwd ?? String(props.id)}
       >
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-          <span
-            data-testid="activity-indicator"
-            class="inline-block w-2 h-2 rounded-full shrink-0 transition-colors duration-300"
-            classList={{
-              "bg-ok animate-activity-pulse": m()?.isActive ?? false,
-              "bg-fg-3": !(m()?.isActive ?? false),
-            }}
-          />
           <Show when={m()?.meta}>
             {(metadata) => (
               <span class="truncate" style={{ color: repoColor() }}>
@@ -101,7 +94,7 @@ const SidebarEntry: Component<{
         </div>
         <div
           data-testid="sidebar-branch"
-          class="text-xs text-fg-2 ml-3.5 truncate"
+          class="text-xs text-fg-2 truncate"
           title={m()?.meta?.git?.branch}
         >
           {m()?.meta?.git?.branch ?? "\u00A0"}
@@ -109,7 +102,7 @@ const SidebarEntry: Component<{
         <Show when={m()?.meta?.pr}>
           {(pr) => (
             <div
-              class="flex items-center gap-1 text-xs text-fg-3 ml-3.5 truncate"
+              class="flex items-center gap-1 text-xs text-fg-3 truncate"
               data-testid="sidebar-pr"
               title={`#${pr().number} ${pr().title}`}
             >
@@ -132,7 +125,7 @@ const SidebarEntry: Component<{
           )}
         </Show>
         <Show when={props.activityHistory.length > 0}>
-          <div class="ml-3.5 mt-0.5">
+          <div class="mt-0.5">
             <ActivityGraph samples={props.activityHistory} />
           </div>
         </Show>
