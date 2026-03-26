@@ -3,7 +3,7 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { TerminalId, CwdInfo } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 interface ShortcutDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -11,7 +11,7 @@ interface ShortcutDeps {
   setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  activeCwd: Accessor<CwdInfo | null>;
+  activeMeta: Accessor<TerminalMetadata | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
@@ -47,7 +47,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.createTerminalInCwd.keybind)) {
-    deps.handleCreate(deps.activeCwd()?.cwd ?? undefined);
+    deps.handleCreate(deps.activeMeta()?.cwd ?? undefined);
     return true;
   }
 
@@ -90,7 +90,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
     const id = deps.activeId();
     if (id)
-      deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+      deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
     return true;
   }
 
@@ -99,7 +99,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     if (id) {
       // If no sub-terminals exist yet, create one
       if (deps.getSubTerminalIds(id).length === 0) {
-        deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+        deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
       } else {
         deps.toggleSubPanel(id);
       }

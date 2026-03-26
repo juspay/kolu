@@ -22,7 +22,6 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
-import { toCwdInfo } from "./git.ts";
 
 const t = implement(contract);
 
@@ -106,23 +105,17 @@ export const appRouter = t.router({
       killAllTerminals();
     }),
 
-    onCwdChange: t.terminal.onCwdChange.handler(async function* ({
+    onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
       input,
       signal,
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current CWD with git context immediately
-      yield await toCwdInfo(entry.handle.cwd);
+      // Yield current metadata immediately
+      yield { ...entry.metadata };
 
-      // Then stream changes, enriching each with git context
-      for await (const rawCwd of subscribeAndYield(
-        entry.emitter,
-        "cwd",
-        signal,
-      )) {
-        yield await toCwdInfo(rawCwd);
-      }
+      // Then stream changes from all providers
+      yield* subscribeAndYield(entry.emitter, "metadata", signal);
     }),
 
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({

@@ -19,7 +19,7 @@ function repoColorKey(
   meta: Omit<TerminalInfo, "id"> | undefined,
 ): string | undefined {
   return (
-    meta?.cwd?.git?.repoName || cwdBasename(meta?.cwd?.cwd ?? "") || undefined
+    meta?.meta?.git?.repoName || cwdBasename(meta?.meta?.cwd ?? "") || undefined
   );
 }
 
@@ -71,7 +71,7 @@ const SidebarEntry: Component<{
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
-        title={m()?.cwd?.cwd ?? String(props.id)}
+        title={m()?.meta?.cwd ?? String(props.id)}
       >
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
           <span
@@ -82,10 +82,10 @@ const SidebarEntry: Component<{
               "bg-fg-3": !(m()?.isActive ?? false),
             }}
           />
-          <Show when={m()?.cwd}>
-            {(cwdInfo) => (
+          <Show when={m()?.meta}>
+            {(metadata) => (
               <span class="truncate" style={{ color: repoColor() }}>
-                {cwdBasename(cwdInfo().cwd)}
+                {cwdBasename(metadata().cwd)}
               </span>
             )}
           </Show>
@@ -103,8 +103,36 @@ const SidebarEntry: Component<{
           data-testid="sidebar-branch"
           class="text-xs text-fg-2 ml-3.5 truncate"
         >
-          {m()?.cwd?.git?.branch ?? "\u00A0"}
+          {m()?.meta?.git?.branch ?? "\u00A0"}
         </div>
+        <Show when={m()?.meta?.pr}>
+          {(pr) => (
+            <a
+              href={pr().url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex items-center gap-1 text-xs text-fg-3 hover:text-accent ml-3.5 truncate"
+              data-testid="sidebar-pr"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Show when={pr().checks}>
+                {(checks) => (
+                  <span
+                    class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                    classList={{
+                      "bg-ok": checks() === "pass",
+                      "bg-warning animate-pulse": checks() === "pending",
+                      "bg-danger": checks() === "fail",
+                    }}
+                  />
+                )}
+              </Show>
+              <span class="truncate">
+                #{pr().number} {pr().title}
+              </span>
+            </a>
+          )}
+        </Show>
         <Show when={props.activityHistory.length > 0}>
           <div class="ml-3.5 mt-0.5">
             <ActivityGraph samples={props.activityHistory} />
@@ -255,7 +283,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": color() }}
                     >
                       <span style={{ color: color() }}>
-                        {cwdBasename(dm()?.cwd?.cwd ?? "") || "terminal"}
+                        {cwdBasename(dm()?.meta?.cwd ?? "") || "terminal"}
                       </span>
                     </div>
                   );

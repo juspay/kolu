@@ -6,7 +6,7 @@ import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
 import { useSubPanel } from "./useSubPanel";
-import type { TerminalId, CwdInfo } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const TerminalPane: Component<{
   terminalId: TerminalId;
@@ -17,9 +17,9 @@ const TerminalPane: Component<{
   subTerminalIds: TerminalId[];
   getMeta: (
     id: TerminalId,
-  ) => { cwd?: CwdInfo; themeName?: string } | undefined;
+  ) => { meta?: TerminalMetadata; themeName?: string } | undefined;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  activeCwd: CwdInfo | null;
+  activeMeta: TerminalMetadata | null;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -116,7 +116,7 @@ const TerminalPane: Component<{
                 onCreate={() =>
                   props.onCreateSubTerminal(
                     props.terminalId,
-                    props.activeCwd?.cwd,
+                    props.activeMeta?.cwd,
                   )
                 }
               />
