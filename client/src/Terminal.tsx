@@ -64,6 +64,8 @@ function bufferToBase64(buf: ArrayBuffer): string {
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
+  /** When true, this terminal should grab keyboard focus. */
+  focused?: boolean;
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
@@ -93,6 +95,19 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         debouncedFit();
         terminal.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Grab focus when the focused prop transitions to true (e.g. sub-panel toggle).
+  createEffect(
+    on(
+      () => props.focused,
+      (focused) => {
+        if (focused && props.visible && terminal) {
+          terminal.focus();
+        }
       },
       { defer: true },
     ),

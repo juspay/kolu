@@ -1,6 +1,6 @@
 /** TerminalPane — wraps a main terminal + optional resizable sub-panel below. */
 
-import { type Component, Show, For, createEffect, on } from "solid-js";
+import { type Component, Show, For } from "solid-js";
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
@@ -27,26 +27,6 @@ const TerminalPane: Component<{
   const hasSubs = () => props.subTerminalIds.length > 0;
   const isExpanded = () => hasSubs() && !panelState().collapsed;
   const activeSubTab = () => panelState().activeSubTab;
-
-  // Focus the right terminal when sub-panel expands/collapses.
-  // On expand: focus active sub-terminal. On collapse: focus main terminal.
-  createEffect(
-    on(
-      isExpanded,
-      (expanded) => {
-        if (!props.visible) return;
-        const targetId = expanded ? activeSubTab() : props.terminalId;
-        if (!targetId) return;
-        // Let the layout settle before focusing (Resizable animates sizes)
-        requestAnimationFrame(() => {
-          document
-            .querySelector<HTMLElement>(`[data-terminal-id="${targetId}"]`)
-            ?.click();
-        });
-      },
-      { defer: true },
-    ),
-  );
 
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle
@@ -91,6 +71,7 @@ const TerminalPane: Component<{
             <Terminal
               terminalId={props.terminalId}
               visible={props.visible}
+              focused={props.visible && !isExpanded()}
               theme={props.theme}
               searchOpen={props.searchOpen}
               onSearchOpenChange={props.onSearchOpenChange}
@@ -146,6 +127,9 @@ const TerminalPane: Component<{
                   <Terminal
                     terminalId={subId}
                     visible={
+                      props.visible && isExpanded() && activeSubTab() === subId
+                    }
+                    focused={
                       props.visible && isExpanded() && activeSubTab() === subId
                     }
                     theme={props.theme}

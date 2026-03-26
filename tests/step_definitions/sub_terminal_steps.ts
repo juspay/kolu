@@ -92,13 +92,10 @@ Then(
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
-    // Get the main terminal ID (active sidebar entry)
+    // Get the main terminal ID — the first visible terminal in the pane
     const mainId = await this.page.evaluate(() => {
-      const entry = document.querySelector(
-        '[data-testid="sidebar"] button[class*="bg-surface-2"]',
-      );
-      return entry
-        ?.closest("[data-terminal-id]")
+      return document
+        .querySelector("[data-terminal-id][data-visible]")
         ?.getAttribute("data-terminal-id");
     });
     assert.ok(mainId, "Could not find main terminal ID");
