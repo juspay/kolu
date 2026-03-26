@@ -31,6 +31,7 @@ const App: Component = () => {
     activeId,
     setActiveId,
     getMeta,
+    getActivityHistory,
     activeThemeName,
     activeTheme,
     activeCwd,
@@ -137,6 +138,7 @@ const App: Component = () => {
           terminalIds={terminalIds()}
           activeId={activeId()}
           getMeta={getMeta}
+          getActivityHistory={getActivityHistory}
           onSelect={setActiveId}
           onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
