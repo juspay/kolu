@@ -12,9 +12,8 @@ default:
 install:
     {{ nix_shell }} pnpm install
 
-# Run server + client in parallel via process-compose
-dev: install
-    {{ nix_shell }} kolu-dev
+# Run server + client in parallel
+dev: install (server) & (client)
 
 # Run TypeScript type checking across all packages
 watch: install

@@ -20,15 +20,13 @@ in
         export KOLU_CLIPBOARD_SHIM_DIR="${self'.packages.clipboard-shims}/bin"
         export KOLU_COMMIT_HASH="${commitHash}"
       '';
-      packages = [
-        self'.packages.kolu-dev
-      ] ++ (with pkgs; [
+      packages = with pkgs; [
         just
         nixd
         nodejs
         pnpm
         tsx
-      ]);
+      ];
     };
   };
 }
