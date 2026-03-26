@@ -31,7 +31,7 @@ client: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
+    KOLU_SERVER="$(nix-build {{ justfile_directory() }} -A default --no-out-link)/bin/kolu"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
@@ -69,8 +69,8 @@ pc:
 
 # Nix build (server + client)
 build:
-    nix build
+    nix-build -A default --no-out-link
 
 # Run the combined server+client binary
 run:
-    nix run
+    "$(nix-build -A default --no-out-link)/bin/kolu"
