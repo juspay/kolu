@@ -93,6 +93,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         emitter.emit("exit", exitCode);
         terminals.delete(id);
       },
+      // PTY callback (OSC 7), not an emitter listener — no re-entrant loop
       onCwd: (cwd) => {
         emitter.emit("cwd", cwd);
         // Restart git watcher for the new directory
