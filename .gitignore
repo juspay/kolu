@@ -4,7 +4,6 @@ result
 .direnv/
 .claude/worktrees/
 .claude/settings.local.json
-.pre-commit-config.yaml
 test-results/
 tests/reports/
 client/public/fonts

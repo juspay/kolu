@@ -18,22 +18,6 @@
         "type": "github"
       }
     },
-    "git-hooks": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1772893680,
-        "narHash": "sha256-JDqZMgxUTCq85ObSaFw0HhE+lvdOre1lx9iI6vYyOEs=",
-        "owner": "cachix",
-        "repo": "git-hooks.nix",
-        "rev": "8baab586afc9c9b57645a734c820e4ac0a604af9",
-        "type": "github"
-      },
-      "original": {
-        "owner": "cachix",
-        "repo": "git-hooks.nix",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1773628058,
@@ -68,7 +52,6 @@
     "root": {
       "inputs": {
         "flake-parts": "flake-parts",
-        "git-hooks": "git-hooks",
         "nixpkgs": "nixpkgs",
         "systems": "systems"
       }
