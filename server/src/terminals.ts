@@ -12,6 +12,7 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
+import { watchGitHead } from "./git.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -34,6 +35,8 @@ export interface TerminalEntry {
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId?: string;
+  /** Cleanup function for the .git/HEAD file watcher. */
+  stopGitWatch: () => void;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
@@ -84,12 +87,23 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const entry = terminals.get(id);
         if (entry) {
           if (entry.idleTimer) clearTimeout(entry.idleTimer);
+          entry.stopGitWatch();
           cleanupClipboardDir(entry.clipboardDir);
         }
         emitter.emit("exit", exitCode);
         terminals.delete(id);
       },
-      onCwd: (cwd) => emitter.emit("cwd", cwd),
+      onCwd: (cwd) => {
+        emitter.emit("cwd", cwd);
+        // Restart git watcher for the new directory
+        const entry = terminals.get(id);
+        if (entry) {
+          entry.stopGitWatch();
+          entry.stopGitWatch = watchGitHead(cwd, () =>
+            emitter.emit("cwd", handle.cwd),
+          );
+        }
+      },
     },
     { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
     cwd,
@@ -101,6 +115,9 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
+    stopGitWatch: watchGitHead(handle.cwd, () =>
+      emitter.emit("cwd", handle.cwd),
+    ),
   };
   terminals.set(id, entry);
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
@@ -124,6 +141,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
+  entry.stopGitWatch();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
@@ -167,6 +185,7 @@ export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
+    entry.stopGitWatch();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
