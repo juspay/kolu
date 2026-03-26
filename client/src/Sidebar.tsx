@@ -38,6 +38,8 @@ const SidebarEntry: Component<{
   meta: Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
   activityHistory: ActivitySample[];
+  /** Number of sub-terminals attached to this terminal. */
+  subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
@@ -107,6 +109,12 @@ const SidebarEntry: Component<{
               </>
             )}
           </Show>
+          {/* Sub-terminal count badge */}
+          <Show when={props.subCount > 0}>
+            <span class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0">
+              +{props.subCount}
+            </span>
+          </Show>
         </div>
         <Show when={shortcutLabel()}>
           {(label) => <span class="text-xs text-fg-3 ml-3.5">{label()}</span>}
@@ -127,6 +135,7 @@ const Sidebar: Component<{
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
   onReorder: (ids: TerminalId[]) => void;
@@ -219,6 +228,7 @@ const Sidebar: Component<{
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
                       activityHistory={props.getActivityHistory(id)}
+                      subCount={props.getSubTerminalIds(id).length}
                       onSelect={handleSelect}
                       dropEdge={edge()}
                     />

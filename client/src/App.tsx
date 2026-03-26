@@ -149,6 +149,7 @@ const App: Component = () => {
           activeId={activeId()}
           getMeta={getMeta}
           getActivityHistory={getActivityHistory}
+          getSubTerminalIds={getSubTerminalIds}
           onSelect={setActiveId}
           onCreate={() => handleCreate()}
           onReorder={reorderTerminals}
