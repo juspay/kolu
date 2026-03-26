@@ -29,6 +29,7 @@ export const TerminalInfoSchema = z.object({
   themeName: z.string().optional(),
   isActive: z.boolean(),
   cwd: CwdInfoSchema.optional(),
+  parentId: TerminalIdSchema.optional(),
 });
 
 export const TerminalResizeInputSchema = z.object({
@@ -49,6 +50,7 @@ export const TerminalSetThemeInputSchema = z.object({
 
 export const TerminalCreateInputSchema = z.object({
   cwd: z.string().optional(),
+  parentId: TerminalIdSchema.optional(),
 });
 
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
@@ -60,6 +62,11 @@ export const TerminalPasteImageInputSchema = z.object({
   id: TerminalIdSchema,
   /** Base64-encoded image data (PNG, JPEG, etc.) */
   data: z.string(),
+});
+
+export const TerminalSetParentInputSchema = z.object({
+  id: TerminalIdSchema,
+  parentId: TerminalIdSchema.nullable(),
 });
 
 export const TerminalReorderInputSchema = z.object({

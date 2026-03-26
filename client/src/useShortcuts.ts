@@ -10,10 +10,14 @@ interface ShortcutDeps {
   activeId: Accessor<TerminalId | null>;
   setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
+  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeCwd: Accessor<CwdInfo | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  toggleSubPanel: (parentId: TerminalId) => void;
+  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
+  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -74,6 +78,38 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
     deps.setSearchOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
+    const id = deps.activeId();
+    if (id)
+      deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
+    const id = deps.activeId();
+    if (id) {
+      // If no sub-terminals exist yet, create one
+      if (deps.getSubTerminalIds(id).length === 0) {
+        deps.handleCreateSubTerminal(id, deps.activeCwd()?.cwd ?? undefined);
+      } else {
+        deps.toggleSubPanel(id);
+      }
+    }
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
+    const id = deps.activeId();
+    if (id) deps.cycleSubTab(id, 1);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
+    const id = deps.activeId();
+    if (id) deps.cycleSubTab(id, -1);
     return true;
   }
 

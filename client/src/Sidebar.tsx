@@ -31,8 +31,9 @@ const SidebarEntry: Component<{
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
   onSelect: (id: TerminalId) => void;
-  onKill: (id: TerminalId) => void;
   activityHistory: ActivitySample[];
+  /** Number of sub-terminals attached to this terminal. */
+  subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
   repoColor: string | undefined;
@@ -100,22 +101,17 @@ const SidebarEntry: Component<{
                     )}
                   </Show>
                 </span>
-                <Tip label="Close terminal">
-                  <span
-                    data-testid="close-terminal"
-                    class="opacity-0 group-hover:opacity-100 hover:text-danger text-fg-3 px-0.5 transition-opacity duration-150"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm("Close this terminal?"))
-                        props.onKill(props.id);
-                    }}
-                    onMouseDown={(e) => e.preventDefault()}
-                  >
-                    ×
-                  </span>
-                </Tip>
               </>
             )}
+          </Show>
+          {/* Sub-terminal count badge */}
+          <Show when={props.subCount > 0}>
+            <span
+              data-testid="sub-count"
+              class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+            >
+              +{props.subCount}
+            </span>
           </Show>
         </div>
         <Show when={shortcutLabel()}>
@@ -137,8 +133,8 @@ const Sidebar: Component<{
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
   onSelect: (id: TerminalId) => void;
-  onKill: (id: TerminalId) => void;
   onCreate: () => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
@@ -252,8 +248,8 @@ const Sidebar: Component<{
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
                       activityHistory={props.getActivityHistory(id)}
+                      subCount={props.getSubTerminalIds(id).length}
                       onSelect={handleSelect}
-                      onKill={props.onKill}
                       dropEdge={edge()}
                       repoColor={colorFor(props.getMeta(id))}
                     />

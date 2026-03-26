@@ -86,6 +86,12 @@ const Header: Component<{
           </span>
         )}
       </Show>
+      <span class="text-xs text-fg-3 hidden sm:inline">
+        <kbd class="font-[inherit] text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
+          Ctrl+`
+        </kbd>{" "}
+        sub-terminal
+      </span>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (

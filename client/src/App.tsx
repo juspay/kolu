@@ -15,7 +15,7 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
-import Terminal from "./Terminal";
+import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
@@ -25,6 +25,7 @@ import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
+import { useSubPanel } from "./useSubPanel";
 
 const App: Component = () => {
   const {
@@ -38,7 +39,9 @@ const App: Component = () => {
     activeCwd,
     existingTerminals,
     handleCreate,
+    handleCreateSubTerminal,
     handleKill,
+    getSubTerminalIds,
     reorderTerminals,
     commands,
     randomTheme,
@@ -46,6 +49,7 @@ const App: Component = () => {
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
+  const subPanel = useSubPanel();
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -72,10 +76,16 @@ const App: Component = () => {
     activeId,
     setActiveId,
     handleCreate: (cwd?: string) => void handleCreate(cwd),
+    handleCreateSubTerminal: (parentId, cwd) =>
+      void handleCreateSubTerminal(parentId, cwd),
     activeCwd,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    getSubTerminalIds,
+    cycleSubTab: (parentId, direction) =>
+      subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
   });
 
   function openPalette() {
@@ -150,8 +160,8 @@ const App: Component = () => {
           activeId={activeId()}
           getMeta={getMeta}
           getActivityHistory={getActivityHistory}
+          getSubTerminalIds={getSubTerminalIds}
           onSelect={setActiveId}
-          onKill={(id) => void handleKill(id)}
           onCreate={() => handleCreate()}
           onReorder={reorderTerminals}
           open={sidebarOpen()}
@@ -189,7 +199,7 @@ const App: Component = () => {
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
-                    <Terminal
+                    <TerminalPane
                       terminalId={id}
                       visible={activeId() === id}
                       theme={getThemeByName(
@@ -197,6 +207,12 @@ const App: Component = () => {
                       )}
                       searchOpen={searchOpen()}
                       onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={getSubTerminalIds(id)}
+                      getMeta={getMeta}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void handleCreateSubTerminal(parentId, cwd)
+                      }
+                      activeCwd={activeCwd()}
                     />
                   )}
                 </For>

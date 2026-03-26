@@ -28,6 +28,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
 import { createZoom } from "./zoom";
@@ -63,6 +64,8 @@ function bufferToBase64(buf: ArrayBuffer): string {
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
+  /** When true, this terminal should grab keyboard focus. */
+  focused?: boolean;
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
@@ -92,6 +95,19 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         debouncedFit();
         terminal.focus();
+      },
+      { defer: true },
+    ),
+  );
+
+  // Grab focus when the focused prop transitions to true (e.g. sub-panel toggle).
+  createEffect(
+    on(
+      () => props.focused,
+      (focused) => {
+        if (focused && props.visible && terminal) {
+          terminal.focus();
+        }
       },
       { defer: true },
     ),
@@ -202,6 +218,9 @@ const Terminal: Component<{
       // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
       // paste listener uploads images; xterm's own paste handler covers text.
       if (e.ctrlKey && e.key === "v") return false;
+
+      // Let any registered app shortcut bubble through to the capture-phase dispatcher
+      if (matchesAnyShortcut(e)) return false;
 
       return true;
     });

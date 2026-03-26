@@ -15,6 +15,7 @@ import {
   killTerminal,
   killAllTerminals,
   setTerminalTheme,
+  setTerminalParent,
   reorderTerminals,
   type TerminalEntry,
 } from "./terminals.ts";
@@ -40,7 +41,7 @@ export const appRouter = t.router({
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd),
+      createTerminal(input.cwd, input.parentId),
     ),
     list: t.terminal.list.handler(async () => listTerminals()),
 
@@ -94,6 +95,11 @@ export const appRouter = t.router({
 
     reorder: t.terminal.reorder.handler(async ({ input }) => {
       reorderTerminals(input.ids);
+    }),
+
+    setParent: t.terminal.setParent.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      setTerminalParent(input.id, input.parentId);
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
