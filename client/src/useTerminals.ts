@@ -422,6 +422,7 @@ export function useTerminals() {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
+    isPreviewingTheme: () => previewThemeName() !== undefined,
     activeCwd,
     existingTerminals,
     handleCreate,

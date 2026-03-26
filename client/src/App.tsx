@@ -37,6 +37,7 @@ const App: Component = () => {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
+    isPreviewingTheme,
     activeCwd,
     existingTerminals,
     handleCreate,
@@ -135,6 +136,7 @@ const App: Component = () => {
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
+        transparentOverlay={isPreviewingTheme()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}

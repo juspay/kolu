@@ -60,6 +60,8 @@ const CommandPalette: Component<{
   onOpenChange: (open: boolean) => void;
   /** If set, auto-drill into the group with this name on open. */
   initialGroup?: string;
+  /** When true, the backdrop is transparent so content behind is visible. */
+  transparentOverlay?: boolean;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
@@ -200,7 +202,11 @@ const CommandPalette: Component<{
   );
 
   return (
-    <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+    <ModalDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      transparentOverlay={props.transparentOverlay}
+    >
       <Dialog.Content
         forceMount
         data-testid="command-palette"
