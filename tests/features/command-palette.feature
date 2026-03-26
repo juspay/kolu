@@ -30,6 +30,7 @@ Feature: Command Palette
     And I create a terminal
     And I create a terminal
     And I open the command palette
+    And I select "Switch terminal" in the palette
     And I type "Terminal 1" in the palette
     Then the command palette should show 1 result
     And there should be no page errors
@@ -41,6 +42,7 @@ Feature: Command Palette
     And I create a terminal
     And I run "echo palette-second"
     And I open the command palette
+    And I select "Switch terminal" in the palette
     # Terminal 1 is the Background terminal; Terminal 2 is the first explicitly created one
     And I type "Terminal 2" in the palette
     And I press Enter
@@ -104,6 +106,54 @@ Feature: Command Palette
     # Wrap to last
     When I press Shift+Tab
     Then the last palette item should be selected
+    And there should be no page errors
+
+  Scenario: Backspace drills out of nested group
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then the palette breadcrumb should show "Switch terminal"
+    When I press Backspace
+    Then the palette breadcrumb should not be visible
+    And there should be no page errors
+
+  Scenario: Breadcrumb click navigates back to root
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then the palette breadcrumb should show "Switch terminal"
+    When I click breadcrumb "Commands" in the palette
+    Then the palette breadcrumb should not be visible
+    And there should be no page errors
+
+  Scenario: Group commands show chevron indicator
+    When I open the command palette
+    Then palette item "Theme" should have a chevron
+    And there should be no page errors
+
+  Scenario: Keyboard shortcut hints shown on commands
+    When I open the command palette
+    Then palette item "Create new terminal" should show shortcut "T"
+    And there should be no page errors
+
+  Scenario: Shortcut hints shown in nested group
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Switch terminal" in the palette
+    Then palette item "Switch to terminal 1" should show shortcut "1"
+    And there should be no page errors
+
+  Scenario: Terminal retains focus after palette command
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Theme" in the palette
+    And I select "Dracula" in the palette
+    Then the command palette should not be visible
+    And the terminal should have keyboard focus
     And there should be no page errors
 
   Scenario: Cmd/Ctrl+K does not leak to terminal

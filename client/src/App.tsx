@@ -18,6 +18,7 @@ import Sidebar from "./Sidebar";
 import Terminal from "./Terminal";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import { refocusTerminal } from "./ModalDialog";
 import { getThemeByName } from "./theme";
 import { client, wsStatus } from "./rpc";
 import { renderer } from "./Terminal";
@@ -55,7 +56,9 @@ const App: Component = () => {
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
-  const [paletteInitialQuery, setPaletteInitialQuery] = createSignal("");
+  const [paletteInitialGroup, setPaletteInitialGroup] = createSignal<
+    string | undefined
+  >();
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
@@ -75,15 +78,23 @@ const App: Component = () => {
     setSearchOpen,
   });
 
-  function openPaletteWith(query: string) {
-    setPaletteInitialQuery(query);
+  function openPalette() {
+    setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
   }
 
-  // Reset initial query on close so Cmd/Ctrl+K opens with a clean slate
+  function openPaletteGroup(group: string) {
+    setPaletteInitialGroup(group);
+    setPaletteOpen(true);
+  }
+
+  // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
-    if (!open) setPaletteInitialQuery("");
+    if (!open) {
+      setPaletteInitialGroup(undefined);
+      requestAnimationFrame(refocusTerminal);
+    }
   }
 
   return (
@@ -112,7 +123,7 @@ const App: Component = () => {
         commands={commands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
-        initialQuery={paletteInitialQuery()}
+        initialGroup={paletteInitialGroup()}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -120,8 +131,8 @@ const App: Component = () => {
       />
       <Header
         status={wsStatus()}
-        onOpenPalette={() => openPaletteWith("")}
-        onThemeClick={() => openPaletteWith("Theme: ")}
+        onOpenPalette={() => openPalette()}
+        onThemeClick={() => openPaletteGroup("Theme")}
         themeName={activeThemeName()}
         cwd={activeCwd()}
         onToggleSidebar={toggleSidebar}
