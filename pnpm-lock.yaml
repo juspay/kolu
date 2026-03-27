@@ -9,11 +9,7 @@ overrides:
 
 importers:
 
-  .:
-    dependencies:
-      '@solid-primitives/media':
-        specifier: ^2.3.5
-        version: 2.3.5(solid-js@1.9.11)
+  .: {}
 
   client:
     dependencies:
