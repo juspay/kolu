@@ -1,6 +1,6 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { justfile_directory() + '/nix-shell-fast' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
 mod ci 'ci/mod.just'
 
@@ -34,7 +34,7 @@ client:
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix-build {{ justfile_directory() }} -A default --no-out-link)/bin/kolu"
+    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
@@ -72,8 +72,8 @@ pc:
 
 # Nix build (server + client)
 build:
-    nix-build -A default --no-out-link
+    nix build
 
 # Run the combined server+client binary
 run:
-    "$(nix-build -A default --no-out-link)/bin/kolu"
+    nix run

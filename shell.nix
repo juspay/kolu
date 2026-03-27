@@ -1,7 +1,6 @@
-# Dev shell — uses nix-shell for fast startup.
-# nixpkgs pin lives in nix/nixpkgs.nix.
+# Dev shell — shared by `nix develop` (via flake.nix) and `nix-shell`.
+{ pkgs ? import ./nix/nixpkgs.nix { } }:
 let
-  pkgs = import ./nix/nixpkgs.nix { };
   packages = import ./default.nix { inherit pkgs; };
 in
 pkgs.mkShell {

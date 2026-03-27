@@ -1,5 +1,14 @@
-# Thin compat wrapper — re-exports default.nix for CI and downstream flake consumers.
-# Dev workflow uses shell.nix via nix-run (see justfile).
+# IMPORTANT: This flake intentionally has ZERO inputs.
+#
+# nixpkgs is imported via fetchTarball in nix/nixpkgs.nix, bypassing the
+# flake input system. This is critical for `nix develop` performance:
+#
+#   - Each flake input adds ~1.5s of fetcher-cache verification on cold
+#     eval cache. Even a single nixpkgs input costs ~7s.
+#   - With zero inputs, `nix develop` cold is ~2.6s, warm is ~0.3s.
+#
+# DO NOT add flake inputs (nixpkgs, flake-parts, git-hooks, etc.).
+# Instead, use fetchTarball or callPackage in nix/ files.
 {
   nixConfig = {
     extra-substituters = "https://cache.nixos.asia/oss";
@@ -21,5 +30,7 @@
       homeManagerModules.default = import ./nix/home/module.nix;
       packages = eachSystem (pkgs:
         import ./default.nix { inherit pkgs commitHash; });
+      devShells = eachSystem (pkgs:
+        { default = import ./shell.nix { inherit pkgs; }; });
     };
 }
