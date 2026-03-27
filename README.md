@@ -4,7 +4,7 @@
 
 # kolu
 
-Web-based [Agenting Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) built on terminals.
+Web-based [Agentic Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) built on terminals.
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
