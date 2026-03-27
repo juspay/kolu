@@ -32,6 +32,8 @@ import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 
 const App: Component = () => {
   const {
@@ -91,6 +93,23 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+
+  const { showTipOnce, showStartupTip, startupTips, setStartupTips } =
+    useTips();
+
+  // Show a random tip once the first terminal appears (delayed for non-intrusiveness)
+  let startupTipFired = false;
+  createEffect(() => {
+    if (!startupTipFired && terminalIds().length > 0) {
+      startupTipFired = true;
+      setTimeout(showStartupTip, 3000);
+    }
+  });
+
+  // Nudge toward Mission Control when user has 3+ terminals
+  createEffect(() => {
+    if (terminalIds().length >= 3) showTipOnce(CONTEXTUAL_TIPS.missionControl);
+  });
 
   useShortcuts({
     terminalIds,
@@ -361,6 +380,8 @@ const App: Component = () => {
         onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
+        startupTips={startupTips()}
+        onStartupTipsChange={setStartupTips}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

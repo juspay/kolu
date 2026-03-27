@@ -13,6 +13,8 @@ import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
 import { WorktreeIcon } from "./Icons";
+import { useTips } from "./useTips";
+import { sidebarSwitchTip } from "./tips";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 
@@ -174,7 +176,11 @@ const Sidebar: Component<{
     return branch ? colors().branch.get(branch) : undefined;
   }
 
+  const { showTipOnce } = useTips();
+
   function handleSelect(id: TerminalId) {
+    const idx = props.terminalIds.indexOf(id);
+    if (idx >= 0 && idx < 9) showTipOnce(sidebarSwitchTip(idx));
     props.onSelect(id);
     if (window.innerWidth < 640) props.onClose();
   }

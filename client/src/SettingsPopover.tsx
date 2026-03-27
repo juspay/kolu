@@ -20,6 +20,8 @@ const SettingsPopover: Component<{
   onScrollLockChange: (on: boolean) => void;
   colorScheme: ColorScheme;
   onColorSchemeChange: (scheme: ColorScheme) => void;
+  startupTips: boolean;
+  onStartupTipsChange: (on: boolean) => void;
 }> = (props) => {
   let panelRef: HTMLDivElement | undefined;
 
@@ -85,6 +87,15 @@ const SettingsPopover: Component<{
             testId="scroll-lock-toggle"
             enabled={props.scrollLock}
             onChange={props.onScrollLockChange}
+          />
+        </label>
+        {/* Startup tips */}
+        <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
+          <span class="text-fg-2">Startup tips</span>
+          <Toggle
+            testId="startup-tips-toggle"
+            enabled={props.startupTips}
+            onChange={props.onStartupTipsChange}
           />
         </label>
       </div>

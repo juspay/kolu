@@ -11,6 +11,8 @@ import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import SettingsPopover from "./SettingsPopover";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
@@ -38,8 +40,11 @@ const Header: Component<{
   onScrollLockChange?: (on: boolean) => void;
   colorScheme?: ColorScheme;
   onColorSchemeChange?: (scheme: ColorScheme) => void;
+  startupTips?: boolean;
+  onStartupTipsChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
+  const { showTipOnce } = useTips();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
@@ -113,7 +118,13 @@ const Header: Component<{
             <button
               data-testid="theme-name"
               class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              onClick={() => props.onThemeClick?.()}
+              onClick={() => {
+                props.onThemeClick?.();
+                setTimeout(
+                  () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                  500,
+                );
+              }}
             >
               {props.themeName}
             </button>
@@ -148,6 +159,8 @@ const Header: Component<{
             onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
             colorScheme={props.colorScheme ?? "dark"}
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
+            startupTips={props.startupTips ?? true}
+            onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />
         </div>
         <Tip label="Command palette">
