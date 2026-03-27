@@ -1,6 +1,7 @@
 /** Floating "scroll to bottom" button — shown when terminal is scroll-locked. */
 
 import { type Component, Show } from "solid-js";
+import { ScrollDownIcon } from "./Icons";
 import Tip from "./Tip";
 
 const ScrollToBottom: Component<{
@@ -28,19 +29,7 @@ const ScrollToBottom: Component<{
         <Show when={props.active}>
           <span class="absolute inset-0 rounded-full bg-accent/20 animate-ping" />
         </Show>
-        <svg
-          class="w-5 h-5 relative"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-          />
-        </svg>
+        <ScrollDownIcon class="w-5 h-5 relative" />
       </button>
     </Tip>
   </Show>
