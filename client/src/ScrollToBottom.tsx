@@ -14,13 +14,19 @@ const ScrollToBottom: Component<{
       <button
         data-testid="scroll-to-bottom"
         data-active={props.active ? "" : undefined}
-        class="absolute bottom-6 right-6 z-10 bg-surface-1 border border-edge-bright rounded-full shadow-lg p-3 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+        class="absolute bottom-6 right-6 z-10 rounded-full shadow-lg p-3 transition-colors cursor-pointer"
+        classList={{
+          // Active: accent border + accent text for high contrast
+          "bg-surface-1 border-2 border-accent text-accent": props.active,
+          "bg-surface-1 border border-edge-bright text-fg-3 hover:text-fg":
+            !props.active,
+        }}
         onClick={props.onClick}
         aria-label="Scroll to bottom"
       >
-        {/* Gentle pulse when new output arrives below */}
+        {/* Expanding ring animation — draws attention to new output below */}
         <Show when={props.active}>
-          <span class="absolute inset-0 rounded-full border-2 border-accent animate-pulse" />
+          <span class="absolute inset-0 rounded-full bg-accent/20 animate-ping" />
         </Show>
         <svg
           class="w-5 h-5 relative"

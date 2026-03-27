@@ -31,10 +31,10 @@ Feature: Scroll lock
 
   Scenario: Button shows activity when new output arrives while locked
     When I generate 100 lines of output
-    And I schedule 10 lines of delayed output
+    And I prepare a output trigger
     And I scroll the terminal up
     Then the scroll-to-bottom button should not be active
-    When I wait for the delayed output
+    When I fire the output trigger
     Then the scroll-to-bottom button should be active
 
   Scenario: Disabling scroll lock prevents freezing

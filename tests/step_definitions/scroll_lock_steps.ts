@@ -1,6 +1,9 @@
 import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
+import { writeFile } from "node:fs/promises";
 import { KoluWorld } from "../support/world.ts";
+
+const SCROLL_FIFO = "/tmp/kolu-scroll-fifo";
 
 /** Locate the xterm viewport div inside the active terminal. */
 function viewportLocator(world: KoluWorld) {
@@ -43,19 +46,21 @@ When("I note the scroll position", async function (this: KoluWorld) {
   );
 });
 
-When(
-  "I schedule {int} lines of delayed output",
-  async function (this: KoluWorld, count: number) {
-    // Start a background job that outputs after a delay — lets us scroll up first
-    await this.terminalRun(
-      `(sleep 2; for i in $(seq 1 ${count}); do echo delayed-$i; done) &`,
-    );
-    await this.page.waitForTimeout(500);
-  },
-);
+When("I prepare a output trigger", async function (this: KoluWorld) {
+  // Create a FIFO so we can inject output without typing (which would clear scroll lock).
+  // A background cat blocks on the FIFO until the test process writes to it.
+  await this.terminalRun(`mkfifo ${SCROLL_FIFO}`);
+  await this.page.waitForTimeout(300);
+  await this.terminalRun(`cat ${SCROLL_FIFO} &`);
+  await this.page.waitForTimeout(300);
+});
 
-When("I wait for the delayed output", async function (this: KoluWorld) {
-  await this.page.waitForTimeout(3000);
+When("I fire the output trigger", async function (this: KoluWorld) {
+  // Write to the FIFO from the test process — bypasses xterm keyboard input
+  // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
+  const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
+  await writeFile(SCROLL_FIFO, lines.join("\n") + "\n");
+  await this.page.waitForTimeout(1000);
 });
 
 When("I click the scroll-to-bottom button", async function (this: KoluWorld) {
