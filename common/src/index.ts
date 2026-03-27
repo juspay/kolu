@@ -14,6 +14,7 @@ export const GitInfoSchema = z.object({
   repoName: z.string(),
   worktreePath: z.string(),
   branch: z.string(),
+  isWorktree: z.boolean(),
 });
 
 // --- GitHub PR context ---

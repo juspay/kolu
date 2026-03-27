@@ -28,11 +28,17 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
     } catch {
       branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
     }
+    // --git-common-dir returns the shared .git dir; for worktrees it points
+    // back to the main repo's .git, letting us derive the real repo name.
+    const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
+    const mainRepoRoot = path.dirname(path.resolve(repoRoot, gitCommonDir));
+    const isWorktree = mainRepoRoot !== repoRoot;
     return {
       repoRoot,
-      repoName: path.basename(repoRoot),
+      repoName: path.basename(mainRepoRoot),
       worktreePath: cwd,
       branch,
+      isWorktree,
     };
   } catch {
     return null;

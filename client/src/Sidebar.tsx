@@ -70,10 +70,35 @@ const SidebarEntry: Component<{
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
           <Show when={m()?.meta}>
             {(metadata) => (
-              <span class="truncate" style={{ color: repoColor() }}>
-                {cwdBasename(metadata().cwd)}
+              <span
+                data-testid="sidebar-label"
+                class="truncate"
+                style={{ color: repoColor() }}
+              >
+                {metadata().git?.repoName ?? cwdBasename(metadata().cwd)}
               </span>
             )}
+          </Show>
+          <Show when={m()?.meta?.git?.isWorktree}>
+            <span
+              data-testid="worktree-indicator"
+              class="text-fg-3 shrink-0"
+              title="Worktree"
+            >
+              <svg
+                class="w-3 h-3"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                />
+              </svg>
+            </span>
           </Show>
           {/* Sub-terminal count badge */}
           <Show when={props.subCount > 0}>
@@ -254,7 +279,8 @@ const Sidebar: Component<{
                       style={{ "border-left-color": color() }}
                     >
                       <span style={{ color: color() }}>
-                        {cwdBasename(dm()?.meta?.cwd ?? "") || "terminal"}
+                        {dm()?.meta?.git?.repoName ??
+                          (cwdBasename(dm()?.meta?.cwd ?? "") || "terminal")}
                       </span>
                     </div>
                   );
