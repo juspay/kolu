@@ -178,7 +178,12 @@ const CommandPalette: Component<{
             : undefined;
           setPath(group ? [group] : []);
           didSelect = false;
-          requestAnimationFrame(() => inputRef?.focus());
+          // Double-rAF: first frame lets Corvu's focus trap settle
+          // (it grabs the first tabbable element, e.g. breadcrumb button),
+          // second frame overrides with the search input.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef?.focus()),
+          );
         } else {
           if (!didSelect) for (const g of path()) g.onCancel?.();
           didSelect = false;

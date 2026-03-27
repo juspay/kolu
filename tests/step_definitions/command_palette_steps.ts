@@ -175,9 +175,13 @@ Then(
   async function (this: KoluWorld) {
     const input = this.page.locator(`${PALETTE_SELECTOR} input`);
     await input.waitFor({ state: "visible", timeout: 3000 });
-    const isFocused = await input.evaluate(
-      (el) => document.activeElement === el,
-    );
+    // Focus arrives after a double-rAF; poll briefly.
+    let isFocused = false;
+    for (let i = 0; i < 10; i++) {
+      isFocused = await input.evaluate((el) => document.activeElement === el);
+      if (isFocused) break;
+      await this.page.waitForTimeout(50);
+    }
     assert.ok(isFocused, "Expected palette search input to be focused");
   },
 );
