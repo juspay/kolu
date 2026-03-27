@@ -28,11 +28,22 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
     } catch {
       branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
     }
+    // --git-common-dir returns the shared .git dir; for worktrees it points
+    // back to the main repo's .git, letting us derive the real repo name.
+    // The path is relative to cwd (where simple-git runs), not repoRoot.
+    // realpathSync normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
+    // so the comparison with repoRoot (which git already resolved) is reliable.
+    const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
+    const mainRepoRoot = path.dirname(
+      fs.realpathSync(path.resolve(cwd, gitCommonDir)),
+    );
+    const isWorktree = mainRepoRoot !== repoRoot;
     return {
       repoRoot,
-      repoName: path.basename(repoRoot),
+      repoName: path.basename(mainRepoRoot),
       worktreePath: cwd,
       branch,
+      isWorktree,
     };
   } catch {
     return null;

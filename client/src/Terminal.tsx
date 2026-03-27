@@ -352,7 +352,7 @@ const Terminal: Component<{
         visible={scrollLock.isLocked()}
         active={scrollLock.hasNewOutput()}
         onClick={() => {
-          terminal?.scrollToBottom();
+          if (terminal) scrollLock.scrollToBottom(terminal);
           terminal?.focus();
         }}
       />

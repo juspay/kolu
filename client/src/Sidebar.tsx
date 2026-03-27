@@ -8,10 +8,11 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { cwdBasename, terminalName, buildRepoColorMap } from "./path";
+import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
+import { WorktreeIcon } from "./Icons";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 
@@ -27,10 +28,12 @@ const SidebarEntry: Component<{
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
   repoColor: string | undefined;
+  branchColor: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
   const repoColor = () => props.repoColor;
+  const branchColor = () => props.branchColor;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -70,10 +73,23 @@ const SidebarEntry: Component<{
         <div class="flex items-center gap-1.5 text-sm font-medium truncate">
           <Show when={m()?.meta}>
             {(metadata) => (
-              <span class="truncate" style={{ color: repoColor() }}>
-                {cwdBasename(metadata().cwd)}
+              <span
+                data-testid="sidebar-label"
+                class="truncate"
+                style={{ color: repoColor() }}
+              >
+                {metadata().git?.repoName ?? cwdBasename(metadata().cwd)}
               </span>
             )}
+          </Show>
+          <Show when={m()?.meta?.git?.isWorktree}>
+            <span
+              data-testid="worktree-indicator"
+              class="text-fg-3 shrink-0"
+              title="Worktree"
+            >
+              <WorktreeIcon />
+            </span>
           </Show>
           {/* Sub-terminal count badge */}
           <Show when={props.subCount > 0}>
@@ -87,8 +103,10 @@ const SidebarEntry: Component<{
         </div>
         <div
           data-testid="sidebar-branch"
-          class="text-xs text-fg-2 truncate"
+          class="text-xs truncate"
           title={m()?.meta?.git?.branch}
+          style={{ color: branchColor() }}
+          classList={{ "text-fg-2": !branchColor() }}
         >
           {m()?.meta?.git?.branch ?? "\u00A0"}
         </div>
@@ -138,15 +156,22 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  const colorMap = createMemo(() =>
-    buildRepoColorMap(props.terminalIds, props.getMeta),
+  const colors = createMemo(() =>
+    buildColorMaps(props.terminalIds, props.getMeta),
   );
 
   function colorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
     const key = terminalName(meta);
-    return key ? colorMap().get(key) : undefined;
+    return key ? colors().repo.get(key) : undefined;
+  }
+
+  function branchColorFor(
+    meta: Omit<TerminalInfo, "id"> | undefined,
+  ): string | undefined {
+    const branch = meta?.meta?.git?.branch;
+    return branch ? colors().branch.get(branch) : undefined;
   }
 
   function handleSelect(id: TerminalId) {
@@ -238,6 +263,7 @@ const Sidebar: Component<{
                       onSelect={handleSelect}
                       dropEdge={edge()}
                       repoColor={colorFor(props.getMeta(id))}
+                      branchColor={branchColorFor(props.getMeta(id))}
                     />
                   );
                 }}
@@ -254,7 +280,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": color() }}
                     >
                       <span style={{ color: color() }}>
-                        {cwdBasename(dm()?.meta?.cwd ?? "") || "terminal"}
+                        {terminalName(dm()) ?? "terminal"}
                       </span>
                     </div>
                   );

@@ -85,6 +85,43 @@ Then(
 );
 
 Then(
+  "the sidebar label should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const text = await pollTestId(this, "sidebar-label", (t) =>
+      t.includes(expected),
+    );
+    assert.ok(
+      text.includes(expected),
+      `Expected sidebar label to contain "${expected}", got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the sidebar should show a worktree indicator",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="worktree-indicator"]')
+      .count();
+    assert.ok(count > 0, `Expected a worktree indicator but found none`);
+  },
+);
+
+Then(
+  "the sidebar should not show a worktree indicator",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="worktree-indicator"]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no worktree indicator but found ${count}`,
+    );
+  },
+);
+
+Then(
   "the sidebar should not show git context",
   async function (this: KoluWorld) {
     const text = (

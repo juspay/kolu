@@ -1,8 +1,11 @@
 /**
  * Scroll-lock state machine — owns viewport freeze/restore logic.
  *
- * Isolates the temporal coupling (isRestoring guard + queueMicrotask) into
- * a single primitive so Terminal.tsx doesn't need to manage it.
+ * When the user scrolls up, incoming data is buffered (not written to xterm).
+ * This eliminates viewport-jumping bugs entirely — no write-then-restore race,
+ * no timing issues with isRestoring guards, no edge cases with escape sequences
+ * that force xterm to auto-scroll. When the user scrolls back to the bottom,
+ * buffered data is flushed in one shot.
  */
 
 import { type Accessor, createSignal, createEffect, on } from "solid-js";
@@ -17,12 +20,23 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
   const [isLocked, setIsLocked] = createSignal(false);
   const [hasNewOutput, setHasNewOutput] = createSignal(false);
 
-  // Guard flag: true while restoring scroll position after a write, so the
-  // onScroll handler ignores our own scrollToLine call.
-  let isRestoring = false;
+  /** Data buffered while scroll-locked — flushed on unlock. */
+  let pendingData: string[] = [];
 
-  /** Clear all scroll-lock state in one shot. */
+  /** Terminal reference, set on attach. */
+  let termRef: Terminal | null = null;
+
+  /** Flush all buffered data to the terminal. */
+  function flush(): void {
+    if (pendingData.length === 0 || !termRef) return;
+    const data = pendingData.join("");
+    pendingData.length = 0;
+    termRef.write(data);
+  }
+
+  /** Clear all scroll-lock state, flushing any buffered data first. */
   function reset() {
+    flush();
     setIsLocked(false);
     setHasNewOutput(false);
   }
@@ -40,20 +54,24 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
 
   /** Wire the onScroll handler to detect when user scrolls away from bottom. */
   function attachToTerminal(term: Terminal): void {
+    termRef = term;
     term.onScroll(() => {
-      if (isRestoring || enabled() === false) return;
+      if (enabled() === false) return;
       const buf = term.buffer.active;
       const atBottom = buf.baseY <= buf.viewportY;
+      if (atBottom && isLocked()) {
+        // User scrolled back to bottom — flush buffered data
+        flush();
+      }
       setIsLocked(!atBottom);
       if (atBottom) setHasNewOutput(false);
     });
   }
 
   /**
-   * Scroll-aware write: when locked, preserves viewport position.
-   *
-   * xterm.js normally keeps the viewport in place (adjusting for scrollback
-   * trimming). We only intervene if xterm unexpectedly auto-scrolls to bottom.
+   * Scroll-aware write: when locked, buffer data instead of writing to xterm.
+   * This completely avoids viewport-jumping — xterm never processes the data
+   * until the user is at the bottom and ready to see it.
    */
   function writeData(term: Terminal, data: string): void {
     if (!isLocked()) {
@@ -61,19 +79,26 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
       return;
     }
     setHasNewOutput(true);
-    const savedY = term.buffer.active.viewportY;
-    isRestoring = true;
-    term.write(data, () => {
-      const buf = term.buffer.active;
-      // Only restore if xterm auto-scrolled to the bottom. Normally
-      // xterm keeps the viewport in place (adjusted for any trimming)
-      // — overriding with a stale savedY would drift the view.
-      if (buf.viewportY >= buf.baseY && buf.baseY > 0) {
-        term.scrollToLine(Math.min(savedY, buf.baseY - 1));
-      }
-      queueMicrotask(() => (isRestoring = false));
-    });
+    pendingData.push(data);
   }
 
-  return { isLocked, hasNewOutput, reset, attachToTerminal, writeData };
+  /**
+   * Flush buffered data and scroll to bottom.
+   * Call this from the "scroll to bottom" button handler.
+   */
+  function scrollToBottom(term: Terminal): void {
+    flush();
+    term.scrollToBottom();
+    setIsLocked(false);
+    setHasNewOutput(false);
+  }
+
+  return {
+    isLocked,
+    hasNewOutput,
+    reset,
+    attachToTerminal,
+    writeData,
+    scrollToBottom,
+  };
 }
