@@ -38,13 +38,7 @@ oauth2-proxy proxies WebSockets by default (`proxy_websockets = true`). The WS u
 
 ## Route Whitelisting
 
-Only health check needs anonymous access:
-
-```
---skip-auth-route="^/api/health$"
-```
-
-All other routes (static assets, RPC, WebSocket) require auth. Users are redirected to GitHub before any app content is served.
+No routes need anonymous access. All routes (static assets, RPC, WebSocket) require auth. Users complete the GitHub OAuth flow before any app content is served.
 
 ## NixOS Configuration
 
@@ -59,9 +53,6 @@ services.oauth2-proxy = {
   cookie.secretFile = "/run/secrets/oauth2-proxy-cookie-secret";
   email.addresses = "you@example.com";  # restrict to your account
   upstream = "http://127.0.0.1:7681";
-  extraConfig = {
-    skip-auth-route = "^/api/health$";
-  };
 };
 ```
 
@@ -97,8 +88,59 @@ services.kolu = {
 
 Nothing. The entire auth stack is external. Kolu continues to bind to localhost and serve all routes without auth, trusting that only authenticated traffic reaches it via the proxy chain.
 
+## Alternative: Tailscale
+
+Tailscale offers two ways to expose Kolu:
+
+### Tailscale Serve (tailnet-only)
+
+```
+Browser (on tailnet) → Tailscale Serve (HTTPS) → Kolu (127.0.0.1:7681)
+```
+
+**No auth layer needed.** Only devices on your tailnet can connect — Tailscale identity _is_ the auth. HTTPS certs are provisioned automatically for `machine.tailnet.ts.net`. WebSocket proxying works transparently.
+
+```bash
+tailscale serve 7681
+```
+
+This is the simplest option if you only need access from your own devices (all running Tailscale). PWA works — valid HTTPS cert, no warnings. The tradeoff: every device must be on your tailnet.
+
+### Tailscale Funnel (public internet)
+
+```
+Browser (anywhere) → Tailscale Funnel (HTTPS) → Kolu (127.0.0.1:7681)
+```
+
+Exposes Kolu to the public internet with automatic HTTPS. **But Funnel has no auth** — it's fully public. You'd still need oauth2-proxy (or app-level auth) in front of Kolu to restrict access:
+
+```
+Browser → Tailscale Funnel (HTTPS) → oauth2-proxy → Kolu
+```
+
+This replaces Caddy (Funnel handles TLS/ACME) but still requires the OAuth proxy for auth. Restricted to ports 443, 8443, 10000.
+
+### NixOS setup for Tailscale Serve
+
+```nix
+services.tailscale.enable = true;
+
+# Serve must be started imperatively (no declarative NixOS option yet)
+systemd.services.tailscale-serve = {
+  after = [ "tailscaled.service" ];
+  wants = [ "tailscaled.service" ];
+  wantedBy = [ "multi-user.target" ];
+  serviceConfig = {
+    ExecStart = "${pkgs.tailscale}/bin/tailscale serve --bg 7681";
+    Type = "oneshot";
+    RemainAfterExit = true;
+  };
+};
+```
+
 ## Future Extensions
 
 - **Multi-user**: oauth2-proxy can pass `X-Forwarded-User` header — Kolu could read it for per-user terminal isolation
 - **Org/team restriction**: oauth2-proxy supports `--github-org` and `--github-team` flags
 - **Additional providers**: Google, OIDC, etc. — swap provider config, no Kolu changes
+- **Tailscale identity headers**: For Serve, your app can call `tailscale whois` on the connecting IP to identify which tailnet user is connecting — enables per-user features without a separate login system
