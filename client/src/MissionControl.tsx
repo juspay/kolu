@@ -187,8 +187,8 @@ const MissionControl: Component<{
                         />
                       </div>
                     </Show>
-                    {/* Metadata footer */}
-                    <div class="px-2.5 py-2 bg-surface-1 border-t border-edge space-y-0.5">
+                    {/* Metadata footer — fixed height so cards align when PR info varies */}
+                    <div class="px-2.5 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-20 shrink-0">
                       <div class="flex items-center gap-1.5 truncate">
                         <span class="text-sm font-semibold text-fg truncate">
                           {cardLabel(meta())}
