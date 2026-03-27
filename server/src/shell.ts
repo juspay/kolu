@@ -9,24 +9,17 @@ import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Env var patterns injected by nix devshells / direnv that must NOT
- * leak into the user's PTY shell (wrong PS1, shopt errors, direnv
- * unloading, multi-line derivation junk).
- */
-const STRIP_PATTERNS: RegExp[] = [
-  /^NIX_/, // nix toolchain / store vars
-  /^DIRENV_/, // direnv session state
-  /^__/, // internal markers (__ETC_PROFILE_DONE, etc.)
-  /^KOLU_/, // re-injected per-terminal (clipboard, fonts, …)
-  /^IN_NIX_SHELL$/, // nix shell indicator
-  /^BASH_ENV$/, // unexpected script sourcing
-  /^CONFIG_SHELL$/, // nix store bash path
-  /^HOST_PATH$/, // nix-specific PATH variant
-];
+/** Prefix patterns injected by nix devshells / direnv. */
+const STRIP_PREFIX = /^(NIX_|DIRENV_|__|KOLU_)/;
 
-/** Exact nix derivation vars from mkShell / stdenv. */
+/** Exact var names to strip — nix/direnv session state + derivation plumbing. */
 const STRIP_EXACT = new Set([
+  // nix / direnv session
+  "BASH_ENV",
+  "CONFIG_SHELL",
+  "HOST_PATH",
+  "IN_NIX_SHELL",
+  "NIXPKGS_CONFIG",
   // build toolchain
   "AR",
   "AS",
@@ -64,6 +57,7 @@ const STRIP_EXACT = new Set([
   "mesonFlags",
   "name",
   "nativeBuildInputs",
+  "NoDefaultCurrentDirectoryInExePath",
   "out",
   "outputs",
   "patches",
@@ -78,30 +72,19 @@ const STRIP_EXACT = new Set([
   "stdenv",
   "strictDeps",
   "system",
-  "NIXPKGS_CONFIG",
-  "NoDefaultCurrentDirectoryInExePath",
 ]);
 
-function isNixVar(key: string): boolean {
-  return STRIP_EXACT.has(key) || STRIP_PATTERNS.some((re) => re.test(key));
-}
-
 /**
- * Build a clean env for the PTY shell.
- *
- * The server may run inside nix/direnv which pollutes the env with
- * NIX_*, DIRENV_*, BASH_ENV, derivation vars, etc. — these break the
- * user's shell. Instead of allowlisting a handful of essentials (which
- * drops legitimate user vars like $ZSH for oh-my-zsh), we blocklist
- * the known nix/direnv pollution and forward everything else.
+ * Build a clean env for the PTY shell by stripping nix/direnv pollution
+ * while forwarding everything else (user vars like $ZSH, $NVM_DIR, etc.).
  */
 export function cleanEnv(): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !isNixVar(k)) {
-      env[k] = v;
-    }
-  }
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k, v]) =>
+        v !== undefined && !STRIP_EXACT.has(k) && !STRIP_PREFIX.test(k),
+    ),
+  ) as Record<string, string>;
   // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
   // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
   // the user's .bashrc errors on `shopt -s progcomp`.
