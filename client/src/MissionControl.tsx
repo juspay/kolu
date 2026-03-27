@@ -11,7 +11,6 @@ import {
   Show,
   createMemo,
   createEffect,
-  createSignal,
   on,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
@@ -56,10 +55,10 @@ const MissionControl: Component<{
   const displayIds = createMemo(() => {
     if (!props.quickSwitchMode) return props.terminalIds;
     const mru = props.mruOrder;
-    const all = new Set(props.terminalIds);
-    // Filter MRU to only existing terminals, then append any missing ones
-    const ordered = mru.filter((id) => all.has(id));
-    const missing = props.terminalIds.filter((id) => !mru.includes(id));
+    const existing = new Set(props.terminalIds);
+    const inMru = new Set(mru);
+    const ordered = mru.filter((id) => existing.has(id));
+    const missing = props.terminalIds.filter((id) => !inMru.has(id));
     return [...ordered, ...missing];
   });
 
@@ -79,14 +78,16 @@ const MissionControl: Component<{
     props.onOpenChange(false);
   }
 
-  // Auto-focus on open: in quick-switch mode, advance to the second card
-  // (previous terminal in MRU — like OS Alt+Tab). Otherwise focus active card.
+  // On open: auto-focus the right card. On close: clear quick-switch mode.
   createEffect(
     on(
       () => props.open,
       (open) => {
-        if (!open) return;
-        // setTimeout runs after Corvu Dialog's focus trap sets initial focus
+        if (!open) {
+          props.onQuickSwitchModeChange(false);
+          return;
+        }
+        // setTimeout runs after Corvu Dialog processes the open transition
         setTimeout(() => {
           const cards = gridRef?.querySelectorAll<HTMLElement>(
             "[data-testid='mission-control-card']",
@@ -94,7 +95,7 @@ const MissionControl: Component<{
           if (!cards?.length) return;
 
           if (props.quickSwitchMode && cards.length > 1) {
-            // Advance by one in the requested direction from position 0 (active terminal)
+            // Advance by one in the requested direction (like OS Alt+Tab)
             const target =
               props.quickSwitchDirection === -1 ? cards.length - 1 : 1;
             cards[target]!.focus();
@@ -118,17 +119,6 @@ const MissionControl: Component<{
       props.onQuickSwitchModeChange(false);
     }
   });
-
-  // Clear quickSwitchMode when MC closes by other means (Escape, click)
-  createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (!open) props.onQuickSwitchModeChange(false);
-      },
-      { defer: true },
-    ),
-  );
 
   // Keyboard navigation: Tab, number keys (1-9), arrow keys.
   // Capture phase to intercept Tab before Corvu Dialog's focus trap.
