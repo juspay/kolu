@@ -29,6 +29,7 @@ import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
+import { useColorScheme } from "./useColorScheme";
 
 const App: Component = () => {
   const {
@@ -55,6 +56,7 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
+  const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
   const [serverInfo] = createResource(() => client.server.info());
@@ -240,6 +242,8 @@ const App: Component = () => {
         appTitle={appTitle()}
         randomTheme={randomTheme()}
         onRandomThemeChange={setRandomTheme}
+        colorScheme={colorScheme()}
+        onColorSchemeChange={setColorScheme}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

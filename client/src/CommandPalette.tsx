@@ -178,7 +178,6 @@ const CommandPalette: Component<{
             : undefined;
           setPath(group ? [group] : []);
           didSelect = false;
-          requestAnimationFrame(() => inputRef?.focus());
         } else {
           if (!didSelect) for (const g of path()) g.onCancel?.();
           didSelect = false;
@@ -206,6 +205,7 @@ const CommandPalette: Component<{
       open={props.open}
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
+      initialFocusEl={inputRef}
     >
       <Dialog.Content
         forceMount

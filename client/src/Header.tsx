@@ -6,6 +6,7 @@ import ChecksIndicator from "./ChecksIndicator";
 import SettingsPopover from "./SettingsPopover";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
+import type { ColorScheme } from "./useColorScheme";
 
 /** WS connection status indicator colors and animations. */
 const statusStyles: Record<WsStatus, string> = {
@@ -26,6 +27,8 @@ const Header: Component<{
   appTitle?: string;
   randomTheme?: boolean;
   onRandomThemeChange?: (on: boolean) => void;
+  colorScheme?: ColorScheme;
+  onColorSchemeChange?: (scheme: ColorScheme) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -183,6 +186,8 @@ const Header: Component<{
             onOpenChange={setSettingsOpen}
             randomTheme={props.randomTheme ?? true}
             onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
+            colorScheme={props.colorScheme ?? "dark"}
+            onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
           />
         </div>
         <Tip label="Command palette">
