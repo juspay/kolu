@@ -1,10 +1,7 @@
 /**
- * Shared SVG icon components.
- *
- * All reusable icons live here so identical markup stays in sync across the
- * app. Each icon accepts an optional `class` prop (falls back to a sensible
- * default size). When adding a new icon, follow the same pattern and keep
- * icons alphabetically sorted.
+ * Shared SVG icon components — centralized so markup stays in sync.
+ * Each icon takes an optional `class` prop (defaults to a sensible size).
+ * Keep alphabetically sorted when adding new icons.
  */
 
 import type { Component } from "solid-js";
