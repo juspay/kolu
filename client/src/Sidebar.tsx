@@ -279,8 +279,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": color() }}
                     >
                       <span style={{ color: color() }}>
-                        {dm()?.meta?.git?.repoName ??
-                          (cwdBasename(dm()?.meta?.cwd ?? "") || "terminal")}
+                        {terminalName(dm()) ?? "terminal"}
                       </span>
                     </div>
                   );
