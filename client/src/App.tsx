@@ -103,7 +103,7 @@ const App: Component = () => {
   createEffect(() => {
     if (!startupTipFired && terminalIds().length > 0) {
       startupTipFired = true;
-      setTimeout(showStartupTip, 3000);
+      setTimeout(showStartupTip, 1000);
     }
   });
 
