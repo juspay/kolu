@@ -86,7 +86,7 @@ Given("I note the font size", async function (this: KoluWorld) {
 Then(
   "the screen state should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    await pollUntilBufferContains(this, expected);
+    await pollUntilBufferContains(this.page, expected);
   },
 );
 

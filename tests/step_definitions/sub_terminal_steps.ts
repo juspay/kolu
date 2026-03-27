@@ -103,7 +103,7 @@ Then(
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
     // Poll the first visible terminal's buffer for the marker
-    await pollUntilBufferContains(this, marker, {
+    await pollUntilBufferContains(this.page, marker, {
       selector: "[data-terminal-id][data-visible]",
       attempts: 20,
       intervalMs: 300,
@@ -212,7 +212,7 @@ Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
     // Sub-terminal is the second visible terminal container (index 1)
-    await pollUntilBufferContains(this, expected, {
+    await pollUntilBufferContains(this.page, expected, {
       selector: "[data-terminal-id][data-visible]",
       index: 1,
       attempts: 20,

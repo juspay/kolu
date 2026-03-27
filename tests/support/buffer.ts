@@ -5,13 +5,12 @@
  */
 
 import type { Page } from "playwright";
-import type { KoluWorld } from "./world.ts";
 
 /** Default selector for the active (visible) terminal container. */
 const ACTIVE_TERMINAL = "[data-visible][data-terminal-id]";
 
 /**
- * Read all non-empty lines from a terminal's xterm buffer.
+ * Read all lines from a terminal's xterm buffer (joined by newline).
  * @param index — when multiple terminals match the selector, pick the Nth (0-based). Default: 0.
  */
 export function readBufferText(
@@ -42,7 +41,7 @@ export function readBufferText(
  * Returns the full buffer content on match, or throws on timeout.
  */
 export async function pollUntilBufferContains(
-  world: KoluWorld,
+  page: Page,
   expected: string,
   {
     selector = ACTIVE_TERMINAL,
@@ -53,9 +52,9 @@ export async function pollUntilBufferContains(
 ): Promise<string> {
   let content = "";
   for (let i = 0; i < attempts; i++) {
-    content = await readBufferText(world.page, selector, index);
+    content = await readBufferText(page, selector, index);
     if (content.includes(expected)) return content;
-    await world.page.waitForTimeout(intervalMs);
+    await page.waitForTimeout(intervalMs);
   }
   throw new Error(
     `Buffer does not contain "${expected}" after ${attempts} attempts.\nBuffer (partial): ${content.slice(0, 500)}`,

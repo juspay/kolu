@@ -77,6 +77,6 @@ Then(
 Then(
   "the active terminal should show {string}",
   async function (this: KoluWorld, expected: string) {
-    await pollUntilBufferContains(this, expected);
+    await pollUntilBufferContains(this.page, expected);
   },
 );

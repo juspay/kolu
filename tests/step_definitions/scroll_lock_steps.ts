@@ -20,7 +20,7 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo scroll-test-$i; done`,
     );
-    await pollUntilBufferContains(this, `scroll-test-${count}`);
+    await pollUntilBufferContains(this.page, `scroll-test-${count}`);
   },
 );
 
@@ -30,7 +30,7 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo extra-line-$i; done`,
     );
-    await pollUntilBufferContains(this, `extra-line-${count}`);
+    await pollUntilBufferContains(this.page, `extra-line-${count}`);
   },
 );
 
@@ -65,7 +65,7 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
   await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-  await pollUntilBufferContains(this, "triggered-10");
+  await pollUntilBufferContains(this.page, "triggered-10");
 });
 
 When(
@@ -73,34 +73,20 @@ When(
   async function (this: KoluWorld, count: number) {
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-    await pollUntilBufferContains(this, `triggered-${count}`);
+    await pollUntilBufferContains(this.page, `triggered-${count}`);
   },
 );
 
-/**
- * Read text of the first visible row from the xterm buffer.
- * Uses the __xterm ref exposed on the container element.
- */
+/** Read the first visible row from the xterm buffer at the current viewport position. */
 function readFirstVisibleLine(world: KoluWorld) {
   return world.page.evaluate(() => {
     const container = document.querySelector(
       "[data-visible][data-terminal-id]",
-    ) as HTMLElement & {
-      __xterm?: {
-        buffer: {
-          active: {
-            viewportY: number;
-            getLine(
-              y: number,
-            ): { translateToString(trimRight?: boolean): string } | undefined;
-          };
-        };
-      };
-    };
-    const term = container?.__xterm;
+    );
+    const term = (container as any)?.__xterm;
     if (!term) return "";
-    const vY = term.buffer.active.viewportY;
-    return term.buffer.active.getLine(vY)?.translateToString(true) ?? "";
+    const buf = term.buffer.active;
+    return buf.getLine(buf.viewportY)?.translateToString(true) ?? "";
   });
 }
 
