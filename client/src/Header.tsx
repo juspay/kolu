@@ -1,7 +1,8 @@
-import { type Component, Show, mergeProps } from "solid-js";
+import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
+import SettingsPopover from "./SettingsPopover";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
 
@@ -19,14 +20,13 @@ const Header: Component<{
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
-  onShortcutsHelp?: () => void;
   onSearch?: () => void;
-  renderer?: string;
   appTitle?: string;
   randomTheme?: boolean;
   onRandomThemeChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
     <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
@@ -55,18 +55,6 @@ const Header: Component<{
       <span class="font-semibold text-sm hidden sm:inline">
         {props.appTitle ?? "kolu"}
       </span>
-      {__KOLU_COMMIT__ !== "dev" ? (
-        <a
-          href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-xs text-fg-3 hover:text-accent transition-colors"
-        >
-          {__KOLU_COMMIT__}
-        </a>
-      ) : (
-        <span class="text-xs text-fg-3">dev</span>
-      )}
       <Show when={props.meta}>
         {(meta) => (
           <span
@@ -89,7 +77,7 @@ const Header: Component<{
                   href={pr().url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent shrink-0 transition-colors"
+                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent min-w-0 transition-colors"
                   data-testid="header-pr"
                 >
                   &middot;
@@ -106,18 +94,13 @@ const Header: Component<{
                     )}
                   </Show>
                   #{pr().number}
+                  <span class="truncate hidden sm:inline">{pr().title}</span>
                 </a>
               )}
             </Show>
           </span>
         )}
       </Show>
-      <span class="text-xs text-fg-3 hidden sm:inline">
-        <kbd class="font-[inherit] text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-          Ctrl+`
-        </kbd>{" "}
-        sub-terminal
-      </span>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
@@ -131,20 +114,6 @@ const Header: Component<{
             </button>
           </Tip>
         )}
-        <Tip label="Random theme for new terminals">
-          <button
-            data-testid="random-theme-toggle"
-            class="h-7 px-2 text-xs rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            classList={{
-              "bg-accent/20 ring-1 ring-accent/40": props.randomTheme,
-              "text-fg-3 bg-surface-2/50 hover:text-fg-2 opacity-50":
-                !props.randomTheme,
-            }}
-            onClick={() => props.onRandomThemeChange?.(!props.randomTheme)}
-          >
-            <span class="text-[0.7rem]">🎲</span>
-          </button>
-        </Tip>
         <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
@@ -167,6 +136,41 @@ const Header: Component<{
             </svg>
           </button>
         </Tip>
+        <div class="relative">
+          <Tip label="Settings">
+            <button
+              data-testid="settings-trigger"
+              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              onClick={() => setSettingsOpen(!settingsOpen())}
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+          </Tip>
+          <SettingsPopover
+            open={settingsOpen()}
+            onOpenChange={setSettingsOpen}
+            randomTheme={props.randomTheme ?? true}
+            onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
+          />
+        </div>
         <Tip label="Command palette">
           <button
             data-testid="palette-trigger"
@@ -178,28 +182,13 @@ const Header: Component<{
             </kbd>
           </button>
         </Tip>
-        <Tip label="Keyboard shortcuts">
-          <button
-            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onShortcutsHelp?.()}
-          >
-            <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-              {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
-            </kbd>
-          </button>
+        <Tip label="Connection status">
+          <div class="flex items-center gap-1.5" data-ws-status={props.status}>
+            <span
+              class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
+            />
+          </div>
         </Tip>
-        {props.renderer && (
-          <span class="text-xs text-fg-3 hidden sm:inline">
-            {props.renderer}
-          </span>
-        )}
-        {/* Status dot — replaces text ● with styled element */}
-        <div class="flex items-center gap-1.5" data-ws-status={props.status}>
-          <span
-            class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
-          />
-          <span class="text-xs text-fg-3 hidden sm:inline">{props.status}</span>
-        </div>
       </div>
     </header>
   );

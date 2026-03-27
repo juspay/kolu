@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   createResource,
   Show,
@@ -16,12 +17,13 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
-import CommandPalette from "./CommandPalette";
+import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import { refocusTerminal } from "./ModalDialog";
+import ModalDialog, { refocusTerminal } from "./ModalDialog";
+import Dialog from "@corvu/dialog";
+import { SHORTCUTS } from "./keyboard";
 
 import { client, wsStatus } from "./rpc";
-import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -69,6 +71,9 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
+  // About dialog state
+  const [aboutOpen, setAboutOpen] = createSignal(false);
+
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
@@ -100,12 +105,30 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  // Extend useTerminals commands with app-level commands (shortcuts help, about)
+  const allCommands = createMemo((): PaletteCommand[] => [
+    ...commands(),
+    {
+      name: "Keyboard shortcuts",
+      keybind: SHORTCUTS.shortcutsHelp.keybind,
+      onSelect: () => setShortcutsHelpOpen(true),
+    },
+    {
+      name: "About kolu",
+      onSelect: () => setAboutOpen(true),
+    },
+  ]);
+
   // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
-      requestAnimationFrame(refocusTerminal);
+      requestAnimationFrame(() => {
+        if (!shortcutsHelpOpen() && !aboutOpen()) {
+          refocusTerminal();
+        }
+      });
     }
   }
 
@@ -132,7 +155,7 @@ const App: Component = () => {
         }}
       />
       <CommandPalette
-        commands={commands}
+        commands={allCommands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
@@ -140,8 +163,52 @@ const App: Component = () => {
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
-        onOpenChange={setShortcutsHelpOpen}
+        onOpenChange={(open) => {
+          setShortcutsHelpOpen(open);
+          if (!open) requestAnimationFrame(refocusTerminal);
+        }}
       />
+      <ModalDialog
+        open={aboutOpen()}
+        onOpenChange={(open) => {
+          setAboutOpen(open);
+          if (!open) requestAnimationFrame(refocusTerminal);
+        }}
+      >
+        <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
+          <div class="flex items-center gap-2 mb-3">
+            <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
+            <span class="font-semibold text-fg">{appTitle()}</span>
+          </div>
+          <div class="space-y-1 text-fg-3">
+            <p>
+              <a
+                href="https://github.com/juspay/kolu"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-accent hover:underline"
+              >
+                github.com/juspay/kolu
+              </a>
+            </p>
+            <p>
+              Commit:{" "}
+              {__KOLU_COMMIT__ !== "dev" ? (
+                <a
+                  href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-accent hover:underline"
+                >
+                  {__KOLU_COMMIT__}
+                </a>
+              ) : (
+                <span class="text-fg-2">dev</span>
+              )}
+            </p>
+          </div>
+        </Dialog.Content>
+      </ModalDialog>
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
@@ -149,9 +216,7 @@ const App: Component = () => {
         themeName={activeThemeName()}
         meta={activeMeta()}
         onToggleSidebar={toggleSidebar}
-        onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
-        renderer={renderer()}
         appTitle={appTitle()}
         randomTheme={randomTheme()}
         onRandomThemeChange={setRandomTheme}
@@ -171,9 +236,9 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 p-1">
+        <div class="flex-1 min-h-0 min-w-0">
           <div
-            class="h-full rounded border border-edge overflow-hidden p-1"
+            class="h-full overflow-hidden"
             style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary
