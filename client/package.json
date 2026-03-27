@@ -16,6 +16,7 @@
     "@orpc/client": "^1.13.9",
     "@orpc/contract": "^1.13.9",
     "@solid-primitives/event-listener": "^2.4.5",
+    "@solid-primitives/media": "^2.3.5",
     "@solid-primitives/resize-observer": "^2.1.5",
     "@solid-primitives/storage": "^4.3.4",
     "@solidjs/meta": "^0.29.4",
