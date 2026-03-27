@@ -63,7 +63,7 @@ test-quick *args: install
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-env "\$@"
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
     cd tests

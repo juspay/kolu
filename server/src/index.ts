@@ -13,7 +13,7 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { resolveTlsOptions } from "./tls.ts";
-import { rejectNixShellEnv } from "./shell.ts";
+import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
 import pkg from "../package.json" with { type: "json" };
 
@@ -49,17 +49,16 @@ const argv = cli({
       description: "Enable debug-level logging",
       default: false,
     },
-    allowNixShellEnv: {
-      type: Boolean,
+    allowNixShellWithEnvWhitelist: {
+      type: String,
       description:
-        "Allow running inside a nix shell (dev/test only — pollutes PTY env)",
-      default: false,
+        "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
     },
   },
   strictFlags: true,
 });
 
-rejectNixShellEnv(argv.flags.allowNixShellEnv);
+configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();
