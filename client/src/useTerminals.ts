@@ -363,12 +363,6 @@ export function useTerminals() {
         ]
       : []),
     {
-      name: randomTheme()
-        ? "Random theme for new terminals: ON"
-        : "Random theme for new terminals: OFF",
-      onSelect: () => setRandomTheme(!randomTheme()),
-    },
-    {
       name: "Debug",
       children: [
         {

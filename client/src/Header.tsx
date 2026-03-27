@@ -1,7 +1,8 @@
-import { type Component, Show, mergeProps } from "solid-js";
+import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
+import SettingsPopover from "./SettingsPopover";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
 
@@ -21,8 +22,11 @@ const Header: Component<{
   onToggleSidebar?: () => void;
   onSearch?: () => void;
   appTitle?: string;
+  randomTheme?: boolean;
+  onRandomThemeChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
     <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
@@ -132,6 +136,41 @@ const Header: Component<{
             </svg>
           </button>
         </Tip>
+        <div class="relative">
+          <Tip label="Settings">
+            <button
+              data-testid="settings-trigger"
+              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              onClick={() => setSettingsOpen(!settingsOpen())}
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+            </button>
+          </Tip>
+          <SettingsPopover
+            open={settingsOpen()}
+            onOpenChange={setSettingsOpen}
+            randomTheme={props.randomTheme ?? true}
+            onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
+          />
+        </div>
         <Tip label="Command palette">
           <button
             data-testid="palette-trigger"

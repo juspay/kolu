@@ -218,6 +218,8 @@ const App: Component = () => {
         onToggleSidebar={toggleSidebar}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
+        randomTheme={randomTheme()}
+        onRandomThemeChange={setRandomTheme}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
