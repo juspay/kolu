@@ -12,20 +12,22 @@ default:
 install:
     {{ nix_shell }} pnpm install
 
-# Run server + client in parallel via process-compose
-dev: install
-    {{ nix_shell }} kolu-dev
+# Run server + client in parallel
+dev: install _dev
+
+[parallel]
+_dev: server client
 
 # Run TypeScript type checking across all packages
 watch: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
-server: install
+server:
     cd server && {{ nix_shell }} pnpm dev
 
 # Run client with Vite dev server (HMR)
-client: install
+client:
     cd client && {{ nix_shell }} pnpm dev
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)

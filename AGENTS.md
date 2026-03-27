@@ -35,6 +35,12 @@ Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 - **Props stay reactive**: Never destructure props. Access via `props.xxx`. Pass accessors when needed.
 - **Memos for multi-consumer derivations**: Use `createMemo` when 2+ reactive contexts read the same derived value. Use plain functions for single-consumer or trivial derivations.
 
+## Nix
+
+- **DO NOT add flake inputs** to `flake.nix`. Each input adds ~1.5s to `nix develop` cold start. The flake intentionally has zero inputs — nixpkgs and other sources are managed by [npins](https://github.com/andir/npins) and imported via `fetchTarball`. Use `npins add`/`npins update` for new or updated sources.
+- **Shared env vars** live in `koluEnv` (defined in `default.nix`). Both the build and the devShell consume it — don't duplicate env var definitions.
+- **Measure `nix develop` time** after Nix changes: `time nix develop -c echo test`. Current target: ~2.6s cold, ~0.3s warm.
+
 ## E2E Tests
 
 - **Use semantic selectors**: Never match on CSS classes (`class*="bg-..."`) in test selectors — classes are styling concerns and break when visual design changes. Use `data-testid`, `data-active`, or other semantic `data-*` attributes instead.
