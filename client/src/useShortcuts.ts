@@ -3,6 +3,7 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
+import type { MCMode } from "./MissionControl";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 interface ShortcutDeps {
@@ -15,6 +16,8 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  mcMode: Accessor<MCMode>;
+  setMcMode: Setter<MCMode>;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -56,18 +59,39 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (
-    matchesKeybind(e, SHORTCUTS.nextTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)
-  ) {
+  // Alt+Tab / Alt+Shift+Tab: quick-switch alias for macOS Chrome (which intercepts Ctrl+Tab).
+  if (e.altKey && e.key === "Tab") {
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: e.shiftKey ? -1 : 1 });
+      return true;
+    }
+    return false;
+  }
+
+  // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
+  // If already open, fall through — MissionControl's Tab handler cycles focus.
+  if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: 1 });
+      return true;
+    }
+    return false;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)) {
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: -1 });
+      return true;
+    }
+    return false;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
     cycleTerminal(deps, 1);
     return true;
   }
 
-  if (
-    matchesKeybind(e, SHORTCUTS.prevTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)
-  ) {
+  if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
     cycleTerminal(deps, -1);
     return true;
   }
@@ -84,6 +108,13 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
     deps.setSearchOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
+    deps.setMcMode((prev) =>
+      prev.mode === "closed" ? { mode: "browse" } : { mode: "closed" },
+    );
     return true;
   }
 

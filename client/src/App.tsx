@@ -19,6 +19,7 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
@@ -48,6 +49,7 @@ const App: Component = () => {
     handleKill,
     getSubTerminalIds,
     reorderTerminals,
+    mruOrder,
     commands,
     randomTheme,
     setRandomTheme,
@@ -78,6 +80,9 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
+  // Mission Control state — single discriminated union, no impossible states
+  const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
+
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
@@ -93,6 +98,8 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    mcMode,
+    setMcMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -104,6 +111,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Wrap a boolean setter so closing any dialog refocuses the terminal. */
+  function withRefocus(setter: (open: boolean) => void) {
+    return (open: boolean) => {
+      setter(open);
+      if (!open) requestAnimationFrame(refocusTerminal);
+    };
+  }
+
   function openPaletteGroup(group: string) {
     setPaletteInitialGroup(group);
     setPaletteOpen(true);
@@ -112,6 +127,14 @@ const App: Component = () => {
   // Extend useTerminals commands with app-level commands (shortcuts help, about)
   const allCommands = createMemo((): PaletteCommand[] => [
     ...commands(),
+    {
+      name: "Mission Control",
+      keybind: [
+        SHORTCUTS.missionControl.keybind,
+        SHORTCUTS.nextTerminalTab.keybind,
+      ],
+      onSelect: () => setMcMode({ mode: "browse" }),
+    },
     {
       name: "Keyboard shortcuts",
       keybind: SHORTCUTS.shortcutsHelp.keybind,
@@ -128,10 +151,12 @@ const App: Component = () => {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
+      // Only refocus if no other dialog took over (self-healing — no manual dialog list)
       requestAnimationFrame(() => {
-        if (!shortcutsHelpOpen() && !aboutOpen()) {
-          refocusTerminal();
-        }
+        const anyDialogOpen = document.querySelector(
+          "[data-corvu-dialog-content]:not([data-closed])",
+        );
+        if (!anyDialogOpen) refocusTerminal();
       });
     }
   }
@@ -167,18 +192,23 @@ const App: Component = () => {
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
-        onOpenChange={(open) => {
-          setShortcutsHelpOpen(open);
-          if (!open) requestAnimationFrame(refocusTerminal);
-        }}
+        onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
-      <ModalDialog
-        open={aboutOpen()}
-        onOpenChange={(open) => {
-          setAboutOpen(open);
-          if (!open) requestAnimationFrame(refocusTerminal);
+      <MissionControl
+        mcMode={mcMode()}
+        onMcModeChange={(mode) => {
+          setMcMode(mode);
+          if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
         }}
-      >
+        terminalIds={terminalIds()}
+        mruOrder={mruOrder()}
+        activeId={activeId()}
+        getMeta={getMeta}
+        getActivityHistory={getActivityHistory}
+        getTerminalTheme={getTerminalTheme}
+        onSelect={setActiveId}
+      />
+      <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
@@ -217,6 +247,7 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
+        onMissionControl={() => setMcMode({ mode: "browse" })}
         themeName={activeThemeName()}
         meta={activeMeta()}
         onToggleSidebar={toggleSidebar}

@@ -1,6 +1,13 @@
 /** Terminal session state: single store keyed by UUID, using TerminalInfo from common. */
 
-import { createSignal, createResource, createMemo, batch } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  on,
+  createResource,
+  createMemo,
+  batch,
+} from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
@@ -80,6 +87,16 @@ export function useTerminals() {
   );
 
   const terminalIds = idOrder;
+
+  // MRU (most-recently-used) order: tracks terminal switch history for quick-switch.
+  // Updated whenever activeId changes. Most recent first.
+  const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
+  createEffect(
+    on(activeId, (id) => {
+      if (id === null) return;
+      setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
+    }),
+  );
 
   /** Get sub-terminal IDs for a given parent. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
@@ -228,6 +245,7 @@ export function useTerminals() {
       return next;
     });
     setActivityHistory(produce((s) => delete s[id]));
+    setMruOrder((prev) => prev.filter((x) => x !== id));
     if (activeId() === id) {
       setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
@@ -275,6 +293,11 @@ export function useTerminals() {
       if (persisted === null || !ids.includes(persisted)) {
         setActiveId(ids[0] ?? null);
       }
+
+      // Seed MRU with all top-level terminals (active first, rest in sidebar order).
+      // MRU is in-memory only — without this, Ctrl+Tab after refresh shows only the active terminal.
+      const active = activeId();
+      setMruOrder(active ? [active, ...ids.filter((x) => x !== active)] : ids);
 
       // Subscribe to live updates for all terminals
       for (const t of existing) subscribeAll(t.id);
@@ -440,6 +463,7 @@ export function useTerminals() {
       setIdOrder(ids);
       void client.terminal.reorder({ ids });
     },
+    mruOrder,
     commands,
     randomTheme,
     setRandomTheme,

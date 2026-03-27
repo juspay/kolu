@@ -50,18 +50,19 @@ Feature: Keyboard Shortcuts
     Then the active terminal should show "cycle-third"
     And there should be no page errors
 
-  Scenario: Cycle terminals with Ctrl+Tab shortcuts
+  Scenario: Ctrl+Tab opens Mission Control for quick switch
     When I open the app
     And I create a terminal
     And I run "echo tab-second"
     And I create a terminal
     And I run "echo tab-third"
-    # We're on terminal 3 (last created). Prev should go to terminal 2.
-    When I press the prev terminal tab shortcut
-    Then the active terminal should show "tab-second"
-    # Next should go back to terminal 3.
-    When I press the next terminal tab shortcut
-    Then the active terminal should show "tab-third"
+    # Ctrl+Tab opens Mission Control
+    When I hold Ctrl and press Tab
+    Then Mission Control should be visible
+    # Tab advances focus, release Ctrl selects
+    When I press Tab
+    When I release Ctrl
+    Then Mission Control should not be visible
     And there should be no page errors
 
   Scenario: Create terminal with shortcut

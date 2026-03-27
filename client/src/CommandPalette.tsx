@@ -32,8 +32,8 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteCommand[] | (() => PaletteCommand[]);
-  /** Keyboard shortcut to display alongside the command name. */
-  keybind?: Keybind;
+  /** Keyboard shortcut(s) to display alongside the command name. */
+  keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
   /** Called when leaving this group without executing a child (Escape, Backspace, breadcrumb). */
@@ -282,9 +282,21 @@ const CommandPalette: Component<{
                       </span>
                     </Show>
                     <Show when={!isGroup(cmd) && cmd.keybind}>
-                      <kbd class="ml-auto shrink-0 pl-4 text-xs text-fg-3 font-mono">
-                        {formatKeybind(cmd.keybind!)}
-                      </kbd>
+                      <span class="ml-auto shrink-0 pl-4 flex items-center gap-1.5">
+                        <For
+                          each={
+                            Array.isArray(cmd.keybind)
+                              ? cmd.keybind
+                              : [cmd.keybind!]
+                          }
+                        >
+                          {(kb) => (
+                            <kbd class="text-xs text-fg-3 font-mono">
+                              {formatKeybind(kb)}
+                            </kbd>
+                          )}
+                        </For>
+                      </span>
                     </Show>
                   </li>
                 )}

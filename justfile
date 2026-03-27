@@ -12,11 +12,18 @@ default:
 install:
     {{ nix_shell }} pnpm install
 
-# Run server + client in parallel
-dev: install _dev
+# Run server + client in parallel.
+# Enters nix develop once, then re-invokes just inside it — subsequent
+# recipes see IN_NIX_SHELL so nix_shell becomes a no-op.
+dev:
+    {{ nix_shell }} just _dev
 
+[private]
+_dev: install _dev-parallel
+
+[private]
 [parallel]
-_dev: server client
+_dev-parallel: server client
 
 # Run TypeScript type checking across all packages
 watch: install
