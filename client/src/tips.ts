@@ -39,7 +39,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     ? [
         {
           id: "amb-pwa",
-          text: "Install as PWA for full shortcut support (⌘T, ⌘⇧T, etc.)",
+          text: "Install as PWA for full shortcut support (⌘T, ⌃Tab, etc.)",
         },
       ]
     : []),
