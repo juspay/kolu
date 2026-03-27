@@ -8,21 +8,12 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { cwdBasename } from "./path";
+import { cwdBasename, terminalName, buildRepoColorMap } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
-
-/** Extract the color-grouping key for a terminal (repo name, or cwd basename fallback). */
-function repoColorKey(
-  meta: Omit<TerminalInfo, "id"> | undefined,
-): string | undefined {
-  return (
-    meta?.meta?.git?.repoName || cwdBasename(meta?.meta?.cwd ?? "") || undefined
-  );
-}
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
@@ -147,25 +138,14 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  // Assign unique hues via golden-angle (137.5°) spacing over sorted unique repo keys.
-  // OKLCH gives perceptually uniform hue spacing (unlike HSL).
-  const colorMap = createMemo(() => {
-    const keys = new Set<string>();
-    for (const id of props.terminalIds) {
-      const key = repoColorKey(props.getMeta(id));
-      if (key) keys.add(key);
-    }
-    return new Map(
-      [...keys]
-        .sort()
-        .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
-    );
-  });
+  const colorMap = createMemo(() =>
+    buildRepoColorMap(props.terminalIds, props.getMeta),
+  );
 
   function colorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
-    const key = repoColorKey(meta);
+    const key = terminalName(meta);
     return key ? colorMap().get(key) : undefined;
   }
 

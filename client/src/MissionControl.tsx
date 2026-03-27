@@ -19,7 +19,7 @@ import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
-import { cwdBasename } from "./path";
+import { terminalName, buildRepoColorMap } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
@@ -36,15 +36,6 @@ export type MCMode =
   | { mode: "closed" }
   | { mode: "browse" }
   | { mode: "quickSwitch"; direction: 1 | -1 };
-
-/** Derive a human-readable label for a terminal card: repo name > cwd basename > fallback. */
-function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
-  return (
-    meta?.meta?.git?.repoName ||
-    cwdBasename(meta?.meta?.cwd ?? "") ||
-    "terminal"
-  );
-}
 
 const MissionControl: Component<{
   mcMode: MCMode;
@@ -81,6 +72,17 @@ const MissionControl: Component<{
     const aspect = window.innerWidth / window.innerHeight;
     return Math.ceil(Math.sqrt(n * aspect));
   });
+
+  const colorMap = createMemo(() =>
+    buildRepoColorMap(props.terminalIds, props.getMeta),
+  );
+
+  function colorFor(
+    meta: Omit<TerminalInfo, "id"> | undefined,
+  ): string | undefined {
+    const key = terminalName(meta);
+    return key ? colorMap().get(key) : undefined;
+  }
 
   let gridRef!: HTMLDivElement;
 
@@ -256,8 +258,11 @@ const MissionControl: Component<{
                       </Show>
                       {/* Metadata footer — fixed height so cards align when PR info varies */}
                       <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
-                        <div class="text-base font-semibold text-fg truncate">
-                          {cardLabel(meta())}
+                        <div
+                          class="text-base font-semibold truncate"
+                          style={{ color: colorFor(meta()) }}
+                        >
+                          {terminalName(meta()) ?? "terminal"}
                         </div>
                         <Show when={meta()?.meta?.git}>
                           {(git) => (
