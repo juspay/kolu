@@ -16,6 +16,7 @@ interface ShortcutDeps {
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
   setMissionControlOpen: Setter<boolean>;
+  setQuickSwitchMode: Setter<boolean>;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -57,18 +58,23 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
+  // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
+  // While Ctrl is held, Tab cycles focus; releasing Ctrl selects.
   if (
-    matchesKeybind(e, SHORTCUTS.nextTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)
+    matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind) ||
+    matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)
   ) {
+    deps.setMissionControlOpen(true);
+    deps.setQuickSwitchMode(true);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
     cycleTerminal(deps, 1);
     return true;
   }
 
-  if (
-    matchesKeybind(e, SHORTCUTS.prevTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)
-  ) {
+  if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
     cycleTerminal(deps, -1);
     return true;
   }

@@ -78,6 +78,17 @@ Then(
 
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
+When("I hold Ctrl and press Tab", async function (this: KoluWorld) {
+  await this.page.keyboard.down("Control");
+  await this.page.keyboard.press("Tab");
+  await this.page.waitForTimeout(300);
+});
+
+When("I release Ctrl", async function (this: KoluWorld) {
+  await this.page.keyboard.up("Control");
+  await this.page.waitForTimeout(300);
+});
+
 When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+.`);
   await this.page.waitForTimeout(300);

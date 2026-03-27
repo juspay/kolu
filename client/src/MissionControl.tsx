@@ -11,6 +11,7 @@ import {
   Show,
   createMemo,
   createEffect,
+  createSignal,
   on,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
@@ -36,6 +37,9 @@ function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
 const MissionControl: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When true, releasing Alt selects the focused card (Alt+Tab flow). */
+  quickSwitchMode: boolean;
+  onQuickSwitchModeChange: (on: boolean) => void;
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
@@ -74,6 +78,28 @@ const MissionControl: Component<{
           )?.focus();
         });
       },
+    ),
+  );
+
+  // Ctrl+Tab flow: releasing Ctrl selects the focused card
+  makeEventListener(window, "keyup", (e: KeyboardEvent) => {
+    if (!props.open || !props.quickSwitchMode) return;
+    if (e.key === "Control") {
+      const focused = document.activeElement as HTMLElement;
+      const id = focused?.getAttribute("data-terminal-id") as TerminalId;
+      if (id) handleSelect(id);
+      props.onQuickSwitchModeChange(false);
+    }
+  });
+
+  // Clear quickSwitchMode when MC closes by other means (Escape, click)
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (!open) props.onQuickSwitchModeChange(false);
+      },
+      { defer: true },
     ),
   );
 

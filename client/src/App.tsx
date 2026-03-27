@@ -79,6 +79,7 @@ const App: Component = () => {
 
   // Mission Control state
   const [missionControlOpen, setMissionControlOpen] = createSignal(false);
+  const [quickSwitchMode, setQuickSwitchMode] = createSignal(false);
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -96,6 +97,7 @@ const App: Component = () => {
     setShortcutsHelpOpen,
     setSearchOpen,
     setMissionControlOpen,
+    setQuickSwitchMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -188,6 +190,8 @@ const App: Component = () => {
       <MissionControl
         open={missionControlOpen()}
         onOpenChange={withRefocus(setMissionControlOpen)}
+        quickSwitchMode={quickSwitchMode()}
+        onQuickSwitchModeChange={setQuickSwitchMode}
         terminalIds={terminalIds()}
         activeId={activeId()}
         getMeta={getMeta}

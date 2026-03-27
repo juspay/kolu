@@ -110,6 +110,21 @@ Feature: Mission Control
     Then Mission Control should not be visible
     And there should be no page errors
 
+  Scenario: Ctrl+Tab opens Mission Control
+    When I hold Ctrl and press Tab
+    Then Mission Control should be visible
+    And the active card should have focus
+    And there should be no page errors
+
+  Scenario: Ctrl+Tab then release Ctrl selects focused card
+    When I create a terminal
+    And I hold Ctrl and press Tab
+    Then Mission Control should be visible
+    When I press Tab
+    When I release Ctrl
+    Then Mission Control should not be visible
+    And there should be no page errors
+
   Scenario: Open and close with keyboard shortcut
     When I press the Mission Control shortcut
     Then Mission Control should be visible

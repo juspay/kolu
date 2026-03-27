@@ -96,11 +96,11 @@ export const SHORTCUTS = {
   },
   nextTerminalTab: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
-    label: "Next terminal",
+    label: "Quick switch (Mission Control)",
   },
   prevTerminalTab: {
     keybind: { key: "Tab", code: "Tab", ctrl: true, shift: true },
-    label: "Previous terminal",
+    label: "Quick switch (reverse)",
   },
   commandPalette: {
     keybind: { key: "k", mod: true },
