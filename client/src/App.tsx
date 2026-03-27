@@ -38,7 +38,7 @@ const App: Component = () => {
     activeTheme,
     getTerminalTheme,
     isPreviewingTheme,
-    activeCwd,
+    activeMeta,
     existingTerminals,
     handleCreate,
     handleCreateSubTerminal,
@@ -80,7 +80,7 @@ const App: Component = () => {
     handleCreate: (cwd?: string) => void handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void handleCreateSubTerminal(parentId, cwd),
-    activeCwd,
+    activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
@@ -147,7 +147,7 @@ const App: Component = () => {
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
         themeName={activeThemeName()}
-        cwd={activeCwd()}
+        meta={activeMeta()}
         onToggleSidebar={toggleSidebar}
         onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
@@ -213,7 +213,7 @@ const App: Component = () => {
                       onCreateSubTerminal={(parentId, cwd) =>
                         void handleCreateSubTerminal(parentId, cwd)
                       }
-                      activeCwd={activeCwd()}
+                      activeMeta={activeMeta()}
                     />
                   )}
                 </For>

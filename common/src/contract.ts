@@ -16,7 +16,7 @@ import {
   TerminalOnExitOutputSchema,
   TerminalReorderInputSchema,
   TerminalSetParentInputSchema,
-  CwdInfoSchema,
+  TerminalMetadataSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
   ServerInfoSchema,
@@ -41,10 +41,10 @@ export const contract = oc.router({
       .output(eventIterator(TerminalOnExitOutputSchema)),
     // Snapshot of headless xterm screen state (VT sequences) for a terminal
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
-    // Stream CWD changes for a terminal (OSC 7). Yields current CWD immediately.
-    onCwdChange: oc
+    // Stream terminal metadata changes (CWD, git, PR, etc.). Yields current state immediately.
+    onMetadataChange: oc
       .input(TerminalAttachInputSchema)
-      .output(eventIterator(CwdInfoSchema)),
+      .output(eventIterator(TerminalMetadataSchema)),
     // Stream activity state changes (active/sleeping) for a terminal
     onActivityChange: oc
       .input(TerminalAttachInputSchema)

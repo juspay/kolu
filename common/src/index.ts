@@ -7,7 +7,7 @@ import { z } from "zod";
 
 const TerminalIdSchema = z.string().uuid();
 
-// --- Git context (enriches CWD stream) ---
+// --- Git context ---
 
 export const GitInfoSchema = z.object({
   repoRoot: z.string(),
@@ -16,9 +16,24 @@ export const GitInfoSchema = z.object({
   branch: z.string(),
 });
 
-export const CwdInfoSchema = z.object({
+// --- GitHub PR context ---
+
+export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
+
+export const GitHubPrInfoSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  url: z.string(),
+  /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
+  checks: GitHubCheckStatusSchema.nullable(),
+});
+
+// --- Terminal metadata (unified, provider-aggregated) ---
+
+export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
+  pr: GitHubPrInfoSchema.nullable(),
 });
 
 // --- Terminal ---
@@ -28,7 +43,7 @@ export const TerminalInfoSchema = z.object({
   pid: z.number(),
   themeName: z.string().optional(),
   isActive: z.boolean(),
-  cwd: CwdInfoSchema.optional(),
+  meta: TerminalMetadataSchema.optional(),
   parentId: TerminalIdSchema.optional(),
 });
 
@@ -83,4 +98,5 @@ export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
-export type CwdInfo = z.infer<typeof CwdInfoSchema>;
+export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;

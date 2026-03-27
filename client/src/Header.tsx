@@ -3,7 +3,7 @@ import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
 import type { WsStatus } from "./rpc";
-import type { CwdInfo } from "kolu-common";
+import type { TerminalMetadata } from "kolu-common";
 
 /** WS connection status indicator colors and animations. */
 const statusStyles: Record<WsStatus, string> = {
@@ -17,7 +17,7 @@ const Header: Component<{
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
   themeName?: string;
-  cwd?: CwdInfo | null;
+  meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
   onShortcutsHelp?: () => void;
   onSearch?: () => void;
@@ -67,20 +67,46 @@ const Header: Component<{
       ) : (
         <span class="text-xs text-fg-3">dev</span>
       )}
-      <Show when={props.cwd}>
-        {(cwdInfo) => (
+      <Show when={props.meta}>
+        {(meta) => (
           <span
             class="flex items-center gap-1 text-xs min-w-0"
             data-testid="header-cwd"
           >
-            <span class="text-fg-2 truncate" title={cwdInfo().cwd}>
-              {shortenCwd(cwdInfo().cwd)}
+            <span class="text-fg-2 truncate" title={meta().cwd}>
+              {shortenCwd(meta().cwd)}
             </span>
-            <Show when={cwdInfo().git}>
+            <Show when={meta().git}>
               {(git) => (
                 <span class="text-fg-3 shrink-0" data-testid="header-branch">
                   &middot; {git().branch}
                 </span>
+              )}
+            </Show>
+            <Show when={meta().pr}>
+              {(pr) => (
+                <a
+                  href={pr().url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent shrink-0 transition-colors"
+                  data-testid="header-pr"
+                >
+                  &middot;
+                  <Show when={pr().checks}>
+                    {(checks) => (
+                      <span
+                        class="inline-block w-1.5 h-1.5 rounded-full"
+                        classList={{
+                          "bg-ok": checks() === "pass",
+                          "bg-warning animate-pulse": checks() === "pending",
+                          "bg-danger": checks() === "fail",
+                        }}
+                      />
+                    )}
+                  </Show>
+                  #{pr().number}
+                </a>
               )}
             </Show>
           </span>

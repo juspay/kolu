@@ -9,7 +9,7 @@ import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import { SHORTCUTS } from "./keyboard";
 import type { PaletteCommand } from "./CommandPalette";
-import type { TerminalId, TerminalInfo, CwdInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id">;
@@ -25,7 +25,7 @@ const RANDOM_THEME_KEY = "kolu-random-theme";
 
 export function useTerminals() {
   // Single store: all per-terminal metadata keyed by ID.
-  // Fine-grained reactivity — updating one terminal's CWD doesn't re-render others.
+  // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
   // Explicit ordering — UUIDs don't sort chronologically, so track insertion order.
   // Only top-level terminals (no parentId) live here.
@@ -109,10 +109,10 @@ export function useTerminals() {
     return getThemeByName(preview ?? meta[id]?.themeName);
   }
 
-  /** The active terminal's CWD info (for header display). */
-  const activeCwd = createMemo((): CwdInfo | null => {
+  /** The active terminal's metadata (for header display). */
+  const activeMeta = createMemo((): TerminalMetadata | null => {
     const id = activeId();
-    return id !== null ? (meta[id]?.cwd ?? null) : null;
+    return id !== null ? (meta[id]?.meta ?? null) : null;
   });
 
   /** Fire-and-forget stream subscription with AbortController cleanup. */
@@ -132,11 +132,11 @@ export function useTerminals() {
     return () => controller.abort();
   }
 
-  /** Subscribe to CWD changes for a terminal. Called when terminal is created or restored. */
-  function subscribeCwd(id: TerminalId) {
+  /** Subscribe to metadata changes for a terminal. Called when terminal is created or restored. */
+  function subscribeMetadata(id: TerminalId) {
     return subscribeStream(
-      (signal) => client.terminal.onCwdChange({ id }, { signal }),
-      (cwd) => setMeta(id, "cwd", cwd),
+      (signal) => client.terminal.onMetadataChange({ id }, { signal }),
+      (metadata) => setMeta(id, "meta", metadata),
     );
   }
 
@@ -166,9 +166,9 @@ export function useTerminals() {
     );
   }
 
-  /** Start all per-terminal stream subscriptions (CWD, activity, exit). */
+  /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
   function subscribeAll(id: TerminalId) {
-    subscribeCwd(id);
+    subscribeMetadata(id);
     subscribeActivity(id);
     subscribeExit(id);
   }
@@ -327,12 +327,12 @@ export function useTerminals() {
       keybind: SHORTCUTS.createTerminal.keybind,
       onSelect: () => void handleCreate(),
     },
-    ...(activeCwd()
+    ...(activeMeta()
       ? [
           {
             name: "Create terminal in current directory",
             keybind: SHORTCUTS.createTerminalInCwd.keybind,
-            onSelect: () => void handleCreate(activeCwd()!.cwd),
+            onSelect: () => void handleCreate(activeMeta()!.cwd),
           },
         ]
       : []),
@@ -348,7 +348,7 @@ export function useTerminals() {
             onSelect: () => {
               const id = activeId()!;
               if (getSubTerminalIds(id).length === 0) {
-                void handleCreateSubTerminal(id, activeCwd()?.cwd);
+                void handleCreateSubTerminal(id, activeMeta()?.cwd);
               } else {
                 subPanel.togglePanel(id);
               }
@@ -358,7 +358,7 @@ export function useTerminals() {
             name: "New sub-terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
-              void handleCreateSubTerminal(activeId()!, activeCwd()?.cwd),
+              void handleCreateSubTerminal(activeId()!, activeMeta()?.cwd),
           },
         ]
       : []),
@@ -423,7 +423,7 @@ export function useTerminals() {
     activeTheme,
     getTerminalTheme,
     isPreviewingTheme: () => previewThemeName() !== undefined,
-    activeCwd,
+    activeMeta,
     existingTerminals,
     handleCreate,
     handleCreateSubTerminal,

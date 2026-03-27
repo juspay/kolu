@@ -3,7 +3,7 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
@@ -12,13 +12,13 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
-import { watchGitHead } from "./git.ts";
+import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
   data: [data: string];
   exit: [exitCode: number];
-  cwd: [cwd: string];
+  metadata: [meta: TerminalMetadata];
   activity: [isActive: boolean];
 }
 
@@ -35,8 +35,10 @@ export interface TerminalEntry {
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId?: string;
-  /** Cleanup function for the .git/HEAD file watcher. */
-  stopGitWatch: () => void;
+  /** Aggregated metadata from all providers. */
+  metadata: TerminalMetadata;
+  /** Cleanup function for all metadata providers. */
+  stopProviders: () => void;
 }
 
 const terminals = new Map<TerminalId, TerminalEntry>();
@@ -87,22 +89,18 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const entry = terminals.get(id);
         if (entry) {
           if (entry.idleTimer) clearTimeout(entry.idleTimer);
-          entry.stopGitWatch();
+          entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
         emitter.emit("exit", exitCode);
         terminals.delete(id);
       },
-      // PTY callback (OSC 7), not an emitter listener — no re-entrant loop
-      onCwd: (cwd) => {
-        emitter.emit("cwd", cwd);
-        // Restart git watcher for the new directory
+      // PTY callback (OSC 7): update metadata CWD, providers react to the event
+      onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          entry.stopGitWatch();
-          entry.stopGitWatch = watchGitHead(cwd, () =>
-            emitter.emit("cwd", handle.cwd),
-          );
+          entry.metadata.cwd = newCwd;
+          emitMetadata(entry, id);
         }
       },
     },
@@ -110,21 +108,20 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     cwd,
   );
 
+  const metadata = createMetadata(handle.cwd);
   const entry: TerminalEntry = {
     handle,
     emitter,
     isActive: true,
     clipboardDir,
     parentId,
-    // Re-emitting "cwd" to trigger CwdInfo re-resolution is a pragmatic
-    // shortcut for a single watcher. When a second external-state trigger
-    // arrives (e.g. LLM agent status), introduce a dedicated "refresh" event
-    // instead — separate "directory changed" from "please re-resolve."
-    stopGitWatch: watchGitHead(handle.cwd, () =>
-      emitter.emit("cwd", handle.cwd),
-    ),
+    metadata,
+    stopProviders: () => {},
   };
+  // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);
+  entry.stopProviders = startProviders(entry, id);
+
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   return toInfo(id, entry);
 }
@@ -146,7 +143,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  entry.stopGitWatch();
+  entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
@@ -190,7 +187,7 @@ export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
-    entry.stopGitWatch();
+    entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
