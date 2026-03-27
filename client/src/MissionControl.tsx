@@ -207,7 +207,7 @@ const MissionControl: Component<{
         >
           <div
             ref={gridRef}
-            class="grid gap-3 flex-1 min-h-0 overflow-y-auto"
+            class="grid gap-3 flex-1 min-h-0 overflow-y-auto p-1"
             style={{
               "grid-template-columns": `repeat(${gridCols()}, minmax(0, 1fr))`,
             }}
