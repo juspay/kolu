@@ -1,6 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
+import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
@@ -97,31 +98,16 @@ Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
     await this.page.waitForTimeout(300);
-    // Type a unique marker and verify it appears in the main terminal's screen state
+    // Type a unique marker and verify it appears in the main terminal's buffer
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
-    // Get the main terminal ID — the first visible terminal in the pane
-    const mainId = await this.page.evaluate(() => {
-      return document
-        .querySelector("[data-terminal-id][data-visible]")
-        ?.getAttribute("data-terminal-id");
+    // Poll the first visible terminal's buffer for the marker
+    await pollUntilBufferContains(this.page, marker, {
+      selector: "[data-terminal-id][data-visible]",
+      attempts: 20,
+      intervalMs: 300,
     });
-    assert.ok(mainId, "Could not find main terminal ID");
-    // Poll screen state for the marker
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const resp = await this.page.request.fetch("/rpc/terminal/screenState", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ json: { id: mainId } }),
-      });
-      const body = await resp.json();
-      const screen =
-        typeof body.json === "string" ? body.json : JSON.stringify(body);
-      if (screen.includes(marker)) return;
-      await this.page.waitForTimeout(300);
-    }
-    assert.fail(`Main terminal did not receive keystrokes (marker: ${marker})`);
   },
 );
 
@@ -225,51 +211,12 @@ Then("the resize handle should be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Find visible sub-terminal (not the first visible terminal)
-    const found = await this.page.evaluate(
-      ({ expected }) => {
-        const visibleTerminals = document.querySelectorAll(
-          "[data-terminal-id][data-visible]",
-        );
-        if (visibleTerminals.length < 2) return false;
-        // Sub-terminal is the second visible one
-        const subContainer = visibleTerminals[1];
-        const text = subContainer?.textContent ?? "";
-        return text.includes(expected);
-      },
-      { expected },
-    );
-    // If not found in DOM text, check via screen state API
-    if (!found) {
-      // Poll screen state for the sub-terminal
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const visibleIds = await this.page.evaluate(() =>
-          Array.from(
-            document.querySelectorAll("[data-terminal-id][data-visible]"),
-          ).map((el) => el.getAttribute("data-terminal-id")),
-        );
-        const subId = visibleIds[1]; // second visible terminal
-        if (!subId) {
-          await this.page.waitForTimeout(300);
-          continue;
-        }
-        const resp = await this.page.request.fetch(
-          "/rpc/terminal/screenState",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            data: JSON.stringify({ json: { id: subId } }),
-          },
-        );
-        const body = await resp.json();
-        const screenState =
-          typeof body.json === "string" ? body.json : JSON.stringify(body);
-        if (screenState.includes(expected)) return;
-        await this.page.waitForTimeout(300);
-      }
-      assert.fail(
-        `Sub-terminal screen does not contain "${expected}" after retries`,
-      );
-    }
+    // Sub-terminal is the second visible terminal container (index 1)
+    await pollUntilBufferContains(this.page, expected, {
+      selector: "[data-terminal-id][data-visible]",
+      index: 1,
+      attempts: 20,
+      intervalMs: 300,
+    });
   },
 );

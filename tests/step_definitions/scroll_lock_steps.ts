@@ -2,11 +2,7 @@ import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
 import { KoluWorld } from "../support/world.ts";
-
-/** Locate the xterm viewport div inside the active terminal. */
-function viewportLocator(world: KoluWorld) {
-  return world.page.locator("[data-visible] .xterm-viewport");
-}
+import { pollUntilBufferContains } from "../support/buffer.ts";
 
 /** Per-scenario FIFO path (avoids collisions when CI runs parallel workers). */
 function scrollFifo(world: KoluWorld): string {
@@ -19,10 +15,12 @@ function scrollFifo(world: KoluWorld): string {
 When(
   "I generate {int} lines of output",
   async function (this: KoluWorld, count: number) {
+    // Ensure terminal has focus (may have been lost to settings popover, etc.)
+    await this.canvas.click();
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo scroll-test-$i; done`,
     );
-    await this.page.waitForTimeout(1000);
+    await pollUntilBufferContains(this.page, `scroll-test-${count}`);
   },
 );
 
@@ -32,12 +30,12 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo extra-line-$i; done`,
     );
-    await this.page.waitForTimeout(1000);
+    await pollUntilBufferContains(this.page, `extra-line-${count}`);
   },
 );
 
 When("I scroll the terminal up", async function (this: KoluWorld) {
-  const viewport = viewportLocator(this);
+  const viewport = this.page.locator("[data-visible] .xterm-viewport");
   const box = await viewport.boundingBox();
   if (!box) throw new Error("Viewport not visible");
   // Move mouse to viewport center and scroll up
@@ -47,9 +45,9 @@ When("I scroll the terminal up", async function (this: KoluWorld) {
 });
 
 When("I note the scroll position", async function (this: KoluWorld) {
-  this.savedScrollTop = await viewportLocator(this).evaluate(
-    (el) => el.scrollTop,
-  );
+  this.savedScrollTop = await this.page
+    .locator("[data-visible] .xterm-viewport")
+    .evaluate((el) => el.scrollTop);
 });
 
 When("I prepare a output trigger", async function (this: KoluWorld) {
@@ -67,7 +65,7 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
   await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-  await this.page.waitForTimeout(1000);
+  await pollUntilBufferContains(this.page, "triggered-10");
 });
 
 When(
@@ -75,34 +73,20 @@ When(
   async function (this: KoluWorld, count: number) {
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-    await this.page.waitForTimeout(2000);
+    await pollUntilBufferContains(this.page, `triggered-${count}`);
   },
 );
 
-/**
- * Read text of the first visible row from the xterm buffer.
- * Uses the __xterm ref exposed on the container element.
- */
+/** Read the first visible row from the xterm buffer at the current viewport position. */
 function readFirstVisibleLine(world: KoluWorld) {
   return world.page.evaluate(() => {
     const container = document.querySelector(
       "[data-visible][data-terminal-id]",
-    ) as HTMLElement & {
-      __xterm?: {
-        buffer: {
-          active: {
-            viewportY: number;
-            getLine(
-              y: number,
-            ): { translateToString(trimRight?: boolean): string } | undefined;
-          };
-        };
-      };
-    };
-    const term = container?.__xterm;
+    );
+    const term = (container as any)?.__xterm;
     if (!term) return "";
-    const vY = term.buffer.active.viewportY;
-    return term.buffer.active.getLine(vY)?.translateToString(true) ?? "";
+    const buf = term.buffer.active;
+    return buf.getLine(buf.viewportY)?.translateToString(true) ?? "";
   });
 }
 
@@ -179,7 +163,9 @@ Then(
       this.savedScrollTop !== undefined,
       "No saved scroll position — was 'I note the scroll position' called first?",
     );
-    const current = await viewportLocator(this).evaluate((el) => el.scrollTop);
+    const current = await this.page
+      .locator("[data-visible] .xterm-viewport")
+      .evaluate((el) => el.scrollTop);
     // Allow small tolerance (1px) for rounding
     assert.ok(
       Math.abs(current - this.savedScrollTop!) <= 1,
