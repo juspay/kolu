@@ -8,7 +8,12 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { cwdBasename, terminalName, buildRepoColorMap } from "./path";
+import {
+  cwdBasename,
+  terminalName,
+  buildRepoColorMap,
+  buildBranchColorMap,
+} from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
@@ -27,10 +32,12 @@ const SidebarEntry: Component<{
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
   repoColor: string | undefined;
+  branchColor: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
   const repoColor = () => props.repoColor;
+  const branchColor = () => props.branchColor;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -112,8 +119,10 @@ const SidebarEntry: Component<{
         </div>
         <div
           data-testid="sidebar-branch"
-          class="text-xs text-fg-2 truncate"
+          class="text-xs truncate"
           title={m()?.meta?.git?.branch}
+          style={{ color: branchColor() }}
+          classList={{ "text-fg-2": !branchColor() }}
         >
           {m()?.meta?.git?.branch ?? "\u00A0"}
         </div>
@@ -166,12 +175,22 @@ const Sidebar: Component<{
   const colorMap = createMemo(() =>
     buildRepoColorMap(props.terminalIds, props.getMeta),
   );
+  const branchMap = createMemo(() =>
+    buildBranchColorMap(props.terminalIds, props.getMeta),
+  );
 
   function colorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
     const key = terminalName(meta);
     return key ? colorMap().get(key) : undefined;
+  }
+
+  function branchColorFor(
+    meta: Omit<TerminalInfo, "id"> | undefined,
+  ): string | undefined {
+    const branch = meta?.meta?.git?.branch;
+    return branch ? branchMap().get(branch) : undefined;
   }
 
   function handleSelect(id: TerminalId) {
@@ -263,6 +282,7 @@ const Sidebar: Component<{
                       onSelect={handleSelect}
                       dropEdge={edge()}
                       repoColor={colorFor(props.getMeta(id))}
+                      branchColor={branchColorFor(props.getMeta(id))}
                     />
                   );
                 }}

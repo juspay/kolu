@@ -11,25 +11,43 @@ export function cwdBasename(cwd: string): string {
 
 import type { TerminalInfo } from "kolu-common";
 
-/** Derive terminal identity: repo name > cwd basename > undefined.
- *  Used for color-grouping (Sidebar) and display labels (MissionControl). */
-/** Build a map from terminal name → unique OKLCH color via golden-angle hue spacing. */
+/** Build a map from key → unique OKLCH color via golden-angle hue spacing. */
+export function buildColorMap(keys: Iterable<string>): Map<string, string> {
+  return new Map(
+    [...new Set(keys)]
+      .sort()
+      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+  );
+}
+
+/** Build repo-name → color map from terminal list. */
 export function buildRepoColorMap(
   ids: import("kolu-common").TerminalId[],
   getMeta: (
     id: import("kolu-common").TerminalId,
   ) => Omit<TerminalInfo, "id"> | undefined,
 ): Map<string, string> {
-  const keys = new Set<string>();
+  const keys: string[] = [];
   for (const id of ids) {
     const key = terminalName(getMeta(id));
-    if (key) keys.add(key);
+    if (key) keys.push(key);
   }
-  return new Map(
-    [...keys]
-      .sort()
-      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
-  );
+  return buildColorMap(keys);
+}
+
+/** Build branch-name → color map from terminal list. */
+export function buildBranchColorMap(
+  ids: import("kolu-common").TerminalId[],
+  getMeta: (
+    id: import("kolu-common").TerminalId,
+  ) => Omit<TerminalInfo, "id"> | undefined,
+): Map<string, string> {
+  const keys: string[] = [];
+  for (const id of ids) {
+    const branch = getMeta(id)?.meta?.git?.branch;
+    if (branch) keys.push(branch);
+  }
+  return buildColorMap(keys);
 }
 
 export function terminalName(
