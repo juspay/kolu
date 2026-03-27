@@ -10,6 +10,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "./Icons";
 import Tip from "./Tip";
 import type {
   SearchAddon,
@@ -152,40 +153,13 @@ const SearchBar: Component<{
           {resultLabel()}
         </span>
         <IconButton onClick={findPrevious} label="Previous match (Shift+Enter)">
-          <svg
-            class="w-3.5 h-3.5"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          >
-            <path d="M12 10L8 6L4 10" />
-          </svg>
+          <ChevronUpIcon />
         </IconButton>
         <IconButton onClick={findNext} label="Next match (Enter)">
-          <svg
-            class="w-3.5 h-3.5"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          >
-            <path d="M4 6L8 10L12 6" />
-          </svg>
+          <ChevronDownIcon />
         </IconButton>
         <IconButton onClick={() => props.onClose()} label="Close (Escape)">
-          <svg
-            class="w-3.5 h-3.5"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-          >
-            <path d="M4 4L12 12M12 4L4 12" />
-          </svg>
+          <CloseIcon />
         </IconButton>
       </div>
     </Show>
