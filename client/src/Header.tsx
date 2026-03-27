@@ -2,6 +2,7 @@ import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
+import ChecksIndicator from "./ChecksIndicator";
 import SettingsPopover from "./SettingsPopover";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
@@ -17,6 +18,7 @@ const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
+  onMissionControl?: () => void;
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
@@ -82,16 +84,7 @@ const Header: Component<{
                 >
                   &middot;
                   <Show when={pr().checks}>
-                    {(checks) => (
-                      <span
-                        class="inline-block w-1.5 h-1.5 rounded-full"
-                        classList={{
-                          "bg-ok": checks() === "pass",
-                          "bg-warning animate-pulse": checks() === "pending",
-                          "bg-danger": checks() === "fail",
-                        }}
-                      />
-                    )}
+                    {(checks) => <ChecksIndicator status={checks()} />}
                   </Show>
                   #{pr().number}
                   <span class="truncate hidden sm:inline">{pr().title}</span>
@@ -103,6 +96,27 @@ const Header: Component<{
       </Show>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
+        <Tip label="Mission Control">
+          <button
+            data-testid="mission-control-trigger"
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={() => props.onMissionControl?.()}
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
+              />
+            </svg>
+          </button>
+        </Tip>
         {props.themeName && (
           <Tip label="Change theme">
             <button

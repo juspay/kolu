@@ -10,6 +10,7 @@ import {
 } from "@thisbeyond/solid-dnd";
 import { cwdBasename } from "./path";
 import Tip from "./Tip";
+import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
@@ -108,16 +109,7 @@ const SidebarEntry: Component<{
               title={`#${pr().number} ${pr().title}`}
             >
               <Show when={pr().checks}>
-                {(checks) => (
-                  <span
-                    class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                    classList={{
-                      "bg-ok": checks() === "pass",
-                      "bg-warning animate-pulse": checks() === "pending",
-                      "bg-danger": checks() === "fail",
-                    }}
-                  />
-                )}
+                {(checks) => <ChecksIndicator status={checks()} />}
               </Show>
               <a
                 href={pr().url}

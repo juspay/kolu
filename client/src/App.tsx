@@ -19,6 +19,7 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import MissionControl from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
@@ -74,6 +75,9 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
+  // Mission Control state
+  const [missionControlOpen, setMissionControlOpen] = createSignal(false);
+
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
@@ -89,6 +93,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    setMissionControlOpen,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -109,6 +114,11 @@ const App: Component = () => {
   const allCommands = createMemo((): PaletteCommand[] => [
     ...commands(),
     {
+      name: "Mission Control",
+      keybind: SHORTCUTS.missionControl.keybind,
+      onSelect: () => setMissionControlOpen(true),
+    },
+    {
       name: "Keyboard shortcuts",
       keybind: SHORTCUTS.shortcutsHelp.keybind,
       onSelect: () => setShortcutsHelpOpen(true),
@@ -125,7 +135,7 @@ const App: Component = () => {
     if (!open) {
       setPaletteInitialGroup(undefined);
       requestAnimationFrame(() => {
-        if (!shortcutsHelpOpen() && !aboutOpen()) {
+        if (!shortcutsHelpOpen() && !aboutOpen() && !missionControlOpen()) {
           refocusTerminal();
         }
       });
@@ -167,6 +177,19 @@ const App: Component = () => {
           setShortcutsHelpOpen(open);
           if (!open) requestAnimationFrame(refocusTerminal);
         }}
+      />
+      <MissionControl
+        open={missionControlOpen()}
+        onOpenChange={(open) => {
+          setMissionControlOpen(open);
+          if (!open) requestAnimationFrame(refocusTerminal);
+        }}
+        terminalIds={terminalIds()}
+        activeId={activeId()}
+        getMeta={getMeta}
+        getActivityHistory={getActivityHistory}
+        getTerminalTheme={getTerminalTheme}
+        onSelect={setActiveId}
       />
       <ModalDialog
         open={aboutOpen()}
@@ -213,6 +236,7 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
+        onMissionControl={() => setMissionControlOpen(true)}
         themeName={activeThemeName()}
         meta={activeMeta()}
         onToggleSidebar={toggleSidebar}

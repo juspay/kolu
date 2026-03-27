@@ -130,6 +130,10 @@ export const SHORTCUTS = {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous sub-tab",
   },
+  missionControl: {
+    keybind: { key: ".", mod: true },
+    label: "Mission Control",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

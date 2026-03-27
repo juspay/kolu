@@ -15,6 +15,7 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  setMissionControlOpen: Setter<boolean>;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -84,6 +85,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
     deps.setSearchOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
+    deps.setMissionControlOpen((v) => !v);
     return true;
   }
 
