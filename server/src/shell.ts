@@ -13,34 +13,27 @@ import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Env vars safe to forward from a nix devshell to PTY shells.
+ * Default env vars safe to forward from a nix devshell to PTY shells.
  * Everything else (NIX_*, DIRENV_*, derivation vars) is excluded.
+ * Exported so callers can pass it as the default whitelist value.
  */
-const NIX_ENV_WHITELIST = new Set([
-  "HOME",
-  "USER",
-  "PATH",
-  "TERM",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "DISPLAY",
-  "COLORTERM",
-  "TERM_PROGRAM",
-]);
+export const NIX_ENV_WHITELIST =
+  "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM";
 
-/** Whether to use the whitelist; set once at startup by configureNixShellEnv. */
-let useEnvWhitelist = false;
+/** Whitelist set once at startup; undefined means passthrough mode (production). */
+let envWhitelist: Set<string> | undefined;
 
 /**
  * Configure nix shell env handling at startup.
  *
- * When enabled: cleanEnv() will only forward NIX_ENV_WHITELIST vars.
- * When disabled: crash if IN_NIX_SHELL is set (production safety net).
+ * - "default"       → use NIX_ENV_WHITELIST
+ * - "FOO,BAR,..."   → use custom whitelist
+ * - undefined       → crash if IN_NIX_SHELL is set (production safety net)
  */
-export function configureNixShellEnv(enabled: boolean): void {
-  if (enabled) {
-    useEnvWhitelist = true;
+export function configureNixShellEnv(whitelist: string | undefined): void {
+  if (whitelist != null) {
+    const list = whitelist === "default" ? NIX_ENV_WHITELIST : whitelist;
+    envWhitelist = new Set(list.split(",").filter(Boolean));
     return;
   }
   if (!process.env.IN_NIX_SHELL) return;
@@ -61,9 +54,9 @@ export function configureNixShellEnv(enabled: boolean): void {
  */
 export function cleanEnv(): Record<string, string> {
   let env: Record<string, string>;
-  if (useEnvWhitelist) {
+  if (envWhitelist) {
     env = {};
-    for (const key of NIX_ENV_WHITELIST) {
+    for (const key of envWhitelist) {
       if (process.env[key] != null) env[key] = process.env[key]!;
     }
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp

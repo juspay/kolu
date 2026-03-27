@@ -72,7 +72,12 @@ BeforeAll(async function () {
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
     serverProcess = spawn(
       koluServer,
-      ["--allow-nix-shell-with-env-whitelist", "--port", String(port)],
+      [
+        "--allow-nix-shell-with-env-whitelist",
+        "default",
+        "--port",
+        String(port),
+      ],
       {
         stdio: "pipe",
       },

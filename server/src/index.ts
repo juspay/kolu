@@ -50,10 +50,9 @@ const argv = cli({
       default: false,
     },
     allowNixShellWithEnvWhitelist: {
-      type: Boolean,
+      type: String,
       description:
-        "Allow running inside a nix shell, forwarding only essential env vars to PTY shells (dev/test only)",
-      default: false,
+        "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
     },
   },
   strictFlags: true,
