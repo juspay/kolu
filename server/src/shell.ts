@@ -4,33 +4,50 @@
  * Passes the server's env straight through to PTY shells and injects
  * OSC 7 CWD reporting hooks.  Nix devshell pollution is handled at
  * startup: the server refuses to start inside a nix shell unless
- * --allow-nix-shell-with-env-whitelist is passed with a list of env vars
- * to forward (used by `just dev` / `just test`).
+ * --allow-nix-shell-with-env-whitelist is passed (used by `just dev` /
+ * `just test`).
  */
 
 import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-/** Whitelist set once at startup; undefined means passthrough mode. */
-let envWhitelist: Set<string> | undefined;
+/**
+ * Env vars safe to forward from a nix devshell to PTY shells.
+ * Everything else (NIX_*, DIRENV_*, derivation vars) is excluded.
+ */
+const NIX_ENV_WHITELIST = new Set([
+  "HOME",
+  "USER",
+  "PATH",
+  "TERM",
+  "LANG",
+  "LC_ALL",
+  "LOGNAME",
+  "DISPLAY",
+  "COLORTERM",
+  "TERM_PROGRAM",
+]);
+
+/** Whether to use the whitelist; set once at startup by configureNixShellEnv. */
+let useEnvWhitelist = false;
 
 /**
  * Configure nix shell env handling at startup.
  *
- * With a whitelist: store it so cleanEnv() only forwards those vars.
- * Without: crash if IN_NIX_SHELL is set (production safety net).
+ * When enabled: cleanEnv() will only forward NIX_ENV_WHITELIST vars.
+ * When disabled: crash if IN_NIX_SHELL is set (production safety net).
  */
-export function configureNixShellEnv(whitelist: string[] | undefined): void {
-  if (whitelist) {
-    envWhitelist = new Set(whitelist);
+export function configureNixShellEnv(enabled: boolean): void {
+  if (enabled) {
+    useEnvWhitelist = true;
     return;
   }
   if (!process.env.IN_NIX_SHELL) return;
   console.error(
     "ERROR: kolu is running inside a nix shell.\n" +
       "The nix devshell env will leak into user terminals and break shell init.\n" +
-      "Pass --allow-nix-shell-with-env-whitelist HOME,USER,... to override.",
+      "Pass --allow-nix-shell-with-env-whitelist to override.",
   );
   process.exit(1);
 }
@@ -44,9 +61,9 @@ export function configureNixShellEnv(whitelist: string[] | undefined): void {
  */
 export function cleanEnv(): Record<string, string> {
   let env: Record<string, string>;
-  if (envWhitelist) {
+  if (useEnvWhitelist) {
     env = {};
-    for (const key of envWhitelist) {
+    for (const key of NIX_ENV_WHITELIST) {
       if (process.env[key] != null) env[key] = process.env[key]!;
     }
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp

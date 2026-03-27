@@ -50,17 +50,16 @@ const argv = cli({
       default: false,
     },
     allowNixShellWithEnvWhitelist: {
-      type: String,
+      type: Boolean,
       description:
-        "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only)",
+        "Allow running inside a nix shell, forwarding only essential env vars to PTY shells (dev/test only)",
+      default: false,
     },
   },
   strictFlags: true,
 });
 
-configureNixShellEnv(
-  argv.flags.allowNixShellWithEnvWhitelist?.split(",").filter(Boolean),
-);
+configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();

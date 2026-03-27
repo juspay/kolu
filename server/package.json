@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
+    "dev": "node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
