@@ -11,25 +11,40 @@ export function cwdBasename(cwd: string): string {
 
 import type { TerminalInfo } from "kolu-common";
 
-/** Derive terminal identity: repo name > cwd basename > undefined.
- *  Used for color-grouping (Sidebar) and display labels (MissionControl). */
-/** Build a map from terminal name → unique OKLCH color via golden-angle hue spacing. */
-export function buildRepoColorMap(
+/** Assign OKLCH colors via golden-angle hue spacing.
+ *  All keys share one sequence so no two get the same color. */
+function assignColors(keys: Iterable<string>): Map<string, string> {
+  return new Map(
+    [...new Set(keys)]
+      .sort()
+      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
+  );
+}
+
+/** Build unified repo + branch color maps from terminal list.
+ *  All repo names and branch names are fed into a single color sequence
+ *  so colors are mutually exclusive across both dimensions. */
+export function buildColorMaps(
   ids: import("kolu-common").TerminalId[],
   getMeta: (
     id: import("kolu-common").TerminalId,
   ) => Omit<TerminalInfo, "id"> | undefined,
-): Map<string, string> {
-  const keys = new Set<string>();
+): { repo: Map<string, string>; branch: Map<string, string> } {
+  const repoKeys = new Set<string>();
+  const branchKeys = new Set<string>();
   for (const id of ids) {
-    const key = terminalName(getMeta(id));
-    if (key) keys.add(key);
+    const meta = getMeta(id);
+    const repo = terminalName(meta);
+    if (repo) repoKeys.add(repo);
+    const branch = meta?.meta?.git?.branch;
+    if (branch) branchKeys.add(branch);
   }
-  return new Map(
-    [...keys]
-      .sort()
-      .map((key, i) => [key, `oklch(0.75 0.14 ${(i * 137.508) % 360})`]),
-  );
+  // Combine into one sequence so no repo and branch share a hue.
+  const unified = assignColors([...repoKeys, ...branchKeys]);
+  return {
+    repo: new Map([...repoKeys].map((k) => [k, unified.get(k)!])),
+    branch: new Map([...branchKeys].map((k) => [k, unified.get(k)!])),
+  };
 }
 
 export function terminalName(

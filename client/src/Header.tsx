@@ -1,5 +1,6 @@
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
+import { WorktreeIcon } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -75,6 +76,9 @@ const Header: Component<{
               {(git) => (
                 <span class="text-fg-3 shrink-0" data-testid="header-branch">
                   &middot; {git().branch}
+                  <Show when={git().isWorktree}>
+                    <WorktreeIcon class="inline w-3 h-3 ml-0.5" />
+                  </Show>
                 </span>
               )}
             </Show>

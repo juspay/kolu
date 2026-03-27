@@ -19,7 +19,7 @@ import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
-import { terminalName, buildRepoColorMap } from "./path";
+import { terminalName, buildColorMaps } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
@@ -73,15 +73,15 @@ const MissionControl: Component<{
     return Math.ceil(Math.sqrt(n * aspect));
   });
 
-  const colorMap = createMemo(() =>
-    buildRepoColorMap(props.terminalIds, props.getMeta),
+  const colors = createMemo(() =>
+    buildColorMaps(props.terminalIds, props.getMeta),
   );
 
   function colorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
     const key = terminalName(meta);
-    return key ? colorMap().get(key) : undefined;
+    return key ? colors().repo.get(key) : undefined;
   }
 
   let gridRef!: HTMLDivElement;
