@@ -1,5 +1,6 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
+import { readBufferText, pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 /** Fetch terminal list from server via oRPC HTTP endpoint. */
@@ -82,50 +83,21 @@ Given("I note the font size", async function (this: KoluWorld) {
 
 // ── Screen state (scrollback) assertions ──
 
-/** Fetch serialized screen state for the active terminal (polls until non-empty). */
-async function fetchActiveScreenState(world: KoluWorld): Promise<string> {
-  const container = world.page.locator("[data-visible][data-terminal-id]");
-  const rawId = await container.getAttribute("data-terminal-id");
-  assert.ok(rawId, "No active terminal found");
-  let state = "";
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const resp = await world.page.request.fetch("/rpc/terminal/screenState", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { id: rawId } }),
-    });
-    const body = await resp.json();
-    state = typeof body.json === "string" ? body.json : JSON.stringify(body);
-    if (state.length > 0) return state;
-    await world.page.waitForTimeout(300);
-  }
-  return state;
-}
-
 Then(
   "the screen state should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    let state = "";
-    for (let attempt = 0; attempt < 30; attempt++) {
-      state = await fetchActiveScreenState(this);
-      if (state.includes(expected)) return;
-      await this.page.waitForTimeout(500);
-    }
-    assert.fail(
-      `Screen state does not contain "${expected}".\nScreen state (partial): ${state.slice(0, 500)}`,
-    );
+    await pollUntilBufferContains(this.page, expected);
   },
 );
 
 Then(
   "the screen state should have at least {int} lines",
   async function (this: KoluWorld, minLines: number) {
-    const state = await fetchActiveScreenState(this);
-    // Count non-empty lines (serialized state uses \r\n line endings)
-    const lines = state.split(/\r?\n/).filter((l) => l.trim().length > 0);
+    const content = await readBufferText(this.page);
+    const lines = content.split("\n").filter((l) => l.trim().length > 0);
     assert.ok(
       lines.length >= minLines,
-      `Expected at least ${minLines} lines in screen state, got ${lines.length}`,
+      `Expected at least ${minLines} lines in buffer, got ${lines.length}`,
     );
   },
 );
