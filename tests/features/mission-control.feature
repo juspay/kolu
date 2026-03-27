@@ -62,6 +62,36 @@ Feature: Mission Control
     Then Mission Control should not be visible
     And there should be no page errors
 
+  Scenario: Tab cycles through cards and wraps
+    When I create a terminal
+    And I click the Mission Control icon
+    Then the active card should have focus
+    # Active is card 2 (last created). Tab wraps forward.
+    When I press Tab
+    Then Mission Control card 1 should have focus
+    When I press Tab
+    Then Mission Control card 2 should have focus
+    And there should be no page errors
+
+  Scenario: Shift+Tab cycles backwards and wraps
+    When I create a terminal
+    And I click the Mission Control icon
+    Then the active card should have focus
+    # Active is card 2. Shift+Tab wraps backward.
+    When I press Shift+Tab
+    Then Mission Control card 1 should have focus
+    When I press Shift+Tab
+    Then Mission Control card 2 should have focus
+    And there should be no page errors
+
+  Scenario: Tab then Enter selects
+    When I create a terminal
+    And I click the Mission Control icon
+    When I press Tab
+    And I press Enter
+    Then Mission Control should not be visible
+    And there should be no page errors
+
   Scenario: Arrow keys navigate the grid
     When I create a terminal
     And I click the Mission Control icon

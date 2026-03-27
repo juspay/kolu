@@ -29,6 +29,8 @@ const ModalDialog: Component<{
   transparentOverlay?: boolean;
   /** Element to receive focus when the dialog opens (passed to Corvu's focus trap). */
   initialFocusEl?: HTMLElement;
+  /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
+  trapFocus?: boolean;
   children: JSX.Element;
 }> = (props) => (
   <Dialog
@@ -37,6 +39,7 @@ const ModalDialog: Component<{
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
     initialFocusEl={props.initialFocusEl}
+    trapFocus={props.trapFocus}
   >
     <Dialog.Portal forceMount>
       <Dialog.Overlay

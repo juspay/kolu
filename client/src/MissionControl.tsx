@@ -77,57 +77,75 @@ const MissionControl: Component<{
     ),
   );
 
-  // Keyboard navigation: number keys (1-9), arrow keys for grid movement
-  makeEventListener(window, "keydown", (e: KeyboardEvent) => {
-    if (!props.open) return;
+  // Keyboard navigation: Tab, number keys (1-9), arrow keys.
+  // Capture phase to intercept Tab before Corvu Dialog's focus trap.
+  makeEventListener(
+    window,
+    "keydown",
+    (e: KeyboardEvent) => {
+      if (!props.open) return;
 
-    // Number keys 1-9 switch directly
-    const digit = parseInt(e.key);
-    if (digit >= 1 && digit <= 9) {
-      const id = props.terminalIds[digit - 1];
-      if (id) {
+      // Number keys 1-9 switch directly
+      const digit = parseInt(e.key);
+      if (digit >= 1 && digit <= 9) {
+        const id = props.terminalIds[digit - 1];
+        if (id) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSelect(id);
+        }
+        return;
+      }
+
+      // Tab, Shift+Tab, and arrow keys navigate the grid
+      const cards = gridRef?.querySelectorAll<HTMLElement>(
+        "[data-testid='mission-control-card']",
+      );
+      if (!cards?.length) return;
+      const focused = document.activeElement as HTMLElement;
+      const idx = Array.from(cards).indexOf(focused);
+      // If focus isn't on a card (e.g. Corvu sentinel), redirect to first card
+      const currentIdx = idx === -1 ? 0 : idx;
+
+      const cols = gridCols();
+      let next = currentIdx;
+      switch (e.key) {
+        case "Tab":
+          // Override Corvu's focus trap — wrap Tab/Shift+Tab within cards
+          next = e.shiftKey
+            ? (currentIdx - 1 + cards.length) % cards.length
+            : (currentIdx + 1) % cards.length;
+          break;
+        case "ArrowRight":
+          next = Math.min(currentIdx + 1, cards.length - 1);
+          break;
+        case "ArrowLeft":
+          next = Math.max(currentIdx - 1, 0);
+          break;
+        case "ArrowDown":
+          next = Math.min(currentIdx + cols, cards.length - 1);
+          break;
+        case "ArrowUp":
+          next = Math.max(currentIdx - cols, 0);
+          break;
+        default:
+          return;
+      }
+      if (next !== currentIdx || idx === -1) {
         e.preventDefault();
         e.stopPropagation();
-        handleSelect(id);
+        cards[next]!.focus();
       }
-      return;
-    }
-
-    // Arrow keys navigate the grid
-    const cards = gridRef?.querySelectorAll<HTMLElement>(
-      "[data-testid='mission-control-card']",
-    );
-    if (!cards?.length) return;
-    const focused = document.activeElement as HTMLElement;
-    const idx = Array.from(cards).indexOf(focused);
-    if (idx === -1) return;
-
-    const cols = gridCols();
-    let next = idx;
-    switch (e.key) {
-      case "ArrowRight":
-        next = Math.min(idx + 1, cards.length - 1);
-        break;
-      case "ArrowLeft":
-        next = Math.max(idx - 1, 0);
-        break;
-      case "ArrowDown":
-        next = Math.min(idx + cols, cards.length - 1);
-        break;
-      case "ArrowUp":
-        next = Math.max(idx - cols, 0);
-        break;
-      default:
-        return;
-    }
-    if (next !== idx) {
-      e.preventDefault();
-      cards[next]!.focus();
-    }
-  });
+    },
+    { capture: true },
+  );
 
   return (
-    <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+    <ModalDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      trapFocus={false}
+    >
       <Dialog.Content
         data-testid="mission-control"
         class="w-[90vw] max-w-6xl h-[80vh] bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
@@ -162,11 +180,7 @@ const MissionControl: Component<{
                     data-testid="mission-control-card"
                     data-terminal-id={id}
                     data-active={isActive() ? "" : undefined}
-                    class="relative flex flex-col bg-surface-0 border rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                    classList={{
-                      "border-accent": isActive(),
-                      "border-edge": !isActive(),
-                    }}
+                    class="relative flex flex-col bg-surface-0 border border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                     onClick={() => handleSelect(id)}
                   >
                     {/* Number badge — press this digit to switch */}
@@ -189,15 +203,8 @@ const MissionControl: Component<{
                     </Show>
                     {/* Metadata footer — fixed height so cards align when PR info varies */}
                     <div class="px-2.5 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-20 shrink-0">
-                      <div class="flex items-center gap-1.5 truncate">
-                        <span class="text-sm font-semibold text-fg truncate">
-                          {cardLabel(meta())}
-                        </span>
-                        <Show when={isActive()}>
-                          <span class="ml-auto text-[0.6rem] text-accent bg-accent/10 px-1 rounded shrink-0">
-                            active
-                          </span>
-                        </Show>
+                      <div class="text-sm font-semibold text-fg truncate">
+                        {cardLabel(meta())}
                       </div>
                       <Show when={meta()?.meta?.git}>
                         {(git) => (
