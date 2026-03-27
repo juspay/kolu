@@ -17,17 +17,37 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 
 ## Features
 
-- **Multi-terminal** — create, switch, and kill terminals from a collapsible sidebar
-- **Git-aware** — header shows repo name, branch, and working directory (auto-detected via OSC 7)
-- **Command palette** — `Cmd/Ctrl+K` to search terminals, switch themes, and run actions
-- **200+ themes** — color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
-- **Sub-terminals** — `Ctrl+`` toggles a bottom split panel per terminal for dev servers, lazygit, etc. `Ctrl+Shift+``adds more tabs,`Ctrl+PageDown/Up` cycles
-- **Keyboard-driven** — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
-- **Clipboard & image paste** — `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
-- **WebGL rendering** — xterm.js with GPU acceleration, canvas fallback
-- **Clickable URLs**, **find in buffer**, **Unicode 11**, **inline images** (sixel, iTerm2, kitty)
-- **Font zoom** — `Cmd/Ctrl +/-`, persisted across sessions
-- **Lazy attach** — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
+### Terminals
+
+- Create, switch, kill, and drag-to-reorder terminals from a collapsible sidebar
+- Sub-terminals — `Ctrl+`` splits a bottom panel per terminal; `Ctrl+Shift+``adds tabs,`Ctrl+PageDown/Up` cycles
+- Font zoom (`Cmd/Ctrl +/-`), persisted per terminal across sessions
+- WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
+- Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
+
+### Navigation
+
+- Command palette (`Cmd/Ctrl+K`) — search terminals, switch themes, run actions
+- Mission Control (`Cmd/Ctrl+.`) — bird's eye grid of all terminals with live previews, arrow key navigation, number key (1-9) quick switch
+- Keyboard-driven — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
+
+### Git & GitHub
+
+- Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
+- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) in header and sidebar
+- Per-repo color coding in sidebar via golden-angle hue spacing
+- Activity sparklines per terminal (5-minute rolling window)
+
+### Theming
+
+- 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
+- Live preview while browsing themes in the palette
+- Random theme per new terminal (toggleable)
+- Dark / light / system UI theme
+
+### Clipboard
+
+- `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
 
 ## Architecture
 
