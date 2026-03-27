@@ -62,6 +62,24 @@ Feature: Mission Control
     Then Mission Control should not be visible
     And there should be no page errors
 
+  Scenario: Arrow keys navigate the grid
+    When I create a terminal
+    And I click the Mission Control icon
+    Then the active card should have focus
+    When I press ArrowRight
+    Then Mission Control card 2 should have focus
+    When I press ArrowLeft
+    Then Mission Control card 1 should have focus
+    And there should be no page errors
+
+  Scenario: Arrow key then Enter selects
+    When I create a terminal
+    And I click the Mission Control icon
+    When I press ArrowRight
+    And I press Enter
+    Then Mission Control should not be visible
+    And there should be no page errors
+
   Scenario: Open and close with keyboard shortcut
     When I press the Mission Control shortcut
     Then Mission Control should be visible

@@ -5,7 +5,14 @@
  * Click a card or press its number (1-9) to switch and dismiss the overlay.
  */
 
-import { type Component, For, Show, createMemo } from "solid-js";
+import {
+  type Component,
+  For,
+  Show,
+  createMemo,
+  createEffect,
+  on,
+} from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
@@ -45,14 +52,36 @@ const MissionControl: Component<{
     return 4;
   });
 
+  let gridRef!: HTMLDivElement;
+
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
     props.onOpenChange(false);
   }
 
-  // Number keys 1-9 switch to that terminal while Mission Control is open
+  // Auto-focus the active terminal's card when Mission Control opens
+  createEffect(
+    on(
+      () => props.open,
+      (open) => {
+        if (!open) return;
+        // setTimeout runs after Corvu Dialog's focus trap sets initial focus
+        setTimeout(() => {
+          const activeCard =
+            gridRef?.querySelector<HTMLElement>("[data-active]");
+          (
+            activeCard ?? gridRef?.querySelector<HTMLElement>("button")
+          )?.focus();
+        });
+      },
+    ),
+  );
+
+  // Keyboard navigation: number keys (1-9), arrow keys for grid movement
   makeEventListener(window, "keydown", (e: KeyboardEvent) => {
     if (!props.open) return;
+
+    // Number keys 1-9 switch directly
     const digit = parseInt(e.key);
     if (digit >= 1 && digit <= 9) {
       const id = props.terminalIds[digit - 1];
@@ -61,6 +90,39 @@ const MissionControl: Component<{
         e.stopPropagation();
         handleSelect(id);
       }
+      return;
+    }
+
+    // Arrow keys navigate the grid
+    const cards = gridRef?.querySelectorAll<HTMLElement>(
+      "[data-testid='mission-control-card']",
+    );
+    if (!cards?.length) return;
+    const focused = document.activeElement as HTMLElement;
+    const idx = Array.from(cards).indexOf(focused);
+    if (idx === -1) return;
+
+    const cols = gridCols();
+    let next = idx;
+    switch (e.key) {
+      case "ArrowRight":
+        next = Math.min(idx + 1, cards.length - 1);
+        break;
+      case "ArrowLeft":
+        next = Math.max(idx - 1, 0);
+        break;
+      case "ArrowDown":
+        next = Math.min(idx + cols, cards.length - 1);
+        break;
+      case "ArrowUp":
+        next = Math.max(idx - cols, 0);
+        break;
+      default:
+        return;
+    }
+    if (next !== idx) {
+      e.preventDefault();
+      cards[next]!.focus();
     }
   });
 
@@ -72,12 +134,7 @@ const MissionControl: Component<{
       >
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-fg">Mission Control</h2>
-          <button
-            class="text-fg-3 hover:text-fg text-xs transition-colors cursor-pointer"
-            onClick={() => props.onOpenChange(false)}
-          >
-            Esc to close
-          </button>
+          <span class="text-fg-3 text-xs">Esc to close</span>
         </div>
         <Show
           when={props.terminalIds.length > 0}
@@ -88,6 +145,7 @@ const MissionControl: Component<{
           }
         >
           <div
+            ref={gridRef}
             class="grid gap-3 flex-1 min-h-0"
             style={{
               "grid-template-columns": `repeat(${gridCols()}, minmax(0, 1fr))`,

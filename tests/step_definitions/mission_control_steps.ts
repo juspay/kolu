@@ -83,6 +83,33 @@ When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.page.waitForTimeout(300);
 });
 
+Then("the active card should have focus", async function (this: KoluWorld) {
+  // Wait for auto-focus (setTimeout in MissionControl runs after Corvu's focus trap)
+  await this.page.waitForFunction(
+    () =>
+      document.activeElement?.getAttribute("data-testid") ===
+      "mission-control-card",
+    { timeout: 3000 },
+  );
+});
+
+Then(
+  "Mission Control card {int} should have focus",
+  async function (this: KoluWorld, index: number) {
+    const cards = this.page.locator(MC_CARD_SELECTOR);
+    const card = cards.nth(index - 1);
+    const id = await card.getAttribute("data-terminal-id");
+    const focusedId = await this.page.evaluate(() =>
+      document.activeElement?.getAttribute("data-terminal-id"),
+    );
+    assert.strictEqual(
+      focusedId,
+      id,
+      `Expected card ${index} to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
+    );
+  },
+);
+
 Then(
   "all Mission Control cards should be visible",
   async function (this: KoluWorld) {
