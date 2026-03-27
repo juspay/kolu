@@ -119,6 +119,21 @@ Feature: Mission Control
     Then Mission Control card 2 should have focus
     And there should be no page errors
 
+  Scenario: Ctrl+Tab then Tab cycles through cards
+    When I create a terminal
+    And I create a terminal
+    And I hold Ctrl and press Tab
+    Then Mission Control should be visible
+    # MRU: [term2, term1, background]. Ctrl+Tab auto-focuses card 2 (term1).
+    Then Mission Control card 2 should have focus
+    When I press Tab
+    Then Mission Control card 3 should have focus
+    When I press Tab
+    Then Mission Control card 1 should have focus
+    When I release Ctrl
+    Then Mission Control should not be visible
+    And there should be no page errors
+
   Scenario: Quick Ctrl+Tab release switches to previous terminal
     When I create a terminal
     And I run "echo quick-switch-target"

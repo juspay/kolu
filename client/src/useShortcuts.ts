@@ -61,14 +61,22 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
   // While Ctrl is held, Tab cycles focus; releasing Ctrl selects.
+  // Ctrl+Tab / Ctrl+Shift+Tab: open quick-switch if MC is closed.
+  // If already open, fall through — MissionControl's Tab handler cycles focus.
   if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
-    deps.setMcMode({ mode: "quickSwitch", direction: 1 });
-    return true;
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: 1 });
+      return true;
+    }
+    return false;
   }
 
   if (matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)) {
-    deps.setMcMode({ mode: "quickSwitch", direction: -1 });
-    return true;
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: -1 });
+      return true;
+    }
+    return false;
   }
 
   if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
