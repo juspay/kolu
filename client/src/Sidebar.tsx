@@ -12,6 +12,7 @@ import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
+import { WorktreeIcon } from "./Icons";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 
@@ -87,19 +88,7 @@ const SidebarEntry: Component<{
               class="text-fg-3 shrink-0"
               title="Worktree"
             >
-              <svg
-                class="w-3 h-3"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
+              <WorktreeIcon />
             </span>
           </Show>
           {/* Sub-terminal count badge */}

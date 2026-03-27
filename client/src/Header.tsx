@@ -1,5 +1,6 @@
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
+import { WorktreeIcon } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -76,19 +77,7 @@ const Header: Component<{
                 <span class="text-fg-3 shrink-0" data-testid="header-branch">
                   &middot; {git().branch}
                   <Show when={git().isWorktree}>
-                    <svg
-                      class="inline w-3 h-3 ml-0.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M13 10V3L4 14h7v7l9-11h-7z"
-                      />
-                    </svg>
+                    <WorktreeIcon class="inline w-3 h-3 ml-0.5" />
                   </Show>
                 </span>
               )}
