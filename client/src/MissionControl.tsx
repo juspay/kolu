@@ -51,10 +51,17 @@ const MissionControl: Component<{
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
-  /** Cards in display order: MRU for quick-switch, sidebar order otherwise. */
-  const displayIds = createMemo(() =>
-    props.quickSwitchMode ? props.mruOrder : props.terminalIds,
-  );
+  /** Cards in display order: MRU for quick-switch, sidebar order otherwise.
+   *  MRU may be incomplete (e.g. after refresh) — append any missing terminals at the end. */
+  const displayIds = createMemo(() => {
+    if (!props.quickSwitchMode) return props.terminalIds;
+    const mru = props.mruOrder;
+    const all = new Set(props.terminalIds);
+    // Filter MRU to only existing terminals, then append any missing ones
+    const ordered = mru.filter((id) => all.has(id));
+    const missing = props.terminalIds.filter((id) => !mru.includes(id));
+    return [...ordered, ...missing];
+  });
 
   /** Pick column count so all cards fit on screen without scrolling. */
   const gridCols = createMemo(() => {

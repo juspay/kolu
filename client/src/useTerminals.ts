@@ -294,6 +294,11 @@ export function useTerminals() {
         setActiveId(ids[0] ?? null);
       }
 
+      // Seed MRU with all top-level terminals (active first, rest in sidebar order).
+      // MRU is in-memory only — without this, Ctrl+Tab after refresh shows only the active terminal.
+      const active = activeId();
+      setMruOrder(active ? [active, ...ids.filter((x) => x !== active)] : ids);
+
       // Subscribe to live updates for all terminals
       for (const t of existing) subscribeAll(t.id);
     }
