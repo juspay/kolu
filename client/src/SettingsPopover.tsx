@@ -15,6 +15,8 @@ const SettingsPopover: Component<{
   onOpenChange: (open: boolean) => void;
   randomTheme: boolean;
   onRandomThemeChange: (on: boolean) => void;
+  scrollLock: boolean;
+  onScrollLockChange: (on: boolean) => void;
   colorScheme: ColorScheme;
   onColorSchemeChange: (scheme: ColorScheme) => void;
 }> = (props) => {
@@ -84,6 +86,28 @@ const SettingsPopover: Component<{
               classList={{
                 "left-[18px]": props.randomTheme,
                 "left-0.5": !props.randomTheme,
+              }}
+            />
+          </button>
+        </label>
+        {/* Scroll lock */}
+        <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
+          <span class="text-fg-2">Scroll lock</span>
+          <button
+            data-testid="scroll-lock-toggle"
+            data-enabled={props.scrollLock ? "" : undefined}
+            class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"
+            classList={{
+              "bg-accent": props.scrollLock,
+              "bg-surface-3": !props.scrollLock,
+            }}
+            onClick={() => props.onScrollLockChange(!props.scrollLock)}
+          >
+            <span
+              class="absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform"
+              classList={{
+                "left-[18px]": props.scrollLock,
+                "left-0.5": !props.scrollLock,
               }}
             />
           </button>

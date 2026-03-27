@@ -31,6 +31,7 @@ import { client } from "./rpc";
 import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
+import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "./zoom";
 
 export type RendererType = "webgl" | "canvas";
@@ -71,11 +72,16 @@ const Terminal: Component<{
   onSearchOpenChange: (open: boolean) => void;
   /** Fired when the user interacts with this terminal (click/keyboard focus). */
   onFocus?: () => void;
+  /** When true, viewport freezes when user scrolls up (default: true). */
+  scrollLockEnabled?: boolean;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
+  const [isScrollLocked, setIsScrollLocked] = createSignal(false);
+  let scrollLocked = false;
+  let isRestoring = false;
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -96,6 +102,8 @@ const Terminal: Component<{
       () => props.visible,
       (visible) => {
         if (!visible || !terminal) return;
+        scrollLocked = false;
+        setIsScrollLocked(false);
         debouncedFit();
         if (props.focused !== false) terminal.focus();
       },
@@ -152,6 +160,20 @@ const Terminal: Component<{
     }
   }
 
+  // Clear scroll lock when the setting is toggled off
+  createEffect(
+    on(
+      () => props.scrollLockEnabled,
+      (enabled) => {
+        if (enabled === false) {
+          scrollLocked = false;
+          setIsScrollLocked(false);
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   // Apply font-size changes reactively (initial value handled by XTerm constructor)
   createEffect(
     on(
@@ -194,6 +216,16 @@ const Terminal: Component<{
     term.loadAddon(new SerializeAddon());
 
     term.open(containerRef);
+
+    // Scroll lock: detect when user scrolls away from bottom
+    term.onScroll(() => {
+      if (isRestoring) return;
+      if (props.scrollLockEnabled === false) return;
+      const buf = term.buffer.active;
+      const atBottom = buf.baseY <= buf.viewportY;
+      scrollLocked = !atBottom;
+      setIsScrollLocked(!atBottom);
+    });
 
     // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
     try {
@@ -242,10 +274,26 @@ const Terminal: Component<{
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
-    // Attach stream: yields scrollback first, then live PTY output
+    // Attach stream: yields scrollback first, then live PTY output.
+    // When scroll-locked, save viewport position before write and restore after,
+    // preventing new output from yanking the user back to the bottom.
     consumeStream(
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
-      (data) => terminal?.write(data),
+      (data) => {
+        if (!terminal) return;
+        if (!scrollLocked) {
+          terminal.write(data);
+          return;
+        }
+        const savedY = terminal.buffer.active.viewportY;
+        isRestoring = true;
+        terminal.write(data, () => {
+          terminal!.scrollToLine(savedY);
+          queueMicrotask(() => {
+            isRestoring = false;
+          });
+        });
+      },
       "Terminal attach",
     );
 
@@ -336,6 +384,10 @@ const Terminal: Component<{
           />
         )}
       </Show>
+      <ScrollToBottom
+        visible={isScrollLocked()}
+        onClick={() => terminal?.scrollToBottom()}
+      />
       <div
         ref={containerRef}
         // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
