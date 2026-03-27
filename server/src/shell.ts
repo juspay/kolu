@@ -1,41 +1,107 @@
 /**
  * Shell environment preparation for PTY spawning.
  *
- * Builds a minimal, clean env that avoids nix/direnv pollution
- * leaking into the user's spawned shell, and injects OSC 7 CWD
- * reporting hooks.
+ * Strips nix/direnv pollution from the server's env before spawning
+ * the user's PTY shell, and injects OSC 7 CWD reporting hooks.
  */
 
 import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-/** Env vars safe to forward to the PTY shell. */
-const KEEP_ENV = [
-  "HOME",
-  "USER",
-  "SHELL",
-  "TERM",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "DISPLAY",
-  "COLORTERM",
-  "TERM_PROGRAM",
-] as const;
+/**
+ * Env var patterns injected by nix devshells / direnv that must NOT
+ * leak into the user's PTY shell (wrong PS1, shopt errors, direnv
+ * unloading, multi-line derivation junk).
+ */
+const STRIP_PATTERNS: RegExp[] = [
+  /^NIX_/, // nix toolchain / store vars
+  /^DIRENV_/, // direnv session state
+  /^__/, // internal markers (__ETC_PROFILE_DONE, etc.)
+  /^KOLU_/, // re-injected per-terminal (clipboard, fonts, …)
+  /^IN_NIX_SHELL$/, // nix shell indicator
+  /^BASH_ENV$/, // unexpected script sourcing
+  /^CONFIG_SHELL$/, // nix store bash path
+  /^HOST_PATH$/, // nix-specific PATH variant
+];
+
+/** Exact nix derivation vars from mkShell / stdenv. */
+const STRIP_EXACT = new Set([
+  // build toolchain
+  "AR",
+  "AS",
+  "CC",
+  "CXX",
+  "LD",
+  "NM",
+  "OBJCOPY",
+  "OBJDUMP",
+  "RANLIB",
+  "READELF",
+  "SIZE",
+  "STRINGS",
+  "STRIP",
+  // derivation plumbing
+  "builder",
+  "buildInputs",
+  "buildPhase",
+  "cmakeFlags",
+  "configureFlags",
+  "configurePhase",
+  "depsBuildBuild",
+  "depsBuildBuildPropagated",
+  "depsBuildTarget",
+  "depsBuildTargetPropagated",
+  "depsHostHost",
+  "depsHostHostPropagated",
+  "depsTargetTarget",
+  "depsTargetTargetPropagated",
+  "DETERMINISTIC_BUILD",
+  "doCheck",
+  "doInstallCheck",
+  "dontAddDisableDepTrack",
+  "installPhase",
+  "mesonFlags",
+  "name",
+  "nativeBuildInputs",
+  "out",
+  "outputs",
+  "patches",
+  "phases",
+  "preferLocalBuild",
+  "propagatedBuildInputs",
+  "propagatedNativeBuildInputs",
+  "shell",
+  "shellHook",
+  "SOURCE_DATE_EPOCH",
+  "src",
+  "stdenv",
+  "strictDeps",
+  "system",
+  "NIXPKGS_CONFIG",
+  "NoDefaultCurrentDirectoryInExePath",
+]);
+
+function isNixVar(key: string): boolean {
+  return STRIP_EXACT.has(key) || STRIP_PATTERNS.some((re) => re.test(key));
+}
 
 /**
- * Build a minimal env for the PTY shell.
+ * Build a clean env for the PTY shell.
  *
  * The server may run inside nix/direnv which pollutes the env with
- * NIX_*, DIRENV_*, BASH_ENV, etc. — these break the user's shell
- * (wrong PS1, shopt errors, direnv unloading). We only forward the
- * essentials so the spawned shell starts clean.
+ * NIX_*, DIRENV_*, BASH_ENV, derivation vars, etc. — these break the
+ * user's shell. Instead of allowlisting a handful of essentials (which
+ * drops legitimate user vars like $ZSH for oh-my-zsh), we blocklist
+ * the known nix/direnv pollution and forward everything else.
  */
 export function cleanEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    KEEP_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : [])),
-  );
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !isNixVar(k)) {
+      env[k] = v;
+    }
+  }
   // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
   // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
   // the user's .bashrc errors on `shopt -s progcomp`.
