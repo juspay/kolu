@@ -52,6 +52,8 @@ const App: Component = () => {
     commands,
     randomTheme,
     setRandomTheme,
+    scrollLock,
+    setScrollLock,
   } = useTerminals();
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
@@ -246,6 +248,8 @@ const App: Component = () => {
         appTitle={appTitle()}
         randomTheme={randomTheme()}
         onRandomThemeChange={setRandomTheme}
+        scrollLock={scrollLock()}
+        onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
       />
@@ -307,6 +311,7 @@ const App: Component = () => {
                         void handleCreateSubTerminal(parentId, cwd)
                       }
                       activeMeta={activeMeta()}
+                      scrollLockEnabled={scrollLock()}
                     />
                   )}
                 </For>

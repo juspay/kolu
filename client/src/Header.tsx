@@ -27,6 +27,8 @@ const Header: Component<{
   appTitle?: string;
   randomTheme?: boolean;
   onRandomThemeChange?: (on: boolean) => void;
+  scrollLock?: boolean;
+  onScrollLockChange?: (on: boolean) => void;
   colorScheme?: ColorScheme;
   onColorSchemeChange?: (scheme: ColorScheme) => void;
 }> = (rawProps) => {
@@ -186,6 +188,8 @@ const Header: Component<{
             onOpenChange={setSettingsOpen}
             randomTheme={props.randomTheme ?? true}
             onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
+            scrollLock={props.scrollLock ?? true}
+            onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
             colorScheme={props.colorScheme ?? "dark"}
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
           />

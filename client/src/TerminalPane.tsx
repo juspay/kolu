@@ -20,6 +20,7 @@ const TerminalPane: Component<{
   ) => { meta?: TerminalMetadata; themeName?: string } | undefined;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeMeta: TerminalMetadata | null;
+  scrollLockEnabled?: boolean;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -58,6 +59,7 @@ const TerminalPane: Component<{
             theme={props.theme}
             searchOpen={props.searchOpen}
             onSearchOpenChange={props.onSearchOpenChange}
+            scrollLockEnabled={props.scrollLockEnabled}
           />
         }
       >
@@ -84,6 +86,7 @@ const TerminalPane: Component<{
               searchOpen={props.searchOpen}
               onSearchOpenChange={props.onSearchOpenChange}
               onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
+              scrollLockEnabled={props.scrollLockEnabled}
             />
           </Resizable.Panel>
 
@@ -145,6 +148,7 @@ const TerminalPane: Component<{
                     onFocus={() =>
                       subPanel.setFocusTarget(props.terminalId, "sub")
                     }
+                    scrollLockEnabled={props.scrollLockEnabled}
                   />
                 )}
               </For>
