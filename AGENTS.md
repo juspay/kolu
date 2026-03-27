@@ -41,6 +41,10 @@ Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 - **Shared env vars** live in `koluEnv` (defined in `default.nix`). Both the build and the devShell consume it — don't duplicate env var definitions.
 - **Measure `nix develop` time** after Nix changes: `time nix develop -c echo test`. Current target: ~2.6s cold, ~0.3s warm.
 
+## E2E Tests
+
+- **Use semantic selectors**: Never match on CSS classes (`class*="bg-..."`) in test selectors — classes are styling concerns and break when visual design changes. Use `data-testid`, `data-active`, or other semantic `data-*` attributes instead.
+
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).

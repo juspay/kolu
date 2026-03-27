@@ -58,11 +58,12 @@ const SidebarEntry: Component<{
         ref={sortable.ref}
         {...sortable.dragActivators}
         data-terminal-id={props.id}
+        data-active={props.isActive ? "" : undefined}
         data-activity={m()?.isActive ? "active" : "sleeping"}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
-          "border-l-4 bg-surface-2 text-fg": props.isActive,
-          "border-l-2 text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+          "border-l-4 bg-accent/10 text-fg": props.isActive,
+          "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
             !props.isActive,
           "opacity-25": sortable.isActiveDraggable,
         }}
@@ -214,7 +215,7 @@ const Sidebar: Component<{
       {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-44 bg-surface-1 border-r border-edge transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-52 bg-surface-1 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
