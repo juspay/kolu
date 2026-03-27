@@ -30,8 +30,9 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
     }
     // --git-common-dir returns the shared .git dir; for worktrees it points
     // back to the main repo's .git, letting us derive the real repo name.
+    // The path is relative to cwd (where simple-git runs), not repoRoot.
     const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
-    const mainRepoRoot = path.dirname(path.resolve(repoRoot, gitCommonDir));
+    const mainRepoRoot = path.dirname(path.resolve(cwd, gitCommonDir));
     const isWorktree = mainRepoRoot !== repoRoot;
     return {
       repoRoot,

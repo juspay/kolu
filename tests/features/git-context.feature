@@ -36,6 +36,14 @@ Feature: Git context in header and sidebar
     And the sidebar should show a worktree indicator
     And there should be no page errors
 
+  Scenario: CWD inside .worktrees parent dir shows main repo name
+    When I run "git init /tmp/kolu-wt-parent && cd /tmp/kolu-wt-parent && git commit --allow-empty -m init"
+    And I run "mkdir -p /tmp/kolu-wt-parent/.worktrees && git -C /tmp/kolu-wt-parent worktree add -b wt-branch /tmp/kolu-wt-parent/.worktrees/wt-branch"
+    And I run "cd /tmp/kolu-wt-parent/.worktrees"
+    Then the sidebar label should show "kolu-wt-parent"
+    And the sidebar should not show a worktree indicator
+    And there should be no page errors
+
   Scenario: Header and sidebar hide git context outside a repo
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"
