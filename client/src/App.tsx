@@ -119,20 +119,11 @@ const App: Component = () => {
     },
   ]);
 
-  // Reset state on close and return focus to terminal.
-  // Uses a double-rAF to let command-triggered focus effects (e.g. sub-panel
-  // expand setting focusTarget) settle before potentially overriding them.
+  // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          if (!shortcutsHelpOpen() && !aboutOpen()) {
-            refocusTerminal();
-          }
-        }),
-      );
     }
   }
 
@@ -162,6 +153,7 @@ const App: Component = () => {
         commands={allCommands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
+        onDismiss={() => requestAnimationFrame(refocusTerminal)}
         initialGroup={paletteInitialGroup()}
         transparentOverlay={isPreviewingTheme()}
       />
