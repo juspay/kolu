@@ -88,11 +88,10 @@ let
 
     inherit pnpmDeps;
 
-    env.npm_config_nodedir = nodejs;
-    env.NIX_NODEJS_BUILDNPMPACKAGE = "1";
-    env.KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
-    env.KOLU_FONTS_DIR = "${fonts}";
-    env.KOLU_COMMIT_HASH = commitHash;
+    env = {
+      npm_config_nodedir = nodejs;
+      NIX_NODEJS_BUILDNPMPACKAGE = "1";
+    } // koluEnv;
 
     buildPhase = ''
       runHook preBuild
@@ -112,16 +111,23 @@ let
       runHook postInstall
     '';
   };
+  # Shared env vars used by both the nix build and the devShell.
+  koluEnv = {
+    KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+    KOLU_FONTS_DIR = "${fonts}";
+    KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
+    KOLU_COMMIT_HASH = commitHash;
+  };
 in
 {
-  inherit kolu ghosttyThemes fonts clipboard-shims;
+  inherit kolu ghosttyThemes fonts clipboard-shims koluEnv;
 
   default = pkgs.writeShellApplication {
     name = "kolu";
     runtimeInputs = [ nodejs pkgs.tsx pkgs.git pkgs.gh ];
     text = ''
       export KOLU_CLIENT_DIST="${kolu}/client/dist"
-      export KOLU_CLIPBOARD_SHIM_DIR="${clipboard-shims}/bin"
+      export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"
       exec tsx "${kolu}/server/src/index.ts" "$@"
     '';
   };
