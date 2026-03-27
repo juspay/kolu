@@ -75,7 +75,7 @@ BeforeAll(async function () {
       [
         "--allow-nix-shell-with-env-whitelist",
         // Keep in sync with server/package.json "dev" script and justfile test-quick
-        "HOME,USER,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
+        "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
         "--port",
         String(port),
       ],
