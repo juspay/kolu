@@ -164,9 +164,18 @@ const App: Component = () => {
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
-        onOpenChange={setShortcutsHelpOpen}
+        onOpenChange={(open) => {
+          setShortcutsHelpOpen(open);
+          if (!open) requestAnimationFrame(refocusTerminal);
+        }}
       />
-      <ModalDialog open={aboutOpen()} onOpenChange={setAboutOpen}>
+      <ModalDialog
+        open={aboutOpen()}
+        onOpenChange={(open) => {
+          setAboutOpen(open);
+          if (!open) requestAnimationFrame(refocusTerminal);
+        }}
+      >
         <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
