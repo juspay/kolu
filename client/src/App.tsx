@@ -181,21 +181,33 @@ const App: Component = () => {
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
           </div>
-          <p class="text-fg-3">
-            Commit:{" "}
-            {__KOLU_COMMIT__ !== "dev" ? (
+          <div class="space-y-1 text-fg-3">
+            <p>
               <a
-                href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
+                href="https://github.com/juspay/kolu"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-accent hover:underline"
               >
-                {__KOLU_COMMIT__}
+                github.com/juspay/kolu
               </a>
-            ) : (
-              <span class="text-fg-2">dev</span>
-            )}
-          </p>
+            </p>
+            <p>
+              Commit:{" "}
+              {__KOLU_COMMIT__ !== "dev" ? (
+                <a
+                  href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-accent hover:underline"
+                >
+                  {__KOLU_COMMIT__}
+                </a>
+              ) : (
+                <span class="text-fg-2">dev</span>
+              )}
+            </p>
+          </div>
         </Dialog.Content>
       </ModalDialog>
       <Header
