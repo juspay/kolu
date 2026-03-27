@@ -11,8 +11,12 @@
 import { type Component, type JSX } from "solid-js";
 import Dialog from "@corvu/dialog";
 
-/** Click the visible terminal to restore focus after a dialog closes. */
+/** Click the visible terminal to restore focus after a dialog closes.
+ *  If a terminal already has focus (e.g. sub-panel managed its own focus),
+ *  skip the click to avoid stealing focus from the sub-terminal.
+ */
 export function refocusTerminal() {
+  if (document.activeElement?.closest("[data-terminal-id]")) return;
   document
     .querySelector<HTMLElement>("[data-visible][data-terminal-id]")
     ?.click();

@@ -119,20 +119,16 @@ const App: Component = () => {
     },
   ]);
 
-  // Reset state on close and return focus to terminal.
-  // Uses setTimeout to let command-triggered focus effects settle before
-  // checking if refocus is needed. Commands that open dialogs (shortcuts,
-  // about) or manage their own focus (sub-panel) run synchronously after
-  // the palette close, so by the time this fires, their effects have landed.
+  // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         if (!shortcutsHelpOpen() && !aboutOpen()) {
           refocusTerminal();
         }
-      }, 50);
+      });
     }
   }
 
