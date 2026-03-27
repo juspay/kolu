@@ -82,3 +82,15 @@ When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+.`);
   await this.page.waitForTimeout(300);
 });
+
+Then(
+  "all Mission Control cards should be visible",
+  async function (this: KoluWorld) {
+    const cards = this.page.locator(MC_CARD_SELECTOR);
+    const count = await cards.count();
+    for (let i = 0; i < count; i++) {
+      const visible = await cards.nth(i).isVisible();
+      assert.ok(visible, `Mission Control card ${i + 1} is not visible`);
+    }
+  },
+);

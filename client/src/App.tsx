@@ -105,6 +105,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Wrap a boolean setter so closing any dialog refocuses the terminal. */
+  function withRefocus(setter: (open: boolean) => void) {
+    return (open: boolean) => {
+      setter(open);
+      if (!open) requestAnimationFrame(refocusTerminal);
+    };
+  }
+
   function openPaletteGroup(group: string) {
     setPaletteInitialGroup(group);
     setPaletteOpen(true);
@@ -173,17 +181,11 @@ const App: Component = () => {
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
-        onOpenChange={(open) => {
-          setShortcutsHelpOpen(open);
-          if (!open) requestAnimationFrame(refocusTerminal);
-        }}
+        onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
       <MissionControl
         open={missionControlOpen()}
-        onOpenChange={(open) => {
-          setMissionControlOpen(open);
-          if (!open) requestAnimationFrame(refocusTerminal);
-        }}
+        onOpenChange={withRefocus(setMissionControlOpen)}
         terminalIds={terminalIds()}
         activeId={activeId()}
         getMeta={getMeta}
@@ -191,13 +193,7 @@ const App: Component = () => {
         getTerminalTheme={getTerminalTheme}
         onSelect={setActiveId}
       />
-      <ModalDialog
-        open={aboutOpen()}
-        onOpenChange={(open) => {
-          setAboutOpen(open);
-          if (!open) requestAnimationFrame(refocusTerminal);
-        }}
-      >
+      <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />

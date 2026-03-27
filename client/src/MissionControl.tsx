@@ -17,6 +17,15 @@ import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
 
+/** Derive a human-readable label for a terminal card: repo name > cwd basename > fallback. */
+function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
+  return (
+    meta?.meta?.git?.repoName ||
+    cwdBasename(meta?.meta?.cwd ?? "") ||
+    "terminal"
+  );
+}
+
 const MissionControl: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -27,12 +36,13 @@ const MissionControl: Component<{
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
+  /** Pick column count so all cards fit on screen without scrolling. */
   const gridCols = createMemo(() => {
     const count = props.terminalIds.length;
-    if (count <= 2) return "grid-cols-1 sm:grid-cols-2";
-    if (count <= 4) return "grid-cols-2";
-    if (count <= 6) return "grid-cols-2 sm:grid-cols-3";
-    return "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4";
+    if (count <= 1) return 1;
+    if (count <= 4) return 2;
+    if (count <= 9) return 3;
+    return 4;
   });
 
   function handleSelect(id: TerminalId) {
@@ -58,7 +68,7 @@ const MissionControl: Component<{
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
       <Dialog.Content
         data-testid="mission-control"
-        class="w-[90vw] max-w-6xl max-h-[80vh] bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-y-auto p-4"
+        class="w-[90vw] max-w-6xl h-[80vh] bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
       >
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-fg">Mission Control</h2>
@@ -72,12 +82,18 @@ const MissionControl: Component<{
         <Show
           when={props.terminalIds.length > 0}
           fallback={
-            <div class="text-fg-3 text-sm text-center py-8">
+            <div class="flex-1 flex items-center justify-center text-fg-3 text-sm">
               No terminals open
             </div>
           }
         >
-          <div class={`grid gap-3 ${gridCols()}`}>
+          <div
+            class="grid gap-3 flex-1 min-h-0"
+            style={{
+              "grid-template-columns": `repeat(${gridCols()}, minmax(0, 1fr))`,
+              "grid-auto-rows": "1fr",
+            }}
+          >
             <For each={props.terminalIds}>
               {(id, index) => {
                 const meta = () => props.getMeta(id);
@@ -88,7 +104,7 @@ const MissionControl: Component<{
                     data-testid="mission-control-card"
                     data-terminal-id={id}
                     data-active={isActive() ? "" : undefined}
-                    class="relative flex flex-col bg-surface-0 border rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 aspect-square"
+                    class="relative flex flex-col bg-surface-0 border rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                     classList={{
                       "border-accent": isActive(),
                       "border-edge": !isActive(),
@@ -104,7 +120,7 @@ const MissionControl: Component<{
                         {num()}
                       </span>
                     </Show>
-                    {/* Terminal preview — fills most of the square card */}
+                    {/* Terminal preview — fills available card height */}
                     <Show when={props.open}>
                       <div class="flex-1 min-h-0 w-full">
                         <TerminalPreview
@@ -117,9 +133,7 @@ const MissionControl: Component<{
                     <div class="px-2.5 py-2 bg-surface-1 border-t border-edge space-y-0.5">
                       <div class="flex items-center gap-1.5 truncate">
                         <span class="text-sm font-semibold text-fg truncate">
-                          {meta()?.meta?.git?.repoName ??
-                            (cwdBasename(meta()?.meta?.cwd ?? "") ||
-                              "terminal")}
+                          {cardLabel(meta())}
                         </span>
                         <Show when={isActive()}>
                           <span class="ml-auto text-[0.6rem] text-accent bg-accent/10 px-1 rounded shrink-0">

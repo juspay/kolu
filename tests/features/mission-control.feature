@@ -68,3 +68,31 @@ Feature: Mission Control
     When I press the Mission Control shortcut
     Then Mission Control should not be visible
     And there should be no page errors
+
+  Scenario: Terminal focus restored after closing
+    When I click the Mission Control icon
+    Then Mission Control should be visible
+    When I press Escape
+    Then Mission Control should not be visible
+    And the terminal should have keyboard focus
+    And there should be no page errors
+
+  Scenario: Many terminals fit on screen
+    When I create a terminal
+    And I create a terminal
+    And I create a terminal
+    And I create a terminal
+    And I click the Mission Control icon
+    Then Mission Control should show 5 terminal cards
+    And all Mission Control cards should be visible
+    And there should be no page errors
+
+  Scenario: Click card switches to correct terminal
+    When I create a terminal
+    And I run "echo mc-target"
+    And I create a terminal
+    And I click the Mission Control icon
+    When I click terminal card 2
+    Then Mission Control should not be visible
+    And the active terminal should show "mc-target"
+    And there should be no page errors
