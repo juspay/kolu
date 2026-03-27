@@ -63,6 +63,46 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   await this.page.waitForTimeout(1000);
 });
 
+When(
+  "I fire the output trigger with {int} lines",
+  async function (this: KoluWorld, count: number) {
+    const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
+    await writeFile(SCROLL_FIFO, lines.join("\n") + "\n");
+    await this.page.waitForTimeout(2000);
+  },
+);
+
+/**
+ * Read text of the first visible row from the xterm buffer.
+ * Uses the __xterm ref exposed on the container element.
+ */
+function readFirstVisibleLine(world: KoluWorld) {
+  return world.page.evaluate(() => {
+    const container = document.querySelector(
+      "[data-visible][data-terminal-id]",
+    ) as HTMLElement & {
+      __xterm?: {
+        buffer: {
+          active: {
+            viewportY: number;
+            getLine(
+              y: number,
+            ): { translateToString(trimRight?: boolean): string } | undefined;
+          };
+        };
+      };
+    };
+    const term = container?.__xterm;
+    if (!term) return "";
+    const vY = term.buffer.active.viewportY;
+    return term.buffer.active.getLine(vY)?.translateToString(true) ?? "";
+  });
+}
+
+When("I note the visible terminal text", async function (this: KoluWorld) {
+  this.savedVisibleText = await readFirstVisibleLine(this);
+});
+
 When("I click the scroll-to-bottom button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="scroll-to-bottom"]');
   await this.page.waitForTimeout(300);
@@ -106,6 +146,22 @@ Then(
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
     await btn.waitFor({ state: "hidden", timeout: 3000 });
+  },
+);
+
+Then(
+  "the visible terminal text should be unchanged",
+  async function (this: KoluWorld) {
+    assert.ok(
+      this.savedVisibleText,
+      "No saved visible text — was 'I note the visible terminal text' called first?",
+    );
+    const current = await readFirstVisibleLine(this);
+    assert.strictEqual(
+      current,
+      this.savedVisibleText,
+      `Viewport content drifted: was "${this.savedVisibleText}", now "${current}"`,
+    );
   },
 );
 

@@ -220,6 +220,8 @@ const Terminal: Component<{
     term.loadAddon(new SerializeAddon());
 
     term.open(containerRef);
+    // Expose for e2e tests: read buffer content at viewport position.
+    (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
 
     // Scroll lock: detect when user scrolls away from bottom
     term.onScroll(() => {
@@ -278,8 +280,9 @@ const Terminal: Component<{
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
-    // When scroll-locked, save viewport position before write and restore after,
-    // preventing new output from yanking the user back to the bottom.
+    // When scroll-locked, xterm.js naturally preserves the viewport position
+    // (including adjusting for scrollback trimming). We only intervene if
+    // xterm unexpectedly auto-scrolls to the bottom.
     consumeStream(
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
       (data) => {
@@ -292,8 +295,13 @@ const Terminal: Component<{
         const savedY = terminal.buffer.active.viewportY;
         isRestoring = true;
         terminal.write(data, () => {
-          terminal!.scrollToLine(savedY);
-          // Clear guard after synchronous onScroll events from scrollToLine have fired
+          const buf = terminal!.buffer.active;
+          // Only restore if xterm auto-scrolled to the bottom. Normally
+          // xterm keeps the viewport in place (adjusted for any trimming)
+          // — overriding with a stale savedY would drift the view.
+          if (buf.viewportY >= buf.baseY && buf.baseY > 0) {
+            terminal!.scrollToLine(Math.min(savedY, buf.baseY - 1));
+          }
           queueMicrotask(() => (isRestoring = false));
         });
       },
