@@ -24,6 +24,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
+import EmptyState from "./EmptyState";
 import { availableThemes } from "./theme";
 
 import { client, wsStatus } from "./rpc";
@@ -420,12 +421,7 @@ const App: Component = () => {
                 {/* Read the resource to trigger Suspense while it loads */}
                 {void existingTerminals()}
                 <Show when={terminalIds().length === 0}>
-                  <div
-                    data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-fg-3 text-sm"
-                  >
-                    Click + to create a terminal
-                  </div>
+                  <EmptyState />
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (
