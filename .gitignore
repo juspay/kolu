@@ -7,3 +7,4 @@ result
 test-results/
 tests/reports/
 client/public/fonts
+.worktrees
