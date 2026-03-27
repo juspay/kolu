@@ -27,11 +27,13 @@ function markSeen(id: TipId) {
   setSeenJson(JSON.stringify([...s]));
 }
 
+const TIP_PREFIX = "💡 ";
+
 /** Show a contextual tip toast if the user hasn't seen it yet. */
 function showTipOnce(tip: Tip) {
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
-  toast(tip.text, { duration: 5000 });
+  toast(TIP_PREFIX + tip.text, { duration: 5000 });
 }
 
 /** Pick a random ambient tip (prefers unseen, falls back to any). */
@@ -47,7 +49,7 @@ function randomAmbientTip(): string {
 function showStartupTip() {
   if (!startupTips()) return;
   const text = randomAmbientTip();
-  toast(text, { duration: 6000 });
+  toast(TIP_PREFIX + text, { duration: 6000 });
 }
 
 export function useTips() {

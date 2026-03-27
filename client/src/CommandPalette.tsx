@@ -313,7 +313,7 @@ const CommandPalette: Component<{
             data-testid="palette-tip"
             class="px-4 py-2 text-xs text-fg-3 border-t border-edge truncate"
           >
-            {ambientTip()}
+            💡 {ambientTip()}
           </div>
         </Show>
       </Dialog.Content>

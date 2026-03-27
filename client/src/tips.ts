@@ -43,12 +43,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
   },
   {
-    id: "amb-sparkline",
-    text: "Activity sparklines in the sidebar show which terminals are busy",
-  },
-  {
     id: "amb-cwd",
-    text: `${formatKeybind(SHORTCUTS.createTerminalInCwd.keybind)} opens a terminal in the current directory`,
+    text: `${formatKeybind(SHORTCUTS.createTerminalInCwdAlt.keybind)} opens a terminal in the current directory`,
   },
   {
     id: "amb-search",

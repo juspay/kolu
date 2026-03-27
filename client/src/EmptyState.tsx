@@ -4,7 +4,7 @@ import { type Component, For } from "solid-js";
 import { SHORTCUTS, formatKeybind } from "./keyboard";
 
 const features = [
-  { label: "New terminal", shortcut: SHORTCUTS.createTerminal.keybind },
+  { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
   { label: "Mission Control", shortcut: SHORTCUTS.missionControl.keybind },
   { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },

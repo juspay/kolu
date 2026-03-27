@@ -154,14 +154,20 @@ const App: Component = () => {
   const commands = createMemo((): PaletteCommand[] => [
     {
       name: "Create new terminal",
-      keybind: SHORTCUTS.createTerminal.keybind,
+      keybind: [
+        SHORTCUTS.createTerminal.keybind,
+        SHORTCUTS.createTerminalAlt.keybind,
+      ],
       onSelect: () => void handleCreate(),
     },
     ...(activeMeta()
       ? [
           {
             name: "Create terminal in current directory",
-            keybind: SHORTCUTS.createTerminalInCwd.keybind,
+            keybind: [
+              SHORTCUTS.createTerminalInCwd.keybind,
+              SHORTCUTS.createTerminalInCwdAlt.keybind,
+            ],
             onSelect: () => void handleCreate(activeMeta()!.cwd),
           },
         ]
