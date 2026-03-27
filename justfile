@@ -54,9 +54,10 @@ test-quick *args: install
     # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
     wrapper="$(mktemp)"
     trap 'rm -f "$wrapper"' EXIT
+    # Whitelist must match NIX_ENV_WHITELIST in common/src/config.ts
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-env "\$@"
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist HOME,USER,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM "\$@"
     SCRIPT
     chmod +x "$wrapper"
     cd tests

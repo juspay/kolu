@@ -4,32 +4,55 @@
  * Passes the server's env straight through to PTY shells and injects
  * OSC 7 CWD reporting hooks.  Nix devshell pollution is handled at
  * startup: the server refuses to start inside a nix shell unless
- * --allow-nix-shell-env is passed (used by `just dev` / `just test`).
+ * --allow-nix-shell-with-env-whitelist is passed with a list of env vars
+ * to forward (used by `just dev` / `just test`).
  */
 
 import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
+/** Whitelist set once at startup; undefined means passthrough mode. */
+let envWhitelist: Set<string> | undefined;
+
 /**
  * Crash if running inside a nix devshell without explicit opt-in.
- * Nix devshells pollute the env with NIX_*, DIRENV_*, derivation vars,
- * etc. that break user shells spawned by the PTY. Production deployments
- * (home-manager, nix run) have a clean env and don't hit this.
+ * When a whitelist is provided, store it for cleanEnv() to use.
  */
-export function rejectNixShellEnv(allowed: boolean): void {
-  if (allowed || !process.env.IN_NIX_SHELL) return;
+export function rejectNixShellEnv(whitelist: string[] | undefined): void {
+  if (whitelist) {
+    envWhitelist = new Set(whitelist);
+    return;
+  }
+  if (!process.env.IN_NIX_SHELL) return;
   console.error(
     "ERROR: kolu is running inside a nix shell.\n" +
       "The nix devshell env will leak into user terminals and break shell init.\n" +
-      "Pass --allow-nix-shell-env to override (used by `just dev` / `just test`).",
+      "Pass --allow-nix-shell-with-env-whitelist HOME,USER,... to override.",
   );
   process.exit(1);
 }
 
-/** Build env for the PTY shell — just process.env with VTE_VERSION ensured. */
+/**
+ * Build env for the PTY shell.
+ *
+ * Without a whitelist (production): pass process.env straight through.
+ * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
+ * and override SHELL with the user's login shell from /etc/passwd.
+ */
 export function cleanEnv(): Record<string, string> {
-  const env = { ...process.env } as Record<string, string>;
+  let env: Record<string, string>;
+  if (envWhitelist) {
+    env = {};
+    for (const key of envWhitelist) {
+      if (process.env[key] != null) env[key] = process.env[key]!;
+    }
+    // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
+    // that user bashrc files expect. Use the real login shell from /etc/passwd.
+    env.SHELL = userInfo().shell || "/bin/sh";
+  } else {
+    env = { ...process.env } as Record<string, string>;
+  }
   // Enable VTE integration in bash/zsh (some tools like direnv check this).
   env.VTE_VERSION ??= "7603";
   return env;

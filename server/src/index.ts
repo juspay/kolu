@@ -49,17 +49,18 @@ const argv = cli({
       description: "Enable debug-level logging",
       default: false,
     },
-    allowNixShellEnv: {
-      type: Boolean,
+    allowNixShellWithEnvWhitelist: {
+      type: String,
       description:
-        "Allow running inside a nix shell (dev/test only — pollutes PTY env)",
-      default: false,
+        "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only)",
     },
   },
   strictFlags: true,
 });
 
-rejectNixShellEnv(argv.flags.allowNixShellEnv);
+rejectNixShellEnv(
+  argv.flags.allowNixShellWithEnvWhitelist?.split(",").filter(Boolean),
+);
 if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();
