@@ -20,6 +20,7 @@ import TerminalPane from "./TerminalPane";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
+import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
 
 import { client, wsStatus } from "./rpc";
@@ -161,7 +162,7 @@ const App: Component = () => {
         onOpenChange={setShortcutsHelpOpen}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={setAboutOpen}>
-        <div class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
+        <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
@@ -181,7 +182,7 @@ const App: Component = () => {
               <span class="text-fg-2">dev</span>
             )}
           </p>
-        </div>
+        </Dialog.Content>
       </ModalDialog>
       <Header
         status={wsStatus()}
