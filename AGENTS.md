@@ -35,6 +35,10 @@ Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 - **Props stay reactive**: Never destructure props. Access via `props.xxx`. Pass accessors when needed.
 - **Memos for multi-consumer derivations**: Use `createMemo` when 2+ reactive contexts read the same derived value. Use plain functions for single-consumer or trivial derivations.
 
+## E2E Tests
+
+- **Use semantic selectors**: Never match on CSS classes (`class*="bg-..."`) in test selectors — classes are styling concerns and break when visual design changes. Use `data-testid`, `data-active`, or other semantic `data-*` attributes instead.
+
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
