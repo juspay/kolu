@@ -21,6 +21,7 @@ interface ShortcutDeps {
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
+  handleRandomizeTheme: () => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root.
@@ -140,6 +141,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
     const id = deps.activeId();
     if (id) deps.cycleSubTab(id, -1);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.randomizeTheme.keybind)) {
+    deps.handleRandomizeTheme();
     return true;
   }
 

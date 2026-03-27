@@ -57,6 +57,17 @@ Feature: Theme switching
     Then the header should show theme "Tomorrow Night"
     And there should be no page errors
 
+  Scenario: Random theme via keyboard shortcut
+    When I press the random theme shortcut
+    Then the header theme should differ from "Tomorrow Night"
+    And there should be no page errors
+
+  Scenario: Random theme via command palette
+    When I open the command palette
+    And I select "Random theme" in the palette
+    Then the header theme should differ from "Tomorrow Night"
+    And there should be no page errors
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I select "Theme" in the palette
