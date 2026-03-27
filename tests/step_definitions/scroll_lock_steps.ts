@@ -30,7 +30,17 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo extra-line-$i; done`,
     );
-    await pollUntilBufferContains(this.page, `extra-line-${count}`);
+    // When scroll-locked, data is buffered (not written to xterm buffer).
+    // Detect lock state by checking scroll-to-bottom button visibility.
+    const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
+    if (await btn.isVisible()) {
+      await this.page
+        .locator('[data-testid="scroll-to-bottom"][data-active]')
+        .waitFor({ state: "visible", timeout: 5000 });
+      await this.page.waitForTimeout(500);
+    } else {
+      await pollUntilBufferContains(this.page, `extra-line-${count}`);
+    }
   },
 );
 
@@ -65,7 +75,11 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
   await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-  await pollUntilBufferContains(this.page, "triggered-10");
+  // When scroll-locked, data is buffered — wait for the activity indicator
+  await this.page
+    .locator('[data-testid="scroll-to-bottom"][data-active]')
+    .waitFor({ state: "visible", timeout: 5000 });
+  await this.page.waitForTimeout(500);
 });
 
 When(
@@ -73,7 +87,11 @@ When(
   async function (this: KoluWorld, count: number) {
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
     await writeFile(scrollFifo(this), lines.join("\n") + "\n");
-    await pollUntilBufferContains(this.page, `triggered-${count}`);
+    // When scroll-locked, data is buffered — wait for the activity indicator
+    await this.page
+      .locator('[data-testid="scroll-to-bottom"][data-active]')
+      .waitFor({ state: "visible", timeout: 5000 });
+    await this.page.waitForTimeout(500);
   },
 );
 
