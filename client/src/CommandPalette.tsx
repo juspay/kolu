@@ -24,6 +24,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import { type Keybind, formatKeybind } from "./keyboard";
+import { useTips } from "./useTips";
 
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
@@ -63,8 +64,10 @@ const CommandPalette: Component<{
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
+  const { randomAmbientTip } = useTips();
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
+  const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   // Navigation path: list of group commands we've drilled into
   const [path, setPath] = createSignal<PaletteCommand[]>([]);
@@ -173,6 +176,7 @@ const CommandPalette: Component<{
         if (isOpen) {
           setQuery("");
           setSelectedIndex(0);
+          setAmbientTip(randomAmbientTip());
           const group = props.initialGroup
             ? props.commands().find((c) => c.name === props.initialGroup)
             : undefined;
@@ -304,6 +308,14 @@ const CommandPalette: Component<{
             </ul>
           </Show>
         </div>
+        <Show when={ambientTip()}>
+          <div
+            data-testid="palette-tip"
+            class="px-4 py-2 text-xs text-fg-3 border-t border-edge truncate"
+          >
+            {ambientTip()}
+          </div>
+        </Show>
       </Dialog.Content>
     </ModalDialog>
   );
