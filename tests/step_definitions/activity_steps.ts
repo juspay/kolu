@@ -3,18 +3,18 @@ import { KoluWorld } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
-/** Check if the activity indicator for a terminal (1-based index) shows green/active. */
+/** Check if the sidebar entry for a terminal (1-based index) shows active. */
 async function getIndicatorActive(
   world: KoluWorld,
   index: number,
 ): Promise<boolean> {
   const id = world.createdTerminalIds[index - 1];
   assert.ok(id, `No terminal created at index ${index}`);
-  const indicator = world.page.locator(
-    `[data-terminal-id="${id}"] [data-testid="activity-indicator"]`,
+  const entry = world.page.locator(
+    `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
   );
-  const classes = await indicator.getAttribute("class");
-  return classes?.includes("bg-ok") ?? false;
+  const activity = await entry.getAttribute("data-activity");
+  return activity === "active";
 }
 
 /** Poll until terminal reaches expected activity state, then assert. */

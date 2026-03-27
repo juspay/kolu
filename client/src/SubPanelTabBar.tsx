@@ -1,13 +1,13 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
 import { type Component, For } from "solid-js";
-import type { TerminalId, CwdInfo } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { cwdBasename } from "./path";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
   activeSubTab: TerminalId | null;
-  getMeta: (id: TerminalId) => { cwd?: CwdInfo } | undefined;
+  getMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
 }> = (props) => {
@@ -20,7 +20,7 @@ const SubPanelTabBar: Component<{
         {(id, index) => {
           const label = () => {
             const m = props.getMeta(id);
-            const base = m?.cwd ? cwdBasename(m.cwd.cwd) : "terminal";
+            const base = m?.meta ? cwdBasename(m.meta.cwd) : "terminal";
             // Append 1-based index when multiple tabs share the same name
             if (props.subIds.length <= 1) return base;
             return `${base} ${index() + 1}`;
