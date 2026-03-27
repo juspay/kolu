@@ -22,6 +22,7 @@ export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 const RANDOM_THEME_KEY = "kolu-random-theme";
+const SCROLL_LOCK_KEY = "kolu-scroll-lock";
 
 export function useTerminals() {
   // Single store: all per-terminal metadata keyed by ID.
@@ -59,6 +60,12 @@ export function useTerminals() {
 
   const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
     name: RANDOM_THEME_KEY,
+    serialize: String,
+    deserialize: (s) => s !== "false",
+  });
+
+  const [scrollLock, setScrollLock] = makePersisted(createSignal(true), {
+    name: SCROLL_LOCK_KEY,
     serialize: String,
     deserialize: (s) => s !== "false",
   });
@@ -436,5 +443,7 @@ export function useTerminals() {
     commands,
     randomTheme,
     setRandomTheme,
+    scrollLock,
+    setScrollLock,
   };
 }
