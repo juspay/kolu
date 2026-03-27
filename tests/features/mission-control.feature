@@ -110,19 +110,47 @@ Feature: Mission Control
     Then Mission Control should not be visible
     And there should be no page errors
 
-  Scenario: Ctrl+Tab opens Mission Control
-    When I hold Ctrl and press Tab
-    Then Mission Control should be visible
-    And the active card should have focus
-    And there should be no page errors
-
-  Scenario: Ctrl+Tab then release Ctrl selects focused card
+  Scenario: Ctrl+Tab opens Mission Control with previous terminal focused
     When I create a terminal
     And I hold Ctrl and press Tab
     Then Mission Control should be visible
-    When I press Tab
+    # MRU: card 1 = current (terminal 2), card 2 = previous (terminal 1).
+    # First Ctrl+Tab advances to card 2 (previous terminal).
+    Then Mission Control card 2 should have focus
+    And there should be no page errors
+
+  Scenario: Quick Ctrl+Tab release switches to previous terminal
+    When I create a terminal
+    And I run "echo quick-switch-target"
+    And I create a terminal
+    # Currently on terminal 2 (last created). MRU: [term2, term1, background].
+    # Quick Ctrl+Tab+release should switch to term1 (previous).
+    When I hold Ctrl and press Tab
     When I release Ctrl
     Then Mission Control should not be visible
+    And the active terminal should show "quick-switch-target"
+    And there should be no page errors
+
+  Scenario: Ctrl+Tab shows MRU order
+    When I create a terminal
+    And I run "echo mru-first"
+    And I create a terminal
+    And I run "echo mru-second"
+    # Visit terminal 1 (explicitly created) to change MRU order
+    And I select terminal 1 in the sidebar
+    And I hold Ctrl and press Tab
+    Then Mission Control should be visible
+    # MRU: [term1, term2, background]. Card 2 = term2 (previous).
+    Then Mission Control card 2 should have focus
+    When I press Escape
+    And there should be no page errors
+
+  Scenario: Ctrl+Shift+Tab advances backward
+    When I create a terminal
+    And I hold Ctrl and Shift and press Tab
+    Then Mission Control should be visible
+    # With 2 terminals in MRU, backward from 0 wraps to last card
+    Then the last Mission Control card should have focus
     And there should be no page errors
 
   Scenario: Open and close with keyboard shortcut

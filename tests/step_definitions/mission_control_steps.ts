@@ -84,6 +84,12 @@ When("I hold Ctrl and press Tab", async function (this: KoluWorld) {
   await this.page.waitForTimeout(300);
 });
 
+When("I hold Ctrl and Shift and press Tab", async function (this: KoluWorld) {
+  await this.page.keyboard.down("Control");
+  await this.page.keyboard.press("Shift+Tab");
+  await this.page.waitForTimeout(300);
+});
+
 When("I release Ctrl", async function (this: KoluWorld) {
   await this.page.keyboard.up("Control");
   await this.page.waitForTimeout(300);
@@ -117,6 +123,24 @@ Then(
       focusedId,
       id,
       `Expected card ${index} to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
+    );
+  },
+);
+
+Then(
+  "the last Mission Control card should have focus",
+  async function (this: KoluWorld) {
+    const cards = this.page.locator(MC_CARD_SELECTOR);
+    const count = await cards.count();
+    const last = cards.nth(count - 1);
+    const id = await last.getAttribute("data-terminal-id");
+    const focusedId = await this.page.evaluate(() =>
+      document.activeElement?.getAttribute("data-terminal-id"),
+    );
+    assert.strictEqual(
+      focusedId,
+      id,
+      `Expected last card to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
     );
   },
 );

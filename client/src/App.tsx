@@ -49,6 +49,7 @@ const App: Component = () => {
     handleKill,
     getSubTerminalIds,
     reorderTerminals,
+    mruOrder,
     commands,
     randomTheme,
     setRandomTheme,
@@ -82,6 +83,9 @@ const App: Component = () => {
   // Mission Control state
   const [missionControlOpen, setMissionControlOpen] = createSignal(false);
   const [quickSwitchMode, setQuickSwitchMode] = createSignal(false);
+  const [quickSwitchDirection, setQuickSwitchDirection] = createSignal<1 | -1>(
+    1,
+  );
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -100,6 +104,7 @@ const App: Component = () => {
     setSearchOpen,
     setMissionControlOpen,
     setQuickSwitchMode,
+    setQuickSwitchDirection,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -194,7 +199,9 @@ const App: Component = () => {
         onOpenChange={withRefocus(setMissionControlOpen)}
         quickSwitchMode={quickSwitchMode()}
         onQuickSwitchModeChange={setQuickSwitchMode}
+        quickSwitchDirection={quickSwitchDirection()}
         terminalIds={terminalIds()}
+        mruOrder={mruOrder()}
         activeId={activeId()}
         getMeta={getMeta}
         getActivityHistory={getActivityHistory}

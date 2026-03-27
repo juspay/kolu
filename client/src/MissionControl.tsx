@@ -37,19 +37,28 @@ function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
 const MissionControl: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** When true, releasing Alt selects the focused card (Alt+Tab flow). */
+  /** When true, releasing Ctrl selects the focused card (Ctrl+Tab flow). */
   quickSwitchMode: boolean;
   onQuickSwitchModeChange: (on: boolean) => void;
+  /** Direction of the initial quick-switch advance: +1 (Ctrl+Tab) or -1 (Ctrl+Shift+Tab). */
+  quickSwitchDirection: 1 | -1;
   terminalIds: TerminalId[];
+  /** Terminal IDs in most-recently-used order (for quick-switch card ordering). */
+  mruOrder: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
+  /** Cards in display order: MRU for quick-switch, sidebar order otherwise. */
+  const displayIds = createMemo(() =>
+    props.quickSwitchMode ? props.mruOrder : props.terminalIds,
+  );
+
   /** Pick column count so all cards fit on screen without scrolling. */
   const gridCols = createMemo(() => {
-    const count = props.terminalIds.length;
+    const count = displayIds().length;
     if (count <= 1) return 1;
     if (count <= 4) return 2;
     if (count <= 9) return 3;
@@ -63,7 +72,8 @@ const MissionControl: Component<{
     props.onOpenChange(false);
   }
 
-  // Auto-focus the active terminal's card when Mission Control opens
+  // Auto-focus on open: in quick-switch mode, advance to the second card
+  // (previous terminal in MRU — like OS Alt+Tab). Otherwise focus active card.
   createEffect(
     on(
       () => props.open,
@@ -71,11 +81,21 @@ const MissionControl: Component<{
         if (!open) return;
         // setTimeout runs after Corvu Dialog's focus trap sets initial focus
         setTimeout(() => {
-          const activeCard =
-            gridRef?.querySelector<HTMLElement>("[data-active]");
-          (
-            activeCard ?? gridRef?.querySelector<HTMLElement>("button")
-          )?.focus();
+          const cards = gridRef?.querySelectorAll<HTMLElement>(
+            "[data-testid='mission-control-card']",
+          );
+          if (!cards?.length) return;
+
+          if (props.quickSwitchMode && cards.length > 1) {
+            // Advance by one in the requested direction from position 0 (active terminal)
+            const target =
+              props.quickSwitchDirection === -1 ? cards.length - 1 : 1;
+            cards[target]!.focus();
+          } else {
+            const activeCard =
+              gridRef?.querySelector<HTMLElement>("[data-active]");
+            (activeCard ?? cards[0])?.focus();
+          }
         });
       },
     ),
@@ -114,7 +134,7 @@ const MissionControl: Component<{
       // Number keys 1-9 switch directly
       const digit = parseInt(e.key);
       if (digit >= 1 && digit <= 9) {
-        const id = props.terminalIds[digit - 1];
+        const id = displayIds()[digit - 1];
         if (id) {
           e.preventDefault();
           e.stopPropagation();
@@ -181,7 +201,7 @@ const MissionControl: Component<{
           <span class="text-fg-3 text-xs">Esc to close</span>
         </div>
         <Show
-          when={props.terminalIds.length > 0}
+          when={displayIds().length > 0}
           fallback={
             <div class="flex-1 flex items-center justify-center text-fg-3 text-sm">
               No terminals open
@@ -196,7 +216,7 @@ const MissionControl: Component<{
               "grid-auto-rows": "1fr",
             }}
           >
-            <For each={props.terminalIds}>
+            <For each={displayIds()}>
               {(id, index) => {
                 const meta = () => props.getMeta(id);
                 const isActive = () => props.activeId === id;
@@ -206,7 +226,7 @@ const MissionControl: Component<{
                     data-testid="mission-control-card"
                     data-terminal-id={id}
                     data-active={isActive() ? "" : undefined}
-                    class="relative flex flex-col bg-surface-0 border border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                    class="relative flex flex-col bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent/60 focus-visible:outline-none focus-visible:border-accent focus-visible:ring-4 focus-visible:ring-accent/40 focus-visible:scale-[1.02]"
                     onClick={() => handleSelect(id)}
                   >
                     {/* Number badge — press this digit to switch */}
@@ -218,30 +238,30 @@ const MissionControl: Component<{
                         {num()}
                       </span>
                     </Show>
-                    {/* Terminal preview — fills available card height */}
+                    {/* Terminal preview — compact, leaving room for metadata */}
                     <Show when={props.open}>
-                      <div class="flex-1 min-h-0 w-full">
+                      <div class="w-full" style={{ height: "40%" }}>
                         <TerminalPreview
                           terminalId={id}
                           theme={props.getTerminalTheme(id)}
                         />
                       </div>
                     </Show>
-                    {/* Metadata footer — fixed height so cards align when PR info varies */}
-                    <div class="px-2.5 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-20 shrink-0">
-                      <div class="text-sm font-semibold text-fg truncate">
+                    {/* Metadata — prominent, takes remaining card space */}
+                    <div class="flex-1 px-3 py-2.5 bg-surface-1 border-t border-edge space-y-1">
+                      <div class="text-base font-semibold text-fg truncate">
                         {cardLabel(meta())}
                       </div>
                       <Show when={meta()?.meta?.git}>
                         {(git) => (
-                          <div class="text-xs text-fg-3 truncate">
+                          <div class="text-sm text-fg-2 truncate">
                             {git().branch}
                           </div>
                         )}
                       </Show>
                       <Show when={meta()?.meta?.pr}>
                         {(pr) => (
-                          <div class="flex items-center gap-1 text-xs text-fg-3 truncate">
+                          <div class="flex items-center gap-1.5 text-sm text-fg-3 truncate">
                             <Show when={pr().checks}>
                               {(checks) => (
                                 <ChecksIndicator status={checks()} />
