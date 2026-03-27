@@ -21,7 +21,6 @@ import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
 
 import { client, wsStatus } from "./rpc";
-import { renderer } from "./Terminal";
 import { useTerminals } from "./useTerminals";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -149,12 +148,8 @@ const App: Component = () => {
         themeName={activeThemeName()}
         meta={activeMeta()}
         onToggleSidebar={toggleSidebar}
-        onShortcutsHelp={() => setShortcutsHelpOpen(true)}
         onSearch={() => setSearchOpen(true)}
-        renderer={renderer()}
         appTitle={appTitle()}
-        randomTheme={randomTheme()}
-        onRandomThemeChange={setRandomTheme}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
@@ -171,9 +166,9 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 p-1">
+        <div class="flex-1 min-h-0 min-w-0">
           <div
-            class="h-full rounded border border-edge overflow-hidden p-1"
+            class="h-full overflow-hidden"
             style={{ "background-color": activeTheme().background }}
           >
             <ErrorBoundary

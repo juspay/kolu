@@ -19,12 +19,8 @@ const Header: Component<{
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
-  onShortcutsHelp?: () => void;
   onSearch?: () => void;
-  renderer?: string;
   appTitle?: string;
-  randomTheme?: boolean;
-  onRandomThemeChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
 
@@ -55,18 +51,6 @@ const Header: Component<{
       <span class="font-semibold text-sm hidden sm:inline">
         {props.appTitle ?? "kolu"}
       </span>
-      {__KOLU_COMMIT__ !== "dev" ? (
-        <a
-          href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-xs text-fg-3 hover:text-accent transition-colors"
-        >
-          {__KOLU_COMMIT__}
-        </a>
-      ) : (
-        <span class="text-xs text-fg-3">dev</span>
-      )}
       <Show when={props.meta}>
         {(meta) => (
           <span
@@ -112,12 +96,6 @@ const Header: Component<{
           </span>
         )}
       </Show>
-      <span class="text-xs text-fg-3 hidden sm:inline">
-        <kbd class="font-[inherit] text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-          Ctrl+`
-        </kbd>{" "}
-        sub-terminal
-      </span>
       {/* Push remaining items to the right */}
       <div class="ml-auto flex items-center gap-2">
         {props.themeName && (
@@ -131,20 +109,6 @@ const Header: Component<{
             </button>
           </Tip>
         )}
-        <Tip label="Random theme for new terminals">
-          <button
-            data-testid="random-theme-toggle"
-            class="h-7 px-2 text-xs rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            classList={{
-              "bg-accent/20 ring-1 ring-accent/40": props.randomTheme,
-              "text-fg-3 bg-surface-2/50 hover:text-fg-2 opacity-50":
-                !props.randomTheme,
-            }}
-            onClick={() => props.onRandomThemeChange?.(!props.randomTheme)}
-          >
-            <span class="text-[0.7rem]">🎲</span>
-          </button>
-        </Tip>
         <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
@@ -178,28 +142,13 @@ const Header: Component<{
             </kbd>
           </button>
         </Tip>
-        <Tip label="Keyboard shortcuts">
-          <button
-            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onShortcutsHelp?.()}
-          >
-            <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-              {formatKeybind(SHORTCUTS.shortcutsHelp.keybind)}
-            </kbd>
-          </button>
+        <Tip label="Connection status">
+          <div class="flex items-center gap-1.5" data-ws-status={props.status}>
+            <span
+              class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
+            />
+          </div>
         </Tip>
-        {props.renderer && (
-          <span class="text-xs text-fg-3 hidden sm:inline">
-            {props.renderer}
-          </span>
-        )}
-        {/* Status dot — replaces text ● with styled element */}
-        <div class="flex items-center gap-1.5" data-ws-status={props.status}>
-          <span
-            class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
-          />
-          <span class="text-xs text-fg-3 hidden sm:inline">{props.status}</span>
-        </div>
       </div>
     </header>
   );
