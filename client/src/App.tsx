@@ -55,6 +55,7 @@ const App: Component = () => {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
+    handleRandomizeTheme,
     randomTheme,
     setRandomTheme,
     scrollLock,
@@ -108,6 +109,7 @@ const App: Component = () => {
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
+    handleRandomizeTheme,
   });
 
   function openPalette() {
@@ -212,6 +214,15 @@ const App: Component = () => {
               }),
           })),
     },
+    ...(activeId() !== null
+      ? [
+          {
+            name: "Random theme",
+            keybind: SHORTCUTS.randomizeTheme.keybind,
+            onSelect: () => handleRandomizeTheme(),
+          },
+        ]
+      : []),
     {
       name: "Keyboard shortcuts",
       keybind: SHORTCUTS.shortcutsHelp.keybind,

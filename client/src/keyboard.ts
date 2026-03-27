@@ -134,6 +134,10 @@ export const SHORTCUTS = {
     keybind: { key: ".", mod: true },
     label: "Mission Control",
   },
+  randomizeTheme: {
+    keybind: { key: "j", mod: true },
+    label: "Random theme",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

@@ -48,6 +48,31 @@ Then(
   },
 );
 
+const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+
+When("I press the random theme shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+j`);
+  await this.page.waitForTimeout(300);
+});
+
+Then(
+  "the header theme should differ from {string}",
+  async function (this: KoluWorld, notExpected: string) {
+    const header = this.page.locator("header");
+    await header.waitFor({ state: "visible", timeout: 5_000 });
+    const text = await pollUntil(
+      this.page,
+      async () => (await header.textContent()) ?? "",
+      (t) => !t.includes(notExpected),
+      { attempts: 30 },
+    );
+    assert.ok(
+      !text.includes(notExpected),
+      `Expected header theme to differ from "${notExpected}" but header contains "${text}"`,
+    );
+  },
+);
+
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page.locator('[data-testid="theme-name"]');
   await themeButton.waitFor({ state: "visible", timeout: 3000 });

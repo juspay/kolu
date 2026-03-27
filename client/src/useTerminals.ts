@@ -347,6 +347,17 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
+  /** Switch the active terminal to a random theme (different from current). */
+  function handleRandomizeTheme() {
+    const id = activeId();
+    if (id === null) return;
+    const current = meta[id]?.themeName;
+    const candidates = availableThemes.filter((t) => t.name !== current);
+    if (candidates.length === 0) return;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+    void handleSetTheme(pick.name);
+  }
+
   return {
     terminalIds,
     activeId,
@@ -371,6 +382,7 @@ export function useTerminals() {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
+    handleRandomizeTheme,
     randomTheme,
     setRandomTheme,
     scrollLock,
