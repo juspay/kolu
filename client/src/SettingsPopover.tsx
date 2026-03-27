@@ -2,6 +2,7 @@
 
 import { type Component, Show, For } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
+import Toggle from "./Toggle";
 import type { ColorScheme } from "./useColorScheme";
 
 const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
@@ -71,46 +72,20 @@ const SettingsPopover: Component<{
         {/* Random terminal theme */}
         <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
           <span class="text-fg-2">Random theme</span>
-          <button
-            data-testid="random-theme-toggle"
-            data-enabled={props.randomTheme ? "" : undefined}
-            class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"
-            classList={{
-              "bg-accent": props.randomTheme,
-              "bg-surface-3": !props.randomTheme,
-            }}
-            onClick={() => props.onRandomThemeChange(!props.randomTheme)}
-          >
-            <span
-              class="absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform"
-              classList={{
-                "left-[18px]": props.randomTheme,
-                "left-0.5": !props.randomTheme,
-              }}
-            />
-          </button>
+          <Toggle
+            testId="random-theme-toggle"
+            enabled={props.randomTheme}
+            onChange={props.onRandomThemeChange}
+          />
         </label>
         {/* Scroll lock */}
         <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
           <span class="text-fg-2">Scroll lock</span>
-          <button
-            data-testid="scroll-lock-toggle"
-            data-enabled={props.scrollLock ? "" : undefined}
-            class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"
-            classList={{
-              "bg-accent": props.scrollLock,
-              "bg-surface-3": !props.scrollLock,
-            }}
-            onClick={() => props.onScrollLockChange(!props.scrollLock)}
-          >
-            <span
-              class="absolute top-0.5 w-3 h-3 rounded-full bg-fg transition-transform"
-              classList={{
-                "left-[18px]": props.scrollLock,
-                "left-0.5": !props.scrollLock,
-              }}
-            />
-          </button>
+          <Toggle
+            testId="scroll-lock-toggle"
+            enabled={props.scrollLock}
+            onChange={props.onScrollLockChange}
+          />
         </label>
       </div>
     </Show>

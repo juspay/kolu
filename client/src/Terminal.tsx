@@ -81,9 +81,16 @@ const Terminal: Component<{
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const [isScrollLocked, setIsScrollLocked] = createSignal(false);
   const [hasNewOutput, setHasNewOutput] = createSignal(false);
-  let scrollLocked = false;
+  // Guard flag: true while restoring scroll position after a write, so the
+  // onScroll handler ignores our own scrollToLine call.
   let isRestoring = false;
   let fitRaf = 0;
+
+  /** Clear all scroll-lock state in one shot. */
+  function resetScrollLock() {
+    setIsScrollLocked(false);
+    setHasNewOutput(false);
+  }
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
   function debouncedFit() {
@@ -103,9 +110,7 @@ const Terminal: Component<{
       () => props.visible,
       (visible) => {
         if (!visible || !terminal) return;
-        scrollLocked = false;
-        setIsScrollLocked(false);
-        setHasNewOutput(false);
+        resetScrollLock();
         debouncedFit();
         if (props.focused !== false) terminal.focus();
       },
@@ -167,11 +172,7 @@ const Terminal: Component<{
     on(
       () => props.scrollLockEnabled,
       (enabled) => {
-        if (enabled === false) {
-          scrollLocked = false;
-          setIsScrollLocked(false);
-          setHasNewOutput(false);
-        }
+        if (enabled === false) resetScrollLock();
       },
       { defer: true },
     ),
@@ -222,11 +223,9 @@ const Terminal: Component<{
 
     // Scroll lock: detect when user scrolls away from bottom
     term.onScroll(() => {
-      if (isRestoring) return;
-      if (props.scrollLockEnabled === false) return;
+      if (isRestoring || props.scrollLockEnabled === false) return;
       const buf = term.buffer.active;
       const atBottom = buf.baseY <= buf.viewportY;
-      scrollLocked = !atBottom;
       setIsScrollLocked(!atBottom);
       if (atBottom) setHasNewOutput(false);
     });
@@ -285,7 +284,7 @@ const Terminal: Component<{
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
       (data) => {
         if (!terminal) return;
-        if (!scrollLocked) {
+        if (!isScrollLocked()) {
           terminal.write(data);
           return;
         }
@@ -294,9 +293,8 @@ const Terminal: Component<{
         isRestoring = true;
         terminal.write(data, () => {
           terminal!.scrollToLine(savedY);
-          queueMicrotask(() => {
-            isRestoring = false;
-          });
+          // Clear guard after synchronous onScroll events from scrollToLine have fired
+          queueMicrotask(() => (isRestoring = false));
         });
       },
       "Terminal attach",

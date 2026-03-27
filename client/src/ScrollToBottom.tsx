@@ -18,9 +18,9 @@ const ScrollToBottom: Component<{
         onClick={props.onClick}
         aria-label="Scroll to bottom"
       >
-        {/* Pulsing ring when new output arrives */}
+        {/* Gentle pulse when new output arrives below */}
         <Show when={props.active}>
-          <span class="absolute inset-0 rounded-full border-2 border-accent animate-ping" />
+          <span class="absolute inset-0 rounded-full border-2 border-accent animate-pulse" />
         </Show>
         <svg
           class="w-5 h-5 relative"
