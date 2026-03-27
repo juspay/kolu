@@ -19,7 +19,7 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import { refocusTerminal } from "./ModalDialog";
+import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import { SHORTCUTS } from "./keyboard";
 
 import { client, wsStatus } from "./rpc";
@@ -70,6 +70,9 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
+  // About dialog state
+  const [aboutOpen, setAboutOpen] = createSignal(false);
+
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
@@ -109,18 +112,10 @@ const App: Component = () => {
       keybind: SHORTCUTS.shortcutsHelp.keybind,
       onSelect: () => setShortcutsHelpOpen(true),
     },
-    ...(__KOLU_COMMIT__ !== "dev"
-      ? [
-          {
-            name: `About kolu (${__KOLU_COMMIT__})`,
-            onSelect: () =>
-              window.open(
-                `https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`,
-                "_blank",
-              ),
-          },
-        ]
-      : []),
+    {
+      name: "About kolu",
+      onSelect: () => setAboutOpen(true),
+    },
   ]);
 
   // Reset state on close and return focus to terminal
@@ -165,6 +160,29 @@ const App: Component = () => {
         open={shortcutsHelpOpen()}
         onOpenChange={setShortcutsHelpOpen}
       />
+      <ModalDialog open={aboutOpen()} onOpenChange={setAboutOpen}>
+        <div class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
+          <div class="flex items-center gap-2 mb-3">
+            <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
+            <span class="font-semibold text-fg">{appTitle()}</span>
+          </div>
+          <p class="text-fg-3">
+            Commit:{" "}
+            {__KOLU_COMMIT__ !== "dev" ? (
+              <a
+                href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-accent hover:underline"
+              >
+                {__KOLU_COMMIT__}
+              </a>
+            ) : (
+              <span class="text-fg-2">dev</span>
+            )}
+          </p>
+        </div>
+      </ModalDialog>
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

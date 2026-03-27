@@ -156,6 +156,13 @@ Feature: Command Palette
     And the terminal should have keyboard focus
     And there should be no page errors
 
+  Scenario: Open keyboard shortcuts via command palette
+    When I open the command palette
+    And I type "Keyboard" in the palette
+    And I press Enter
+    Then the shortcuts help should be visible
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette
