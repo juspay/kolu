@@ -27,6 +27,8 @@ const ModalDialog: Component<{
   onOpenChange: (open: boolean) => void;
   /** When true, the backdrop is transparent so content behind is fully visible (e.g. theme preview). */
   transparentOverlay?: boolean;
+  /** Element to receive focus when the dialog opens (passed to Corvu's focus trap). */
+  initialFocusEl?: HTMLElement;
   children: JSX.Element;
 }> = (props) => (
   <Dialog
@@ -34,6 +36,7 @@ const ModalDialog: Component<{
     onOpenChange={props.onOpenChange}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
+    initialFocusEl={props.initialFocusEl}
   >
     <Dialog.Portal forceMount>
       <Dialog.Overlay

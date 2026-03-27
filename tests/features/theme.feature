@@ -28,6 +28,7 @@ Feature: Theme switching
     When I click the theme name in the header
     Then the command palette should be visible
     And the palette breadcrumb should show "Theme"
+    And the palette search input should be focused
     And there should be no page errors
 
   Scenario: Theme preview while navigating palette
