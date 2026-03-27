@@ -2,7 +2,7 @@
   "mcpServers": {
     "workflow": {
       "command": "uvx",
-      "args": ["fastmcp", "run", "workflow_server.py"]
+      "args": ["fastmcp", "run", ".kolu/workflow/server.py"]
     }
   }
 }

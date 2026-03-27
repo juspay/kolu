@@ -8,4 +8,5 @@ test-results/
 tests/reports/
 client/public/fonts
 .worktrees
-.kolu/state/
+.kolu/workflow/state/
+__pycache__/

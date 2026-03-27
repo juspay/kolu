@@ -7,10 +7,11 @@ from pathlib import Path
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-STATE_DIR = Path(".kolu/state")
+WORKFLOW_DIR = Path(__file__).parent
+STATE_DIR = WORKFLOW_DIR / "state"
 STATE_FILE = STATE_DIR / "workflow.json"
 LOG_FILE = STATE_DIR / "workflow.log"
-WORKFLOWS_FILE = Path(".kolu/workflows.json")
+WORKFLOWS_FILE = WORKFLOW_DIR / "workflows.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
