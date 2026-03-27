@@ -4,9 +4,16 @@
 
 # kolu
 
-A web-based terminal multiplexer for managing multiple repos and branches in parallel. Built for developers running AI coding agents across worktrees who need fast context switching without leaving the browser.
+Web-based Agenting Development Environment ([ADE](https://x.com/jdegoes/status/2036931874057314390)) atop terminals.
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
+
+## Usage
+
+```sh
+nix run github:juspay/kolu       # serve on 0.0.0.0:7681
+nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
+```
 
 ## Features
 
@@ -42,14 +49,6 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 nix develop     # enter devshell
 just dev        # run server + client with hot reload
 just test       # e2e tests (full nix build)
-```
-
-## Production
-
-```sh
-nix build       # build server + client
-nix run         # serve on 0.0.0.0:7681
-nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ```
 
 ## CI
