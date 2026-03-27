@@ -58,8 +58,6 @@ const CommandPalette: Component<{
   commands: Accessor<PaletteCommand[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Called when the palette is dismissed without selecting a command (Escape, click outside). */
-  onDismiss?: () => void;
   /** If set, auto-drill into the group with this name on open. */
   initialGroup?: string;
   /** When true, the backdrop is transparent so content behind is visible. */
@@ -203,17 +201,10 @@ const CommandPalette: Component<{
     }),
   );
 
-  function handleOpenChange(open: boolean) {
-    props.onOpenChange(open);
-    if (!open && !didSelect) {
-      props.onDismiss?.();
-    }
-  }
-
   return (
     <ModalDialog
       open={props.open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
     >
       <Dialog.Content
