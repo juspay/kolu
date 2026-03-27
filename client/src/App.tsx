@@ -134,7 +134,10 @@ const App: Component = () => {
     ...commands(),
     {
       name: "Mission Control",
-      keybind: SHORTCUTS.missionControl.keybind,
+      keybind: [
+        SHORTCUTS.missionControl.keybind,
+        SHORTCUTS.nextTerminalTab.keybind,
+      ],
       onSelect: () => setMissionControlOpen(true),
     },
     {
