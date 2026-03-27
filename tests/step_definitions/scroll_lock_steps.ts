@@ -43,6 +43,21 @@ When("I note the scroll position", async function (this: KoluWorld) {
   );
 });
 
+When(
+  "I schedule {int} lines of delayed output",
+  async function (this: KoluWorld, count: number) {
+    // Start a background job that outputs after a delay — lets us scroll up first
+    await this.terminalRun(
+      `(sleep 2; for i in $(seq 1 ${count}); do echo delayed-$i; done) &`,
+    );
+    await this.page.waitForTimeout(500);
+  },
+);
+
+When("I wait for the delayed output", async function (this: KoluWorld) {
+  await this.page.waitForTimeout(3000);
+});
+
 When("I click the scroll-to-bottom button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="scroll-to-bottom"]');
   await this.page.waitForTimeout(300);
@@ -58,6 +73,26 @@ Then(
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
     await btn.waitFor({ state: "visible", timeout: 3000 });
+  },
+);
+
+Then(
+  "the scroll-to-bottom button should be active",
+  async function (this: KoluWorld) {
+    const btn = this.page.locator(
+      '[data-testid="scroll-to-bottom"][data-active]',
+    );
+    await btn.waitFor({ state: "visible", timeout: 3000 });
+  },
+);
+
+Then(
+  "the scroll-to-bottom button should not be active",
+  async function (this: KoluWorld) {
+    const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
+    await btn.waitFor({ state: "visible", timeout: 3000 });
+    const active = await btn.getAttribute("data-active");
+    assert.strictEqual(active, null, "Expected button to not be active");
   },
 );
 

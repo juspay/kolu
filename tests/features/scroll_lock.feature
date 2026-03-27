@@ -23,6 +23,20 @@ Feature: Scroll lock
     And I generate 10 more lines of output
     Then the scroll position should be unchanged
 
+  Scenario: Clicking scroll-to-bottom returns focus to terminal
+    When I generate 100 lines of output
+    And I scroll the terminal up
+    And I click the scroll-to-bottom button
+    Then the terminal input should be focused
+
+  Scenario: Button shows activity when new output arrives while locked
+    When I generate 100 lines of output
+    And I schedule 10 lines of delayed output
+    And I scroll the terminal up
+    Then the scroll-to-bottom button should not be active
+    When I wait for the delayed output
+    Then the scroll-to-bottom button should be active
+
   Scenario: Disabling scroll lock prevents freezing
     When I click the settings button
     And I click the scroll lock toggle

@@ -80,6 +80,7 @@ const Terminal: Component<{
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const [isScrollLocked, setIsScrollLocked] = createSignal(false);
+  const [hasNewOutput, setHasNewOutput] = createSignal(false);
   let scrollLocked = false;
   let isRestoring = false;
   let fitRaf = 0;
@@ -104,6 +105,7 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         scrollLocked = false;
         setIsScrollLocked(false);
+        setHasNewOutput(false);
         debouncedFit();
         if (props.focused !== false) terminal.focus();
       },
@@ -168,6 +170,7 @@ const Terminal: Component<{
         if (enabled === false) {
           scrollLocked = false;
           setIsScrollLocked(false);
+          setHasNewOutput(false);
         }
       },
       { defer: true },
@@ -225,6 +228,7 @@ const Terminal: Component<{
       const atBottom = buf.baseY <= buf.viewportY;
       scrollLocked = !atBottom;
       setIsScrollLocked(!atBottom);
+      if (atBottom) setHasNewOutput(false);
     });
 
     // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
@@ -285,6 +289,7 @@ const Terminal: Component<{
           terminal.write(data);
           return;
         }
+        setHasNewOutput(true);
         const savedY = terminal.buffer.active.viewportY;
         isRestoring = true;
         terminal.write(data, () => {
@@ -386,7 +391,11 @@ const Terminal: Component<{
       </Show>
       <ScrollToBottom
         visible={isScrollLocked()}
-        onClick={() => terminal?.scrollToBottom()}
+        active={hasNewOutput()}
+        onClick={() => {
+          terminal?.scrollToBottom();
+          terminal?.focus();
+        }}
       />
       <div
         ref={containerRef}
