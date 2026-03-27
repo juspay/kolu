@@ -238,17 +238,17 @@ const MissionControl: Component<{
                         {num()}
                       </span>
                     </Show>
-                    {/* Terminal preview — compact, leaving room for metadata */}
+                    {/* Terminal preview — takes most of the card */}
                     <Show when={props.open}>
-                      <div class="w-full" style={{ height: "40%" }}>
+                      <div class="flex-1 min-h-0 w-full">
                         <TerminalPreview
                           terminalId={id}
                           theme={props.getTerminalTheme(id)}
                         />
                       </div>
                     </Show>
-                    {/* Metadata — prominent, takes remaining card space */}
-                    <div class="flex-1 px-3 py-2.5 bg-surface-1 border-t border-edge space-y-1">
+                    {/* Metadata footer — fixed height so cards align when PR info varies */}
+                    <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
                       <div class="text-base font-semibold text-fg truncate">
                         {cardLabel(meta())}
                       </div>

@@ -60,6 +60,9 @@ const TerminalPreview: Component<{
     term.loadAddon(fitAddon);
 
     term.open(containerRef);
+    // Hide scrollbar — preview is read-only, no scrolling needed
+    const viewport = containerRef.querySelector<HTMLElement>(".xterm-viewport");
+    if (viewport) viewport.style.overflowY = "hidden";
     fitAddon.fit();
 
     streamAbort = new AbortController();
