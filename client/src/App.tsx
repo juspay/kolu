@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   createResource,
   Show,
@@ -16,9 +17,10 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
-import CommandPalette from "./CommandPalette";
+import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { refocusTerminal } from "./ModalDialog";
+import { SHORTCUTS } from "./keyboard";
 
 import { client, wsStatus } from "./rpc";
 import { useTerminals } from "./useTerminals";
@@ -99,6 +101,28 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  // Extend useTerminals commands with app-level commands (shortcuts help, about)
+  const allCommands = createMemo((): PaletteCommand[] => [
+    ...commands(),
+    {
+      name: "Keyboard shortcuts",
+      keybind: SHORTCUTS.shortcutsHelp.keybind,
+      onSelect: () => setShortcutsHelpOpen(true),
+    },
+    ...(__KOLU_COMMIT__ !== "dev"
+      ? [
+          {
+            name: `About kolu (${__KOLU_COMMIT__})`,
+            onSelect: () =>
+              window.open(
+                `https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`,
+                "_blank",
+              ),
+          },
+        ]
+      : []),
+  ]);
+
   // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
     setPaletteOpen(open);
@@ -131,7 +155,7 @@ const App: Component = () => {
         }}
       />
       <CommandPalette
-        commands={commands}
+        commands={allCommands}
         open={paletteOpen()}
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
