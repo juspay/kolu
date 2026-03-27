@@ -3,11 +3,17 @@ import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
 import { KoluWorld } from "../support/world.ts";
 
-const SCROLL_FIFO = "/tmp/kolu-scroll-fifo";
-
 /** Locate the xterm viewport div inside the active terminal. */
 function viewportLocator(world: KoluWorld) {
   return world.page.locator("[data-visible] .xterm-viewport");
+}
+
+/** Per-scenario FIFO path (avoids collisions when CI runs parallel workers). */
+function scrollFifo(world: KoluWorld): string {
+  if (!world._scrollFifo) {
+    world._scrollFifo = `/tmp/kolu-scroll-fifo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+  return world._scrollFifo;
 }
 
 When(
@@ -49,9 +55,10 @@ When("I note the scroll position", async function (this: KoluWorld) {
 When("I prepare a output trigger", async function (this: KoluWorld) {
   // Create a FIFO so we can inject output without typing (which would clear scroll lock).
   // A background cat blocks on the FIFO until the test process writes to it.
-  await this.terminalRun(`mkfifo ${SCROLL_FIFO}`);
+  const fifo = scrollFifo(this);
+  await this.terminalRun(`mkfifo ${fifo}`);
   await this.page.waitForTimeout(300);
-  await this.terminalRun(`cat ${SCROLL_FIFO} &`);
+  await this.terminalRun(`cat ${fifo} &`);
   await this.page.waitForTimeout(300);
 });
 
@@ -59,8 +66,48 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // Write to the FIFO from the test process — bypasses xterm keyboard input
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
-  await writeFile(SCROLL_FIFO, lines.join("\n") + "\n");
+  await writeFile(scrollFifo(this), lines.join("\n") + "\n");
   await this.page.waitForTimeout(1000);
+});
+
+When(
+  "I fire the output trigger with {int} lines",
+  async function (this: KoluWorld, count: number) {
+    const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
+    await writeFile(scrollFifo(this), lines.join("\n") + "\n");
+    await this.page.waitForTimeout(2000);
+  },
+);
+
+/**
+ * Read text of the first visible row from the xterm buffer.
+ * Uses the __xterm ref exposed on the container element.
+ */
+function readFirstVisibleLine(world: KoluWorld) {
+  return world.page.evaluate(() => {
+    const container = document.querySelector(
+      "[data-visible][data-terminal-id]",
+    ) as HTMLElement & {
+      __xterm?: {
+        buffer: {
+          active: {
+            viewportY: number;
+            getLine(
+              y: number,
+            ): { translateToString(trimRight?: boolean): string } | undefined;
+          };
+        };
+      };
+    };
+    const term = container?.__xterm;
+    if (!term) return "";
+    const vY = term.buffer.active.viewportY;
+    return term.buffer.active.getLine(vY)?.translateToString(true) ?? "";
+  });
+}
+
+When("I note the visible terminal text", async function (this: KoluWorld) {
+  this.savedVisibleText = await readFirstVisibleLine(this);
 });
 
 When("I click the scroll-to-bottom button", async function (this: KoluWorld) {
@@ -106,6 +153,22 @@ Then(
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
     await btn.waitFor({ state: "hidden", timeout: 3000 });
+  },
+);
+
+Then(
+  "the visible terminal text should be unchanged",
+  async function (this: KoluWorld) {
+    assert.ok(
+      this.savedVisibleText,
+      "No saved visible text — was 'I note the visible terminal text' called first?",
+    );
+    const current = await readFirstVisibleLine(this);
+    assert.strictEqual(
+      current,
+      this.savedVisibleText,
+      `Viewport content drifted: was "${this.savedVisibleText}", now "${current}"`,
+    );
   },
 );
 

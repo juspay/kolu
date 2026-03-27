@@ -37,6 +37,8 @@ export class KoluWorld extends World {
   terminalCountBeforeRefresh?: number;
   savedSidebarCount?: number;
   savedScrollTop?: number;
+  savedVisibleText?: string;
+  _scrollFifo?: string;
   createdTerminalIds: string[] = [];
 
   get canvas(): Locator {

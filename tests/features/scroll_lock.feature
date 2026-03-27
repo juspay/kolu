@@ -37,6 +37,14 @@ Feature: Scroll lock
     When I fire the output trigger
     Then the scroll-to-bottom button should be active
 
+  Scenario: Scroll lock holds position during buffer trimming
+    When I generate 1200 lines of output
+    And I prepare a output trigger
+    And I scroll the terminal up
+    And I note the visible terminal text
+    And I fire the output trigger with 200 lines
+    Then the visible terminal text should be unchanged
+
   Scenario: Disabling scroll lock prevents freezing
     When I click the settings button
     And I click the scroll lock toggle
