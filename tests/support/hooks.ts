@@ -70,9 +70,13 @@ BeforeAll(async function () {
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    serverProcess = spawn(koluServer, ["--port", String(port)], {
-      stdio: "pipe",
-    });
+    serverProcess = spawn(
+      koluServer,
+      ["--allow-nix-shell-env", "--port", String(port)],
+      {
+        stdio: "pipe",
+      },
+    );
     serverProcess.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[server:${workerId}] ${data}`);
     });

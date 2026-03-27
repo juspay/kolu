@@ -1,100 +1,37 @@
 /**
  * Shell environment preparation for PTY spawning.
  *
- * Strips nix/direnv pollution from the server's env before spawning
- * the user's PTY shell, and injects OSC 7 CWD reporting hooks.
+ * Passes the server's env straight through to PTY shells and injects
+ * OSC 7 CWD reporting hooks.  Nix devshell pollution is handled at
+ * startup: the server refuses to start inside a nix shell unless
+ * --allow-nix-shell-env is passed (used by `just dev` / `just test`).
  */
 
 import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-/** Prefix patterns injected by nix devshells / direnv. */
-const STRIP_PREFIX = /^(NIX_|DIRENV_|__|KOLU_)/;
-
-/** Exact var names to strip — nix/direnv session state + derivation plumbing. */
-const STRIP_EXACT = new Set([
-  // nix / direnv session
-  "BASH_ENV",
-  "CONFIG_SHELL",
-  "HOST_PATH",
-  "IN_NIX_SHELL",
-  "NIXPKGS_CONFIG",
-  // build toolchain
-  "AR",
-  "AS",
-  "CC",
-  "CXX",
-  "LD",
-  "NM",
-  "OBJCOPY",
-  "OBJDUMP",
-  "RANLIB",
-  "READELF",
-  "SIZE",
-  "STRINGS",
-  "STRIP",
-  // derivation plumbing
-  "builder",
-  "buildInputs",
-  "buildPhase",
-  "cmakeFlags",
-  "configureFlags",
-  "configurePhase",
-  "depsBuildBuild",
-  "depsBuildBuildPropagated",
-  "depsBuildTarget",
-  "depsBuildTargetPropagated",
-  "depsHostHost",
-  "depsHostHostPropagated",
-  "depsTargetTarget",
-  "depsTargetTargetPropagated",
-  "DETERMINISTIC_BUILD",
-  "doCheck",
-  "doInstallCheck",
-  "dontAddDisableDepTrack",
-  "installPhase",
-  "mesonFlags",
-  "name",
-  "nativeBuildInputs",
-  "NoDefaultCurrentDirectoryInExePath",
-  "out",
-  "outputs",
-  "patches",
-  "phases",
-  "preferLocalBuild",
-  "propagatedBuildInputs",
-  "propagatedNativeBuildInputs",
-  "shell",
-  "shellHook",
-  "SOURCE_DATE_EPOCH",
-  "src",
-  "stdenv",
-  "strictDeps",
-  "system",
-]);
-
 /**
- * Build a clean env for the PTY shell by stripping nix/direnv pollution
- * while forwarding everything else (user vars like $ZSH, $NVM_DIR, etc.).
+ * Crash if running inside a nix devshell without explicit opt-in.
+ * Nix devshells pollute the env with NIX_*, DIRENV_*, derivation vars,
+ * etc. that break user shells spawned by the PTY. Production deployments
+ * (home-manager, nix run) have a clean env and don't hit this.
  */
+export function rejectNixShellEnv(allowed: boolean): void {
+  if (allowed || !process.env.IN_NIX_SHELL) return;
+  console.error(
+    "ERROR: kolu is running inside a nix shell.\n" +
+      "The nix devshell env will leak into user terminals and break shell init.\n" +
+      "Pass --allow-nix-shell-env to override (used by `just dev` / `just test`).",
+  );
+  process.exit(1);
+}
+
+/** Build env for the PTY shell — just process.env with VTE_VERSION ensured. */
 export function cleanEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([k, v]) =>
-        v !== undefined && !STRIP_EXACT.has(k) && !STRIP_PREFIX.test(k),
-    ),
-  ) as Record<string, string>;
-  // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
-  // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
-  // the user's .bashrc errors on `shopt -s progcomp`.
-  // userInfo().shell reads from getpwuid(3) — the OS login shell, not $SHELL.
-  if (env.SHELL?.startsWith("/nix/store")) {
-    env.SHELL = userInfo().shell ?? "/bin/sh";
-  }
-  env.PATH = process.env.PATH ?? "/usr/bin:/bin";
+  const env = { ...process.env } as Record<string, string>;
   // Enable VTE integration in bash/zsh (some tools like direnv check this).
-  env.VTE_VERSION = process.env.VTE_VERSION ?? "7603";
+  env.VTE_VERSION ??= "7603";
   return env;
 }
 
