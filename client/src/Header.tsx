@@ -73,7 +73,7 @@ const Header: Component<{
                   href={pr().url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent shrink-0 transition-colors"
+                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent min-w-0 transition-colors"
                   data-testid="header-pr"
                 >
                   &middot;
@@ -90,6 +90,7 @@ const Header: Component<{
                     )}
                   </Show>
                   #{pr().number}
+                  <span class="truncate hidden sm:inline">{pr().title}</span>
                 </a>
               )}
             </Show>
