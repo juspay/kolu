@@ -145,7 +145,8 @@ Then(
   "palette item {string} should have a chevron",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
-    const item = palette.locator("li", { hasText: text });
+    // Anchor to start of text to avoid substring matches (e.g. "Theme" vs "Random theme")
+    const item = palette.locator("li", { hasText: new RegExp(`^${text}`) });
     await item.waitFor({ state: "visible", timeout: 3000 });
     const content = await item.textContent();
     assert.ok(
