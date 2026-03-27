@@ -11,8 +11,9 @@ export function cwdBasename(cwd: string): string {
 
 import type { TerminalInfo } from "kolu-common";
 
-/** Build a map from key → unique OKLCH color via golden-angle hue spacing. */
-export function buildColorMap(keys: Iterable<string>): Map<string, string> {
+/** Assign OKLCH colors via golden-angle hue spacing.
+ *  All keys share one sequence so no two get the same color. */
+function assignColors(keys: Iterable<string>): Map<string, string> {
   return new Map(
     [...new Set(keys)]
       .sort()
@@ -20,34 +21,30 @@ export function buildColorMap(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-/** Build repo-name → color map from terminal list. */
-export function buildRepoColorMap(
+/** Build unified repo + branch color maps from terminal list.
+ *  All repo names and branch names are fed into a single color sequence
+ *  so colors are mutually exclusive across both dimensions. */
+export function buildColorMaps(
   ids: import("kolu-common").TerminalId[],
   getMeta: (
     id: import("kolu-common").TerminalId,
   ) => Omit<TerminalInfo, "id"> | undefined,
-): Map<string, string> {
-  const keys: string[] = [];
+): { repo: Map<string, string>; branch: Map<string, string> } {
+  const repoKeys = new Set<string>();
+  const branchKeys = new Set<string>();
   for (const id of ids) {
-    const key = terminalName(getMeta(id));
-    if (key) keys.push(key);
+    const meta = getMeta(id);
+    const repo = terminalName(meta);
+    if (repo) repoKeys.add(repo);
+    const branch = meta?.meta?.git?.branch;
+    if (branch) branchKeys.add(branch);
   }
-  return buildColorMap(keys);
-}
-
-/** Build branch-name → color map from terminal list. */
-export function buildBranchColorMap(
-  ids: import("kolu-common").TerminalId[],
-  getMeta: (
-    id: import("kolu-common").TerminalId,
-  ) => Omit<TerminalInfo, "id"> | undefined,
-): Map<string, string> {
-  const keys: string[] = [];
-  for (const id of ids) {
-    const branch = getMeta(id)?.meta?.git?.branch;
-    if (branch) keys.push(branch);
-  }
-  return buildColorMap(keys);
+  // Combine into one sequence so no repo and branch share a hue.
+  const unified = assignColors([...repoKeys, ...branchKeys]);
+  return {
+    repo: new Map([...repoKeys].map((k) => [k, unified.get(k)!])),
+    branch: new Map([...branchKeys].map((k) => [k, unified.get(k)!])),
+  };
 }
 
 export function terminalName(

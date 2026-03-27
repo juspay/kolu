@@ -8,12 +8,7 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import {
-  cwdBasename,
-  terminalName,
-  buildRepoColorMap,
-  buildBranchColorMap,
-} from "./path";
+import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
@@ -172,25 +167,22 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  const colorMap = createMemo(() =>
-    buildRepoColorMap(props.terminalIds, props.getMeta),
-  );
-  const branchMap = createMemo(() =>
-    buildBranchColorMap(props.terminalIds, props.getMeta),
+  const colors = createMemo(() =>
+    buildColorMaps(props.terminalIds, props.getMeta),
   );
 
   function colorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
     const key = terminalName(meta);
-    return key ? colorMap().get(key) : undefined;
+    return key ? colors().repo.get(key) : undefined;
   }
 
   function branchColorFor(
     meta: Omit<TerminalInfo, "id"> | undefined,
   ): string | undefined {
     const branch = meta?.meta?.git?.branch;
-    return branch ? branchMap().get(branch) : undefined;
+    return branch ? colors().branch.get(branch) : undefined;
   }
 
   function handleSelect(id: TerminalId) {
