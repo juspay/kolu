@@ -20,6 +20,7 @@ import TerminalPreview from "./TerminalPreview";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
 import { terminalName, buildColorMaps } from "./path";
+import { matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
@@ -116,78 +117,90 @@ const MissionControl: Component<{
     }),
   );
 
-  // Quick-switch: releasing the modifier key (Ctrl or Alt) selects the focused card
-  makeEventListener(window, "keyup", (e: KeyboardEvent) => {
-    if (!isOpen() || !isQuickSwitch()) return;
-    if (e.key === "Control" || e.key === "Alt") {
-      const focused = document.activeElement as HTMLElement;
-      const id = focused?.getAttribute("data-terminal-id") as TerminalId;
-      if (id) handleSelect(id);
-    }
-  });
+  // Keyboard listeners — reactively owned: only installed while MC is open.
+  // SolidJS auto-disposes them when isOpen() becomes false.
+  createEffect(() => {
+    if (!isOpen()) return;
 
-  // Keyboard navigation: Tab, number keys (1-9), arrow keys.
-  // Capture phase to intercept Tab before Corvu Dialog's focus trap.
-  makeEventListener(
-    window,
-    "keydown",
-    (e: KeyboardEvent) => {
-      if (!isOpen()) return;
+    // Quick-switch: releasing the modifier key (Ctrl or Alt) selects the focused card
+    makeEventListener(window, "keyup", (e: KeyboardEvent) => {
+      if (!isQuickSwitch()) return;
+      if (e.key === "Control" || e.key === "Alt") {
+        const focused = document.activeElement as HTMLElement;
+        const id = focused?.getAttribute("data-terminal-id") as TerminalId;
+        if (id) handleSelect(id);
+      }
+    });
 
-      // Number keys 1-9 switch directly
-      const digit = parseInt(e.key);
-      if (digit >= 1 && digit <= 9) {
-        const id = displayIds()[digit - 1];
-        if (id) {
+    // Keyboard navigation: Tab, number keys (1-9), arrow keys, Mod+. to close.
+    // Capture phase to intercept Tab before Corvu Dialog's focus trap.
+    makeEventListener(
+      window,
+      "keydown",
+      (e: KeyboardEvent) => {
+        // Mod+. closes Mission Control (useShortcuts' listener is gone while MC is open)
+        if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
           e.preventDefault();
           e.stopPropagation();
-          handleSelect(id);
-        }
-        return;
-      }
-
-      // Tab, Shift+Tab, and arrow keys navigate the grid
-      const cards = gridRef?.querySelectorAll<HTMLElement>(
-        "[data-testid='mission-control-card']",
-      );
-      if (!cards?.length) return;
-      const focused = document.activeElement as HTMLElement;
-      const idx = Array.from(cards).indexOf(focused);
-      // If focus isn't on a card (e.g. Corvu sentinel), redirect to first card
-      const currentIdx = idx === -1 ? 0 : idx;
-
-      const cols = gridCols();
-      let next = currentIdx;
-      switch (e.key) {
-        case "Tab":
-          // Override Corvu's focus trap — wrap Tab/Shift+Tab within cards
-          next = e.shiftKey
-            ? (currentIdx - 1 + cards.length) % cards.length
-            : (currentIdx + 1) % cards.length;
-          break;
-        case "ArrowRight":
-          next = Math.min(currentIdx + 1, cards.length - 1);
-          break;
-        case "ArrowLeft":
-          next = Math.max(currentIdx - 1, 0);
-          break;
-        case "ArrowDown":
-          next = Math.min(currentIdx + cols, cards.length - 1);
-          break;
-        case "ArrowUp":
-          next = Math.max(currentIdx - cols, 0);
-          break;
-        default:
+          props.onMcModeChange({ mode: "closed" });
           return;
-      }
-      if (next !== currentIdx || idx === -1) {
-        e.preventDefault();
-        e.stopPropagation();
-        cards[next]!.focus();
-      }
-    },
-    { capture: true },
-  );
+        }
+
+        // Number keys 1-9 switch directly
+        const digit = parseInt(e.key);
+        if (digit >= 1 && digit <= 9) {
+          const id = displayIds()[digit - 1];
+          if (id) {
+            e.preventDefault();
+            e.stopPropagation();
+            handleSelect(id);
+          }
+          return;
+        }
+
+        // Tab, Shift+Tab, and arrow keys navigate the grid
+        const cards = gridRef?.querySelectorAll<HTMLElement>(
+          "[data-testid='mission-control-card']",
+        );
+        if (!cards?.length) return;
+        const focused = document.activeElement as HTMLElement;
+        const idx = Array.from(cards).indexOf(focused);
+        // If focus isn't on a card (e.g. Corvu sentinel), redirect to first card
+        const currentIdx = idx === -1 ? 0 : idx;
+
+        const cols = gridCols();
+        let next = currentIdx;
+        switch (e.key) {
+          case "Tab":
+            // Override Corvu's focus trap — wrap Tab/Shift+Tab within cards
+            next = e.shiftKey
+              ? (currentIdx - 1 + cards.length) % cards.length
+              : (currentIdx + 1) % cards.length;
+            break;
+          case "ArrowRight":
+            next = Math.min(currentIdx + 1, cards.length - 1);
+            break;
+          case "ArrowLeft":
+            next = Math.max(currentIdx - 1, 0);
+            break;
+          case "ArrowDown":
+            next = Math.min(currentIdx + cols, cards.length - 1);
+            break;
+          case "ArrowUp":
+            next = Math.max(currentIdx - cols, 0);
+            break;
+          default:
+            return;
+        }
+        if (next !== currentIdx || idx === -1) {
+          e.preventDefault();
+          e.stopPropagation();
+          cards[next]!.focus();
+        }
+      },
+      { capture: true },
+    );
+  });
 
   return (
     <ModalDialog

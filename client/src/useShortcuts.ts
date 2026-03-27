@@ -1,6 +1,6 @@
 /** Global keyboard shortcuts — single capture-phase listener dispatching to handlers. */
 
-import type { Accessor, Setter } from "solid-js";
+import { type Accessor, type Setter, createEffect } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { MCMode } from "./MissionControl";
@@ -23,20 +23,25 @@ interface ShortcutDeps {
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
 }
 
-/** Wire up all global keyboard shortcuts. Call once from the app root. */
+/** Wire up all global keyboard shortcuts. Call once from the app root.
+ *  Listener is reactively owned: only installed when MC is closed.
+ *  When MC opens, SolidJS disposes the effect scope → listener removed. */
 export function useShortcuts(deps: ShortcutDeps) {
-  makeEventListener(
-    window,
-    "keydown",
-    (e: KeyboardEvent) => {
-      const handled = dispatch(e, deps);
-      if (handled) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    },
-    { capture: true },
-  );
+  createEffect(() => {
+    if (deps.mcMode().mode !== "closed") return;
+    makeEventListener(
+      window,
+      "keydown",
+      (e: KeyboardEvent) => {
+        const handled = dispatch(e, deps);
+        if (handled) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      { capture: true },
+    );
+  });
 }
 
 /** Try to handle the event. Returns true if a shortcut matched. */
@@ -61,29 +66,19 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   // Alt+Tab / Alt+Shift+Tab: quick-switch alias for macOS Chrome (which intercepts Ctrl+Tab).
   if (e.altKey && e.key === "Tab") {
-    if (deps.mcMode().mode === "closed") {
-      deps.setMcMode({ mode: "quickSwitch", direction: e.shiftKey ? -1 : 1 });
-      return true;
-    }
-    return false;
+    deps.setMcMode({ mode: "quickSwitch", direction: e.shiftKey ? -1 : 1 });
+    return true;
   }
 
   // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
-  // If already open, fall through — MissionControl's Tab handler cycles focus.
   if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
-    if (deps.mcMode().mode === "closed") {
-      deps.setMcMode({ mode: "quickSwitch", direction: 1 });
-      return true;
-    }
-    return false;
+    deps.setMcMode({ mode: "quickSwitch", direction: 1 });
+    return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)) {
-    if (deps.mcMode().mode === "closed") {
-      deps.setMcMode({ mode: "quickSwitch", direction: -1 });
-      return true;
-    }
-    return false;
+    deps.setMcMode({ mode: "quickSwitch", direction: -1 });
+    return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
@@ -112,9 +107,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
-    deps.setMcMode((prev) =>
-      prev.mode === "closed" ? { mode: "browse" } : { mode: "closed" },
-    );
+    deps.setMcMode({ mode: "browse" });
     return true;
   }
 
