@@ -13,7 +13,7 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { resolveTlsOptions } from "./tls.ts";
-import { rejectNixShellEnv } from "./shell.ts";
+import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
 import pkg from "../package.json" with { type: "json" };
 
@@ -58,7 +58,7 @@ const argv = cli({
   strictFlags: true,
 });
 
-rejectNixShellEnv(
+configureNixShellEnv(
   argv.flags.allowNixShellWithEnvWhitelist?.split(",").filter(Boolean),
 );
 if (argv.flags.verbose) log.level = "debug";

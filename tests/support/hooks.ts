@@ -74,7 +74,7 @@ BeforeAll(async function () {
       koluServer,
       [
         "--allow-nix-shell-with-env-whitelist",
-        // Must match NIX_ENV_WHITELIST in common/src/config.ts
+        // Keep in sync with server/package.json "dev" script and justfile test-quick
         "HOME,USER,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
         "--port",
         String(port),

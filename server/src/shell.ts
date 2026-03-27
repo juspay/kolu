@@ -16,10 +16,12 @@ import { join } from "node:path";
 let envWhitelist: Set<string> | undefined;
 
 /**
- * Crash if running inside a nix devshell without explicit opt-in.
- * When a whitelist is provided, store it for cleanEnv() to use.
+ * Configure nix shell env handling at startup.
+ *
+ * With a whitelist: store it so cleanEnv() only forwards those vars.
+ * Without: crash if IN_NIX_SHELL is set (production safety net).
  */
-export function rejectNixShellEnv(whitelist: string[] | undefined): void {
+export function configureNixShellEnv(whitelist: string[] | undefined): void {
   if (whitelist) {
     envWhitelist = new Set(whitelist);
     return;
