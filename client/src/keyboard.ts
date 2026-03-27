@@ -142,5 +142,7 @@ export const SHORTCUTS = {
  * instead of being consumed by the terminal.
  */
 export function matchesAnyShortcut(e: KeyboardEvent): boolean {
+  // Alt+Tab: not in SHORTCUTS (handled specially in useShortcuts) but must not leak to terminal
+  if (e.altKey && e.key === "Tab") return true;
   return Object.values(SHORTCUTS).some((s) => matchesKeybind(e, s.keybind));
 }

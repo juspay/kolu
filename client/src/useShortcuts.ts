@@ -59,9 +59,16 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
+  // Alt+Tab / Alt+Shift+Tab: quick-switch alias for macOS Chrome (which intercepts Ctrl+Tab).
+  if (e.altKey && e.key === "Tab") {
+    if (deps.mcMode().mode === "closed") {
+      deps.setMcMode({ mode: "quickSwitch", direction: e.shiftKey ? -1 : 1 });
+      return true;
+    }
+    return false;
+  }
+
   // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
-  // While Ctrl is held, Tab cycles focus; releasing Ctrl selects.
-  // Ctrl+Tab / Ctrl+Shift+Tab: open quick-switch if MC is closed.
   // If already open, fall through — MissionControl's Tab handler cycles focus.
   if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
     if (deps.mcMode().mode === "closed") {

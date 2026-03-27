@@ -114,10 +114,10 @@ const MissionControl: Component<{
     }),
   );
 
-  // Ctrl+Tab flow: releasing Ctrl selects the focused card
+  // Quick-switch: releasing the modifier key (Ctrl or Alt) selects the focused card
   makeEventListener(window, "keyup", (e: KeyboardEvent) => {
     if (!isOpen() || !isQuickSwitch()) return;
-    if (e.key === "Control") {
+    if (e.key === "Control" || e.key === "Alt") {
       const focused = document.activeElement as HTMLElement;
       const id = focused?.getAttribute("data-terminal-id") as TerminalId;
       if (id) handleSelect(id);
@@ -197,7 +197,7 @@ const MissionControl: Component<{
     >
       <Dialog.Content
         data-testid="mission-control"
-        class="w-[90vw] max-w-5xl max-h-[80vh] bg-surface-2 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
+        class="w-[90vw] max-w-5xl h-[80vh] bg-surface-2 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
       >
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-fg">Mission Control</h2>
@@ -213,9 +213,10 @@ const MissionControl: Component<{
         >
           <div
             ref={gridRef}
-            class="grid gap-3 flex-1 min-h-0 overflow-y-auto p-1"
+            class="grid gap-3 flex-1 min-h-0 p-1"
             style={{
               "grid-template-columns": `repeat(${gridCols()}, minmax(0, 1fr))`,
+              "grid-auto-rows": "minmax(0, 1fr)",
             }}
           >
             <For each={displayIds()}>
@@ -228,55 +229,62 @@ const MissionControl: Component<{
                     data-testid="mission-control-card"
                     data-terminal-id={id}
                     data-active={isActive() ? "" : undefined}
-                    class="relative flex flex-col aspect-square bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent/60 focus-visible:outline-none focus-visible:border-accent focus-visible:ring-4 focus-visible:ring-accent/40 focus-visible:scale-[1.02]"
+                    class="group min-h-0 min-w-0 w-full h-full cursor-pointer focus-visible:outline-none text-left"
                     onClick={() => handleSelect(id)}
                   >
-                    {/* Number badge — press this digit to switch */}
-                    <Show when={num() <= 9}>
-                      <span
-                        data-testid="card-number"
-                        class="absolute top-1.5 left-1.5 z-10 w-5 h-5 flex items-center justify-center text-[0.6rem] font-bold rounded bg-surface-0/80 text-fg-2 border border-edge"
-                      >
-                        {num()}
-                      </span>
-                    </Show>
-                    {/* Terminal preview — takes most of the card */}
-                    <Show when={isOpen()}>
-                      <div class="flex-1 min-h-0 w-full">
-                        <TerminalPreview
-                          terminalId={id}
-                          theme={props.getTerminalTheme(id)}
-                        />
+                    {/* Inner wrapper: square aspect ratio constrained by grid cell.
+                        aspect-ratio on grid items overflows; on a nested element with
+                        max-h/w-full it's constrained by the cell's definite dimensions. */}
+                    <div class="relative flex flex-col aspect-square max-h-full max-w-full w-full bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all hover:border-accent/60 group-focus-visible:border-accent group-focus-visible:ring-4 group-focus-visible:ring-accent/40">
+                      {/* Number badge — press this digit to switch */}
+                      <Show when={num() <= 9}>
+                        <span
+                          data-testid="card-number"
+                          class="absolute top-1.5 left-1.5 z-10 w-5 h-5 flex items-center justify-center text-[0.6rem] font-bold rounded bg-surface-0/80 text-fg-2 border border-edge"
+                        >
+                          {num()}
+                        </span>
+                      </Show>
+                      {/* Terminal preview — takes most of the card */}
+                      <Show when={isOpen()}>
+                        <div class="flex-1 min-h-0 w-full">
+                          <TerminalPreview
+                            terminalId={id}
+                            theme={props.getTerminalTheme(id)}
+                          />
+                        </div>
+                      </Show>
+                      {/* Metadata footer — fixed height so cards align when PR info varies */}
+                      <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
+                        <div class="text-base font-semibold text-fg truncate">
+                          {cardLabel(meta())}
+                        </div>
+                        <Show when={meta()?.meta?.git}>
+                          {(git) => (
+                            <div class="text-sm text-fg-2 truncate">
+                              {git().branch}
+                            </div>
+                          )}
+                        </Show>
+                        <Show when={meta()?.meta?.pr}>
+                          {(pr) => (
+                            <div class="flex items-center gap-1.5 text-sm text-fg-3 truncate">
+                              <Show when={pr().checks}>
+                                {(checks) => (
+                                  <ChecksIndicator status={checks()} />
+                                )}
+                              </Show>
+                              <span class="shrink-0">#{pr().number}</span>
+                              <span class="truncate">{pr().title}</span>
+                            </div>
+                          )}
+                        </Show>
+                        <Show when={props.getActivityHistory(id).length > 0}>
+                          <ActivityGraph
+                            samples={props.getActivityHistory(id)}
+                          />
+                        </Show>
                       </div>
-                    </Show>
-                    {/* Metadata footer — fixed height so cards align when PR info varies */}
-                    <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
-                      <div class="text-base font-semibold text-fg truncate">
-                        {cardLabel(meta())}
-                      </div>
-                      <Show when={meta()?.meta?.git}>
-                        {(git) => (
-                          <div class="text-sm text-fg-2 truncate">
-                            {git().branch}
-                          </div>
-                        )}
-                      </Show>
-                      <Show when={meta()?.meta?.pr}>
-                        {(pr) => (
-                          <div class="flex items-center gap-1.5 text-sm text-fg-3 truncate">
-                            <Show when={pr().checks}>
-                              {(checks) => (
-                                <ChecksIndicator status={checks()} />
-                              )}
-                            </Show>
-                            <span class="shrink-0">#{pr().number}</span>
-                            <span class="truncate">{pr().title}</span>
-                          </div>
-                        )}
-                      </Show>
-                      <Show when={props.getActivityHistory(id).length > 0}>
-                        <ActivityGraph samples={props.getActivityHistory(id)} />
-                      </Show>
                     </div>
                   </button>
                 );
