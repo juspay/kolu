@@ -6,7 +6,6 @@ import {
   on,
   createResource,
   createMemo,
-  batch,
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
@@ -14,8 +13,6 @@ import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
-import { SHORTCUTS } from "./keyboard";
-import type { PaletteCommand } from "./CommandPalette";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
@@ -350,99 +347,6 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
-  /** Command palette entries: leaf actions + nested groups for terminals and themes. */
-  const commands = createMemo((): PaletteCommand[] => [
-    {
-      name: "Create new terminal",
-      keybind: SHORTCUTS.createTerminal.keybind,
-      onSelect: () => void handleCreate(),
-    },
-    ...(activeMeta()
-      ? [
-          {
-            name: "Create terminal in current directory",
-            keybind: SHORTCUTS.createTerminalInCwd.keybind,
-            onSelect: () => void handleCreate(activeMeta()!.cwd),
-          },
-        ]
-      : []),
-    ...(activeId() !== null
-      ? [
-          {
-            name: "Close terminal",
-            onSelect: () => void handleKill(activeId()!),
-          },
-          {
-            name: "Toggle sub-panel",
-            keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => {
-              const id = activeId()!;
-              if (getSubTerminalIds(id).length === 0) {
-                void handleCreateSubTerminal(id, activeMeta()?.cwd);
-              } else {
-                subPanel.togglePanel(id);
-              }
-            },
-          },
-          {
-            name: "New sub-terminal",
-            keybind: SHORTCUTS.createSubTerminal.keybind,
-            onSelect: () =>
-              void handleCreateSubTerminal(activeId()!, activeMeta()?.cwd),
-          },
-        ]
-      : []),
-    {
-      name: "Debug",
-      children: [
-        {
-          name: "Trigger server error",
-          onSelect: () =>
-            // Request a nonexistent terminal to trigger TerminalNotFoundError on the server
-            void client.terminal.resize({
-              id: "00000000-0000-0000-0000-000000000000",
-              cols: 1,
-              rows: 1,
-            }),
-        },
-      ],
-    },
-    ...(terminalIds().length > 0
-      ? [
-          {
-            name: "Switch terminal",
-            children: () =>
-              terminalIds().map((id, i) => ({
-                name: `Switch to terminal ${i + 1}`,
-                keybind:
-                  i < 9
-                    ? SHORTCUTS[
-                        `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
-                      ].keybind
-                    : undefined,
-                onSelect: () => setActiveId(id),
-              })),
-          },
-        ]
-      : []),
-    {
-      name: "Theme",
-      onCancel: () => setPreviewThemeName(undefined),
-      children: () =>
-        availableThemes
-          .filter((t) => t.name !== committedThemeName())
-          .map((t) => ({
-            name: t.name,
-            onHighlight: () => setPreviewThemeName(t.name),
-            onSelect: () =>
-              batch(() => {
-                setPreviewThemeName(undefined);
-                void handleSetTheme(t.name);
-              }),
-          })),
-    },
-  ]);
-
   return {
     terminalIds,
     activeId,
@@ -464,7 +368,9 @@ export function useTerminals() {
       void client.terminal.reorder({ ids });
     },
     mruOrder,
-    commands,
+    committedThemeName,
+    setPreviewThemeName,
+    handleSetTheme,
     randomTheme,
     setRandomTheme,
     scrollLock,
