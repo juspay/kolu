@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --watch --import tsx src/index.ts",
+    "dev": "node --watch --import tsx src/index.ts --allow-nix-shell-env",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

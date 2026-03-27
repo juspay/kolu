@@ -1,51 +1,37 @@
 /**
  * Shell environment preparation for PTY spawning.
  *
- * Builds a minimal, clean env that avoids nix/direnv pollution
- * leaking into the user's spawned shell, and injects OSC 7 CWD
- * reporting hooks.
+ * Passes the server's env straight through to PTY shells and injects
+ * OSC 7 CWD reporting hooks.  Nix devshell pollution is handled at
+ * startup: the server refuses to start inside a nix shell unless
+ * --allow-nix-shell-env is passed (used by `just dev` / `just test`).
  */
 
 import { userInfo, tmpdir } from "node:os";
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 
-/** Env vars safe to forward to the PTY shell. */
-const KEEP_ENV = [
-  "HOME",
-  "USER",
-  "SHELL",
-  "TERM",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "DISPLAY",
-  "COLORTERM",
-  "TERM_PROGRAM",
-] as const;
-
 /**
- * Build a minimal env for the PTY shell.
- *
- * The server may run inside nix/direnv which pollutes the env with
- * NIX_*, DIRENV_*, BASH_ENV, etc. — these break the user's shell
- * (wrong PS1, shopt errors, direnv unloading). We only forward the
- * essentials so the spawned shell starts clean.
+ * Crash if running inside a nix devshell without explicit opt-in.
+ * Nix devshells pollute the env with NIX_*, DIRENV_*, derivation vars,
+ * etc. that break user shells spawned by the PTY. Production deployments
+ * (home-manager, nix run) have a clean env and don't hit this.
  */
-export function cleanEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    KEEP_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : [])),
+export function rejectNixShellEnv(allowed: boolean): void {
+  if (allowed || !process.env.IN_NIX_SHELL) return;
+  console.error(
+    "ERROR: kolu is running inside a nix shell.\n" +
+      "The nix devshell env will leak into user terminals and break shell init.\n" +
+      "Pass --allow-nix-shell-env to override (used by `just dev` / `just test`).",
   );
-  // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
-  // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
-  // the user's .bashrc errors on `shopt -s progcomp`.
-  // userInfo().shell reads from getpwuid(3) — the OS login shell, not $SHELL.
-  if (env.SHELL?.startsWith("/nix/store")) {
-    env.SHELL = userInfo().shell ?? "/bin/sh";
-  }
-  env.PATH = process.env.PATH ?? "/usr/bin:/bin";
+  process.exit(1);
+}
+
+/** Build env for the PTY shell — just process.env with VTE_VERSION ensured. */
+export function cleanEnv(): Record<string, string> {
+  const env = { ...process.env } as Record<string, string>;
   // Enable VTE integration in bash/zsh (some tools like direnv check this).
-  env.VTE_VERSION = process.env.VTE_VERSION ?? "7603";
+  env.VTE_VERSION ??= "7603";
   return env;
 }
 
