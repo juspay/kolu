@@ -49,7 +49,10 @@ function randomAmbientTip(): string {
 function showStartupTip() {
   if (!startupTips()) return;
   const text = randomAmbientTip();
-  toast(TIP_PREFIX + text, { duration: 6000 });
+  toast(TIP_PREFIX + text, {
+    duration: 6000,
+    description: "Startup tip · disable in Settings",
+  });
 }
 
 export function useTips() {
