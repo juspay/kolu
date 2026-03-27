@@ -191,7 +191,7 @@ const MissionControl: Component<{
     >
       <Dialog.Content
         data-testid="mission-control"
-        class="w-[90vw] max-w-6xl h-[80vh] bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
+        class="w-[90vw] max-w-5xl max-h-[80vh] bg-surface-2 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
       >
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-fg">Mission Control</h2>
@@ -207,10 +207,9 @@ const MissionControl: Component<{
         >
           <div
             ref={gridRef}
-            class="grid gap-3 flex-1 min-h-0"
+            class="grid gap-3"
             style={{
               "grid-template-columns": `repeat(${gridCols()}, minmax(0, 1fr))`,
-              "grid-auto-rows": "1fr",
             }}
           >
             <For each={displayIds()}>
@@ -223,7 +222,7 @@ const MissionControl: Component<{
                     data-testid="mission-control-card"
                     data-terminal-id={id}
                     data-active={isActive() ? "" : undefined}
-                    class="relative flex flex-col bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent/60 focus-visible:outline-none focus-visible:border-accent focus-visible:ring-4 focus-visible:ring-accent/40 focus-visible:scale-[1.02]"
+                    class="relative flex flex-col aspect-square bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all cursor-pointer text-left hover:border-accent/60 focus-visible:outline-none focus-visible:border-accent focus-visible:ring-4 focus-visible:ring-accent/40 focus-visible:scale-[1.02]"
                     onClick={() => handleSelect(id)}
                   >
                     {/* Number badge — press this digit to switch */}
