@@ -1,8 +1,10 @@
 /** Empty state — shown when no terminals exist. Highlights key features. */
 
-import { type Component, For } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { SHORTCUTS, formatKeybind } from "./keyboard";
 import Kbd from "./Kbd";
+
+const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
@@ -28,6 +30,12 @@ const EmptyState: Component = () => (
           )}
         </For>
       </div>
+      <Show when={!isPWA}>
+        <p class="mt-4 pt-3 border-t border-edge text-xs text-fg-3">
+          💡 Install as PWA for full shortcut support (<Kbd>⌘T</Kbd>,{" "}
+          <Kbd>⌘W</Kbd>, etc.)
+        </p>
+      </Show>
     </div>
   </div>
 );

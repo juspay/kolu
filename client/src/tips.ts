@@ -32,7 +32,17 @@ export const CONTEXTUAL_TIPS = {
   },
 } as const satisfies Record<string, Tip>;
 
+const isPWA = window.matchMedia("(display-mode: standalone)").matches;
+
 export const AMBIENT_TIPS: readonly Tip[] = [
+  ...(!isPWA
+    ? [
+        {
+          id: "amb-pwa",
+          text: "Install as PWA for full shortcut support (⌘T, ⌘W, etc.)",
+        },
+      ]
+    : []),
   {
     id: "amb-sub",
     text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal with a sub-panel`,
