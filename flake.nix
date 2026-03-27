@@ -29,7 +29,8 @@
     {
       homeManagerModules.default = import ./nix/home/module.nix;
       packages = eachSystem (pkgs:
-        import ./default.nix { inherit pkgs commitHash; });
+        let all = import ./default.nix { inherit pkgs commitHash; };
+        in removeAttrs all [ "koluEnv" ]);
       devShells = eachSystem (pkgs:
         { default = import ./shell.nix { inherit pkgs; }; });
     };

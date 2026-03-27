@@ -72,6 +72,14 @@ let
     fetcherVersion = 3;
   };
 
+  # Shared env vars — used by the kolu build, the devShell, and the wrapper.
+  koluEnv = {
+    KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
+    KOLU_FONTS_DIR = "${fonts}";
+    KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
+    KOLU_COMMIT_HASH = commitHash;
+  };
+
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     version = "0.1.0";
@@ -110,13 +118,6 @@ let
       chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
       runHook postInstall
     '';
-  };
-  # Shared env vars used by both the nix build and the devShell.
-  koluEnv = {
-    KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
-    KOLU_FONTS_DIR = "${fonts}";
-    KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
-    KOLU_COMMIT_HASH = commitHash;
   };
 in
 {
