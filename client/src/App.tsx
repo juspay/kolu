@@ -19,7 +19,7 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette, { type PaletteCommand } from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import MissionControl from "./MissionControl";
+import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
@@ -80,12 +80,8 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
-  // Mission Control state
-  const [missionControlOpen, setMissionControlOpen] = createSignal(false);
-  const [quickSwitchMode, setQuickSwitchMode] = createSignal(false);
-  const [quickSwitchDirection, setQuickSwitchDirection] = createSignal<1 | -1>(
-    1,
-  );
+  // Mission Control state — single discriminated union, no impossible states
+  const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -102,9 +98,8 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    setMissionControlOpen,
-    setQuickSwitchMode,
-    setQuickSwitchDirection,
+    mcMode,
+    setMcMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -138,7 +133,7 @@ const App: Component = () => {
         SHORTCUTS.missionControl.keybind,
         SHORTCUTS.nextTerminalTab.keybind,
       ],
-      onSelect: () => setMissionControlOpen(true),
+      onSelect: () => setMcMode({ mode: "browse" }),
     },
     {
       name: "Keyboard shortcuts",
@@ -156,10 +151,12 @@ const App: Component = () => {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
+      // Only refocus if no other dialog took over (self-healing — no manual dialog list)
       requestAnimationFrame(() => {
-        if (!shortcutsHelpOpen() && !aboutOpen() && !missionControlOpen()) {
-          refocusTerminal();
-        }
+        const anyDialogOpen = document.querySelector(
+          "[data-corvu-dialog-content]:not([data-closed])",
+        );
+        if (!anyDialogOpen) refocusTerminal();
       });
     }
   }
@@ -198,11 +195,11 @@ const App: Component = () => {
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
       <MissionControl
-        open={missionControlOpen()}
-        onOpenChange={withRefocus(setMissionControlOpen)}
-        quickSwitchMode={quickSwitchMode()}
-        onQuickSwitchModeChange={setQuickSwitchMode}
-        quickSwitchDirection={quickSwitchDirection()}
+        mcMode={mcMode()}
+        onMcModeChange={(mode) => {
+          setMcMode(mode);
+          if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
+        }}
         terminalIds={terminalIds()}
         mruOrder={mruOrder()}
         activeId={activeId()}
@@ -250,7 +247,7 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        onMissionControl={() => setMissionControlOpen(true)}
+        onMissionControl={() => setMcMode({ mode: "browse" })}
         themeName={activeThemeName()}
         meta={activeMeta()}
         onToggleSidebar={toggleSidebar}

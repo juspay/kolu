@@ -3,6 +3,7 @@
 import type { Accessor, Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
+import type { MCMode } from "./MissionControl";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 interface ShortcutDeps {
@@ -15,9 +16,8 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
-  setMissionControlOpen: Setter<boolean>;
-  setQuickSwitchMode: Setter<boolean>;
-  setQuickSwitchDirection: Setter<1 | -1>;
+  mcMode: Accessor<MCMode>;
+  setMcMode: Setter<MCMode>;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -62,16 +62,12 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
   // While Ctrl is held, Tab cycles focus; releasing Ctrl selects.
   if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
-    deps.setQuickSwitchDirection(1);
-    deps.setMissionControlOpen(true);
-    deps.setQuickSwitchMode(true);
+    deps.setMcMode({ mode: "quickSwitch", direction: 1 });
     return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)) {
-    deps.setQuickSwitchDirection(-1);
-    deps.setMissionControlOpen(true);
-    deps.setQuickSwitchMode(true);
+    deps.setMcMode({ mode: "quickSwitch", direction: -1 });
     return true;
   }
 
@@ -101,7 +97,9 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
-    deps.setMissionControlOpen((v) => !v);
+    deps.setMcMode((prev) =>
+      prev.mode === "closed" ? { mode: "browse" } : { mode: "closed" },
+    );
     return true;
   }
 

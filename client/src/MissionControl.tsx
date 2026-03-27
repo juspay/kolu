@@ -24,6 +24,19 @@ import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
 
+/** Mission Control mode — discriminated union eliminates impossible states
+ *  (e.g. quickSwitch without open, direction without quickSwitch).
+ *
+ *  - `closed`      — Mission Control is not visible.
+ *  - `browse`      — Opened via icon, palette, or Cmd+. for manual browsing.
+ *  - `quickSwitch` — Opened via Ctrl+Tab. Shows MRU order, auto-advances focus
+ *                     by one in `direction`, and selects on Ctrl release.
+ */
+export type MCMode =
+  | { mode: "closed" }
+  | { mode: "browse" }
+  | { mode: "quickSwitch"; direction: 1 | -1 };
+
 /** Derive a human-readable label for a terminal card: repo name > cwd basename > fallback. */
 function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
   return (
@@ -34,13 +47,8 @@ function cardLabel(meta: Omit<TerminalInfo, "id"> | undefined): string {
 }
 
 const MissionControl: Component<{
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** When true, releasing Ctrl selects the focused card (Ctrl+Tab flow). */
-  quickSwitchMode: boolean;
-  onQuickSwitchModeChange: (on: boolean) => void;
-  /** Direction of the initial quick-switch advance: +1 (Ctrl+Tab) or -1 (Ctrl+Shift+Tab). */
-  quickSwitchDirection: 1 | -1;
+  mcMode: MCMode;
+  onMcModeChange: (mode: MCMode) => void;
   terminalIds: TerminalId[];
   /** Terminal IDs in most-recently-used order (for quick-switch card ordering). */
   mruOrder: TerminalId[];
@@ -50,10 +58,13 @@ const MissionControl: Component<{
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
+  const isOpen = () => props.mcMode.mode !== "closed";
+  const isQuickSwitch = () => props.mcMode.mode === "quickSwitch";
+
   /** Cards in display order: MRU for quick-switch, sidebar order otherwise.
    *  MRU may be incomplete (e.g. after refresh) — append any missing terminals at the end. */
   const displayIds = createMemo(() => {
-    if (!props.quickSwitchMode) return props.terminalIds;
+    if (!isQuickSwitch()) return props.terminalIds;
     const mru = props.mruOrder;
     const existing = new Set(props.terminalIds);
     const inMru = new Set(mru);
@@ -75,48 +86,41 @@ const MissionControl: Component<{
 
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
-    props.onOpenChange(false);
+    props.onMcModeChange({ mode: "closed" });
   }
 
-  // On open: auto-focus the right card. On close: clear quick-switch mode.
+  // On open: auto-focus the right card.
   createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (!open) {
-          props.onQuickSwitchModeChange(false);
-          return;
-        }
-        // setTimeout runs after Corvu Dialog processes the open transition
-        setTimeout(() => {
-          const cards = gridRef?.querySelectorAll<HTMLElement>(
-            "[data-testid='mission-control-card']",
-          );
-          if (!cards?.length) return;
+    on(isOpen, (open) => {
+      if (!open) return;
+      // setTimeout runs after Corvu Dialog processes the open transition
+      setTimeout(() => {
+        const cards = gridRef?.querySelectorAll<HTMLElement>(
+          "[data-testid='mission-control-card']",
+        );
+        if (!cards?.length) return;
 
-          if (props.quickSwitchMode && cards.length > 1) {
-            // Advance by one in the requested direction (like OS Alt+Tab)
-            const target =
-              props.quickSwitchDirection === -1 ? cards.length - 1 : 1;
-            cards[target]!.focus();
-          } else {
-            const activeCard =
-              gridRef?.querySelector<HTMLElement>("[data-active]");
-            (activeCard ?? cards[0])?.focus();
-          }
-        });
-      },
-    ),
+        const mc = props.mcMode;
+        if (mc.mode === "quickSwitch" && cards.length > 1) {
+          // Advance by one in the requested direction (like OS Alt+Tab)
+          const target = mc.direction === -1 ? cards.length - 1 : 1;
+          cards[target]!.focus();
+        } else {
+          const activeCard =
+            gridRef?.querySelector<HTMLElement>("[data-active]");
+          (activeCard ?? cards[0])?.focus();
+        }
+      });
+    }),
   );
 
   // Ctrl+Tab flow: releasing Ctrl selects the focused card
   makeEventListener(window, "keyup", (e: KeyboardEvent) => {
-    if (!props.open || !props.quickSwitchMode) return;
+    if (!isOpen() || !isQuickSwitch()) return;
     if (e.key === "Control") {
       const focused = document.activeElement as HTMLElement;
       const id = focused?.getAttribute("data-terminal-id") as TerminalId;
       if (id) handleSelect(id);
-      props.onQuickSwitchModeChange(false);
     }
   });
 
@@ -126,7 +130,7 @@ const MissionControl: Component<{
     window,
     "keydown",
     (e: KeyboardEvent) => {
-      if (!props.open) return;
+      if (!isOpen()) return;
 
       // Number keys 1-9 switch directly
       const digit = parseInt(e.key);
@@ -185,8 +189,10 @@ const MissionControl: Component<{
 
   return (
     <ModalDialog
-      open={props.open}
-      onOpenChange={props.onOpenChange}
+      open={isOpen()}
+      onOpenChange={(open) => {
+        if (!open) props.onMcModeChange({ mode: "closed" });
+      }}
       trapFocus={false}
     >
       <Dialog.Content
@@ -235,7 +241,7 @@ const MissionControl: Component<{
                       </span>
                     </Show>
                     {/* Terminal preview — takes most of the card */}
-                    <Show when={props.open}>
+                    <Show when={isOpen()}>
                       <div class="flex-1 min-h-0 w-full">
                         <TerminalPreview
                           terminalId={id}
