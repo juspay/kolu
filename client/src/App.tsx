@@ -124,7 +124,12 @@ const App: Component = () => {
     setPaletteOpen(open);
     if (!open) {
       setPaletteInitialGroup(undefined);
-      requestAnimationFrame(refocusTerminal);
+      // Only refocus terminal if no other dialog opened as a result of the command
+      requestAnimationFrame(() => {
+        if (!shortcutsHelpOpen() && !aboutOpen()) {
+          refocusTerminal();
+        }
+      });
     }
   }
 
