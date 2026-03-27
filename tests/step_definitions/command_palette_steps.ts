@@ -171,6 +171,18 @@ Then(
 );
 
 Then(
+  "the palette search input should be focused",
+  async function (this: KoluWorld) {
+    const input = this.page.locator(`${PALETTE_SELECTOR} input`);
+    await input.waitFor({ state: "visible", timeout: 3000 });
+    const isFocused = await input.evaluate(
+      (el) => document.activeElement === el,
+    );
+    assert.ok(isFocused, "Expected palette search input to be focused");
+  },
+);
+
+Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
     const messages: string[] = await this.page.evaluate(
