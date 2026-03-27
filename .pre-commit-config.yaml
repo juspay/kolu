@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: nixpkgs-fmt
+        name: nixpkgs-fmt
+        entry: nixpkgs-fmt
+        language: system
+        files: '\.nix$'
+        types: [file]
+      - id: prettier
+        name: prettier
+        entry: prettier --ignore-unknown --list-different --write
+        language: system
+        exclude: '(pnpm-lock\.yaml)'
+        types: [text]
