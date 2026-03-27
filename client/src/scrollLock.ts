@@ -30,9 +30,9 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
   // Clear scroll lock when the setting is toggled off
   createEffect(
     on(
-      () => enabled(),
-      (on) => {
-        if (on === false) reset();
+      enabled,
+      (v) => {
+        if (v === false) reset();
       },
       { defer: true },
     ),
