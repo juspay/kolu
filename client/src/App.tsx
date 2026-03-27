@@ -270,6 +270,13 @@ const App: Component = () => {
               rows: 1,
             }),
         },
+        {
+          name: "Clear localStorage",
+          onSelect: () => {
+            localStorage.clear();
+            location.reload();
+          },
+        },
       ],
     },
   ]);

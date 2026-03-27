@@ -2,6 +2,7 @@
 
 import { type Component, For } from "solid-js";
 import { SHORTCUTS, formatKeybind } from "./keyboard";
+import Kbd from "./Kbd";
 
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
@@ -22,9 +23,7 @@ const EmptyState: Component = () => (
           {(f) => (
             <div class="flex items-center justify-between text-sm">
               <span class="text-fg-3">{f.label}</span>
-              <kbd class="text-xs text-fg-3 font-mono bg-surface-2 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-                {formatKeybind(f.shortcut)}
-              </kbd>
+              <Kbd>{formatKeybind(f.shortcut)}</Kbd>
             </div>
           )}
         </For>

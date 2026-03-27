@@ -25,6 +25,7 @@ import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import { type Keybind, formatKeybind } from "./keyboard";
 import { useTips } from "./useTips";
+import Kbd from "./Kbd";
 
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
@@ -294,11 +295,7 @@ const CommandPalette: Component<{
                               : [cmd.keybind!]
                           }
                         >
-                          {(kb) => (
-                            <kbd class="text-xs text-fg-3 font-mono">
-                              {formatKeybind(kb)}
-                            </kbd>
-                          )}
+                          {(kb) => <Kbd>{formatKeybind(kb)}</Kbd>}
                         </For>
                       </span>
                     </Show>
