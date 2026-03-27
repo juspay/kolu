@@ -33,6 +33,7 @@ import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "./zoom";
+import { createScrollLock } from "./scrollLock";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -79,18 +80,8 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const [isScrollLocked, setIsScrollLocked] = createSignal(false);
-  const [hasNewOutput, setHasNewOutput] = createSignal(false);
-  // Guard flag: true while restoring scroll position after a write, so the
-  // onScroll handler ignores our own scrollToLine call.
-  let isRestoring = false;
+  const scrollLock = createScrollLock(() => props.scrollLockEnabled);
   let fitRaf = 0;
-
-  /** Clear all scroll-lock state in one shot. */
-  function resetScrollLock() {
-    setIsScrollLocked(false);
-    setHasNewOutput(false);
-  }
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
   function debouncedFit() {
@@ -110,7 +101,7 @@ const Terminal: Component<{
       () => props.visible,
       (visible) => {
         if (!visible || !terminal) return;
-        resetScrollLock();
+        scrollLock.reset();
         debouncedFit();
         if (props.focused !== false) terminal.focus();
       },
@@ -167,17 +158,6 @@ const Terminal: Component<{
     }
   }
 
-  // Clear scroll lock when the setting is toggled off
-  createEffect(
-    on(
-      () => props.scrollLockEnabled,
-      (enabled) => {
-        if (enabled === false) resetScrollLock();
-      },
-      { defer: true },
-    ),
-  );
-
   // Apply font-size changes reactively (initial value handled by XTerm constructor)
   createEffect(
     on(
@@ -223,14 +203,7 @@ const Terminal: Component<{
     // Expose for e2e tests: read buffer content at viewport position.
     (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
 
-    // Scroll lock: detect when user scrolls away from bottom
-    term.onScroll(() => {
-      if (isRestoring || props.scrollLockEnabled === false) return;
-      const buf = term.buffer.active;
-      const atBottom = buf.baseY <= buf.viewportY;
-      setIsScrollLocked(!atBottom);
-      if (atBottom) setHasNewOutput(false);
-    });
+    scrollLock.attachToTerminal(term);
 
     // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
     try {
@@ -280,30 +253,10 @@ const Terminal: Component<{
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
-    // When scroll-locked, xterm.js naturally preserves the viewport position
-    // (including adjusting for scrollback trimming). We only intervene if
-    // xterm unexpectedly auto-scrolls to the bottom.
     consumeStream(
       () => client.terminal.attach({ id: props.terminalId }, { signal }),
       (data) => {
-        if (!terminal) return;
-        if (!isScrollLocked()) {
-          terminal.write(data);
-          return;
-        }
-        setHasNewOutput(true);
-        const savedY = terminal.buffer.active.viewportY;
-        isRestoring = true;
-        terminal.write(data, () => {
-          const buf = terminal!.buffer.active;
-          // Only restore if xterm auto-scrolled to the bottom. Normally
-          // xterm keeps the viewport in place (adjusted for any trimming)
-          // — overriding with a stale savedY would drift the view.
-          if (buf.viewportY >= buf.baseY && buf.baseY > 0) {
-            terminal!.scrollToLine(Math.min(savedY, buf.baseY - 1));
-          }
-          queueMicrotask(() => (isRestoring = false));
-        });
+        if (terminal) scrollLock.writeData(terminal, data);
       },
       "Terminal attach",
     );
@@ -396,8 +349,8 @@ const Terminal: Component<{
         )}
       </Show>
       <ScrollToBottom
-        visible={isScrollLocked()}
-        active={hasNewOutput()}
+        visible={scrollLock.isLocked()}
+        active={scrollLock.hasNewOutput()}
         onClick={() => {
           terminal?.scrollToBottom();
           terminal?.focus();
