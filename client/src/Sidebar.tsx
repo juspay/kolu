@@ -12,7 +12,7 @@ import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
-import { WorktreeIcon } from "./Icons";
+import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -119,6 +119,7 @@ const SidebarEntry: Component<{
               data-testid="sidebar-pr"
               title={`#${pr().number} ${pr().title}`}
             >
+              <PrStateIcon state={pr().state} class="w-3 h-3" />
               <Show when={pr().checks}>
                 {(checks) => <ChecksIndicator status={checks()} />}
               </Show>

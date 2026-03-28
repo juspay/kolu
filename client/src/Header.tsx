@@ -3,6 +3,7 @@ import { shortenCwd } from "./path";
 import {
   GridIcon,
   MenuIcon,
+  PrStateIcon,
   SearchIcon,
   SettingsIcon,
   WorktreeIcon,
@@ -92,6 +93,7 @@ const Header: Component<{
                   data-testid="header-pr"
                 >
                   &middot;
+                  <PrStateIcon state={pr().state} class="w-3 h-3" />
                   <Show when={pr().checks}>
                     {(checks) => <ChecksIndicator status={checks()} />}
                   </Show>
