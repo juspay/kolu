@@ -8,9 +8,12 @@ import {
   WorktreeIcon,
 } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
+import Kbd from "./Kbd";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import SettingsPopover from "./SettingsPopover";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
 import type { TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
@@ -38,8 +41,11 @@ const Header: Component<{
   onScrollLockChange?: (on: boolean) => void;
   colorScheme?: ColorScheme;
   onColorSchemeChange?: (scheme: ColorScheme) => void;
+  startupTips?: boolean;
+  onStartupTipsChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
+  const { showTipOnce } = useTips();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
@@ -113,7 +119,13 @@ const Header: Component<{
             <button
               data-testid="theme-name"
               class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              onClick={() => props.onThemeClick?.()}
+              onClick={() => {
+                props.onThemeClick?.();
+                setTimeout(
+                  () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                  500,
+                );
+              }}
             >
               {props.themeName}
             </button>
@@ -148,6 +160,8 @@ const Header: Component<{
             onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
             colorScheme={props.colorScheme ?? "dark"}
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
+            startupTips={props.startupTips ?? true}
+            onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />
         </div>
         <Tip label="Command palette">
@@ -156,9 +170,7 @@ const Header: Component<{
             class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette?.()}
           >
-            <kbd class="font-[inherit] tracking-wide text-[0.65rem] text-fg-3 bg-surface-1 px-1.5 py-0.5 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-              {formatKeybind(SHORTCUTS.commandPalette.keybind)}
-            </kbd>
+            <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
           </button>
         </Tip>
         <Tip label="Connection status">

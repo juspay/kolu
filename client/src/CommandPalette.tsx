@@ -24,6 +24,8 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import { type Keybind, formatKeybind } from "./keyboard";
+import { useTips } from "./useTips";
+import Kbd from "./Kbd";
 
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
@@ -63,9 +65,13 @@ const CommandPalette: Component<{
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
+  const { randomAmbientTip } = useTips();
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
+  const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack)
+  let mouseActive = false;
   // Navigation path: list of group commands we've drilled into
   const [path, setPath] = createSignal<PaletteCommand[]>([]);
 
@@ -173,6 +179,8 @@ const CommandPalette: Component<{
         if (isOpen) {
           setQuery("");
           setSelectedIndex(0);
+          setAmbientTip(randomAmbientTip());
+          mouseActive = false;
           const group = props.initialGroup
             ? props.commands().find((c) => c.name === props.initialGroup)
             : undefined;
@@ -245,7 +253,10 @@ const CommandPalette: Component<{
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
-        <div class="flex-1 min-h-0 overflow-y-auto">
+        <div
+          class="flex-1 min-h-0 overflow-y-auto"
+          onMouseMove={() => (mouseActive = true)}
+        >
           <Show
             when={filtered().length > 0}
             fallback={
@@ -272,7 +283,7 @@ const CommandPalette: Component<{
                       "text-fg-2 hover:bg-surface-2 border-transparent":
                         selectedIndex() !== i(),
                     }}
-                    onMouseEnter={() => setSelectedIndex(i())}
+                    onMouseEnter={() => mouseActive && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
                     <span class="truncate">{cmd.name}</span>
@@ -290,11 +301,7 @@ const CommandPalette: Component<{
                               : [cmd.keybind!]
                           }
                         >
-                          {(kb) => (
-                            <kbd class="text-xs text-fg-3 font-mono">
-                              {formatKeybind(kb)}
-                            </kbd>
-                          )}
+                          {(kb) => <Kbd>{formatKeybind(kb)}</Kbd>}
                         </For>
                       </span>
                     </Show>
@@ -304,6 +311,14 @@ const CommandPalette: Component<{
             </ul>
           </Show>
         </div>
+        <Show when={ambientTip()}>
+          <div
+            data-testid="palette-tip"
+            class="px-4 py-2 text-xs text-fg-3 border-t border-edge truncate"
+          >
+            💡 {ambientTip()}
+          </div>
+        </Show>
       </Dialog.Content>
     </ModalDialog>
   );

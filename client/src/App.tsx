@@ -24,6 +24,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
+import EmptyState from "./EmptyState";
 import { availableThemes } from "./theme";
 
 import { client, wsStatus } from "./rpc";
@@ -32,6 +33,7 @@ import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
+import { useTips } from "./useTips";
 
 const App: Component = () => {
   const {
@@ -92,6 +94,9 @@ const App: Component = () => {
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
 
+  const { initTipTriggers, startupTips, setStartupTips } = useTips();
+  initTipTriggers({ terminalIds });
+
   useShortcuts({
     terminalIds,
     activeId,
@@ -134,14 +139,20 @@ const App: Component = () => {
   const commands = createMemo((): PaletteCommand[] => [
     {
       name: "Create new terminal",
-      keybind: SHORTCUTS.createTerminal.keybind,
+      keybind: [
+        SHORTCUTS.createTerminal.keybind,
+        SHORTCUTS.createTerminalAlt.keybind,
+      ],
       onSelect: () => void handleCreate(),
     },
     ...(activeMeta()
       ? [
           {
             name: "Create terminal in current directory",
-            keybind: SHORTCUTS.createTerminalInCwd.keybind,
+            keybind: [
+              SHORTCUTS.createTerminalInCwd.keybind,
+              SHORTCUTS.createTerminalInCwdAlt.keybind,
+            ],
             onSelect: () => void handleCreate(activeMeta()!.cwd),
           },
         ]
@@ -243,6 +254,13 @@ const App: Component = () => {
               cols: 1,
               rows: 1,
             }),
+        },
+        {
+          name: "Clear localStorage",
+          onSelect: () => {
+            localStorage.clear();
+            location.reload();
+          },
         },
       ],
     },
@@ -361,6 +379,8 @@ const App: Component = () => {
         onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
+        startupTips={startupTips()}
+        onStartupTipsChange={setStartupTips}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
@@ -399,12 +419,7 @@ const App: Component = () => {
                 {/* Read the resource to trigger Suspense while it loads */}
                 {void existingTerminals()}
                 <Show when={terminalIds().length === 0}>
-                  <div
-                    data-testid="empty-state"
-                    class="flex items-center justify-center h-full text-fg-3 text-sm"
-                  >
-                    Click + to create a terminal
-                  </div>
+                  <EmptyState />
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (

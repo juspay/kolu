@@ -3,12 +3,22 @@
 import { type Component } from "solid-js";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
-import { SHORTCUTS, formatKeybind } from "./keyboard";
+import { SHORTCUTS, formatKeybind, type Keybind } from "./keyboard";
+import Kbd from "./Kbd";
+
+interface DisplayEntry {
+  label: string;
+  keybind: Keybind;
+  altKeybind?: Keybind;
+}
 
 /** Shortcuts to display — curated order, Mod+1-9 collapsed into one row. */
-const DISPLAY_SHORTCUTS = [
+const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.commandPalette,
-  SHORTCUTS.createTerminal,
+  {
+    ...SHORTCUTS.createTerminal,
+    altKeybind: SHORTCUTS.createTerminalAlt.keybind,
+  },
   SHORTCUTS.nextTerminalTab,
   SHORTCUTS.prevTerminalTab,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
@@ -39,9 +49,10 @@ const ShortcutsHelp: Component<{
         {DISPLAY_SHORTCUTS.map((s) => (
           <div class="flex items-center justify-between py-1.5">
             <span class="text-sm text-fg-2">{s.label}</span>
-            <kbd class="px-2 py-0.5 text-[0.65rem] font-mono text-fg-2 bg-surface-2 rounded border border-edge shadow-[inset_0_-1px_0_rgba(0,0,0,0.3)]">
-              {formatKeybind(s.keybind)}
-            </kbd>
+            <span class="flex items-center gap-1.5">
+              <Kbd>{formatKeybind(s.keybind)}</Kbd>
+              {s.altKeybind && <Kbd>{formatKeybind(s.altKeybind)}</Kbd>}
+            </span>
           </div>
         ))}
       </div>
