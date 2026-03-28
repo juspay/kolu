@@ -130,6 +130,7 @@ let
     cp -r --no-preserve=mode ${kolu} $out
     find $out/client/dist -name '*.js' -exec \
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
+    chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
   '';
 in
 {
