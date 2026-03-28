@@ -38,6 +38,27 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 - Per-repo color coding in sidebar via golden-angle hue spacing
 - Activity sparklines per terminal (5-minute rolling window)
 
+### Claude Code Status
+
+Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and shows their state in the header and sidebar.
+
+**What we detect:**
+
+| State    | Indicator          | Meaning                                              |
+| -------- | ------------------ | ---------------------------------------------------- |
+| Thinking | Pulsing accent dot | API call in flight — Claude is generating a response |
+| Tool use | Pulsing yellow dot | Claude is executing tools or waiting for permission  |
+| Waiting  | Dim dot            | Claude finished responding, waiting for user input   |
+
+**How it works:** scans `~/.claude/sessions/` for active session PIDs, matches each session to a terminal via PTY path (`/proc/{pid}/fd/0`), then tails the session's JSONL transcript to derive state from the last message.
+
+**What we can't detect:**
+
+- **Permission prompts vs tool execution** — both show as "tool use" since the JSONL doesn't distinguish them
+- **Streaming progress** — intermediate thinking tokens aren't tracked, only final state transitions
+- **macOS** — PTY matching relies on `/proc`, which doesn't exist on macOS (Linux-only for now)
+- **Sub-agents** — nested agent spawns appear as tool use, not as separate tracked sessions
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime

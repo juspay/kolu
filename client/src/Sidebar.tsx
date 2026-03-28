@@ -12,6 +12,7 @@ import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
+import ClaudeIndicator from "./ClaudeIndicator";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
@@ -133,6 +134,13 @@ const SidebarEntry: Component<{
                 #{pr().number}
               </a>
               <span class="truncate">{pr().title}</span>
+            </div>
+          )}
+        </Show>
+        <Show when={m()?.meta?.claude}>
+          {(claude) => (
+            <div class="mt-0.5">
+              <ClaudeIndicator state={claude().state} />
             </div>
           )}
         </Show>

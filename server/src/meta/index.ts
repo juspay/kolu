@@ -11,11 +11,12 @@ import type { TerminalMetadata } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
+import { startClaudeCodeProvider } from "./claude.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string): TerminalMetadata {
-  return { cwd, git: null, pr: null };
+  return { cwd, git: null, pr: null, claude: null };
 }
 
 /** Emit the current metadata snapshot to all subscribers. */
@@ -29,6 +30,8 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
+      // Only include claude field when present to avoid noisy null logs
+      ...(m.claude && { claude: m.claude.state }),
     },
     "metadata emit",
   );
@@ -45,8 +48,10 @@ export function startProviders(
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
+  const stopClaude = startClaudeCodeProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
+    stopClaude();
   };
 }

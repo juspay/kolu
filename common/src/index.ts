@@ -33,12 +33,30 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
+// --- Claude Code context ---
+
+export const ClaudeCodeStateSchema = z.enum([
+  "thinking",
+  "tool_use",
+  "waiting",
+]);
+
+export const ClaudeCodeInfoSchema = z.object({
+  /** Current state derived from session JSONL. */
+  state: ClaudeCodeStateSchema,
+  /** Session UUID from ~/.claude/sessions/. */
+  sessionId: z.string(),
+  /** Model name if available (e.g. "claude-opus-4-6"). */
+  model: z.string().nullable(),
+});
+
 // --- Terminal metadata (unified, provider-aggregated) ---
 
 export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
+  claude: ClaudeCodeInfoSchema.nullable(),
 });
 
 // --- Terminal ---
@@ -112,4 +130,5 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
