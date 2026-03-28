@@ -126,8 +126,8 @@ export function spawnPty(
     getScreenState: () => serializeAddon.serialize(),
     getScreenText: (startLine?: number, endLine?: number) => {
       const buf = headless.buffer.active;
-      const start = startLine ?? 0;
-      const end = endLine ?? buf.length;
+      const start = Math.max(0, startLine ?? 0);
+      const end = Math.min(buf.length, endLine ?? buf.length);
       const lines: string[] = [];
       for (let i = start; i < end; i++) {
         lines.push(buf.getLine(i)?.translateToString(true) ?? "");

@@ -3,23 +3,21 @@ import { KoluWorld } from "../support/world.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
-/** Fetch the active terminal ID from the sidebar. */
-async function getActiveTerminalId(world: KoluWorld): Promise<string> {
+/** Read terminal ID from the visible terminal container element. */
+async function getVisibleTerminalId(world: KoluWorld): Promise<string> {
   const id = await world.page
-    .locator("[data-testid='sidebar'] [data-active][data-terminal-id]")
+    .locator("[data-visible][data-terminal-id]")
     .getAttribute("data-terminal-id");
-  if (!id) throw new Error("No active terminal found in sidebar");
+  if (!id) throw new Error("No visible terminal found");
   return id;
 }
 
 Then(
   "the screenText API should return text containing {string}",
   async function (this: KoluWorld, expected: string) {
-    // Wait for the buffer to contain the text first
     await pollUntilBufferContains(this.page, expected);
 
-    // Call the screenText RPC endpoint directly via HTTP
-    const id = await getActiveTerminalId(this);
+    const id = await getVisibleTerminalId(this);
     const resp = await this.page.request.fetch("/rpc/terminal/screenText", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
