@@ -70,6 +70,8 @@ const CommandPalette: Component<{
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
+  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack)
+  let mouseActive = false;
   // Navigation path: list of group commands we've drilled into
   const [path, setPath] = createSignal<PaletteCommand[]>([]);
 
@@ -178,6 +180,7 @@ const CommandPalette: Component<{
           setQuery("");
           setSelectedIndex(0);
           setAmbientTip(randomAmbientTip());
+          mouseActive = false;
           const group = props.initialGroup
             ? props.commands().find((c) => c.name === props.initialGroup)
             : undefined;
@@ -250,7 +253,10 @@ const CommandPalette: Component<{
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
-        <div class="flex-1 min-h-0 overflow-y-auto">
+        <div
+          class="flex-1 min-h-0 overflow-y-auto"
+          onMouseMove={() => (mouseActive = true)}
+        >
           <Show
             when={filtered().length > 0}
             fallback={
@@ -277,7 +283,7 @@ const CommandPalette: Component<{
                       "text-fg-2 hover:bg-surface-2 border-transparent":
                         selectedIndex() !== i(),
                     }}
-                    onMouseEnter={() => setSelectedIndex(i())}
+                    onMouseEnter={() => mouseActive && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
                     <span class="truncate">{cmd.name}</span>
