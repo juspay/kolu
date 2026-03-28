@@ -1,5 +1,6 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 When("I create a terminal", async function (this: KoluWorld) {
@@ -20,6 +21,8 @@ When(
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: 5000 });
+    // Brief settle for Terminal.tsx visibility effect to fire (auto-focus + remeasure)
+    await this.page.waitForTimeout(300);
   },
 );
 
@@ -74,29 +77,6 @@ Then(
 Then(
   "the active terminal should show {string}",
   async function (this: KoluWorld, expected: string) {
-    // Get the active terminal's ID from the visible data-terminal-id element
-    const activeContainer = this.page.locator(
-      "[data-visible][data-terminal-id]",
-    );
-    const terminalId = await activeContainer.getAttribute("data-terminal-id");
-    assert.ok(terminalId, "No active terminal found");
-
-    // Poll screen state until expected content appears (echo may still be in-flight)
-    let screenState = "";
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const resp = await this.page.request.fetch("/rpc/terminal/screenState", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ json: { id: terminalId } }),
-      });
-      const body = await resp.json();
-      screenState =
-        typeof body.json === "string" ? body.json : JSON.stringify(body);
-      if (screenState.includes(expected)) return;
-      await this.page.waitForTimeout(300);
-    }
-    assert.fail(
-      `Active terminal screen does not contain "${expected}" after retries.\nScreen state (partial): ${screenState.slice(0, 500)}`,
-    );
+    await pollUntilBufferContains(this.page, expected);
   },
 );

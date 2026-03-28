@@ -3,6 +3,7 @@
   "type": "module",
   "devDependencies": {
     "@cucumber/cucumber": "^11.0.0",
+    "get-port": "^7.2.0",
     "playwright": "1.57.0",
     "tsx": "^4.19.0"
   },

@@ -1,5 +1,6 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
+import { readBufferText, pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 /** Fetch terminal list from server via oRPC HTTP endpoint. */
@@ -31,6 +32,8 @@ When("I refresh the page", async function (this: KoluWorld) {
   // Snapshot terminal count before refresh so post-refresh assertions can verify reconnect
   this.terminalCountBeforeRefresh = (await fetchTerminalList(this)).length;
   await this.page.reload();
+  // Wait for app to finish restoring terminals/state before subsequent assertions
+  await this.waitForSettled();
 });
 
 Then(
@@ -77,6 +80,27 @@ Given("I note the font size", async function (this: KoluWorld) {
 });
 
 // ── Assertions ──
+
+// ── Screen state (scrollback) assertions ──
+
+Then(
+  "the screen state should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await pollUntilBufferContains(this.page, expected);
+  },
+);
+
+Then(
+  "the screen state should have at least {int} lines",
+  async function (this: KoluWorld, minLines: number) {
+    const content = await readBufferText(this.page);
+    const lines = content.split("\n").filter((l) => l.trim().length > 0);
+    assert.ok(
+      lines.length >= minLines,
+      `Expected at least ${minLines} lines in buffer, got ${lines.length}`,
+    );
+  },
+);
 
 Then("the terminal canvas should be visible", async function (this: KoluWorld) {
   await this.canvas.waitFor({ state: "visible" });
@@ -136,6 +160,21 @@ Then(
     );
   },
 );
+
+// ── Click-to-focus (mobile tap-to-focus) ──
+
+When("I click the terminal canvas", async function (this: KoluWorld) {
+  // Click the body first to blur any focused element, then click the terminal
+  await this.page.locator("body").click({ position: { x: 0, y: 0 } });
+  await this.canvas.click();
+});
+
+Then("the terminal input should be focused", async function (this: KoluWorld) {
+  const focused = await this.page.evaluate(
+    () => !!document.activeElement?.closest("[data-visible]"),
+  );
+  assert.ok(focused, "Terminal input is not focused after clicking canvas");
+});
 
 // ── Zoom keystroke leak detection (intercept oRPC sendInput via WebSocket.send) ──
 

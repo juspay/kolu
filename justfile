@@ -1,17 +1,32 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop -c' }
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
+
+mod ci 'ci/mod.just'
 
 # List available recipes
 default:
     @just --list
 
-# Run server + client in parallel via process-compose
+# Install pnpm dependencies
+install:
+    {{ nix_shell }} pnpm install
+
+# Run server + client in parallel.
+# Enters nix develop once, then re-invokes just inside it — subsequent
+# recipes see IN_NIX_SHELL so nix_shell becomes a no-op.
 dev:
-    {{ nix_shell }} kolu-dev
+    {{ nix_shell }} just _dev
+
+[private]
+_dev: install _dev-parallel
+
+[private]
+[parallel]
+_dev-parallel: server client
 
 # Run TypeScript type checking across all packages
-watch:
+watch: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
@@ -22,56 +37,41 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
-# Run Cucumber e2e tests (starts server via nix run)
-test:
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && {{ nix_shell }} pnpm test
-
-# Run Cucumber e2e tests against an already-running dev server (just dev)
-test-dev:
-    cd tests \
-        && {{ nix_shell }} pnpm install \
-        && BASE_URL=http://localhost:5173 REUSE_SERVER=1 {{ nix_shell }} pnpm test
-
-# Run full nix build (via vira), e2e tests, and post signoff status to GitHub
-ci:
-    nix run github:juspay/vira ci
-    just signoff signoff/e2e just test
-
-# Post GitHub commit status (pending → success/failure) around any command
-signoff context +cmd:
+# Run Cucumber e2e tests (nix build once, each worker spawns the binary)
+test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    # Bail if worktree is dirty
-    if [ -n "$(git status --porcelain)" ]; then
-        echo "✗ Dirty worktree. Commit or stash changes first."
-        exit 1
-    fi
-    REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-    SHA=$(git rev-parse HEAD)
-    USER=$(gh api user -q .login)
-    CONTEXT="{{ context }}"
-    # Post pending status
-    echo "⏳ Posting pending status for $CONTEXT..."
-    gh api "repos/$REPO/statuses/$SHA" \
-        -f state=pending -f context="$CONTEXT" \
-        -f description="Running locally (by $USER)..." > /dev/null
-    # On Ctrl+C, just exit without posting failure
-    trap 'echo " interrupted"; exit 130' INT
-    # Run command
-    if {{ cmd }}; then
-        gh api "repos/$REPO/statuses/$SHA" \
-            -f state=success -f context="$CONTEXT" \
-            -f description="Passed (ran by $USER)" > /dev/null
-        echo "✓ $CONTEXT passed, signoff posted"
-    else
-        gh api "repos/$REPO/statuses/$SHA" \
-            -f state=failure -f context="$CONTEXT" \
-            -f description="Failed (ran by $USER)" > /dev/null
-        echo "✗ $CONTEXT failed, failure posted"
-        exit 1
-    fi
+    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
+
+# Fast self-contained e2e tests (no nix build, no separate dev server).
+# Builds client via pnpm, spawns server from source on random ports.
+# Examples:
+#   just test-quick                                              # all tests
+#   just test-quick features/command-palette.feature:149         # single scenario by line
+#   just test-quick features/command-palette.feature             # single feature file
+test-quick *args: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ nix_shell }} pnpm --filter kolu-client build
+    # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
+    # Without nix build there's no `kolu` binary, so we create a temp wrapper
+    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
+    wrapper="$(mktemp)"
+    trap 'rm -f "$wrapper"' EXIT
+    cat > "$wrapper" <<SCRIPT
+    #!/bin/sh
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    SCRIPT
+    chmod +x "$wrapper"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
+        ./node_modules/@cucumber/cucumber/bin/cucumber-js \
+        --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+        {{ if args == "" { "--profile ui" } else { args } }}
 
 # Record MP4 demo (requires running server, e.g. just dev or just run)
 demo:

@@ -22,16 +22,50 @@ in
       default = 7681;
       description = "Port to listen on.";
     };
+
+    verbose = lib.mkEnableOption "debug-level logging";
+
+    tls = {
+      enable = lib.mkEnableOption "TLS with auto-generated self-signed certificate";
+
+      certFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Path to TLS certificate file (PEM). Overrides self-signed cert.";
+      };
+
+      keyFile = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Path to TLS private key file (PEM). Overrides self-signed cert.";
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = (cfg.tls.certFile == null) == (cfg.tls.keyFile == null);
+        message = "services.kolu.tls.certFile and services.kolu.tls.keyFile must both be set or both be null.";
+      }
+    ];
+
     systemd.user.services.kolu = {
       Unit = {
         Description = "kolu web terminal multiplexer";
         After = [ "network.target" ];
       };
       Service = {
-        ExecStart = "${lib.getExe cfg.package} --host ${cfg.host} --port ${toString cfg.port}";
+        ExecStart = toString ([
+          (lib.getExe cfg.package)
+          "--host"
+          cfg.host
+          "--port"
+          (toString cfg.port)
+        ]
+        ++ lib.optionals (cfg.tls.certFile != null) [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
+        ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]
+        ++ lib.optionals cfg.verbose [ "--verbose" ]);
         Restart = "on-failure";
         Environment = [
           "SHELL=${lib.getExe pkgs.bashInteractive}"

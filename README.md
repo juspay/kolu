@@ -4,14 +4,64 @@
 
 # kolu
 
-> [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>) — the Navaratri tradition of arranging figures on tiered steps.
+Web-based [Agentic Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) built on terminals.
 
-Seamless parallel development across repos and branches — switch context in one click. Optimized for AI-assisted workflows.
+Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
 https://github.com/juspay/kolu/raw/master/docs/demo.mp4
 
-> [!IMPORTANT]
-> Work in progress. See the [implementation plan](docs/plans/000-KOLU.md).
+## Usage
+
+```sh
+nix run github:juspay/kolu       # serve on 0.0.0.0:7681
+nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
+```
+
+## Features
+
+### Terminals
+
+- Create, switch, kill, and drag-to-reorder terminals from a collapsible sidebar
+- Sub-terminals — `Ctrl+`` splits a bottom panel per terminal; `Ctrl+Shift+``adds tabs,`Ctrl+PageDown/Up` cycles
+- Font zoom (`Cmd/Ctrl +/-`), persisted per terminal across sessions
+- WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
+- Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
+
+### Navigation
+
+- Command palette (`Cmd/Ctrl+K`) — search terminals, switch themes, run actions
+- Mission Control (`Cmd/Ctrl+.` or `Ctrl+Tab`) — bird's eye grid of all terminals with live previews. Navigate with arrow keys, Tab, or number keys (1-9). `Ctrl+Tab` quick-switch uses MRU order: hold Ctrl, Tab through terminals, release to select — instant flip between two terminals
+- Keyboard-driven — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
+
+### Git & GitHub
+
+- Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
+- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) in header and sidebar
+- Per-repo color coding in sidebar via golden-angle hue spacing
+- Activity sparklines per terminal (5-minute rolling window)
+
+### Theming
+
+- 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
+- Live preview while browsing themes in the palette
+- Random theme per new terminal (toggleable)
+- Dark / light / system UI theme
+
+### Clipboard
+
+- `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
+
+## Architecture
+
+pnpm monorepo, three packages:
+
+| Package   | Stack                                                                                                                                            |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                       |
+| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+
+All communication over a single WebSocket (`/rpc/ws`) via oRPC. Terminal I/O, lifecycle, CWD tracking, and activity detection are typed RPC procedures with async generator streaming.
 
 ## Development
 
@@ -21,32 +71,21 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 nix develop     # enter devshell
 just dev        # run server + client with hot reload
 just test       # e2e tests (full nix build)
-just test-dev   # e2e tests against running dev server (faster)
-```
-
-## Production
-
-```sh
-nix build       # build server + client
-nix run         # serve on 0.0.0.0:7681
-nix run -- --host 127.0.0.1 --port 8080  # custom bind
 ```
 
 ## CI
 
-- **Nix build**: [Vira](https://vira.nixos.asia) on self-hosted NixOS runners (x86_64-linux, aarch64-darwin)
-- **E2E tests**: local via `just ci` — runs Playwright and posts `signoff/e2e` commit status to GitHub
+`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
 
 ```sh
-just ci         # run e2e + post signoff (requires clean worktree)
-just test       # run e2e only, no signoff
+just ci              # full CI run
+just ci::protect     # set branch protection
+just ci::_summary    # check current status
 ```
-
-Merging to `master` requires all three signoffs: `signoff/vira/x86_64-linux`, `signoff/vira/aarch64-darwin`, `signoff/e2e`.
 
 ## Deployment (NixOS + home-manager)
 
-A home-manager module is provided to run kolu as a systemd user service:
+A home-manager module runs kolu as a systemd user service:
 
 ```nix
 {
@@ -60,14 +99,4 @@ A home-manager module is provided to run kolu as a systemd user service:
 }
 ```
 
-See [`nix/home/example/`](nix/home/example/) for a full NixOS configuration example with a VM test.
-
-## Architecture
-
-pnpm workspace with three packages:
-
-- `common/` — [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas (shared types between server and client)
-- `server/` — [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) with oRPC over WebSocket
-- `client/` — [SolidJS](https://www.solidjs.com/) + [ghostty-web](https://ghostty.org) terminal
-
-Stack: Hono → oRPC (WebSocket) → PTY → ghostty-web canvas. Styling via [Tailwind CSS v4](https://tailwindcss.com/).
+See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.

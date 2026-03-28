@@ -6,8 +6,14 @@
  * on late-joining clients (~4KB vs raw scrollback replay).
  */
 import * as pty from "node-pty";
-import { userInfo } from "node:os";
 import { createRequire } from "node:module";
+import {
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  DEFAULT_SCROLLBACK,
+} from "kolu-common/config";
+import { cleanEnv, osc7Init } from "./shell.ts";
+import type { Logger } from "./log.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -16,88 +22,92 @@ const { Terminal } =
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
-const DEFAULT_COLS = 80;
-const DEFAULT_ROWS = 24;
-
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
+  /** Current working directory (from OSC 7), initially $HOME. */
+  readonly cwd: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
   resize(cols: number, rows: number): void;
   /** Serialized screen state (VT escape sequences) for late-joining clients. */
   getScreenState(): string;
+  /** Plain text content of the terminal buffer (scrollback + viewport). */
+  getScreenText(startLine?: number, endLine?: number): string;
   /** Kill the PTY process and release resources. */
   dispose(): void;
 }
 
-/** Env vars safe to forward to the PTY shell. */
-const KEEP_ENV = [
-  "HOME",
-  "USER",
-  "SHELL",
-  "TERM",
-  "LANG",
-  "LC_ALL",
-  "LOGNAME",
-  "DISPLAY",
-  "COLORTERM",
-  "TERM_PROGRAM",
-] as const;
-
-/**
- * Build a minimal env for the PTY shell.
- *
- * The server may run inside nix/direnv which pollutes the env with
- * NIX_*, DIRENV_*, BASH_ENV, etc. — these break the user's shell
- * (wrong PS1, shopt errors, direnv unloading). We only forward the
- * essentials so the spawned shell starts clean.
- */
-function cleanEnv(): Record<string, string> {
-  const env = Object.fromEntries(
-    KEEP_ENV.flatMap((k) => (process.env[k] ? [[k, process.env[k]]] : [])),
-  );
-  // nix devshells (via direnv/nix-direnv or nix develop) set SHELL to
-  // /nix/store/.../bash-5.3 which removed the `progcomp` shopt option —
-  // the user's .bashrc errors on `shopt -s progcomp`.
-  // userInfo().shell reads from getpwuid(3) — the OS login shell, not $SHELL.
-  if (env.SHELL?.startsWith("/nix/store")) {
-    env.SHELL = userInfo().shell ?? "/bin/sh";
-  }
-  env.PATH = process.env.PATH ?? "/usr/bin:/bin";
-  return env;
-}
-
-/** Spawn a shell in a PTY, calling back on data and exit. */
-export function spawnPty(opts: {
-  onData: (data: string) => void;
-  onExit: (exitCode: number) => void;
-}): PtyHandle {
+/** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
+export function spawnPty(
+  tlog: Logger,
+  opts: {
+    onData: (data: string) => void;
+    onExit: (exitCode: number) => void;
+    onCwd?: (cwd: string) => void;
+  },
+  clipboard: { shimBinDir: string; clipboardDir: string },
+  spawnCwd?: string,
+): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
-  const proc = pty.spawn(shell, [], {
+  const cwd = spawnCwd || env.HOME || "/";
+
+  // Inject clipboard shim dir into shell rc AFTER the user's rc —
+  // NixOS rebuilds PATH during shell init, so env-level PATH gets lost.
+  const osc7 = osc7Init(shell, env.HOME, clipboard.shimBinDir);
+  Object.assign(env, osc7.env);
+  env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
+
+  tlog.info({ shell, cwd }, "spawning pty");
+  const proc = pty.spawn(shell, osc7.args, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd: env.HOME || "/",
+    cwd,
     env,
   });
+  tlog.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.
   const headless = new Terminal({
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
+    scrollback: DEFAULT_SCROLLBACK,
     allowProposedApi: true,
   });
   const serializeAddon = new SerializeAddon();
   headless.loadAddon(serializeAddon);
 
+  // Parse OSC 7 (CWD reporting) from headless terminal output.
+  // The rc wrapper injected above ensures the shell emits these sequences.
+  let currentCwd = cwd;
+  const oscDisposable = headless.parser.registerOscHandler(
+    7,
+    (data: string) => {
+      try {
+        const url = new URL(data);
+        if (url.protocol === "file:") {
+          currentCwd = decodeURIComponent(url.pathname);
+          tlog.debug({ cwd: currentCwd }, "cwd changed (OSC 7)");
+          opts.onCwd?.(currentCwd);
+        }
+      } catch {
+        // Ignore malformed OSC 7 data
+      }
+      return true;
+    },
+  );
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
+  // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
+  // don't consume these, so the shell echoes them as visible garbage.
   const headlessOnDataDisposable = headless.onData((data: string) => {
+    if (data.startsWith("\x1b]")) return;
     proc.write(data);
   });
 
@@ -110,18 +120,33 @@ export function spawnPty(opts: {
 
   return {
     pid: proc.pid,
+    get cwd() {
+      return currentCwd;
+    },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
       headless.resize(cols, rows);
     },
     getScreenState: () => serializeAddon.serialize(),
+    getScreenText: (startLine?: number, endLine?: number) => {
+      const buf = headless.buffer.active;
+      const start = Math.max(0, startLine ?? 0);
+      const end = Math.min(buf.length, endLine ?? buf.length);
+      const lines: string[] = [];
+      for (let i = start; i < end; i++) {
+        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      }
+      return lines.join("\n");
+    },
     dispose() {
+      oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
+      osc7.cleanup();
     },
   };
 }

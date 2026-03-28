@@ -16,8 +16,9 @@ const REFLOW_SETTLE_MS = 2000;
 const READY_TIMEOUT = 15_000;
 const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
-/** Locator for the app's settled state: either a visible terminal canvas or the empty state tip. */
-const SETTLED_SELECTOR = '[data-visible] canvas, [data-testid="empty-state"]';
+/** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
+const SETTLED_SELECTOR =
+  '[data-visible] .xterm-screen, [data-testid="empty-state"]';
 export const SIDEBAR_ENTRY_SELECTOR =
   '[data-testid="sidebar"] [data-terminal-id]';
 
@@ -35,6 +36,9 @@ export class KoluWorld extends World {
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
   savedSidebarCount?: number;
+  savedScrollTop?: number;
+  savedVisibleText?: string;
+  _scrollFifo?: string;
   createdTerminalIds: string[] = [];
 
   // Demo recording state (used by demo_steps.ts)
@@ -42,7 +46,7 @@ export class KoluWorld extends World {
   demoFrameNum = 0;
 
   get canvas(): Locator {
-    return this.page.locator("[data-visible] canvas");
+    return this.page.locator("[data-visible] .xterm-screen");
   }
 
   /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
@@ -59,23 +63,29 @@ export class KoluWorld extends World {
 
     // Wait for the new entry to appear in the sidebar
     await entries.nth(countBefore).waitFor({ state: "visible", timeout });
-    const id = await entries.nth(countBefore).getAttribute("data-terminal-id");
-    if (!id) throw new Error("Created terminal has no data-terminal-id");
+    const rawId = await entries
+      .nth(countBefore)
+      .getAttribute("data-terminal-id");
+    if (!rawId) throw new Error("Created terminal has no data-terminal-id");
 
     await this.canvas.waitFor({ state: "visible", timeout });
-    // Wait for ghostty's textarea to receive focus (auto-focus in Terminal.tsx onMount)
+    // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout: 5000 },
     );
-    return id;
+    return rawId;
   }
 
-  /** Wait for the app to settle: either a restored terminal canvas or the empty state tip. */
-  async waitForReady(timeout = READY_TIMEOUT) {
-    // Wait for the app to reach a stable state (restored terminals or empty state)
+  /** Wait for the app to reach a stable state (restored terminals or empty state). */
+  async waitForSettled(timeout = READY_TIMEOUT) {
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
+  }
+
+  /** Wait for the app to settle, creating a terminal if empty state is shown. */
+  async waitForReady(timeout = READY_TIMEOUT) {
+    await this.waitForSettled(timeout);
 
     // If the empty state is visible, create a terminal
     if (await this.page.locator('[data-testid="empty-state"]').isVisible()) {

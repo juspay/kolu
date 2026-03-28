@@ -5,22 +5,52 @@ import { z } from "zod";
 
 // --- Zod schemas ---
 
-const TerminalIdSchema = z.string();
+const TerminalIdSchema = z.string().uuid();
 
-// Discriminated union: exitCode is required when exited, absent when running.
-export const TerminalInfoSchema = z.discriminatedUnion("status", [
-  z.object({
-    id: TerminalIdSchema,
-    pid: z.number(),
-    status: z.literal("running"),
-  }),
-  z.object({
-    id: TerminalIdSchema,
-    pid: z.number(),
-    status: z.literal("exited"),
-    exitCode: z.number(),
-  }),
-]);
+// --- Git context ---
+
+export const GitInfoSchema = z.object({
+  repoRoot: z.string(),
+  repoName: z.string(),
+  worktreePath: z.string(),
+  branch: z.string(),
+  isWorktree: z.boolean(),
+});
+
+// --- GitHub PR context ---
+
+export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
+
+export const GitHubPrStateSchema = z.enum(["open", "closed", "merged"]);
+
+export const GitHubPrInfoSchema = z.object({
+  number: z.number(),
+  title: z.string(),
+  url: z.string(),
+  /** PR state: open, closed, or merged. */
+  state: GitHubPrStateSchema,
+  /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
+  checks: GitHubCheckStatusSchema.nullable(),
+});
+
+// --- Terminal metadata (unified, provider-aggregated) ---
+
+export const TerminalMetadataSchema = z.object({
+  cwd: z.string(),
+  git: GitInfoSchema.nullable(),
+  pr: GitHubPrInfoSchema.nullable(),
+});
+
+// --- Terminal ---
+
+export const TerminalInfoSchema = z.object({
+  id: TerminalIdSchema,
+  pid: z.number(),
+  themeName: z.string().optional(),
+  isActive: z.boolean(),
+  meta: TerminalMetadataSchema.optional(),
+  parentId: TerminalIdSchema.optional(),
+});
 
 export const TerminalResizeInputSchema = z.object({
   id: TerminalIdSchema,
@@ -33,16 +63,53 @@ export const TerminalSendInputSchema = z.object({
   data: z.string(),
 });
 
+export const TerminalSetThemeInputSchema = z.object({
+  id: TerminalIdSchema,
+  themeName: z.string(),
+});
+
+export const TerminalCreateInputSchema = z.object({
+  cwd: z.string().optional(),
+  parentId: TerminalIdSchema.optional(),
+});
+
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
+export const TerminalActivityOutputSchema = z.boolean();
+
+export const TerminalScreenTextInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** First line to capture (0-based, inclusive). Defaults to 0 (start of scrollback). */
+  startLine: z.number().int().nonnegative().optional(),
+  /** Last line to capture (exclusive). Defaults to buffer length. */
+  endLine: z.number().int().nonnegative().optional(),
+});
+
+export const TerminalPasteImageInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Base64-encoded image data (PNG, JPEG, etc.) */
+  data: z.string(),
+});
+
+export const TerminalSetParentInputSchema = z.object({
+  id: TerminalIdSchema,
+  parentId: TerminalIdSchema.nullable(),
+});
+
+export const TerminalReorderInputSchema = z.object({
+  ids: z.array(TerminalIdSchema),
+});
+
+export const ServerInfoSchema = z.object({
+  hostname: z.string(),
+});
 
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
-export type TerminalStatus = TerminalInfo["status"];
 
-/** Extract the status discriminant from TerminalInfo for reuse (e.g. server-side TerminalEntry). */
-export type TerminalRunning = Extract<TerminalInfo, { status: "running" }>;
-export type TerminalExited = Extract<TerminalInfo, { status: "exited" }>;
+export type GitInfo = z.infer<typeof GitInfoSchema>;
+export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
