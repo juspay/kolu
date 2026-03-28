@@ -73,9 +73,8 @@ let
   };
 
   # Shared env vars — used by the kolu build, the devShell, and the wrapper.
-  # NOTE: KOLU_COMMIT_HASH is intentionally NOT here — it would bust the
-  # derivation cache on every commit (including docs-only).  The build uses a
-  # fixed placeholder; a cheap patching step stamps the real hash afterwards.
+  # KOLU_COMMIT_HASH excluded — it busts the derivation cache on every commit.
+  # The build uses a placeholder; koluStamped stamps the real hash afterwards.
   koluEnv = {
     KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
     KOLU_FONTS_DIR = "${fonts}";
@@ -124,8 +123,9 @@ let
       runHook postInstall
     '';
   };
-  # Cheap derivation that stamps the real commit hash into the built JS.
-  # Only this re-runs on docs-only commits; the expensive `kolu` build is cached.
+
+  # Stamp the real commit hash into the built JS bundle.
+  # Only this re-runs on docs-only commits; the expensive build above is cached.
   koluStamped = pkgs.runCommand "kolu-stamped" { } ''
     cp -r --no-preserve=mode ${kolu} $out
     find $out/client/dist -name '*.js' -exec \
