@@ -1,9 +1,10 @@
 /**
  * Git metadata provider — resolves repo/branch info and watches .git/HEAD.
  *
- * Two triggers:
- * 1. Listens to "metadata" events for CWD changes → re-resolves + restarts HEAD watcher
- * 2. Watches .git/HEAD via fs.watch → re-resolves on branch switch/checkout
+ * Three triggers:
+ * 1. CWD change (via OSC 7) → re-resolves + restarts HEAD watcher
+ * 2. .git/HEAD change (via fs.watch) → re-resolves on branch switch/checkout
+ * 3. Any prompt in a non-git dir → re-resolves to detect `git init`
  */
 
 import path from "node:path";
