@@ -182,47 +182,40 @@ Then(
   },
 );
 
+/** Assert a claude-indicator exists within the given container testid. */
+async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
+  const container = world.page.locator(`[data-testid="${testId}"]`);
+  const indicator = container.locator('[data-testid="claude-indicator"]');
+  await pollUntil(
+    world.page,
+    async () => {
+      try {
+        return await indicator.count();
+      } catch {
+        return 0;
+      }
+    },
+    (count) => count > 0,
+    { attempts: 30, intervalMs: 500 },
+  );
+  const count = await indicator.count();
+  assert.ok(
+    count > 0,
+    `Expected Claude indicator in [data-testid="${testId}"]`,
+  );
+}
+
 Then(
   "the sidebar should show a Claude indicator",
   async function (this: KoluWorld) {
-    const sidebar = this.page.locator('[data-testid="sidebar"]');
-    const indicator = sidebar.locator('[data-testid="claude-indicator"]');
-    await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return await indicator.count();
-        } catch {
-          return 0;
-        }
-      },
-      (count) => count > 0,
-      { attempts: 30, intervalMs: 500 },
-    );
-    const count = await indicator.count();
-    assert.ok(count > 0, "Expected Claude indicator in sidebar");
+    await expectClaudeIndicatorIn(this, "sidebar");
   },
 );
 
 Then(
   "Mission Control should show a Claude indicator",
   async function (this: KoluWorld) {
-    const mc = this.page.locator('[data-testid="mission-control"]');
-    const indicator = mc.locator('[data-testid="claude-indicator"]');
-    await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return await indicator.count();
-        } catch {
-          return 0;
-        }
-      },
-      (count) => count > 0,
-      { attempts: 15, intervalMs: 500 },
-    );
-    const count = await indicator.count();
-    assert.ok(count > 0, "Expected Claude indicator in Mission Control");
+    await expectClaudeIndicatorIn(this, "mission-control");
   },
 );
 
