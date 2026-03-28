@@ -9,8 +9,9 @@
  * provider's PTY matching logic treats it as a match.
  */
 
-import { When, Then, After } from "@cucumber/cucumber";
+import { When, Then, Before, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
@@ -19,6 +20,13 @@ import { pollUntil } from "../support/poll.ts";
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
 const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
+
+// Skip on macOS — PTY matching relies on /proc which doesn't exist there
+Before({ tags: "@claude-mock" }, function () {
+  if (os.platform() !== "linux") {
+    return "skipped";
+  }
+});
 
 /** Get the terminal shell PID via the server API. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
