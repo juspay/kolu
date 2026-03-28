@@ -332,6 +332,7 @@ const App: Component = () => {
         activeId={activeId()}
         getMeta={getMeta}
         getActivityHistory={getActivityHistory}
+        getSubTerminalIds={getSubTerminalIds}
         getTerminalTheme={getTerminalTheme}
         onSelect={setActiveId}
       />

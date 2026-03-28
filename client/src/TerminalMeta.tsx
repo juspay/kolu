@@ -1,31 +1,30 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
-import { PrStateIcon } from "./Icons";
+import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { cwdBasename } from "./path";
 import type { TerminalMetadata } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
+
+/** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
+export type TerminalMetaMode = "normal" | "readonly";
 
 const TerminalMeta: Component<{
   meta: TerminalMetadata | null | undefined;
   repoColor?: string;
   branchColor?: string;
   activityHistory: ActivitySample[];
-  /** Size variant: "compact" for sidebar, "normal" for mission control cards. */
-  size?: "compact" | "normal";
-  /** Whether the PR number links to the PR URL. */
-  linkPr?: boolean;
-  /** Extra elements after the name (e.g. worktree icon, sub-count badge). */
-  nameExtra?: JSX.Element;
+  subCount?: number;
+  mode?: TerminalMetaMode;
 }> = (props) => {
-  const size = () => props.size ?? "compact";
+  const mode = () => props.mode ?? "normal";
   const nameClass = () =>
-    size() === "compact" ? "text-sm font-medium" : "text-base font-semibold";
-  const detailClass = () => (size() === "compact" ? "text-xs" : "text-sm");
+    mode() === "normal" ? "text-sm font-medium" : "text-base font-semibold";
+  const detailClass = () => (mode() === "normal" ? "text-xs" : "text-sm");
 
   return (
     <>
@@ -42,7 +41,23 @@ const TerminalMeta: Component<{
             </span>
           )}
         </Show>
-        {props.nameExtra}
+        <Show when={props.meta?.git?.isWorktree}>
+          <span
+            data-testid="worktree-indicator"
+            class="text-fg-3 shrink-0"
+            title="Worktree"
+          >
+            <WorktreeIcon />
+          </span>
+        </Show>
+        <Show when={(props.subCount ?? 0) > 0}>
+          <span
+            data-testid="sub-count"
+            class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+          >
+            +{props.subCount}
+          </span>
+        </Show>
       </div>
 
       {/* Branch */}
@@ -69,7 +84,7 @@ const TerminalMeta: Component<{
               {(checks) => <ChecksIndicator status={checks()} />}
             </Show>
             <Show
-              when={props.linkPr}
+              when={mode() === "normal"}
               fallback={<span class="shrink-0">#{pr().number}</span>}
             >
               <a

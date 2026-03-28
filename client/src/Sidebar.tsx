@@ -11,7 +11,6 @@ import {
 import { terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
-import { WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -76,29 +75,7 @@ const SidebarEntry: Component<{
           repoColor={repoColor()}
           branchColor={branchColor()}
           activityHistory={props.activityHistory}
-          size="compact"
-          linkPr
-          nameExtra={
-            <>
-              <Show when={m()?.meta?.git?.isWorktree}>
-                <span
-                  data-testid="worktree-indicator"
-                  class="text-fg-3 shrink-0"
-                  title="Worktree"
-                >
-                  <WorktreeIcon />
-                </span>
-              </Show>
-              <Show when={props.subCount > 0}>
-                <span
-                  data-testid="sub-count"
-                  class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
-                >
-                  +{props.subCount}
-                </span>
-              </Show>
-            </>
-          }
+          subCount={props.subCount}
         />
       </button>
     </div>

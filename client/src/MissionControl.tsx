@@ -46,6 +46,7 @@ const MissionControl: Component<{
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
@@ -274,7 +275,8 @@ const MissionControl: Component<{
                           meta={meta()?.meta}
                           repoColor={colorFor(meta())}
                           activityHistory={props.getActivityHistory(id)}
-                          size="normal"
+                          subCount={props.getSubTerminalIds(id).length}
+                          mode="readonly"
                         />
                       </div>
                     </div>
