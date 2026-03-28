@@ -140,6 +140,8 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
+    // Seed initial "active" sample so the first active period appears in history
+    // (touchActivity won't record it since isActive starts true — no transition).
     activityHistory: [[Date.now(), true] as ActivitySample],
     metadata,
     stopProviders: () => {},

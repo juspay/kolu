@@ -250,7 +250,7 @@ export function useTerminals() {
 
   /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory). */
   function infoToState(t: TerminalInfo): TerminalState {
-    const { id: _, activityHistory: __, ...state } = t;
+    const { id: _, activityHistory: _history, ...state } = t;
     return state;
   }
 
