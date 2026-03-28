@@ -19,6 +19,7 @@ import {
   TerminalMetadataSchema,
   TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
+  TerminalScreenTextInputSchema,
   ServerInfoSchema,
 } from "./index";
 import { z } from "zod";
@@ -41,6 +42,8 @@ export const contract = oc.router({
       .output(eventIterator(TerminalOnExitOutputSchema)),
     // Snapshot of headless xterm screen state (VT sequences) for a terminal
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
+    // Plain text content of the terminal buffer (scrollback + viewport)
+    screenText: oc.input(TerminalScreenTextInputSchema).output(z.string()),
     // Stream terminal metadata changes (CWD, git, PR, etc.). Yields current state immediately.
     onMetadataChange: oc
       .input(TerminalAttachInputSchema)

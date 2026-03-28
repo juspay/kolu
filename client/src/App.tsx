@@ -58,6 +58,7 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
+    handleCopyTerminalText,
     randomTheme,
     setRandomTheme,
     scrollLock,
@@ -115,6 +116,7 @@ const App: Component = () => {
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
     handleRandomizeTheme,
+    handleCopyTerminalText: () => void handleCopyTerminalText(),
   });
 
   function openPalette() {
@@ -180,6 +182,11 @@ const App: Component = () => {
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
               void handleCreateSubTerminal(activeId()!, activeMeta()?.cwd),
+          },
+          {
+            name: "Copy terminal text",
+            keybind: SHORTCUTS.copyTerminalText.keybind,
+            onSelect: () => void handleCopyTerminalText(),
           },
         ]
       : []),

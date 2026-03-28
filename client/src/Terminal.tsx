@@ -221,10 +221,10 @@ const Terminal: Component<{
     // xterm.js has attachCustomKeyEventHandler for intercepting keys.
     // Return false to prevent xterm from handling the key.
     term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      // Let Cmd+key pass through to browser (except copy/paste)
+      // Let Cmd+key pass through to browser (except copy/paste without Shift)
       if (e.metaKey) {
         const key = e.key.toLowerCase();
-        if (key === "c" || key === "v") return true;
+        if ((key === "c" || key === "v") && !e.shiftKey) return true;
         return false;
       }
 

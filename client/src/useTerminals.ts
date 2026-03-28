@@ -347,6 +347,20 @@ export function useTerminals() {
     void client.terminal.setTheme({ id, themeName });
   }
 
+  /** Copy the active terminal's buffer as plain text to the clipboard. */
+  async function handleCopyTerminalText() {
+    const id = activeId();
+    if (id === null) return;
+    try {
+      const text = await client.terminal.screenText({ id });
+      await navigator.clipboard.writeText(text);
+      toast("Copied terminal text to clipboard");
+    } catch (err) {
+      console.error("Failed to copy terminal text:", err);
+      toast.error("Failed to copy terminal text");
+    }
+  }
+
   /** Switch the active terminal to a random theme (different from current). */
   function handleRandomizeTheme() {
     const id = activeId();
@@ -383,6 +397,7 @@ export function useTerminals() {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
+    handleCopyTerminalText,
     randomTheme,
     setRandomTheme,
     scrollLock,

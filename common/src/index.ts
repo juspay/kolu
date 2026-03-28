@@ -78,6 +78,14 @@ export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
 export const TerminalActivityOutputSchema = z.boolean();
 
+export const TerminalScreenTextInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** First line to capture (0-based, inclusive). Defaults to 0 (start of scrollback). */
+  startLine: z.number().int().nonnegative().optional(),
+  /** Last line to capture (exclusive). Defaults to buffer length. */
+  endLine: z.number().int().nonnegative().optional(),
+});
+
 export const TerminalPasteImageInputSchema = z.object({
   id: TerminalIdSchema,
   /** Base64-encoded image data (PNG, JPEG, etc.) */
