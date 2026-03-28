@@ -1,6 +1,10 @@
+@claude-mock
 Feature: Claude Code status detection
   When Claude Code is running in a terminal, the header and sidebar
   show its current state (thinking, tool use, waiting).
+
+  Requires KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR env vars
+  pointing the server at test-controlled directories.
 
   Background:
     Given the terminal is ready
