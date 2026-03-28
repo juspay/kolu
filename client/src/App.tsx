@@ -26,7 +26,6 @@ import Dialog from "@corvu/dialog";
 import { SHORTCUTS } from "./keyboard";
 import EmptyState from "./EmptyState";
 import { availableThemes } from "./theme";
-import { toast } from "solid-sonner";
 
 import { client, wsStatus } from "./rpc";
 import { useTerminals } from "./useTerminals";
@@ -59,6 +58,7 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
+    handleCopyTerminalText,
     randomTheme,
     setRandomTheme,
     scrollLock,
@@ -98,19 +98,6 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds });
 
-  async function handleCopyPaneText() {
-    const id = activeId();
-    if (!id) return;
-    try {
-      const text = await client.terminal.screenText({ id });
-      await navigator.clipboard.writeText(text);
-      toast("Copied pane text to clipboard");
-    } catch (err) {
-      console.error("Failed to copy pane text:", err);
-      toast.error("Failed to copy pane text");
-    }
-  }
-
   useShortcuts({
     terminalIds,
     activeId,
@@ -129,7 +116,7 @@ const App: Component = () => {
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
     handleRandomizeTheme,
-    handleCopyPaneText: () => void handleCopyPaneText(),
+    handleCopyTerminalText: () => void handleCopyTerminalText(),
   });
 
   function openPalette() {
@@ -197,9 +184,9 @@ const App: Component = () => {
               void handleCreateSubTerminal(activeId()!, activeMeta()?.cwd),
           },
           {
-            name: "Copy pane as text",
-            keybind: SHORTCUTS.copyPaneText.keybind,
-            onSelect: () => void handleCopyPaneText(),
+            name: "Copy terminal text",
+            keybind: SHORTCUTS.copyTerminalText.keybind,
+            onSelect: () => void handleCopyTerminalText(),
           },
         ]
       : []),

@@ -22,7 +22,7 @@ interface ShortcutDeps {
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
-  handleCopyPaneText: () => void;
+  handleCopyTerminalText: () => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root.
@@ -156,8 +156,8 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.copyPaneText.keybind)) {
-    deps.handleCopyPaneText();
+  if (matchesKeybind(e, SHORTCUTS.copyTerminalText.keybind)) {
+    deps.handleCopyTerminalText();
     return true;
   }
 
