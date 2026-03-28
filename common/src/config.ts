@@ -15,5 +15,8 @@ export const DEFAULT_PORT = 7681;
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;
 
+/** Scrollback buffer size in lines. Matches Ghostty's ~10K default. */
+export const DEFAULT_SCROLLBACK = 10_000;
+
 /** Seconds of no PTY output before a terminal is considered idle/sleeping. */
 export const ACTIVITY_IDLE_THRESHOLD_S = 5;

@@ -26,6 +26,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { ImageAddon } from "@xterm/addon-image";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
+import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import { matchesAnyShortcut } from "./keyboard";
@@ -181,6 +182,7 @@ const Terminal: Component<{
       fontFamily: FONT_FAMILY,
       theme: props.theme,
       fontSize: fontSize(),
+      scrollback: DEFAULT_SCROLLBACK,
       cursorBlink: true,
       // Required by SerializeAddon and ImageAddon for buffer access
       allowProposedApi: true,

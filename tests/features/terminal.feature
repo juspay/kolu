@@ -54,6 +54,12 @@ Feature: Terminal
     And the screen state should have at least 50 lines
     And there should be no page errors
 
+  Scenario: Scrollback retains more than 1000 lines
+    When I generate 2000 lines of output
+    Then the screen state should contain "scroll-test-1"
+    And the screen state should contain "scroll-test-2000"
+    And there should be no page errors
+
   Scenario: Clicking terminal focuses input
     When I click the terminal canvas
     Then the terminal input should be focused
