@@ -18,6 +18,16 @@ import { log } from "../log.ts";
 
 const DEBOUNCE_MS = 150;
 
+/** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
+function hasGitDir(cwd: string): boolean {
+  try {
+    fs.accessSync(path.join(cwd, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve git context for a directory. Returns null if not in a git repo. */
 export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
   try {
@@ -124,8 +134,9 @@ export function startGitProvider(
       stopHeadWatch();
       stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
       void resolve(meta.cwd);
-    } else if (entry.metadata.git === null) {
-      // Re-resolve when not in a git repo — detects `git init` in the current dir
+    } else if (entry.metadata.git === null && hasGitDir(meta.cwd)) {
+      // Re-resolve when .git appears — detects `git init` in the current dir
+      // without spawning a git process on every prompt in non-git dirs
       void resolve(meta.cwd);
     }
   }
