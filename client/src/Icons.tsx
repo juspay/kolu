@@ -4,7 +4,8 @@
  * Keep alphabetically sorted when adding new icons.
  */
 
-import { type Component, Switch, Match } from "solid-js";
+import type { Component } from "solid-js";
+import { Dynamic } from "solid-js/web";
 
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
@@ -163,30 +164,25 @@ export const SettingsIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+const prStateConfig: Record<
+  "open" | "closed" | "merged",
+  { icon: Component<{ class?: string }>; color: string }
+> = {
+  open: { icon: GitPullRequestIcon, color: "text-ok" },
+  closed: { icon: GitPullRequestClosedIcon, color: "text-danger" },
+  merged: { icon: GitMergeIcon, color: "text-purple-400" },
+};
+
 /** PR state icon — green for open, purple for merged, red for closed. */
 export const PrStateIcon: Component<{
   state: "open" | "closed" | "merged";
   class?: string;
 }> = (props) => {
-  const size = () => props.class ?? "w-3.5 h-3.5";
+  const cfg = () => prStateConfig[props.state];
   return (
-    <Switch>
-      <Match when={props.state === "merged"}>
-        <span class="text-purple-400 shrink-0">
-          <GitMergeIcon class={size()} />
-        </span>
-      </Match>
-      <Match when={props.state === "closed"}>
-        <span class="text-danger shrink-0">
-          <GitPullRequestClosedIcon class={size()} />
-        </span>
-      </Match>
-      <Match when={props.state === "open"}>
-        <span class="text-ok shrink-0">
-          <GitPullRequestIcon class={size()} />
-        </span>
-      </Match>
-    </Switch>
+    <span class={`${cfg().color} shrink-0`}>
+      <Dynamic component={cfg().icon} class={props.class ?? "w-3.5 h-3.5"} />
+    </span>
   );
 };
 

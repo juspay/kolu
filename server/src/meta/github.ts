@@ -7,7 +7,11 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { GitHubPrInfo, TerminalMetadata } from "kolu-common";
+import {
+  GitHubPrStateSchema,
+  type GitHubPrInfo,
+  type TerminalMetadata,
+} from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { emitMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -105,10 +109,7 @@ async function resolveGitHubPr(
       number: data.number,
       title: data.title,
       url: data.url,
-      state: (data.state as string)?.toLowerCase() as
-        | "open"
-        | "closed"
-        | "merged",
+      state: GitHubPrStateSchema.parse((data.state as string).toLowerCase()),
       checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
