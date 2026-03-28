@@ -186,6 +186,11 @@ const CommandPalette: Component<{
             : undefined;
           setPath(group ? [group] : []);
           didSelect = false;
+          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+          // only fires on first mount. Re-focus explicitly on every open.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef.focus()),
+          );
         } else {
           if (!didSelect) for (const g of path()) g.onCancel?.();
           didSelect = false;
