@@ -55,7 +55,7 @@ Then(
 Then(
   "the sidebar branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "sidebar-branch", (t) =>
+    const text = await pollTestId(this, "terminal-meta-branch", (t) =>
       t.includes(expected),
     );
     assert.ok(
@@ -66,7 +66,11 @@ Then(
 );
 
 Then("the sidebar should show a branch name", async function (this: KoluWorld) {
-  const text = await pollTestId(this, "sidebar-branch", (t) => t.length > 0);
+  const text = await pollTestId(
+    this,
+    "terminal-meta-branch",
+    (t) => t.length > 0,
+  );
   assert.ok(text.length > 0, `Expected sidebar to show a branch name`);
 });
 
@@ -87,7 +91,7 @@ Then(
 Then(
   "the sidebar label should show {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "sidebar-label", (t) =>
+    const text = await pollTestId(this, "terminal-meta-name", (t) =>
       t.includes(expected),
     );
     assert.ok(
@@ -126,7 +130,7 @@ Then(
   async function (this: KoluWorld) {
     const text = (
       await this.page
-        .locator('[data-testid="sidebar-branch"]')
+        .locator('[data-testid="terminal-meta-branch"]')
         .first()
         .textContent()
     )?.trim();

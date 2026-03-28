@@ -8,11 +8,10 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { cwdBasename, terminalName, buildColorMaps } from "./path";
+import { terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
-import ChecksIndicator from "./ChecksIndicator";
-import ClaudeActivityRow from "./ClaudeActivityRow";
-import { PrStateIcon, WorktreeIcon } from "./Icons";
+import TerminalMeta from "./TerminalMeta";
+import { WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -72,73 +71,34 @@ const SidebarEntry: Component<{
         onMouseDown={(e) => e.preventDefault()}
         title={m()?.meta?.cwd ?? String(props.id)}
       >
-        <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-          <Show when={m()?.meta}>
-            {(metadata) => (
-              <span
-                data-testid="sidebar-label"
-                class="truncate"
-                style={{ color: repoColor() }}
-              >
-                {metadata().git?.repoName ?? cwdBasename(metadata().cwd)}
-              </span>
-            )}
-          </Show>
-          <Show when={m()?.meta?.git?.isWorktree}>
-            <span
-              data-testid="worktree-indicator"
-              class="text-fg-3 shrink-0"
-              title="Worktree"
-            >
-              <WorktreeIcon />
-            </span>
-          </Show>
-          {/* Sub-terminal count badge */}
-          <Show when={props.subCount > 0}>
-            <span
-              data-testid="sub-count"
-              class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
-            >
-              +{props.subCount}
-            </span>
-          </Show>
-        </div>
-        <div
-          data-testid="sidebar-branch"
-          class="text-xs truncate"
-          title={m()?.meta?.git?.branch}
-          style={{ color: branchColor() }}
-          classList={{ "text-fg-2": !branchColor() }}
-        >
-          {m()?.meta?.git?.branch ?? "\u00A0"}
-        </div>
-        <Show when={m()?.meta?.pr}>
-          {(pr) => (
-            <div
-              class="flex items-center gap-1 text-xs text-fg-3 truncate"
-              data-testid="sidebar-pr"
-              title={`#${pr().number} ${pr().title}`}
-            >
-              <PrStateIcon state={pr().state} class="w-3 h-3" />
-              <Show when={pr().checks}>
-                {(checks) => <ChecksIndicator status={checks()} />}
-              </Show>
-              <a
-                href={pr().url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="hover:text-accent shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                #{pr().number}
-              </a>
-              <span class="truncate">{pr().title}</span>
-            </div>
-          )}
-        </Show>
-        <ClaudeActivityRow
-          claude={m()?.meta?.claude}
+        <TerminalMeta
+          meta={m()?.meta}
+          repoColor={repoColor()}
+          branchColor={branchColor()}
           activityHistory={props.activityHistory}
+          size="compact"
+          linkPr
+          nameExtra={
+            <>
+              <Show when={m()?.meta?.git?.isWorktree}>
+                <span
+                  data-testid="worktree-indicator"
+                  class="text-fg-3 shrink-0"
+                  title="Worktree"
+                >
+                  <WorktreeIcon />
+                </span>
+              </Show>
+              <Show when={props.subCount > 0}>
+                <span
+                  data-testid="sub-count"
+                  class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+                >
+                  +{props.subCount}
+                </span>
+              </Show>
+            </>
+          }
         />
       </button>
     </div>

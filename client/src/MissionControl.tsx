@@ -17,9 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
-import ChecksIndicator from "./ChecksIndicator";
-import { PrStateIcon } from "./Icons";
-import ClaudeActivityRow from "./ClaudeActivityRow";
+import TerminalMeta from "./TerminalMeta";
 import { terminalName, buildColorMaps } from "./path";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -272,36 +270,11 @@ const MissionControl: Component<{
                       </Show>
                       {/* Metadata footer — fixed height so cards align when PR info varies */}
                       <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
-                        <div
-                          class="text-base font-semibold truncate"
-                          style={{ color: colorFor(meta()) }}
-                        >
-                          {terminalName(meta()) ?? "terminal"}
-                        </div>
-                        <Show when={meta()?.meta?.git}>
-                          {(git) => (
-                            <div class="text-sm text-fg-2 truncate">
-                              {git().branch}
-                            </div>
-                          )}
-                        </Show>
-                        <Show when={meta()?.meta?.pr}>
-                          {(pr) => (
-                            <div class="flex items-center gap-1.5 text-sm text-fg-3 truncate">
-                              <PrStateIcon state={pr().state} class="w-3 h-3" />
-                              <Show when={pr().checks}>
-                                {(checks) => (
-                                  <ChecksIndicator status={checks()} />
-                                )}
-                              </Show>
-                              <span class="shrink-0">#{pr().number}</span>
-                              <span class="truncate">{pr().title}</span>
-                            </div>
-                          )}
-                        </Show>
-                        <ClaudeActivityRow
-                          claude={meta()?.meta?.claude}
+                        <TerminalMeta
+                          meta={meta()?.meta}
+                          repoColor={colorFor(meta())}
                           activityHistory={props.getActivityHistory(id)}
+                          size="normal"
                         />
                       </div>
                     </div>
