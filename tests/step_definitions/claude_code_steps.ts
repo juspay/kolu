@@ -205,6 +205,28 @@ Then(
 );
 
 Then(
+  "Mission Control should show a Claude indicator",
+  async function (this: KoluWorld) {
+    const mc = this.page.locator('[data-testid="mission-control"]');
+    const indicator = mc.locator('[data-testid="claude-indicator"]');
+    await pollUntil(
+      this.page,
+      async () => {
+        try {
+          return await indicator.count();
+        } catch {
+          return 0;
+        }
+      },
+      (count) => count > 0,
+      { attempts: 15, intervalMs: 500 },
+    );
+    const count = await indicator.count();
+    assert.ok(count > 0, "Expected Claude indicator in Mission Control");
+  },
+);
+
+Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {
     // Wait for it to disappear (may take a poll cycle)

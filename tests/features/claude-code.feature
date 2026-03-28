@@ -22,6 +22,14 @@ Feature: Claude Code status detection
     Then the header should show a Claude indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Mission Control shows Claude Code status
+    When a Claude Code session is mocked with state "thinking"
+    Then the header should show a Claude indicator with state "thinking"
+    When I click the Mission Control icon
+    Then Mission Control should show a Claude indicator
+    When I press Escape
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the header should show a Claude indicator with state "thinking"

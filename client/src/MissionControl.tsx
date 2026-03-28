@@ -19,7 +19,7 @@ import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrStateIcon } from "./Icons";
-import ActivityGraph from "./ActivityGraph";
+import ClaudeActivityRow from "./ClaudeActivityRow";
 import { terminalName, buildColorMaps } from "./path";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalId, TerminalInfo } from "kolu-common";
@@ -299,11 +299,10 @@ const MissionControl: Component<{
                             </div>
                           )}
                         </Show>
-                        <Show when={props.getActivityHistory(id).length > 0}>
-                          <ActivityGraph
-                            samples={props.getActivityHistory(id)}
-                          />
-                        </Show>
+                        <ClaudeActivityRow
+                          claude={meta()?.meta?.claude}
+                          activityHistory={props.getActivityHistory(id)}
+                        />
                       </div>
                     </div>
                   </button>
