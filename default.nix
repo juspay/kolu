@@ -127,10 +127,10 @@ let
   # Stamp the real commit hash into the built JS bundle.
   # Only this re-runs on docs-only commits; the expensive build above is cached.
   koluStamped = pkgs.runCommand "kolu-stamped" { } ''
-    cp -r --no-preserve=mode ${kolu} $out
+    cp -r ${kolu} $out
+    chmod -R u+w $out/client/dist
     find $out/client/dist -name '*.js' -exec \
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
-    chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
   '';
 in
 {
