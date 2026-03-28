@@ -33,6 +33,13 @@ export const ChevronUpIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Sparkle icon — used to identify Claude Code agent sessions. */
+export const ClaudeCodeIcon: Component<{ class?: string }> = (props) => (
+  <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 16 16" fill="currentColor">
+    <path d="M8 0C8 0 9.5 5 8 8C6.5 5 8 0 8 0ZM8 16C8 16 6.5 11 8 8C9.5 11 8 16 8 16ZM0 8C0 8 5 6.5 8 8C5 9.5 0 8 0 8ZM16 8C16 8 11 9.5 8 8C11 6.5 16 8 16 8Z" />
+  </svg>
+);
+
 export const CloseIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

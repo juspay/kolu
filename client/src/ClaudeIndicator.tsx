@@ -1,7 +1,8 @@
-/** Claude Code session state indicator — shows thinking/tool_use/waiting. */
+/** Claude Code session state indicator — icon + colored dot + state label. */
 
 import type { Component } from "solid-js";
 import type { ClaudeCodeInfo } from "kolu-common";
+import { ClaudeCodeIcon } from "./Icons";
 
 type ClaudeState = ClaudeCodeInfo["state"];
 
@@ -20,6 +21,7 @@ const ClaudeIndicator: Component<{ state: ClaudeState }> = (props) => {
       data-claude-state={props.state}
       title={`Claude Code: ${cfg().label}`}
     >
+      <ClaudeCodeIcon class="w-3 h-3 shrink-0" />
       <span
         class={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${cfg().dot}`}
       />

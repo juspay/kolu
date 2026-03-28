@@ -79,13 +79,18 @@ function findTranscriptPath(session: SessionFile): string | null {
     // fall through to MRU scan
   }
 
-  // Fallback: most recently modified JSONL in the project dir
+  // Fallback: most recently modified JSONL in the project dir.
+  // Only use if modified recently (within 2 poll cycles) — avoids showing
+  // stale state from old sessions when a new session hasn't created its
+  // JSONL yet. Handles resumed sessions where the PID's session ID differs
+  // from the transcript's original session ID.
   try {
     const files = fs
       .readdirSync(projectDir)
       .filter((f) => f.endsWith(".jsonl"));
     if (files.length === 0) return null;
 
+    const now = Date.now();
     let newest: string | null = null;
     let newestMtime = 0;
     for (const file of files) {
@@ -96,6 +101,8 @@ function findTranscriptPath(session: SessionFile): string | null {
         newest = full;
       }
     }
+    // Stale if not modified within recent window
+    if (newest && now - newestMtime > POLL_INTERVAL_MS * 2) return null;
     return newest;
   } catch {
     return null;
