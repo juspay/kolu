@@ -60,6 +60,22 @@ Then(
   },
 );
 
+Then("the activity graph should have data", async function (this: KoluWorld) {
+  const index = this.createdTerminalIds.length;
+  const id = this.createdTerminalIds[index - 1];
+  assert.ok(id, `No terminal created at index ${index}`);
+  const graph = this.page.locator(
+    `[data-testid="sidebar"] [data-terminal-id="${id}"] [data-testid="activity-graph"]`,
+  );
+  const hasData = await pollUntil(
+    this.page,
+    async () => (await graph.getAttribute("data-has-data")) === "true",
+    (val) => val === true,
+    { attempts: 30, intervalMs: 500 },
+  );
+  assert.ok(hasData, "Expected activity graph to have data");
+});
+
 When(
   "I wait for the terminal to become idle",
   async function (this: KoluWorld) {

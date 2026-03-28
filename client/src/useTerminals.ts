@@ -13,16 +13,18 @@ import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+  ActivitySample,
+} from "kolu-common";
+import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
+
+export type { ActivitySample };
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
-type TerminalState = Omit<TerminalInfo, "id">;
-
-/** A timestamped activity transition: [epochMs, isActive]. */
-export type ActivitySample = [time: number, active: boolean];
-
-/** Rolling window for activity history (shared with ActivityGraph for rendering). */
-export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 const RANDOM_THEME_KEY = "kolu-random-theme";
@@ -248,9 +250,9 @@ export function useTerminals() {
     }
   }
 
-  /** Convert a TerminalInfo (wire type) to store entry (strip id, used as key). */
+  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory). */
   function infoToState(t: TerminalInfo): TerminalState {
-    const { id: _, ...state } = t;
+    const { id: _, activityHistory: __, ...state } = t;
     return state;
   }
 
@@ -295,6 +297,13 @@ export function useTerminals() {
       // MRU is in-memory only — without this, Ctrl+Tab after refresh shows only the active terminal.
       const active = activeId();
       setMruOrder(active ? [active, ...ids.filter((x) => x !== active)] : ids);
+
+      // Seed activity history from server (late-joining clients get full sparkline)
+      for (const t of existing) {
+        if (t.activityHistory?.length) {
+          setActivityHistory(t.id, t.activityHistory);
+        }
+      }
 
       // Subscribe to live updates for all terminals
       for (const t of existing) subscribeAll(t.id);

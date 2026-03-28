@@ -5,7 +5,8 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import { type ActivitySample, ACTIVITY_WINDOW_MS } from "./useTerminals";
+import type { ActivitySample } from "kolu-common";
+import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 
 const BUCKET_COUNT = 30;
 const BUCKET_MS = ACTIVITY_WINDOW_MS / BUCKET_COUNT;
@@ -85,6 +86,8 @@ const ActivityGraph: Component<{
 
   return (
     <svg
+      data-testid="activity-graph"
+      data-has-data={hasData() ? "true" : undefined}
       class="w-full transition-opacity duration-300"
       classList={{ "opacity-0": !hasData() }}
       viewBox={`0 0 ${BUCKET_COUNT} 10`}
