@@ -9,6 +9,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const FRAME_DIR = path.resolve(import.meta.dirname, "..", "demo-frames");
+/** Repo root — resolved at import time so terminal can cd into it. */
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const FPS = 10;
 
 Given("tips state is cleared", async function (this: KoluWorld) {
@@ -38,6 +40,16 @@ Given("frame capture is started", async function (this: KoluWorld) {
       // Page may be closing — ignore
     }
   }, interval);
+});
+
+When("I cd to the project root", async function (this: KoluWorld) {
+  await this.terminalRun(`cd ${PROJECT_ROOT}`);
+  await this.page.waitForTimeout(1000);
+});
+
+When("I announce {string}", async function (this: KoluWorld, label: string) {
+  await this.terminalRun(`echo -e '\\n\\033[1;36m▸ ${label}\\033[0m'`);
+  await this.page.waitForTimeout(500);
 });
 
 When("I wait {int} second(s)", async function (this: KoluWorld, secs: number) {
