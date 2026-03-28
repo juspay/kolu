@@ -115,13 +115,18 @@ export function startGitProvider(
   void resolve(entry.metadata.cwd);
 
   function onMetadata(meta: TerminalMetadata) {
-    if (meta.cwd === lastCwd) return;
-    plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
-    lastCwd = meta.cwd;
-    // Restart HEAD watcher for new directory
-    stopHeadWatch();
-    stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
-    void resolve(meta.cwd);
+    const cwdChanged = meta.cwd !== lastCwd;
+    if (cwdChanged) {
+      plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
+      lastCwd = meta.cwd;
+      // Restart HEAD watcher for new directory
+      stopHeadWatch();
+      stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
+      void resolve(meta.cwd);
+    } else if (entry.metadata.git === null) {
+      // Re-resolve when not in a git repo — detects `git init` in the current dir
+      void resolve(meta.cwd);
+    }
   }
 
   function handleHeadChange() {
@@ -132,6 +137,11 @@ export function startGitProvider(
   async function resolve(cwd: string) {
     const git = await resolveGitInfo(cwd);
     if (gitInfoEqual(git, entry.metadata.git)) return;
+    // Start HEAD watcher when a repo appears (e.g. after `git init`)
+    if (entry.metadata.git === null && git !== null) {
+      stopHeadWatch();
+      stopHeadWatch = watchGitHead(cwd, handleHeadChange);
+    }
     entry.metadata.git = git;
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
