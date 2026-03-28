@@ -7,7 +7,11 @@
  */
 import * as pty from "node-pty";
 import { createRequire } from "node:module";
-import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
+import {
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  DEFAULT_SCROLLBACK,
+} from "kolu-common/config";
 import { cleanEnv, osc7Init } from "./shell.ts";
 import type { Logger } from "./log.ts";
 
@@ -71,6 +75,7 @@ export function spawnPty(
   const headless = new Terminal({
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
+    scrollback: DEFAULT_SCROLLBACK,
     allowProposedApi: true,
   });
   const serializeAddon = new SerializeAddon();
