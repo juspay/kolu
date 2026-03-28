@@ -18,6 +18,7 @@ import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import ChecksIndicator from "./ChecksIndicator";
+import { PrStateIcon } from "./Icons";
 import ActivityGraph from "./ActivityGraph";
 import { terminalName, buildColorMaps } from "./path";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
@@ -287,6 +288,7 @@ const MissionControl: Component<{
                         <Show when={meta()?.meta?.pr}>
                           {(pr) => (
                             <div class="flex items-center gap-1.5 text-sm text-fg-3 truncate">
+                              <PrStateIcon state={pr().state} class="w-3 h-3" />
                               <Show when={pr().checks}>
                                 {(checks) => (
                                   <ChecksIndicator status={checks()} />

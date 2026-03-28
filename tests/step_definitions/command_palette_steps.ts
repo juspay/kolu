@@ -162,7 +162,7 @@ Then(
     const palette = this.page.locator(PALETTE_SELECTOR);
     const item = palette.locator("li", { hasText: text });
     await item.waitFor({ state: "visible", timeout: 3000 });
-    const kbd = item.locator("kbd");
+    const kbd = item.locator("kbd").first();
     const kbdText = await kbd.textContent();
     assert.ok(
       kbdText?.includes(shortcut),

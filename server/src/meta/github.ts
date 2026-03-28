@@ -7,7 +7,11 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { GitHubPrInfo, TerminalMetadata } from "kolu-common";
+import {
+  GitHubPrStateSchema,
+  type GitHubPrInfo,
+  type TerminalMetadata,
+} from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { emitMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -91,7 +95,13 @@ async function resolveGitHubPr(
   try {
     const { stdout } = await execFileAsync(
       "gh",
-      ["pr", "view", branch, "--json", "number,title,url,statusCheckRollup"],
+      [
+        "pr",
+        "view",
+        branch,
+        "--json",
+        "number,title,url,state,statusCheckRollup",
+      ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
     const data = JSON.parse(stdout);
@@ -99,6 +109,7 @@ async function resolveGitHubPr(
       number: data.number,
       title: data.title,
       url: data.url,
+      state: GitHubPrStateSchema.parse((data.state as string).toLowerCase()),
       checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
@@ -115,6 +126,7 @@ function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
     a.number === b.number &&
     a.title === b.title &&
     a.url === b.url &&
+    a.state === b.state &&
     a.checks === b.checks
   );
 }
@@ -161,7 +173,9 @@ export function startGitHubPrProvider(
     if (prInfoEqual(pr, entry.metadata.pr)) return;
     entry.metadata.pr = pr;
     plog.info(
-      pr ? { pr: pr.number, title: pr.title, checks: pr.checks } : { pr: null },
+      pr
+        ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }
+        : { pr: null },
       "pr info updated",
     );
     emitMetadata(entry, terminalId);
