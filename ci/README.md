@@ -92,3 +92,11 @@ The library expects these variables from the importer:
 | `local_system` | The machine's native nix system                  |
 | `root`         | Git repo root path                               |
 | `systems`      | Space-separated list of all target systems       |
+
+### Log capture
+
+Each `_run` step captures raw output to `.logs/<short-sha>/<step>@<system>.log`. The log path is included in the GitHub status description. Logs are gitignored and persist locally across runs (one directory per commit).
+
+## Not yet implemented
+
+- **Nix cache push** — push built paths to a binary cache after successful builds
