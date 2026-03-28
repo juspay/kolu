@@ -22,8 +22,7 @@ import { PrStateIcon } from "./Icons";
 import ActivityGraph from "./ActivityGraph";
 import { terminalName, buildColorMaps } from "./path";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { TerminalId, TerminalInfo } from "kolu-common";
-import type { ActivitySample } from "./useTerminals";
+import type { TerminalId, TerminalInfo, ActivitySample } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 
 /** Mission Control mode — discriminated union eliminates impossible states

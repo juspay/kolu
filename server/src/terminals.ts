@@ -71,11 +71,11 @@ const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 function pushActivitySample(entry: TerminalEntry, active: boolean): void {
   const now = Date.now();
   const cutoff = now - ACTIVITY_WINDOW_MS;
-  // Trim old samples (array is chronological, so find first valid index)
-  const first = entry.activityHistory.findIndex(([t]) => t >= cutoff);
-  if (first > 0) entry.activityHistory.splice(0, first);
-  else if (first === -1) entry.activityHistory.length = 0;
-  entry.activityHistory.push([now, active]);
+  const h = entry.activityHistory;
+  // Drop samples outside the window (array is chronological)
+  const keep = h.findIndex(([t]) => t >= cutoff);
+  if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
+  h.push([now, active]);
 }
 
 /** Mark terminal active and reset the idle timer. */

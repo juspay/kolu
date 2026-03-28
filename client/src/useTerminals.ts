@@ -21,8 +21,6 @@ import type {
 } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 
-export type { ActivitySample };
-
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
 
