@@ -60,13 +60,43 @@ function encodeProjectPath(cwd: string): string {
   return cwd.replace(/[/.]/g, "-");
 }
 
-/** Find the JSONL transcript path for a session. */
+/**
+ * Find the JSONL transcript path for a session.
+ *
+ * First tries the exact session ID. Falls back to the most recently modified
+ * JSONL in the project dir — handles resumed sessions where the PID's session
+ * ID differs from the transcript's original session ID.
+ */
 function findTranscriptPath(session: SessionFile): string | null {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
-  const jsonlPath = path.join(projectDir, `${session.sessionId}.jsonl`);
+
+  // Exact match by session ID
+  const exactPath = path.join(projectDir, `${session.sessionId}.jsonl`);
   try {
-    fs.accessSync(jsonlPath);
-    return jsonlPath;
+    fs.accessSync(exactPath);
+    return exactPath;
+  } catch {
+    // fall through to MRU scan
+  }
+
+  // Fallback: most recently modified JSONL in the project dir
+  try {
+    const files = fs
+      .readdirSync(projectDir)
+      .filter((f) => f.endsWith(".jsonl"));
+    if (files.length === 0) return null;
+
+    let newest: string | null = null;
+    let newestMtime = 0;
+    for (const file of files) {
+      const full = path.join(projectDir, file);
+      const stat = fs.statSync(full);
+      if (stat.mtimeMs > newestMtime) {
+        newestMtime = stat.mtimeMs;
+        newest = full;
+      }
+    }
+    return newest;
   } catch {
     return null;
   }
@@ -187,9 +217,17 @@ export function startClaudeCodeProvider(
   /** Try to match a Claude Code session to this terminal via PTY. */
   function matchSession(): SessionFile | null {
     const termPty = getTerminalPty();
-    if (!termPty || !termPty.startsWith("/dev/pts/")) return null;
+    if (!termPty) {
+      plog.debug({ pid: entry.handle.pid }, "cannot read terminal PTY");
+      return null;
+    }
+    if (!termPty.startsWith("/dev/pts/")) {
+      plog.debug({ pty: termPty }, "terminal fd/0 is not a PTY");
+      return null;
+    }
 
     const sessions = scanSessions();
+    plog.debug({ termPty, sessionCount: sessions.length }, "scanning sessions");
     for (const session of sessions) {
       const sessionPty = getPtyForPid(session.pid);
       if (sessionPty === termPty) return session;
@@ -203,7 +241,14 @@ export function startClaudeCodeProvider(
 
     const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
     const derived = deriveState(lines);
-    if (!derived || !matchedSession) return;
+    if (!derived) {
+      plog.debug(
+        { path: transcriptPath },
+        "no user/assistant message in transcript tail",
+      );
+      return;
+    }
+    if (!matchedSession) return;
 
     const info: ClaudeCodeInfo = {
       state: derived.state,
@@ -264,10 +309,21 @@ export function startClaudeCodeProvider(
         "claude code session matched",
       );
       matchedSession = session;
-      const tp = findTranscriptPath(session);
+    }
+
+    // Retry transcript lookup on each poll — JSONL is created lazily
+    // after the first message exchange, not at session start
+    if (matchedSession && !transcriptPath) {
+      const tp = findTranscriptPath(matchedSession);
       if (tp) {
+        plog.info({ path: tp }, "transcript found");
         startWatching(tp);
         updateState();
+      } else {
+        plog.debug(
+          { session: matchedSession.sessionId, cwd: matchedSession.cwd },
+          "transcript not found yet (JSONL created after first message)",
+        );
       }
     }
   }
