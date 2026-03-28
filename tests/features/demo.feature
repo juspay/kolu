@@ -67,8 +67,13 @@ Feature: Demo recording
     And I wait 1 second
     When I type "Theme" in the palette
     And I select "Theme" in the palette
-    And I wait 2 seconds
-    When I press Escape
     And I wait 1 second
+    When I type "Atom One Light" in the palette
+    And I wait 1 second
+    When I press Enter
+    And I wait 1 second
+    When I run "clear"
+    And I run "ls --color"
+    And I wait 3 seconds
 
     Then frame capture is stopped
