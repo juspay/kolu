@@ -11,6 +11,18 @@ import * as path from "node:path";
 const FRAME_DIR = path.resolve(import.meta.dirname, "..", "demo-frames");
 const FPS = 10;
 
+Given("tips state is cleared", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    localStorage.removeItem("kolu-seen-tips");
+    localStorage.setItem("kolu-startup-tips", "true");
+  });
+});
+
+When("I reload the page", async function (this: KoluWorld) {
+  await this.page.reload();
+  await this.waitForReady();
+});
+
 Given("frame capture is started", async function (this: KoluWorld) {
   fs.mkdirSync(FRAME_DIR, { recursive: true });
   this.demoFrameNum = 0;
