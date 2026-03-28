@@ -21,10 +21,14 @@ export const GitInfoSchema = z.object({
 
 export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
 
+export const GitHubPrStateSchema = z.enum(["open", "closed", "merged"]);
+
 export const GitHubPrInfoSchema = z.object({
   number: z.number(),
   title: z.string(),
   url: z.string(),
+  /** PR state: open, closed, or merged. */
+  state: GitHubPrStateSchema,
   /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
   checks: GitHubCheckStatusSchema.nullable(),
 });
