@@ -71,6 +71,9 @@ function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
   return lines.join("\n") + "\n";
 }
 
+/** Unique CWD per scenario to avoid collisions in parallel workers. */
+let mockCwd: string | null = null;
+
 /** Track mock files for cleanup. */
 let mockSessionFile: string | null = null;
 let mockProjectDir: string | null = null;
@@ -108,19 +111,22 @@ When(
 
     const pid = await getTerminalPid(this);
 
+    // Unique CWD per scenario to avoid parallel worker collisions
+    mockCwd = `/tmp/claude-test-${pid}-${Date.now()}`;
+    const encodedCwd = mockCwd.replace(/[/.]/g, "-");
+
     // Create session file
     fs.mkdirSync(SESSIONS_DIR, { recursive: true });
     const sessionData = {
       pid,
       sessionId: SESSION_ID,
-      cwd: "/tmp/claude-test",
+      cwd: mockCwd,
       startedAt: Date.now(),
     };
     mockSessionFile = path.join(SESSIONS_DIR, `${pid}.json`);
     fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
 
     // Create project dir and transcript
-    const encodedCwd = "-tmp-claude-test";
     mockProjectDir = path.join(PROJECTS_DIR, encodedCwd);
     fs.mkdirSync(mockProjectDir, { recursive: true });
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
