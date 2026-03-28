@@ -1,9 +1,13 @@
-/** Tip state — singleton module. Persists seen tips in localStorage. */
+/**
+ * Tip state — singleton module. Persists seen tips in localStorage.
+ * Owns all tip timing: state-driven triggers live here, not in consuming components.
+ */
 
-import { createSignal } from "solid-js";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
-import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
+import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
+import type { TerminalId } from "kolu-common";
 
 const [seenJson, setSeenJson] = makePersisted(createSignal("[]"), {
   name: "kolu-seen-tips",
@@ -55,11 +59,32 @@ function showStartupTip() {
   });
 }
 
+/**
+ * Wire up state-driven tip triggers. Call once from the app root.
+ * Event-driven tips (sidebar click, theme button) stay at their call sites.
+ */
+function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
+  // Startup tip — once, 1s after first terminal appears
+  let startupFired = false;
+  createEffect(() => {
+    if (!startupFired && deps.terminalIds().length > 0) {
+      startupFired = true;
+      setTimeout(showStartupTip, 1000);
+    }
+  });
+
+  // Mission Control nudge at 3+ terminals
+  createEffect(() => {
+    if (deps.terminalIds().length >= 3)
+      showTipOnce(CONTEXTUAL_TIPS.missionControl);
+  });
+}
+
 export function useTips() {
   return {
     showTipOnce,
     randomAmbientTip,
-    showStartupTip,
+    initTipTriggers,
     startupTips,
     setStartupTips,
   } as const;

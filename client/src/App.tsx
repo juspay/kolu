@@ -34,7 +34,6 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
 
 const App: Component = () => {
   const {
@@ -95,22 +94,8 @@ const App: Component = () => {
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
 
-  const { showTipOnce, showStartupTip, startupTips, setStartupTips } =
-    useTips();
-
-  // Show a random tip once the first terminal appears (delayed for non-intrusiveness)
-  let startupTipFired = false;
-  createEffect(() => {
-    if (!startupTipFired && terminalIds().length > 0) {
-      startupTipFired = true;
-      setTimeout(showStartupTip, 1000);
-    }
-  });
-
-  // Nudge toward Mission Control when user has 3+ terminals
-  createEffect(() => {
-    if (terminalIds().length >= 3) showTipOnce(CONTEXTUAL_TIPS.missionControl);
-  });
+  const { initTipTriggers, startupTips, setStartupTips } = useTips();
+  initTipTriggers({ terminalIds });
 
   useShortcuts({
     terminalIds,
