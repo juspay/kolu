@@ -59,6 +59,12 @@ export const TerminalMetadataSchema = z.object({
   claude: ClaudeCodeInfoSchema.nullable(),
 });
 
+// --- Activity ---
+
+/** A timestamped activity transition: [epochMs, isActive]. */
+export const ActivitySampleSchema = z.tuple([z.number(), z.boolean()]);
+export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
+
 // --- Terminal ---
 
 export const TerminalInfoSchema = z.object({
@@ -68,6 +74,8 @@ export const TerminalInfoSchema = z.object({
   isActive: z.boolean(),
   meta: TerminalMetadataSchema.optional(),
   parentId: TerminalIdSchema.optional(),
+  /** Server-side activity history for sparkline rendering. */
+  activityHistory: z.array(ActivitySampleSchema).optional(),
 });
 
 export const TerminalResizeInputSchema = z.object({

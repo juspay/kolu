@@ -3,8 +3,16 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
-import { ACTIVITY_IDLE_THRESHOLD_S } from "kolu-common/config";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+  ActivitySample,
+} from "kolu-common";
+import {
+  ACTIVITY_IDLE_THRESHOLD_S,
+  ACTIVITY_WINDOW_MS,
+} from "kolu-common/config";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import {
@@ -35,6 +43,8 @@ export interface TerminalEntry {
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId?: string;
+  /** Rolling activity history: timestamped transitions for sparkline. */
+  activityHistory: ActivitySample[];
   /** Aggregated metadata from all providers. */
   metadata: TerminalMetadata;
   /** Cleanup function for all metadata providers. */
@@ -50,20 +60,35 @@ function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
     themeName: entry.themeName,
     isActive: entry.isActive,
     parentId: entry.parentId,
+    activityHistory:
+      entry.activityHistory.length > 0 ? entry.activityHistory : undefined,
   };
 }
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
+
+/** Append a sample and trim entries older than the rolling window. */
+function pushActivitySample(entry: TerminalEntry, active: boolean): void {
+  const now = Date.now();
+  const cutoff = now - ACTIVITY_WINDOW_MS;
+  const h = entry.activityHistory;
+  // Drop samples outside the window (array is chronological)
+  const keep = h.findIndex(([t]) => t >= cutoff);
+  if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
+  h.push([now, active]);
+}
 
 /** Mark terminal active and reset the idle timer. */
 function touchActivity(entry: TerminalEntry): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.isActive) {
     entry.isActive = true;
+    pushActivitySample(entry, true);
     entry.emitter.emit("activity", true);
   }
   entry.idleTimer = setTimeout(() => {
     entry.isActive = false;
+    pushActivitySample(entry, false);
     entry.emitter.emit("activity", false);
   }, IDLE_MS);
 }
@@ -115,6 +140,9 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     isActive: true,
     clipboardDir,
     parentId,
+    // Seed initial "active" sample so the first active period appears in history
+    // (touchActivity won't record it since isActive starts true — no transition).
+    activityHistory: [[Date.now(), true] as ActivitySample],
     metadata,
     stopProviders: () => {},
   };

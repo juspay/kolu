@@ -17,7 +17,7 @@ import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalId, TerminalInfo } from "kolu-common";
-import type { ActivitySample } from "./useTerminals";
+import type { ActivitySample } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
