@@ -55,9 +55,9 @@ function getPtyForPid(pid: number): string | null {
   return readlinkSafe(`/proc/${pid}/fd/0`);
 }
 
-/** Encode a CWD path to the Claude projects directory key (replace / with -). */
+/** Encode a CWD path to the Claude projects directory key (replace / and . with -). */
 function encodeProjectPath(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  return cwd.replace(/[/.]/g, "-");
 }
 
 /** Find the JSONL transcript path for a session. */
