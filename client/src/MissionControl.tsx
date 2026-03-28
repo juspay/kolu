@@ -18,8 +18,8 @@ import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import TerminalMeta from "./TerminalMeta";
-import { terminalName, buildColorMaps } from "./path";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
+import type { ColoredTerminalMeta } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
@@ -45,6 +45,7 @@ const MissionControl: Component<{
   mruOrder: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getColoredMeta: (id: TerminalId) => ColoredTerminalMeta | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
   getSubTerminalIds: (id: TerminalId) => TerminalId[];
   getTerminalTheme: (id: TerminalId) => ITheme;
@@ -73,17 +74,6 @@ const MissionControl: Component<{
     const aspect = window.innerWidth / window.innerHeight;
     return Math.ceil(Math.sqrt(n * aspect));
   });
-
-  const colors = createMemo(() =>
-    buildColorMaps(props.terminalIds, props.getMeta),
-  );
-
-  function colorFor(
-    meta: Omit<TerminalInfo, "id"> | undefined,
-  ): string | undefined {
-    const key = terminalName(meta);
-    return key ? colors().repo.get(key) : undefined;
-  }
 
   let gridRef!: HTMLDivElement;
 
@@ -272,8 +262,7 @@ const MissionControl: Component<{
                       {/* Metadata footer — fixed height so cards align when PR info varies */}
                       <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
                         <TerminalMeta
-                          meta={meta()?.meta}
-                          repoColor={colorFor(meta())}
+                          colored={props.getColoredMeta(id)}
                           activityHistory={props.getActivityHistory(id)}
                           subCount={props.getSubTerminalIds(id).length}
                           mode="readonly"

@@ -13,6 +13,7 @@ import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
+import { buildColoredMetas, type ColoredTerminalMeta } from "./path";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
@@ -135,6 +136,15 @@ export function useTerminals() {
     const id = activeId();
     return id !== null ? (meta[id]?.meta ?? null) : null;
   });
+
+  /** Metadata enriched with resolved display colors. Recomputes when terminals or metadata change. */
+  const coloredMetas = createMemo(() =>
+    buildColoredMetas(terminalIds(), getMeta),
+  );
+
+  function getColoredMeta(id: TerminalId): ColoredTerminalMeta | undefined {
+    return coloredMetas().get(id);
+  }
 
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
@@ -377,6 +387,7 @@ export function useTerminals() {
     activeId,
     setActiveId,
     getMeta,
+    getColoredMeta,
     getActivityHistory,
     activeThemeName,
     activeTheme,

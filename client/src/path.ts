@@ -21,33 +21,64 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-/** Build unified repo + branch color maps from terminal list.
- *  All repo names and branch names are fed into a single color sequence
- *  so colors are mutually exclusive across both dimensions. */
-export function buildColorMaps(
+/** TerminalMetadata enriched with resolved display colors.
+ *  Produced by `buildColoredMetas` so consumers never resolve colors manually. */
+export type ColoredTerminalMeta = {
+  /** Display name (repo name or CWD basename). */
+  name: string;
+  repoColor?: string;
+  branchColor?: string;
+  meta: import("kolu-common").TerminalMetadata;
+};
+
+/** Build color-enriched metadata for all terminals.
+ *  Returns a getter so consumers access per-terminal colored meta by ID.
+ *  All repo + branch names share one hue sequence for global uniqueness. */
+export function buildColoredMetas(
   ids: import("kolu-common").TerminalId[],
   getMeta: (
     id: import("kolu-common").TerminalId,
   ) => Omit<TerminalInfo, "id"> | undefined,
-): { repo: Map<string, string>; branch: Map<string, string> } {
+): Map<import("kolu-common").TerminalId, ColoredTerminalMeta> {
   const repoKeys = new Set<string>();
   const branchKeys = new Set<string>();
+  const entries: Array<{
+    id: import("kolu-common").TerminalId;
+    name: string;
+    meta: import("kolu-common").TerminalMetadata;
+    repoKey?: string;
+    branchKey?: string;
+  }> = [];
+
   for (const id of ids) {
-    const meta = getMeta(id);
-    const repo = terminalName(meta);
-    if (repo) repoKeys.add(repo);
-    const branch = meta?.meta?.git?.branch;
-    if (branch) branchKeys.add(branch);
+    const info = getMeta(id);
+    if (!info?.meta) continue;
+    const name = terminalName(info) ?? "terminal";
+    const repoKey =
+      info.meta.git?.repoName || cwdBasename(info.meta.cwd) || undefined;
+    const branchKey = info.meta.git?.branch;
+    if (repoKey) repoKeys.add(repoKey);
+    if (branchKey) branchKeys.add(branchKey);
+    entries.push({ id, name, meta: info.meta, repoKey, branchKey });
   }
-  // Combine into one sequence so no repo and branch share a hue.
+
   const unified = assignColors([...repoKeys, ...branchKeys]);
-  return {
-    repo: new Map([...repoKeys].map((k) => [k, unified.get(k)!])),
-    branch: new Map([...branchKeys].map((k) => [k, unified.get(k)!])),
-  };
+  const result = new Map<
+    import("kolu-common").TerminalId,
+    ColoredTerminalMeta
+  >();
+  for (const { id, name, meta, repoKey, branchKey } of entries) {
+    result.set(id, {
+      name,
+      meta,
+      repoColor: repoKey ? unified.get(repoKey) : undefined,
+      branchColor: branchKey ? unified.get(branchKey) : undefined,
+    });
+  }
+  return result;
 }
 
-export function terminalName(
+function terminalName(
   meta: Omit<TerminalInfo, "id"> | undefined,
 ): string | undefined {
   return (

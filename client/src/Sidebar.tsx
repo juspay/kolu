@@ -1,4 +1,4 @@
-import { type Component, For, Show, createMemo, createSignal } from "solid-js";
+import { type Component, For, Show, createSignal } from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -8,11 +8,11 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import type { ColoredTerminalMeta } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ActivitySample } from "./useTerminals";
 
@@ -21,19 +21,16 @@ const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
+  colored: ColoredTerminalMeta | undefined;
   onSelect: (id: TerminalId) => void;
   activityHistory: ActivitySample[];
   /** Number of sub-terminals attached to this terminal. */
   subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
-  repoColor: string | undefined;
-  branchColor: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
-  const repoColor = () => props.repoColor;
-  const branchColor = () => props.branchColor;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -64,16 +61,15 @@ const SidebarEntry: Component<{
         }}
         style={{
           "border-left-color":
-            repoColor() ?? (props.isActive ? "var(--accent)" : "transparent"),
+            props.colored?.repoColor ??
+            (props.isActive ? "var(--accent)" : "transparent"),
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
         title={m()?.meta?.cwd ?? String(props.id)}
       >
         <TerminalMeta
-          meta={m()?.meta}
-          repoColor={repoColor()}
-          branchColor={branchColor()}
+          colored={props.colored}
           activityHistory={props.activityHistory}
           subCount={props.subCount}
         />
@@ -87,6 +83,7 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getColoredMeta: (id: TerminalId) => ColoredTerminalMeta | undefined;
   getActivityHistory: (id: TerminalId) => ActivitySample[];
   getSubTerminalIds: (id: TerminalId) => TerminalId[];
   onSelect: (id: TerminalId) => void;
@@ -95,24 +92,6 @@ const Sidebar: Component<{
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  const colors = createMemo(() =>
-    buildColorMaps(props.terminalIds, props.getMeta),
-  );
-
-  function colorFor(
-    meta: Omit<TerminalInfo, "id"> | undefined,
-  ): string | undefined {
-    const key = terminalName(meta);
-    return key ? colors().repo.get(key) : undefined;
-  }
-
-  function branchColorFor(
-    meta: Omit<TerminalInfo, "id"> | undefined,
-  ): string | undefined {
-    const branch = meta?.meta?.git?.branch;
-    return branch ? colors().branch.get(branch) : undefined;
-  }
-
   const { showTipOnce } = useTips();
 
   function handleSelect(id: TerminalId) {
@@ -201,12 +180,11 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
+                      colored={props.getColoredMeta(id)}
                       activityHistory={props.getActivityHistory(id)}
                       subCount={props.getSubTerminalIds(id).length}
                       onSelect={handleSelect}
                       dropEdge={edge()}
-                      repoColor={colorFor(props.getMeta(id))}
-                      branchColor={branchColorFor(props.getMeta(id))}
                     />
                   );
                 }}
@@ -215,15 +193,14 @@ const Sidebar: Component<{
             <DragOverlay>
               <Show when={activeItem()}>
                 {(dragId) => {
-                  const dm = () => props.getMeta(dragId());
-                  const color = () => colorFor(dm());
+                  const c = () => props.getColoredMeta(dragId());
                   return (
                     <div
                       class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": color() }}
+                      style={{ "border-left-color": c()?.repoColor }}
                     >
-                      <span style={{ color: color() }}>
-                        {terminalName(dm()) ?? "terminal"}
+                      <span style={{ color: c()?.repoColor }}>
+                        {c()?.name ?? "terminal"}
                       </span>
                     </div>
                   );

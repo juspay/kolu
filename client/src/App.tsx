@@ -41,6 +41,7 @@ const App: Component = () => {
     activeId,
     setActiveId,
     getMeta,
+    getColoredMeta,
     getActivityHistory,
     activeThemeName,
     activeTheme,
@@ -331,6 +332,7 @@ const App: Component = () => {
         mruOrder={mruOrder()}
         activeId={activeId()}
         getMeta={getMeta}
+        getColoredMeta={getColoredMeta}
         getActivityHistory={getActivityHistory}
         getSubTerminalIds={getSubTerminalIds}
         getTerminalTheme={getTerminalTheme}
@@ -396,6 +398,7 @@ const App: Component = () => {
           terminalIds={terminalIds()}
           activeId={activeId()}
           getMeta={getMeta}
+          getColoredMeta={getColoredMeta}
           getActivityHistory={getActivityHistory}
           getSubTerminalIds={getSubTerminalIds}
           onSelect={setActiveId}
