@@ -12,6 +12,7 @@ import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ActivityGraph from "./ActivityGraph";
+import ClaudeIndicator from "./ClaudeIndicator";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
@@ -136,9 +137,16 @@ const SidebarEntry: Component<{
             </div>
           )}
         </Show>
-        <Show when={props.activityHistory.length > 0}>
-          <div class="mt-0.5">
-            <ActivityGraph samples={props.activityHistory} />
+        <Show when={m()?.meta?.claude || props.activityHistory.length > 0}>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            <Show when={m()?.meta?.claude}>
+              {(claude) => <ClaudeIndicator state={claude().state} />}
+            </Show>
+            <Show when={props.activityHistory.length > 0}>
+              <div class="ml-auto">
+                <ActivityGraph samples={props.activityHistory} />
+              </div>
+            </Show>
           </div>
         </Show>
       </button>
