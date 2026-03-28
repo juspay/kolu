@@ -146,6 +146,10 @@ export const SHORTCUTS = {
     keybind: { key: "j", mod: true },
     label: "Random theme",
   },
+  copyPaneText: {
+    keybind: { key: "C", code: "KeyC", mod: true, shift: true },
+    label: "Copy pane as text",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

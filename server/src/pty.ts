@@ -29,6 +29,8 @@ export interface PtyHandle {
   resize(cols: number, rows: number): void;
   /** Serialized screen state (VT escape sequences) for late-joining clients. */
   getScreenState(): string;
+  /** Plain text content of the terminal buffer (scrollback + viewport). */
+  getScreenText(startLine?: number, endLine?: number): string;
   /** Kill the PTY process and release resources. */
   dispose(): void;
 }
@@ -122,6 +124,16 @@ export function spawnPty(
       headless.resize(cols, rows);
     },
     getScreenState: () => serializeAddon.serialize(),
+    getScreenText: (startLine?: number, endLine?: number) => {
+      const buf = headless.buffer.active;
+      const start = startLine ?? 0;
+      const end = endLine ?? buf.length;
+      const lines: string[] = [];
+      for (let i = start; i < end; i++) {
+        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+      }
+      return lines.join("\n");
+    },
     dispose() {
       oscDisposable.dispose();
       headlessOnDataDisposable.dispose();

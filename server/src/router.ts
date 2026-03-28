@@ -81,6 +81,13 @@ export const appRouter = t.router({
       return requireTerminal(input.id).handle.getScreenState();
     }),
 
+    screenText: t.terminal.screenText.handler(async ({ input }) => {
+      return requireTerminal(input.id).handle.getScreenText(
+        input.startLine,
+        input.endLine,
+      );
+    }),
+
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
       saveClipboardImage(entry.clipboardDir, input.data);
