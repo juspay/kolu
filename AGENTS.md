@@ -20,6 +20,7 @@ Run `just ci` to build and test across all systems. It:
 
 Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
 Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
+Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
 
 ## UI
 
