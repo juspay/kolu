@@ -44,6 +44,16 @@ Feature: Git context in header and sidebar
     And the sidebar should not show a worktree indicator
     And there should be no page errors
 
+  Scenario: Git init in an empty directory shows branch in sidebar
+    When I run "mkdir -p /tmp/kolu-git-init-test && cd /tmp/kolu-git-init-test"
+    And I run "git init"
+    Then the header should show a branch name
+    And the sidebar should show a branch name
+    When I run "git checkout -b test-branch"
+    Then the header branch should contain "test-branch"
+    And the sidebar branch should contain "test-branch"
+    And there should be no page errors
+
   Scenario: Header and sidebar hide git context outside a repo
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"

@@ -1,9 +1,10 @@
 /**
  * Git metadata provider — resolves repo/branch info and watches .git/HEAD.
  *
- * Two triggers:
- * 1. Listens to "metadata" events for CWD changes → re-resolves + restarts HEAD watcher
- * 2. Watches .git/HEAD via fs.watch → re-resolves on branch switch/checkout
+ * Three triggers:
+ * 1. CWD change (via OSC 7) → re-resolves + restarts HEAD watcher
+ * 2. .git/HEAD change (via fs.watch) → re-resolves on branch switch/checkout
+ * 3. Any prompt in a non-git dir → re-resolves to detect `git init`
  */
 
 import path from "node:path";
@@ -16,6 +17,16 @@ import { emitMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 const DEBOUNCE_MS = 150;
+
+/** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
+function hasGitDir(cwd: string): boolean {
+  try {
+    fs.accessSync(path.join(cwd, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Resolve git context for a directory. Returns null if not in a git repo. */
 export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
@@ -115,13 +126,19 @@ export function startGitProvider(
   void resolve(entry.metadata.cwd);
 
   function onMetadata(meta: TerminalMetadata) {
-    if (meta.cwd === lastCwd) return;
-    plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
-    lastCwd = meta.cwd;
-    // Restart HEAD watcher for new directory
-    stopHeadWatch();
-    stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
-    void resolve(meta.cwd);
+    const cwdChanged = meta.cwd !== lastCwd;
+    if (cwdChanged) {
+      plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
+      lastCwd = meta.cwd;
+      // Restart HEAD watcher for new directory
+      stopHeadWatch();
+      stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
+      void resolve(meta.cwd);
+    } else if (entry.metadata.git === null && hasGitDir(meta.cwd)) {
+      // Re-resolve when .git appears — detects `git init` in the current dir
+      // without spawning a git process on every prompt in non-git dirs
+      void resolve(meta.cwd);
+    }
   }
 
   function handleHeadChange() {
@@ -132,6 +149,11 @@ export function startGitProvider(
   async function resolve(cwd: string) {
     const git = await resolveGitInfo(cwd);
     if (gitInfoEqual(git, entry.metadata.git)) return;
+    // Start HEAD watcher when a repo appears (e.g. after `git init`)
+    if (entry.metadata.git === null && git !== null) {
+      stopHeadWatch();
+      stopHeadWatch = watchGitHead(cwd, handleHeadChange);
+    }
     entry.metadata.git = git;
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
