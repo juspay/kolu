@@ -52,11 +52,9 @@ const SidebarEntry: Component<{
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent hover:bg-surface-2":
-            !props.isActive,
+          "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
           "text-fg": !props.isActive && !!m()?.notified,
-          "text-fg-3 hover:text-fg-2":
-            !props.isActive && !m()?.notified,
+          "text-fg-3 hover:text-fg-2": !props.isActive && !m()?.notified,
           "opacity-25": sortable.isActiveDraggable,
         }}
         style={{

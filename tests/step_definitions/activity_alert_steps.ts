@@ -17,9 +17,7 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
 });
 
 Then("a sidebar entry should be notified", async function (this: KoluWorld) {
-  const notified = this.page.locator(
-    '[data-testid="sidebar"] [data-notified]',
-  );
+  const notified = this.page.locator('[data-testid="sidebar"] [data-notified]');
   await notified.first().waitFor({ state: "visible", timeout: 3000 });
 });
 
@@ -32,9 +30,7 @@ Then("no sidebar entry should be notified", async function (this: KoluWorld) {
 });
 
 When("I click the notified sidebar entry", async function (this: KoluWorld) {
-  const notified = this.page.locator(
-    '[data-testid="sidebar"] [data-notified]',
-  );
+  const notified = this.page.locator('[data-testid="sidebar"] [data-notified]');
   await notified.first().waitFor({ state: "visible", timeout: 3000 });
   await notified.first().click();
   await this.page.waitForTimeout(300);
