@@ -8,6 +8,7 @@ pkgs.mkShell {
 
   # Env vars shared with the nix build (defined once in default.nix)
   env = packages.koluEnv // {
+    KOLU_COMMIT_HASH = "dev";
     PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   };
