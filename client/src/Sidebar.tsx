@@ -114,10 +114,11 @@ const SidebarEntry: Component<{
                   data-testid="terminal-entry"
                   data-terminal-id={subId}
                   data-active={isFocused() ? "" : undefined}
-                  class="w-full pl-6 pr-2 py-1.5 text-xs text-left truncate transition-colors"
+                  class="w-full pl-5 pr-2 py-1.5 text-xs text-left truncate transition-colors"
                   classList={{
-                    "text-accent bg-accent/10": isFocused(),
-                    "text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+                    "border-l-2 border-accent bg-accent/10 text-fg":
+                      isFocused(),
+                    "border-l-2 border-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
                       !isFocused(),
                   }}
                   onClick={() => props.onSelectTerminal(subId)}
