@@ -20,3 +20,6 @@ export const DEFAULT_SCROLLBACK = 10_000;
 
 /** Seconds of no PTY output before a terminal is considered idle/sleeping. */
 export const ACTIVITY_IDLE_THRESHOLD_S = 5;
+
+/** Rolling window for activity history (ms). Both server and client use this. */
+export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes

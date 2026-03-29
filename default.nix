@@ -73,12 +73,15 @@ let
   };
 
   # Shared env vars — used by the kolu build, the devShell, and the wrapper.
+  # KOLU_COMMIT_HASH excluded — it busts the derivation cache on every commit.
+  # The build uses a placeholder; koluStamped stamps the real hash afterwards.
   koluEnv = {
     KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
     KOLU_FONTS_DIR = "${fonts}";
     KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
-    KOLU_COMMIT_HASH = commitHash;
   };
+
+  koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
@@ -99,6 +102,7 @@ let
     env = {
       npm_config_nodedir = nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
+      KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
     buildPhase = ''
@@ -119,6 +123,15 @@ let
       runHook postInstall
     '';
   };
+
+  # Stamp the real commit hash into the built JS bundle.
+  # Only this re-runs on docs-only commits; the expensive build above is cached.
+  koluStamped = pkgs.runCommand "kolu-stamped" { } ''
+    cp -r ${kolu} $out
+    chmod -R u+w $out/client/dist
+    find $out/client/dist -name '*.js' -exec \
+      sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
+  '';
 in
 {
   inherit kolu ghosttyThemes fonts clipboard-shims koluEnv;
@@ -127,9 +140,9 @@ in
     name = "kolu";
     runtimeInputs = [ nodejs pkgs.tsx pkgs.git pkgs.gh ];
     text = ''
-      export KOLU_CLIENT_DIST="${kolu}/client/dist"
+      export KOLU_CLIENT_DIST="${koluStamped}/client/dist"
       export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"
-      exec tsx "${kolu}/server/src/index.ts" "$@"
+      exec tsx "${koluStamped}/server/src/index.ts" "$@"
     '';
   };
 }
