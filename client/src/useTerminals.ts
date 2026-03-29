@@ -22,15 +22,19 @@ import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
+import { fireActivityAlert } from "./useActivityAlerts";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
-type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
+type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
+  notified?: boolean;
+};
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
+  activityAlerts: Accessor<boolean>;
 }) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
@@ -65,6 +69,8 @@ export function useTerminals(deps: {
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
+      // Clear notification when user visits the terminal
+      if (meta[id]?.notified) setMeta(id, "notified", false);
     }),
   );
 
@@ -125,7 +131,23 @@ export function useTerminals(deps: {
   function subscribeMetadata(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onMetadataChange({ id }, { signal }),
-      (metadata) => setMeta(id, "meta", metadata),
+      (metadata) => {
+        const prevState = meta[id]?.meta?.claude?.state;
+        setMeta(id, "meta", metadata);
+
+        // Alert when Claude transitions to "waiting" on a background terminal
+        if (
+          deps.activityAlerts() &&
+          metadata.claude?.state === "waiting" &&
+          prevState !== "waiting" &&
+          id !== activeId()
+        ) {
+          const pos = terminalIds().indexOf(id) + 1;
+          const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+          setMeta(id, "notified", true);
+          fireActivityAlert(label);
+        }
+      },
     );
   }
 
@@ -357,6 +379,19 @@ export function useTerminals(deps: {
     }
   }
 
+  /** Simulate an activity alert on a random background terminal (debug).
+   *  Respects the activityAlerts preference, mirroring real behavior. */
+  function simulateAlert() {
+    if (!deps.activityAlerts()) return;
+    const inactive = terminalIds().filter((id) => id !== activeId());
+    if (inactive.length === 0) return;
+    const id = inactive[Math.floor(Math.random() * inactive.length)]!;
+    const pos = terminalIds().indexOf(id) + 1;
+    const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+    setMeta(id, "notified", true);
+    fireActivityAlert(label);
+  }
+
   return {
     terminalIds,
     activeId,
@@ -379,5 +414,6 @@ export function useTerminals(deps: {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    simulateAlert,
   };
 }
