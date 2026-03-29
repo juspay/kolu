@@ -19,12 +19,16 @@ function playTone() {
   }
 }
 
-/** Show a browser notification (requests permission lazily on first call). */
-async function showBrowserNotification(title: string, body?: string) {
-  if (!("Notification" in window)) return;
-  if (Notification.permission === "default") {
-    await Notification.requestPermission();
+/** Request notification permission eagerly so it's ready when tab is backgrounded. */
+export function requestNotificationPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    void Notification.requestPermission();
   }
+}
+
+/** Show a browser notification (permission must already be granted). */
+function showBrowserNotification(title: string, body?: string) {
+  if (!("Notification" in window)) return;
   if (Notification.permission === "granted") {
     new Notification(title, { body, icon: "/favicon.svg" });
   }
@@ -34,6 +38,6 @@ async function showBrowserNotification(title: string, body?: string) {
 export function fireActivityAlert(label: string) {
   playTone();
   if (document.hidden) {
-    void showBrowserNotification(`${label} finished`);
+    showBrowserNotification(`${label} finished`);
   }
 }

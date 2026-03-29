@@ -22,7 +22,10 @@ import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import { fireActivityAlert } from "./useActivityAlerts";
+import {
+  fireActivityAlert,
+  requestNotificationPermission,
+} from "./useActivityAlerts";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
@@ -50,6 +53,9 @@ export function useTerminals(deps: {
   const subPanel = useSubPanel();
   const { pushActivity, getActivityHistory, seedActivity, clearActivity } =
     deps.activity;
+
+  // Request browser notification permission eagerly when alerts are enabled
+  if (deps.activityAlerts()) requestNotificationPermission();
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
@@ -135,17 +141,24 @@ export function useTerminals(deps: {
         const prevState = meta[id]?.meta?.claude?.state;
         setMeta(id, "meta", metadata);
 
-        // Alert when Claude transitions to "waiting" on a background terminal
+        // Alert when Claude transitions to "waiting"
         if (
           deps.activityAlerts() &&
           metadata.claude?.state === "waiting" &&
-          prevState !== "waiting" &&
-          id !== activeId()
+          prevState !== "waiting"
         ) {
-          const pos = terminalIds().indexOf(id) + 1;
-          const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
-          setMeta(id, "notified", true);
-          fireActivityAlert(label);
+          const isBackground = id !== activeId();
+          const tabHidden = document.hidden;
+
+          // Sidebar glow only for non-active terminals (active one is already visible)
+          if (isBackground) setMeta(id, "notified", true);
+
+          // Audio + browser notification when terminal is background OR tab is unfocused
+          if (isBackground || tabHidden) {
+            const pos = terminalIds().indexOf(id) + 1;
+            const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+            fireActivityAlert(label);
+          }
         }
       },
     );
