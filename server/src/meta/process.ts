@@ -1,16 +1,18 @@
 /**
  * Foreground process metadata provider — detects the active process in a terminal.
  *
- * On Linux, reads /proc/{shellPid}/stat to find the foreground process group
- * (tpgid), then reads /proc/{tpgid}/comm for the process name. When the
- * foreground process is the shell itself, reports null (idle).
+ * Linux: reads /proc/{shellPid}/stat to find the foreground process group
+ * (tpgid), then reads /proc/{tpgid}/comm for the process name.
  *
- * Limitations (Linux-only):
- * - Relies on /proc — not available on macOS
- * - Only reports the process group leader's name, not the full command line
+ * macOS: finds direct children of the shell via `pgrep -P`, then checks
+ * their stat flags via `ps` for the foreground indicator (+).
+ *
+ * When the foreground process is the shell itself, reports null (idle).
  */
 
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import type { TerminalEntry } from "../terminals.ts";
 import { updateProcess } from "./index.ts";
 import { log } from "../log.ts";
@@ -19,6 +21,8 @@ const POLL_INTERVAL_MS = 1_000;
 
 /** Shells to filter out — when the foreground process is a shell, report null. */
 const SHELLS = new Set(["bash", "zsh", "fish", "sh", "dash", "nu", "nushell"]);
+
+// ── Linux: /proc-based detection ──
 
 /**
  * Parse the fields after the comm in /proc/{pid}/stat.
@@ -44,8 +48,7 @@ function parseField(fields: string[], index: number): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
-/** Get the foreground process name for a shell PID, or null if idle (shell is foreground). */
-function getForegroundProcess(shellPid: number): string | null {
+function getForegroundProcessLinux(shellPid: number): string | null {
   const fields = parseProcStat(shellPid);
   if (!fields) return null;
 
@@ -65,9 +68,56 @@ function getForegroundProcess(shellPid: number): string | null {
   }
 }
 
+// ── macOS: ps-based detection ──
+
+/**
+ * Find the foreground child process of a shell on macOS.
+ *
+ * 1. `pgrep -P <shellPid>` — find direct children of the shell
+ * 2. `ps -o stat=,comm= -p <pids>` — get stat flags and command name
+ * 3. Look for '+' in stat (indicates foreground process group member)
+ */
+function getForegroundProcessDarwin(shellPid: number): string | null {
+  try {
+    const children = execFileSync("pgrep", ["-P", String(shellPid)], {
+      encoding: "utf8",
+      timeout: 2000,
+    }).trim();
+    if (!children) return null;
+
+    const pids = children.split("\n").join(",");
+    const result = execFileSync("ps", ["-o", "stat=,comm=", "-p", pids], {
+      encoding: "utf8",
+      timeout: 2000,
+    });
+
+    for (const line of result.trim().split("\n")) {
+      if (!line.trim()) continue;
+      // stat contains '+' for foreground process group members
+      const match = line.trim().match(/^(\S+)\s+(.+)$/);
+      if (match && match[1]!.includes("+")) {
+        const name = path.basename(match[2]!.trim());
+        if (!SHELLS.has(name)) return name;
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Platform dispatch ──
+
+function getForegroundProcess(shellPid: number): string | null {
+  if (process.platform === "linux") return getForegroundProcessLinux(shellPid);
+  if (process.platform === "darwin")
+    return getForegroundProcessDarwin(shellPid);
+  return null;
+}
+
 /**
  * Start the foreground process metadata provider for a terminal.
- * Polls /proc to detect the active foreground process and updates metadata.
+ * Polls to detect the active foreground process and updates metadata.
  */
 export function startProcessProvider(
   entry: TerminalEntry,
