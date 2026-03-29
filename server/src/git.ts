@@ -1,47 +1,13 @@
 /**
- * Git worktree operations — create, remove, and list worktrees.
- *
+ * Git worktree operations — create and remove worktrees.
  * Worktrees are stored in `.worktrees/<name>` relative to the main repo root.
- * Names are random adjective-noun pairs from a Nix-provided word list.
  */
 
 import path from "node:path";
 import fs from "node:fs";
 import { simpleGit } from "simple-git";
 import { log } from "./log.ts";
-
-// --- Word list for random worktree names ---
-
-let words: string[] | null = null;
-
-function getWords(): string[] {
-  if (words) return words;
-
-  const wordsPath = process.env.KOLU_WORKTREE_WORDS;
-  if (wordsPath && fs.existsSync(wordsPath)) {
-    words = fs
-      .readFileSync(wordsPath, "utf-8")
-      .split("\n")
-      .filter((w) => w.length > 0);
-    log.info({ path: wordsPath, count: words.length }, "loaded word list");
-  } else {
-    words = ["calm", "bold", "warm", "keen", "swift", "brook", "ridge", "vale"];
-    log.warn("KOLU_WORKTREE_WORDS not set, using fallback word list");
-  }
-  return words;
-}
-
-function randomWorktreeName(): string {
-  const w = getWords();
-  const a = w[Math.floor(Math.random() * w.length)]!;
-  let b: string;
-  do {
-    b = w[Math.floor(Math.random() * w.length)]!;
-  } while (b === a && w.length > 1);
-  return `${a}-${b}`;
-}
-
-// --- Git helpers ---
+import { randomName } from "./randomName.ts";
 
 /** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {
@@ -68,8 +34,6 @@ async function detectDefaultBranch(repoPath: string): Promise<string> {
   }
 }
 
-// --- Worktree operations ---
-
 /**
  * Create a git worktree with a random name, branching from origin/<default>.
  * Retries with a new name on collision.
@@ -84,9 +48,8 @@ export async function worktreeCreate(
   log.info({ mainRoot }, "fetching origin");
   await git.fetch("origin");
 
-  // Try up to 5 times to find a unique name
   for (let attempt = 0; attempt < 5; attempt++) {
-    const branch = randomWorktreeName();
+    const branch = randomName();
     const targetPath = path.join(mainRoot, ".worktrees", branch);
 
     if (fs.existsSync(targetPath)) {
@@ -110,7 +73,6 @@ export async function worktreeCreate(
     return { path: targetPath, branch };
   }
 
-  // Extremely unlikely — 48×48 = 2304 possible names
   throw new Error("Failed to generate unique worktree name after 5 attempts");
 }
 
