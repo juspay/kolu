@@ -12,7 +12,7 @@ const stateConfig: Record<
 > = {
   thinking: { color: "text-[#D97757]", animate: true, label: "Thinking" },
   tool_use: { color: "text-warning", animate: true, label: "Running tools" },
-  waiting: { color: "text-fg-3", animate: false, label: "Waiting" },
+  waiting: { color: "text-accent", animate: false, label: "Waiting" },
 };
 
 const ClaudeIndicator: Component<{ state: ClaudeState }> = (props) => {

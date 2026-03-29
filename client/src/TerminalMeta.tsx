@@ -5,6 +5,7 @@ import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
+import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -56,46 +57,55 @@ const TerminalMeta: Component<{
       </div>
 
       {/* Branch */}
-      <div
-        data-testid="terminal-meta-branch"
-        class={`${detailClass()} truncate`}
-        title={i()?.meta.git?.branch}
-        style={{ color: i()?.branchColor }}
-        classList={{ "text-fg-2": !i()?.branchColor }}
-      >
-        {i()?.meta.git?.branch ?? "\u00A0"}
-      </div>
+      <Tip label={i()?.meta.git?.branch ?? ""}>
+        <div
+          data-testid="terminal-meta-branch"
+          class={`${detailClass()} truncate`}
+          style={{ color: i()?.branchColor }}
+          classList={{ "text-fg-2": !i()?.branchColor }}
+        >
+          {i()?.meta.git?.branch ?? "\u00A0"}
+        </div>
+      </Tip>
 
-      {/* PR info */}
-      <Show when={i()?.meta.pr}>
-        {(pr) => (
-          <div
-            class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
-            data-testid="terminal-meta-pr"
-            title={`#${pr().number} ${pr().title}`}
-          >
-            <PrStateIcon state={pr().state} class="w-3 h-3" />
-            <Show when={pr().checks}>
-              {(checks) => <ChecksIndicator status={checks()} />}
-            </Show>
-            <Show
-              when={mode() === "normal"}
-              fallback={<span class="shrink-0">#{pr().number}</span>}
+      {/* PR info — hidden on inactive sidebar entries, visible on hover/active */}
+      <div
+        class={
+          mode() === "normal"
+            ? "hidden group-hover:block group-data-[active]:block"
+            : ""
+        }
+      >
+        <Show when={i()?.meta.pr}>
+          {(pr) => (
+            <div
+              class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
+              data-testid="terminal-meta-pr"
+              title={`#${pr().number} ${pr().title}`}
             >
-              <a
-                href={pr().url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="hover:text-accent shrink-0"
-                onClick={(e) => e.stopPropagation()}
+              <PrStateIcon state={pr().state} class="w-3 h-3" />
+              <Show when={pr().checks}>
+                {(checks) => <ChecksIndicator status={checks()} />}
+              </Show>
+              <Show
+                when={mode() === "normal"}
+                fallback={<span class="shrink-0">#{pr().number}</span>}
               >
-                #{pr().number}
-              </a>
-            </Show>
-            <span class="truncate">{pr().title}</span>
-          </div>
-        )}
-      </Show>
+                <a
+                  href={pr().url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="hover:text-accent shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  #{pr().number}
+                </a>
+              </Show>
+              <span class="truncate">{pr().title}</span>
+            </div>
+          )}
+        </Show>
+      </div>
 
       {/* Agent status + activity sparkline */}
       <Show when={i()?.meta.claude || (i()?.activityHistory.length ?? 0) > 0}>
