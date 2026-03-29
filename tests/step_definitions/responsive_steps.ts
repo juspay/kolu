@@ -49,20 +49,6 @@ Then(
 );
 
 Then(
-  "the header height should be {int} pixels",
-  async function (this: KoluWorld, expected: number) {
-    const header = this.page.locator("header");
-    const box = await header.boundingBox();
-    assert.ok(box, "Header has no bounding box");
-    assert.strictEqual(
-      Math.round(box.height),
-      expected,
-      `Header height ${box.height}px !== expected ${expected}px`,
-    );
-  },
-);
-
-Then(
   "the sidebar should be below the header",
   async function (this: KoluWorld) {
     const header = this.page.locator("header");
