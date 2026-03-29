@@ -31,6 +31,8 @@ export interface CommandDeps {
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
   handleKillWorktree: () => void;
+  // Debug
+  simulateSessionEnd: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -165,6 +167,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               cols: 1,
               rows: 1,
             }),
+        },
+        {
+          name: "Simulate session end",
+          onSelect: () => deps.simulateSessionEnd(),
         },
         {
           name: "Clear localStorage",

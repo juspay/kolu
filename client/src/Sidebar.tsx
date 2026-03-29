@@ -48,17 +48,23 @@ const SidebarEntry: Component<{
         data-terminal-id={props.id}
         data-active={props.isActive ? "" : undefined}
         data-activity={m()?.isActive ? "active" : "sleeping"}
+        data-notified={m()?.notified ? "" : undefined}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
-            !props.isActive,
+          "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
+          "text-fg-3 hover:text-fg-2": !props.isActive && !m()?.notified,
+          "text-fg": !!m()?.notified,
           "opacity-25": sortable.isActiveDraggable,
         }}
         style={{
-          "border-left-color":
-            props.displayInfo?.repoColor ??
-            (props.isActive ? "var(--accent)" : "transparent"),
+          "border-left-color": m()?.notified
+            ? "var(--color-accent)"
+            : (props.displayInfo?.repoColor ??
+              (props.isActive ? "var(--accent)" : "transparent")),
+          ...(m()?.notified
+            ? { animation: "notified-glow 1.5s ease-in-out infinite" }
+            : {}),
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}

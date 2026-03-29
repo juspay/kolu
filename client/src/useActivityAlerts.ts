@@ -1,10 +1,12 @@
-/** Terminal activity notifications — audio, toast, and browser notifications when a session ends. */
+/**
+ * Activity alerts — out-of-tab feedback when a terminal session ends.
+ *
+ * In-app feedback is the sidebar glow (notified flag in useTerminals).
+ * This module handles audio tone + browser Notification for backgrounded tabs.
+ */
 
 import type { Accessor } from "solid-js";
-import { toast } from "solid-sonner";
 import type { SessionEndEvent } from "kolu-common";
-import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
 
 /** Format a duration in seconds to a human-readable string. */
 function formatDuration(seconds: number): string {
@@ -47,26 +49,17 @@ function showBrowserNotification(title: string, body: string) {
   }
 }
 
-export function useNotifications(deps: { enabled: Accessor<boolean> }) {
-  const { showTipOnce } = useTips();
-
-  /** Called by useTerminals when the server emits a session-end event for a terminal. */
+export function useActivityAlerts(deps: { enabled: Accessor<boolean> }) {
+  /** Called when a background terminal's session ends and the user hasn't seen the activity.
+   *  Fires audio + browser notification only when the tab is backgrounded. */
   function onSessionEnd(label: string, event: SessionEndEvent) {
-    if (!deps.enabled()) return;
+    if (!deps.enabled() || !document.hidden) return;
 
     const title = `${label} finished`;
     const description = `Active for ${formatDuration(event.durationS)}`;
-
-    // Toast always fires — non-intrusive when tab is visible
-    toast(title, { description });
-    showTipOnce(CONTEXTUAL_TIPS.notifications);
-
-    // Audio + browser notification only when tab is backgrounded
-    if (document.hidden) {
-      playTone();
-      showBrowserNotification(title, description);
-    }
+    playTone();
+    showBrowserNotification(title, description);
   }
 
-  return { onSessionEnd } as const;
+  return { enabled: deps.enabled, onSessionEnd } as const;
 }

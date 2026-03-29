@@ -50,6 +50,17 @@
   --color-danger: #dc2626;
 }
 
+/* Repeating glow for sidebar entries with pending notifications */
+@keyframes notified-glow {
+  0%,
+  100% {
+    background-color: oklch(from var(--color-accent) l c h / 0.08);
+  }
+  50% {
+    background-color: oklch(from var(--color-accent) l c h / 0.25);
+  }
+}
+
 /* Brief pulse when a terminal becomes active in the background */
 @keyframes activity-pulse {
   0% {

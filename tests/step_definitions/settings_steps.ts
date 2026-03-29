@@ -45,23 +45,23 @@ Then(
   },
 );
 
-When("I click the notifications toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="notifications-toggle"]');
+When("I click the activity alerts toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="activity-alerts-toggle"]');
   await this.page.waitForTimeout(200);
 });
 
 Then(
-  "the notifications toggle state should change",
+  "the activity alerts toggle state should change",
   async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="notifications-toggle"]');
+    const toggle = this.page.locator('[data-testid="activity-alerts-toggle"]');
     const after = await toggle.getAttribute("data-enabled");
-    await this.page.click('[data-testid="notifications-toggle"]');
+    await this.page.click('[data-testid="activity-alerts-toggle"]');
     await this.page.waitForTimeout(100);
     const afterSecond = await toggle.getAttribute("data-enabled");
     assert.notStrictEqual(
       after,
       afterSecond,
-      "Expected notifications toggle to change state on click",
+      "Expected activity alerts toggle to change state on click",
     );
   },
 );

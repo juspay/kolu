@@ -33,7 +33,7 @@ import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
-import { useNotifications } from "./useNotifications";
+import { useActivityAlerts } from "./useActivityAlerts";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
@@ -42,8 +42,8 @@ const App: Component = () => {
     setRandomTheme,
     scrollLock,
     setScrollLock,
-    notifications,
-    setNotifications,
+    activityAlerts,
+    setActivityAlerts,
   } = usePreferences();
 
   const {
@@ -64,10 +64,11 @@ const App: Component = () => {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    simulateSessionEnd,
   } = useTerminals({
     randomTheme,
     activity: useActivity(),
-    notifications: useNotifications({ enabled: notifications }),
+    activityAlerts: useActivityAlerts({ enabled: activityAlerts }),
   });
 
   const {
@@ -178,6 +179,7 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
     handleKillWorktree: () => void handleKillWorktree(),
+    simulateSessionEnd,
   });
 
   // Reset state on close and return focus to terminal
@@ -293,8 +295,8 @@ const App: Component = () => {
         onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
-        notifications={notifications()}
-        onNotificationsChange={setNotifications}
+        activityAlerts={activityAlerts()}
+        onActivityAlertsChange={setActivityAlerts}
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />

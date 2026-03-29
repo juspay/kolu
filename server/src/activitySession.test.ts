@@ -38,41 +38,37 @@ describe("ActivitySessionTracker", () => {
 
     tracker.touch();
     advance(60_000);
-    tracker.touch(); // last activity at 61s
+    tracker.touch(); // last activity at t=61000
 
-    // Grace period hasn't elapsed yet
     t.mock.timers.tick(29_999);
     assert.equal(events.length, 0);
 
-    // Grace period expires
     t.mock.timers.tick(1);
     assert.equal(events.length, 1);
-    assert.equal(events[0]!.durationS, 60); // 61000 - 1000 = 60s
+    assert.equal(events[0]!.durationS, 60);
+    assert.equal(events[0]!.lastActivityAt, 61_000);
   });
 
   it("coalesces activity bursts within grace period", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
 
-    // First burst
-    tracker.touch(); // session starts at t=1000
+    tracker.touch(); // t=1000
     advance(5_000);
-    tracker.touch();
+    tracker.touch(); // t=6000
 
-    // Gap of 20s (within 30s grace)
     advance(20_000);
-    tracker.touch(); // activity resumes at t=26000
+    tracker.touch(); // t=26000
 
     advance(10_000);
-    tracker.touch(); // last activity at t=36000
+    tracker.touch(); // t=36000
 
-    // No event yet — grace timer reset
     t.mock.timers.tick(29_999);
     assert.equal(events.length, 0);
 
-    // Grace expires
     t.mock.timers.tick(1);
     assert.equal(events.length, 1);
-    assert.equal(events[0]!.durationS, 35); // 36000 - 1000 = 35s
+    assert.equal(events[0]!.durationS, 35);
+    assert.equal(events[0]!.lastActivityAt, 36_000);
   });
 
   it("does not emit if disposed before grace period", async (t) => {
@@ -95,9 +91,10 @@ describe("ActivitySessionTracker", () => {
     advance(10_000);
     tracker.touch(); // t=11000
 
-    t.mock.timers.tick(30_000); // grace expires
+    t.mock.timers.tick(30_000);
     assert.equal(events.length, 1);
     assert.equal(events[0]!.durationS, 10);
+    assert.equal(events[0]!.lastActivityAt, 11_000);
 
     // Second session
     advance(5_000);
@@ -108,25 +105,27 @@ describe("ActivitySessionTracker", () => {
     t.mock.timers.tick(30_000);
     assert.equal(events.length, 2);
     assert.equal(events[1]!.durationS, 20);
+    assert.equal(events[1]!.lastActivityAt, 36_000);
   });
 
   it("handles single touch (zero duration session)", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
 
-    tracker.touch();
+    tracker.touch(); // t=1000
     t.mock.timers.tick(30_000);
     assert.equal(events.length, 1);
     assert.equal(events[0]!.durationS, 0);
+    assert.equal(events[0]!.lastActivityAt, 1000);
   });
 
   it("respects custom grace period", async (t) => {
     t.mock.timers.enable({ apis: ["setTimeout"] });
     tracker.dispose();
 
-    tracker = createTracker(5_000); // 5s grace
-    tracker.touch();
+    tracker = createTracker(5_000);
+    tracker.touch(); // t=1000
     advance(3_000);
-    tracker.touch();
+    tracker.touch(); // t=4000
 
     t.mock.timers.tick(4_999);
     assert.equal(events.length, 0);
@@ -134,5 +133,47 @@ describe("ActivitySessionTracker", () => {
     t.mock.timers.tick(1);
     assert.equal(events.length, 1);
     assert.equal(events[0]!.durationS, 3);
+    assert.equal(events[0]!.lastActivityAt, 4000);
+  });
+
+  it("lastActivityAt lets client detect if user saw the activity", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    // Simulate: user watches terminal, activity happens, user leaves, grace fires
+    tracker.touch(); // t=1000 — user is watching
+    advance(2_000);
+    tracker.touch(); // t=3000 — last activity while user watches
+    // User leaves at t=3500 → leftAt=3500
+    advance(500);
+    const userLeftAt = clock; // 3500
+
+    // Grace fires — client would check: leftAt(3500) >= lastActivityAt(3000) → seen → skip
+    t.mock.timers.tick(30_000);
+    assert.equal(events.length, 1);
+    assert.ok(
+      userLeftAt >= events[0]!.lastActivityAt,
+      "User left after last activity — client should suppress this alert",
+    );
+  });
+
+  it("lastActivityAt flags unseen activity when user left before it", async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    tracker.touch(); // t=1000 — user is watching
+    // User leaves at t=1500
+    advance(500);
+    const userLeftAt = clock; // 1500
+
+    // New activity after user left
+    advance(2_000);
+    tracker.touch(); // t=3500 — user not watching
+
+    // Grace fires — client: leftAt(1500) < lastActivityAt(3500) → unseen → alert!
+    t.mock.timers.tick(30_000);
+    assert.equal(events.length, 1);
+    assert.ok(
+      userLeftAt < events[0]!.lastActivityAt,
+      "User left before last activity — client should show this alert",
+    );
   });
 });

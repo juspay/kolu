@@ -14,7 +14,9 @@ function persistedBool(name: string, initial = true) {
 
 const [randomTheme, setRandomTheme] = persistedBool("kolu-random-theme");
 const [scrollLock, setScrollLock] = persistedBool("kolu-scroll-lock");
-const [notifications, setNotifications] = persistedBool("kolu-notifications");
+const [activityAlerts, setActivityAlerts] = persistedBool(
+  "kolu-activity-alerts",
+);
 
 export function usePreferences() {
   return {
@@ -22,7 +24,7 @@ export function usePreferences() {
     setRandomTheme,
     scrollLock,
     setScrollLock,
-    notifications,
-    setNotifications,
+    activityAlerts,
+    setActivityAlerts,
   } as const;
 }

@@ -20,8 +20,8 @@ const SettingsPopover: Component<{
   onScrollLockChange: (on: boolean) => void;
   colorScheme: ColorScheme;
   onColorSchemeChange: (scheme: ColorScheme) => void;
-  notifications: boolean;
-  onNotificationsChange: (on: boolean) => void;
+  activityAlerts: boolean;
+  onActivityAlertsChange: (on: boolean) => void;
   startupTips: boolean;
   onStartupTipsChange: (on: boolean) => void;
 }> = (props) => {
@@ -91,13 +91,13 @@ const SettingsPopover: Component<{
             onChange={props.onScrollLockChange}
           />
         </label>
-        {/* Notifications */}
+        {/* Activity alerts */}
         <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-          <span class="text-fg-2">Notifications</span>
+          <span class="text-fg-2">Activity alerts</span>
           <Toggle
-            testId="notifications-toggle"
-            enabled={props.notifications}
-            onChange={props.onNotificationsChange}
+            testId="activity-alerts-toggle"
+            enabled={props.activityAlerts}
+            onChange={props.onActivityAlertsChange}
           />
         </label>
         {/* Startup tips */}

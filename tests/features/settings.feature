@@ -25,11 +25,11 @@ Feature: Settings Popover
     Then the color scheme should be "light"
     And there should be no page errors
 
-  Scenario: Toggle notifications setting
+  Scenario: Toggle activity alerts setting
     When I click the settings button
     Then the settings popover should be visible
-    When I click the notifications toggle
-    Then the notifications toggle state should change
+    When I click the activity alerts toggle
+    Then the activity alerts toggle state should change
     And there should be no page errors
 
   Scenario: Switch UI color scheme back to dark

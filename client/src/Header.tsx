@@ -43,8 +43,8 @@ const Header: Component<{
   onScrollLockChange?: (on: boolean) => void;
   colorScheme?: ColorScheme;
   onColorSchemeChange?: (scheme: ColorScheme) => void;
-  notifications?: boolean;
-  onNotificationsChange?: (on: boolean) => void;
+  activityAlerts?: boolean;
+  onActivityAlertsChange?: (on: boolean) => void;
   startupTips?: boolean;
   onStartupTipsChange?: (on: boolean) => void;
 }> = (rawProps) => {
@@ -172,8 +172,8 @@ const Header: Component<{
             onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
             colorScheme={props.colorScheme ?? "dark"}
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
-            notifications={props.notifications ?? true}
-            onNotificationsChange={(on) => props.onNotificationsChange?.(on)}
+            activityAlerts={props.activityAlerts ?? true}
+            onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
             startupTips={props.startupTips ?? true}
             onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />

@@ -20,19 +20,23 @@ import {
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
-import type { useNotifications } from "./useNotifications";
+import type { useActivityAlerts } from "./useActivityAlerts";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 
-/** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
-type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
+/** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key),
+ *  plus client-only flags. */
+type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
+  /** Set when a background terminal's activity session ends. Cleared on visit. */
+  notified?: boolean;
+};
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
-  notifications: ReturnType<typeof useNotifications>;
+  activityAlerts: ReturnType<typeof useActivityAlerts>;
 }) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
@@ -63,9 +67,16 @@ export function useTerminals(deps: {
   // MRU (most-recently-used) order: tracks terminal switch history for quick-switch.
   // Updated whenever activeId changes. Most recent first.
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
+  // Track when the user last left each terminal (for suppressing seen-activity alerts)
+  const leftAt = new Map<TerminalId, number>();
+
   createEffect(
-    on(activeId, (id) => {
+    on(activeId, (id, prev) => {
       if (id === null) return;
+      // Record when user left the previous terminal
+      if (prev) leftAt.set(prev, Date.now());
+      // Clear alert highlight when user visits the terminal
+      if (meta[id]?.notified) setMeta(id, "notified", false);
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
     }),
   );
@@ -144,15 +155,28 @@ export function useTerminals(deps: {
       (isActive) => {
         setMeta(id, "isActive", isActive);
         pushActivity(id, isActive);
+        // New activity makes a stale "finished" highlight irrelevant
+        if (isActive && meta[id]?.notified) setMeta(id, "notified", false);
       },
     );
   }
 
-  /** Subscribe to coalesced session-end events for notifications. */
+  /** Subscribe to coalesced session-end events for activity alerts.
+   *  Only alerts if the user hasn't already seen the activity — i.e., they
+   *  left the terminal before the last output in the session. */
   function subscribeSessionEnd(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onSessionEnd({ id }, { signal }),
-      (event) => deps.notifications.onSessionEnd(terminalLabel(id), event),
+      (event) => {
+        if (!deps.activityAlerts.enabled()) return;
+        // User is looking at this terminal right now
+        if (id === activeId()) return;
+        // User was viewing when the last activity happened — they saw it
+        const left = leftAt.get(id);
+        if (left !== undefined && left >= event.lastActivityAt) return;
+        setMeta(id, "notified", true);
+        deps.activityAlerts.onSessionEnd(terminalLabel(id), event);
+      },
     );
   }
 
@@ -395,5 +419,16 @@ export function useTerminals(deps: {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    /** Debug: simulate a session-end event on a random non-active terminal. */
+    simulateSessionEnd: () => {
+      const inactive = terminalIds().filter((id) => id !== activeId());
+      if (inactive.length === 0) return;
+      const id = inactive[Math.floor(Math.random() * inactive.length)]!;
+      setMeta(id, "notified", true);
+      deps.activityAlerts.onSessionEnd(terminalLabel(id), {
+        durationS: 42,
+        lastActivityAt: Date.now(),
+      });
+    },
   };
 }

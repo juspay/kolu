@@ -124,6 +124,8 @@ export const TerminalActivityOutputSchema = z.boolean();
 export const SessionEndOutputSchema = z.object({
   /** Total session duration in seconds (first activity → last activity). */
   durationS: z.number(),
+  /** Timestamp (epoch ms) of the last activity in the session. */
+  lastActivityAt: z.number(),
 });
 export type SessionEndEvent = z.infer<typeof SessionEndOutputSchema>;
 

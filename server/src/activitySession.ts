@@ -16,6 +16,8 @@
 export interface SessionEndEvent {
   /** Total session duration in seconds (first activity → last activity). */
   durationS: number;
+  /** Timestamp (epoch ms) of the last activity in the session. */
+  lastActivityAt: number;
 }
 
 export interface ActivitySessionTracker {
@@ -35,7 +37,7 @@ export interface ActivitySessionOpts {
   now?: () => number;
 }
 
-const DEFAULT_GRACE_MS = 30_000;
+const DEFAULT_GRACE_MS = 3_000;
 
 export function createActivitySession(
   opts: ActivitySessionOpts,
@@ -61,10 +63,11 @@ export function createActivitySession(
     sessionTimer = setTimeout(() => {
       // Grace period expired — session is over
       const duration = lastActivity! - sessionStart!;
+      const lastAt = lastActivity!;
       sessionStart = null;
       lastActivity = null;
       sessionTimer = null;
-      opts.onSessionEnd({ durationS: duration / 1000 });
+      opts.onSessionEnd({ durationS: duration / 1000, lastActivityAt: lastAt });
     }, gracePeriodMs);
   }
 
