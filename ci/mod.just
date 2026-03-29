@@ -16,7 +16,7 @@ default: _run-all
 _run-all: _linux _darwin
 
 _linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e || true
 
 _darwin: _preflight
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
@@ -26,6 +26,9 @@ nix:
 
 home-manager: nix
     just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
+
+typecheck:
+    just ci::_run typecheck just watch
 
 e2e: nix
     just ci::_run e2e just test
