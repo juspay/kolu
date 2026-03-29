@@ -87,7 +87,7 @@ function deriveCheckStatus(
   return "pass";
 }
 
-/** Look up the GitHub PR for the current branch. Returns null on any failure. */
+/** Look up the GitHub PR for the current branch. Returns null if none found. */
 async function resolveGitHubPr(
   repoRoot: string,
   branch: string,
@@ -97,14 +97,19 @@ async function resolveGitHubPr(
       "gh",
       [
         "pr",
-        "view",
+        "list",
+        "--head",
         branch,
         "--json",
         "number,title,url,state,statusCheckRollup",
+        "--limit",
+        "1",
       ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const data = JSON.parse(stdout);
+    const results = JSON.parse(stdout);
+    if (!Array.isArray(results) || results.length === 0) return null;
+    const data = results[0];
     return {
       number: data.number,
       title: data.title,
