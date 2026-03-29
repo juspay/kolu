@@ -15,6 +15,19 @@ const [scrollLock, setScrollLock] = makePersisted(createSignal(true), {
   deserialize: (s) => s !== "false",
 });
 
+const [notifications, setNotifications] = makePersisted(createSignal(true), {
+  name: "kolu-notifications",
+  serialize: String,
+  deserialize: (s) => s !== "false",
+});
+
 export function usePreferences() {
-  return { randomTheme, setRandomTheme, scrollLock, setScrollLock } as const;
+  return {
+    randomTheme,
+    setRandomTheme,
+    scrollLock,
+    setScrollLock,
+    notifications,
+    setNotifications,
+  } as const;
 }

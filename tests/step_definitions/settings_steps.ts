@@ -45,6 +45,27 @@ Then(
   },
 );
 
+When("I click the notifications toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="notifications-toggle"]');
+  await this.page.waitForTimeout(200);
+});
+
+Then(
+  "the notifications toggle state should change",
+  async function (this: KoluWorld) {
+    const toggle = this.page.locator('[data-testid="notifications-toggle"]');
+    const after = await toggle.getAttribute("data-enabled");
+    await this.page.click('[data-testid="notifications-toggle"]');
+    await this.page.waitForTimeout(100);
+    const afterSecond = await toggle.getAttribute("data-enabled");
+    assert.notStrictEqual(
+      after,
+      afterSecond,
+      "Expected notifications toggle to change state on click",
+    );
+  },
+);
+
 When("I click the random theme toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="random-theme-toggle"]');
   await this.page.waitForTimeout(200);

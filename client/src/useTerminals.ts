@@ -20,6 +20,7 @@ import {
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
+import type { useNotifications } from "./useNotifications";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 
@@ -31,6 +32,7 @@ const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
+  notifications: ReturnType<typeof useNotifications>;
 }) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
@@ -136,6 +138,9 @@ export function useTerminals(deps: {
       (isActive) => {
         setMeta(id, "isActive", isActive);
         pushActivity(id, isActive);
+        const pos = terminalIds().indexOf(id) + 1;
+        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        deps.notifications.onActivityTransition(id, isActive, label);
       },
     );
   }

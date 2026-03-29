@@ -34,6 +34,10 @@ export const CONTEXTUAL_TIPS = {
     id: "worktree",
     text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
   },
+  notifications: {
+    id: "notifications",
+    text: "Notifications alert you when long-running tasks finish. Toggle in Settings.",
+  },
 } as const satisfies Record<string, Tip>;
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
