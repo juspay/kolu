@@ -13,6 +13,10 @@ import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
+import {
+  buildTerminalDisplayInfos,
+  type TerminalDisplayInfo,
+} from "./terminalDisplay";
 import type {
   TerminalId,
   TerminalInfo,
@@ -135,6 +139,20 @@ export function useTerminals() {
     const id = activeId();
     return id !== null ? (meta[id]?.meta ?? null) : null;
   });
+
+  /** Complete display info per terminal: metadata + colors + activity + sub-count. */
+  const displayInfos = createMemo(() =>
+    buildTerminalDisplayInfos(
+      terminalIds(),
+      getMeta,
+      getActivityHistory,
+      getSubTerminalIds,
+    ),
+  );
+
+  function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
+    return displayInfos().get(id);
+  }
 
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
@@ -384,6 +402,7 @@ export function useTerminals() {
     activeId,
     setActiveId,
     getMeta,
+    getDisplayInfo,
     getActivityHistory,
     activeThemeName,
     activeTheme,

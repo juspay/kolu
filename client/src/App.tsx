@@ -41,6 +41,7 @@ const App: Component = () => {
     activeId,
     setActiveId,
     getMeta,
+    getDisplayInfo,
     getActivityHistory,
     activeThemeName,
     activeTheme,
@@ -331,7 +332,7 @@ const App: Component = () => {
         mruOrder={mruOrder()}
         activeId={activeId()}
         getMeta={getMeta}
-        getActivityHistory={getActivityHistory}
+        getDisplayInfo={getDisplayInfo}
         getTerminalTheme={getTerminalTheme}
         onSelect={setActiveId}
       />
@@ -395,8 +396,7 @@ const App: Component = () => {
           terminalIds={terminalIds()}
           activeId={activeId()}
           getMeta={getMeta}
-          getActivityHistory={getActivityHistory}
-          getSubTerminalIds={getSubTerminalIds}
+          getDisplayInfo={getDisplayInfo}
           onSelect={setActiveId}
           onCreate={() => handleCreate()}
           onReorder={reorderTerminals}

@@ -1,4 +1,4 @@
-import { type Component, For, Show, createMemo, createSignal } from "solid-js";
+import { type Component, For, Show, createSignal } from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -8,35 +8,25 @@ import {
   closestCenter,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { cwdBasename, terminalName, buildColorMaps } from "./path";
 import Tip from "./Tip";
-import ChecksIndicator from "./ChecksIndicator";
-import ActivityGraph from "./ActivityGraph";
-import ClaudeIndicator from "./ClaudeIndicator";
-import { PrStateIcon, WorktreeIcon } from "./Icons";
+import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo } from "kolu-common";
-import type { ActivitySample } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
+  displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
-  activityHistory: ActivitySample[];
-  /** Number of sub-terminals attached to this terminal. */
-  subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
-  repoColor: string | undefined;
-  branchColor: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
-  const repoColor = () => props.repoColor;
-  const branchColor = () => props.branchColor;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -67,88 +57,14 @@ const SidebarEntry: Component<{
         }}
         style={{
           "border-left-color":
-            repoColor() ?? (props.isActive ? "var(--accent)" : "transparent"),
+            props.displayInfo?.repoColor ??
+            (props.isActive ? "var(--accent)" : "transparent"),
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
         title={m()?.meta?.cwd ?? String(props.id)}
       >
-        <div class="flex items-center gap-1.5 text-sm font-medium truncate">
-          <Show when={m()?.meta}>
-            {(metadata) => (
-              <span
-                data-testid="sidebar-label"
-                class="truncate"
-                style={{ color: repoColor() }}
-              >
-                {metadata().git?.repoName ?? cwdBasename(metadata().cwd)}
-              </span>
-            )}
-          </Show>
-          <Show when={m()?.meta?.git?.isWorktree}>
-            <span
-              data-testid="worktree-indicator"
-              class="text-fg-3 shrink-0"
-              title="Worktree"
-            >
-              <WorktreeIcon />
-            </span>
-          </Show>
-          {/* Sub-terminal count badge */}
-          <Show when={props.subCount > 0}>
-            <span
-              data-testid="sub-count"
-              class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
-            >
-              +{props.subCount}
-            </span>
-          </Show>
-        </div>
-        <div
-          data-testid="sidebar-branch"
-          class="text-xs truncate"
-          title={m()?.meta?.git?.branch}
-          style={{ color: branchColor() }}
-          classList={{ "text-fg-2": !branchColor() }}
-        >
-          {m()?.meta?.git?.branch ?? "\u00A0"}
-        </div>
-        <Show when={m()?.meta?.pr}>
-          {(pr) => (
-            <div
-              class="flex items-center gap-1 text-xs text-fg-3 truncate"
-              data-testid="sidebar-pr"
-              title={`#${pr().number} ${pr().title}`}
-            >
-              <PrStateIcon state={pr().state} class="w-3 h-3" />
-              <Show when={pr().checks}>
-                {(checks) => <ChecksIndicator status={checks()} />}
-              </Show>
-              <a
-                href={pr().url}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="hover:text-accent shrink-0"
-                onClick={(e) => e.stopPropagation()}
-              >
-                #{pr().number}
-              </a>
-              <span class="truncate">{pr().title}</span>
-            </div>
-          )}
-        </Show>
-        <Show when={m()?.meta?.claude || props.activityHistory.length > 0}>
-          <div class="flex items-center gap-1.5 mt-0.5">
-            <Show when={m()?.meta?.claude}>
-              {(claude) => <ClaudeIndicator state={claude().state} />}
-            </Show>
-            <Show when={props.activityHistory.length > 0}>
-              <div class="ml-auto">
-                <ActivityGraph samples={props.activityHistory} />
-              </div>
-            </Show>
-          </div>
-        </Show>
+        <TerminalMeta info={props.displayInfo} />
       </button>
     </div>
   );
@@ -159,32 +75,13 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
-  getActivityHistory: (id: TerminalId) => ActivitySample[];
-  getSubTerminalIds: (id: TerminalId) => TerminalId[];
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
 }> = (props) => {
-  const colors = createMemo(() =>
-    buildColorMaps(props.terminalIds, props.getMeta),
-  );
-
-  function colorFor(
-    meta: Omit<TerminalInfo, "id"> | undefined,
-  ): string | undefined {
-    const key = terminalName(meta);
-    return key ? colors().repo.get(key) : undefined;
-  }
-
-  function branchColorFor(
-    meta: Omit<TerminalInfo, "id"> | undefined,
-  ): string | undefined {
-    const branch = meta?.meta?.git?.branch;
-    return branch ? colors().branch.get(branch) : undefined;
-  }
-
   const { showTipOnce } = useTips();
 
   function handleSelect(id: TerminalId) {
@@ -273,12 +170,9 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
-                      activityHistory={props.getActivityHistory(id)}
-                      subCount={props.getSubTerminalIds(id).length}
+                      displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
-                      repoColor={colorFor(props.getMeta(id))}
-                      branchColor={branchColorFor(props.getMeta(id))}
                     />
                   );
                 }}
@@ -287,15 +181,14 @@ const Sidebar: Component<{
             <DragOverlay>
               <Show when={activeItem()}>
                 {(dragId) => {
-                  const dm = () => props.getMeta(dragId());
-                  const color = () => colorFor(dm());
+                  const d = () => props.getDisplayInfo(dragId());
                   return (
                     <div
                       class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": color() }}
+                      style={{ "border-left-color": d()?.repoColor }}
                     >
-                      <span style={{ color: color() }}>
-                        {terminalName(dm()) ?? "terminal"}
+                      <span style={{ color: d()?.repoColor }}>
+                        {d()?.name ?? "terminal"}
                       </span>
                     </div>
                   );
