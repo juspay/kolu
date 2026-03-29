@@ -61,6 +61,27 @@ When(
   },
 );
 
+When("I simulate a tab visibility change", async function (this: KoluWorld) {
+  // Simulate the browser tab going hidden then visible again.
+  // This triggers the visibilitychange listener that re-fits the terminal.
+  await this.page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      value: true,
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    Object.defineProperty(document, "hidden", {
+      value: false,
+      writable: true,
+      configurable: true,
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  // Wait for rAF-debounced fit to settle
+  await this.page.waitForTimeout(500);
+});
+
 When("I zoom in {int} time(s)", async function (this: KoluWorld, n: number) {
   for (let i = 0; i < n; i++) await this.zoomIn();
 });

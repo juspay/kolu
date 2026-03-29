@@ -8,6 +8,7 @@
 
 import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
@@ -86,6 +87,11 @@ const TerminalPreview: Component<{
       () => containerRef,
       () => debouncedFit(),
     );
+
+    // Re-fit when browser tab regains visibility (see #217).
+    makeEventListener(document, "visibilitychange", () => {
+      if (!document.hidden) debouncedFit();
+    });
 
     onCleanup(() => {
       streamAbort?.abort();
