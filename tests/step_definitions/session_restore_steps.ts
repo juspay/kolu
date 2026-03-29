@@ -4,21 +4,22 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 
 Given(
-  "a saved session with terminals in {string} and {string}",
-  async function (this: KoluWorld, cwdA: string, cwdB: string) {
-    // Ensure the CWD directories exist
-    fs.mkdirSync(cwdA, { recursive: true });
-    fs.mkdirSync(cwdB, { recursive: true });
+  "a saved session with {int} terminals",
+  async function (this: KoluWorld, count: number) {
+    // Create unique temp dirs that survive macOS /tmp cleanup
+    const dirs: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const dir = `/tmp/kolu-session-test-${Date.now()}-${i}`;
+      fs.mkdirSync(dir, { recursive: true });
+      dirs.push(dir);
+    }
     // Seed the session directly on the server — no auto-save timing dependency
     await this.page.request.fetch("/rpc/session/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({
         json: {
-          terminals: [
-            { id: "a", cwd: cwdA },
-            { id: "b", cwd: cwdB },
-          ],
+          terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
           savedAt: Date.now(),
         },
       }),

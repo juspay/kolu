@@ -4,7 +4,7 @@ Feature: Session restore
 
   Scenario: Restore previous session from empty state
     # Seed a known session on the server (no timing dependency on auto-save)
-    Given a saved session with terminals in "/tmp/kolu-session-a" and "/tmp/kolu-session-b"
+    Given a saved session with 2 terminals
     When I open the app
     Then the session restore card should be visible
     And the restore button should mention "2 terminals"
