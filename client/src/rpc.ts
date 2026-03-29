@@ -36,20 +36,26 @@ ws.addEventListener("open", () => {
   const isReconnect = wasConnected;
   wasConnected = true;
   // Fetch server identity on every connect to detect restarts
-  client.server.info().then(({ processId }) => {
-    if (isReconnect) {
-      if (knownProcessId && processId !== knownProcessId) {
-        toast.info("Server updated", {
-          description: "Reload to apply the latest version.",
-          action: { label: "Reload", onClick: () => location.reload() },
-          duration: Infinity,
-        });
-      } else {
-        toast.success("Reconnected to server");
+  client.server
+    .info()
+    .then(({ processId }) => {
+      if (isReconnect) {
+        if (knownProcessId && processId !== knownProcessId) {
+          toast.info("Server updated", {
+            description: "Reload to apply the latest version.",
+            action: { label: "Reload", onClick: () => location.reload() },
+            duration: Infinity,
+          });
+        } else {
+          toast.success("Reconnected to server");
+        }
       }
-    }
-    knownProcessId = processId;
-  });
+      knownProcessId = processId;
+    })
+    .catch(() => {
+      // Server not fully ready — PartySocket will reconnect and retry
+      if (isReconnect) toast.success("Reconnected to server");
+    });
 });
 ws.addEventListener("close", () => {
   setWsStatus("closed");
