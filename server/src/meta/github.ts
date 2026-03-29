@@ -87,7 +87,7 @@ function deriveCheckStatus(
   return "pass";
 }
 
-/** Look up the GitHub PR for the current branch. Returns null on any failure. */
+/** Look up the GitHub PR for the current branch. Returns null if none found. */
 async function resolveGitHubPr(
   repoRoot: string,
   branch: string,
@@ -97,14 +97,23 @@ async function resolveGitHubPr(
       "gh",
       [
         "pr",
-        "view",
+        "list",
+        "--head",
         branch,
+        "--state",
+        "all",
         "--json",
-        "number,title,url,state,statusCheckRollup",
+        "number,title,url,state,statusCheckRollup,updatedAt",
       ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const data = JSON.parse(stdout);
+    const results = JSON.parse(stdout) as Array<Record<string, unknown>>;
+    if (results.length === 0) return null;
+    // Pick the most recently updated PR regardless of state
+    results.sort((a, b) =>
+      String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    );
+    const data = results[0];
     return {
       number: data.number,
       title: data.title,
