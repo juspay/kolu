@@ -38,23 +38,20 @@ function playTone() {
   }
 }
 
-/** Show a browser notification (requests permission lazily). */
+/** Show a browser notification (requests permission lazily on first call). */
 function showBrowserNotification(title: string, body: string) {
   if (typeof Notification === "undefined") return;
+  const fire = () => new Notification(title, { body, icon: "/favicon.svg" });
   if (Notification.permission === "granted") {
-    new Notification(title, { body, icon: "/favicon.svg" });
+    fire();
   } else if (Notification.permission === "default") {
-    void Notification.requestPermission().then((perm) => {
-      if (perm === "granted") {
-        new Notification(title, { body, icon: "/favicon.svg" });
-      }
-    });
+    void Notification.requestPermission().then(
+      (p) => p === "granted" && fire(),
+    );
   }
 }
 
-export function useNotifications(deps: {
-  enabled: Accessor<boolean>;
-}) {
+export function useNotifications(deps: { enabled: Accessor<boolean> }) {
   const { showTipOnce } = useTips();
 
   /** Call when a terminal's isActive state changes. */
@@ -75,16 +72,17 @@ export function useNotifications(deps: {
     const durationS = (Date.now() - startTime) / 1000;
     if (durationS < MIN_ACTIVITY_DURATION_S) return;
 
+    const title = `${label} finished`;
     const description = `Active for ${formatDuration(durationS)}`;
 
     // Toast always fires — non-intrusive when tab is visible
-    toast(`${label} finished`, { description });
+    toast(title, { description });
     showTipOnce(CONTEXTUAL_TIPS.notifications);
 
     // Audio + browser notification only when tab is backgrounded
     if (document.hidden) {
       playTone();
-      showBrowserNotification(`${label} finished`, description);
+      showBrowserNotification(title, description);
     }
   }
 

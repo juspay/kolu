@@ -131,6 +131,12 @@ export function useTerminals(deps: {
     );
   }
 
+  /** 1-based display label for toasts/notifications (e.g. "Terminal 3"). */
+  function terminalLabel(id: TerminalId): string {
+    const pos = terminalIds().indexOf(id) + 1;
+    return pos > 0 ? `Terminal ${pos}` : "Terminal";
+  }
+
   /** Subscribe to activity state changes for a terminal. */
   function subscribeActivity(id: TerminalId) {
     return subscribeStream(
@@ -138,9 +144,11 @@ export function useTerminals(deps: {
       (isActive) => {
         setMeta(id, "isActive", isActive);
         pushActivity(id, isActive);
-        const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
-        deps.notifications.onActivityTransition(id, isActive, label);
+        deps.notifications.onActivityTransition(
+          id,
+          isActive,
+          terminalLabel(id),
+        );
       },
     );
   }
@@ -150,8 +158,7 @@ export function useTerminals(deps: {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        const label = terminalLabel(id);
         toast(
           code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );
