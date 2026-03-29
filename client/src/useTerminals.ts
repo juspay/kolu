@@ -20,6 +20,8 @@ import {
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
@@ -214,10 +216,12 @@ export function useTerminals(deps: {
     }
   }
 
-  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory). */
+  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory).
+   *  Ensures `meta` is always present so SolidJS store tracks it from creation —
+   *  without this, setting `meta` later via subscription won't trigger memo re-runs. */
   function infoToState(t: TerminalInfo): TerminalState {
     const { id: _, activityHistory: _history, ...state } = t;
-    return state;
+    return { meta: undefined, ...state };
   }
 
   // Restore existing terminals on page load (e.g. after browser refresh).
@@ -275,8 +279,13 @@ export function useTerminals(deps: {
     return existing;
   });
 
+  const { showTipOnce } = useTips();
+
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
+    // Show worktree tip when creating a terminal while in a git repo
+    if (activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
+
     const info = await client.terminal.create({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
@@ -310,6 +319,28 @@ export function useTerminals(deps: {
       // Terminal may already be gone
     }
     removeAndAutoSwitch(id);
+  }
+
+  /** Create a git worktree and open a terminal in it. */
+  async function handleCreateWorktree(repoPath: string) {
+    const result = await client.git.worktreeCreate({ repoPath });
+    toast(`Created worktree at ${result.path}`);
+    await handleCreate(result.path);
+  }
+
+  /** Kill the active terminal (and sub-terminals) and remove its worktree. */
+  async function handleKillWorktree() {
+    const id = activeId();
+    if (!id) return;
+    const meta = activeMeta();
+    const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+    const subs = getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    await handleKill(id);
+    if (worktreePath) {
+      await client.git.worktreeRemove({ worktreePath });
+      toast(`Removed worktree at ${worktreePath}`);
+    }
   }
 
   /** Copy the active terminal's buffer as plain text to the clipboard. */
@@ -346,5 +377,7 @@ export function useTerminals(deps: {
     },
     mruOrder,
     handleCopyTerminalText,
+    handleCreateWorktree,
+    handleKillWorktree,
   };
 }

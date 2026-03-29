@@ -55,6 +55,8 @@ const App: Component = () => {
     reorderTerminals,
     mruOrder,
     handleCopyTerminalText,
+    handleCreateWorktree,
+    handleKillWorktree,
   } = useTerminals({ randomTheme, activity: useActivity() });
 
   const {
@@ -163,6 +165,8 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
+    handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
+    handleKillWorktree: () => void handleKillWorktree(),
   });
 
   // Reset state on close and return focus to terminal

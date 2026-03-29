@@ -30,6 +30,7 @@ Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
 ## SolidJS Patterns
 
 - **State per domain**: Extract shared state into `useXxx.ts` modules (singleton pattern — create store once, cache at module level). Keep App.tsx as a thin layout shell.
+- **Commands stay declarative**: `commands.ts` registers commands — it should not contain async RPC calls, error handling, or multi-step workflows. Those belong in `useXxx.ts` handlers. Commands just call `deps.handleFoo()`.
 - **Components own their behavior**: If a component has a keyboard shortcut or toggle state, it should manage that internally (always mounted if needed), not leak it to the parent.
 - **`createStore` over `createSignal<Record>`**: For keyed state (e.g. per-terminal metadata), use `createStore` from `solid-js/store` for fine-grained per-key reactivity.
 - **`@solid-primitives`**: Prefer community primitives (`makePersisted`, `createResizeObserver`, `makeEventListener`) over hand-rolled equivalents.

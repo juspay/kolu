@@ -30,6 +30,10 @@ export const CONTEXTUAL_TIPS = {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(SHORTCUTS.commandPalette.keybind)} → Theme for quick switching`,
   },
+  worktree: {
+    id: "worktree",
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
+  },
 } as const satisfies Record<string, Tip>;
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
@@ -51,10 +55,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-mru",
     text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
-  },
-  {
-    id: "amb-cwd",
-    text: `${formatKeybind(SHORTCUTS.createTerminalInCwdAlt.keybind)} opens a terminal in the current directory`,
   },
   {
     id: "amb-search",

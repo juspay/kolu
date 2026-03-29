@@ -15,6 +15,22 @@ export const GitInfoSchema = z.object({
   worktreePath: z.string(),
   branch: z.string(),
   isWorktree: z.boolean(),
+  mainRepoRoot: z.string(),
+});
+
+// --- Git worktree operations ---
+
+export const WorktreeCreateInputSchema = z.object({
+  repoPath: z.string(),
+});
+
+export const WorktreeCreateOutputSchema = z.object({
+  path: z.string(),
+  branch: z.string(),
+});
+
+export const WorktreeRemoveInputSchema = z.object({
+  worktreePath: z.string(),
 });
 
 // --- GitHub PR context ---

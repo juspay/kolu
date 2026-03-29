@@ -21,6 +21,9 @@ import {
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
   ServerInfoSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -62,5 +65,11 @@ export const contract = oc.router({
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
+  },
+  git: {
+    worktreeCreate: oc
+      .input(WorktreeCreateInputSchema)
+      .output(WorktreeCreateOutputSchema),
+    worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
   },
 });

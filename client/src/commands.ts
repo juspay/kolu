@@ -6,7 +6,6 @@ import type { PaletteCommand } from "./CommandPalette";
 import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
-import { client } from "./rpc";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 export interface CommandDeps {
@@ -29,6 +28,9 @@ export interface CommandDeps {
   setMcMode: (mode: MCMode) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  // Worktree
+  handleCreateWorktree: (repoPath: string) => void;
+  handleKillWorktree: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -39,17 +41,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         SHORTCUTS.createTerminal.keybind,
         SHORTCUTS.createTerminalAlt.keybind,
       ],
-      onSelect: () => deps.handleCreate(),
+      onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
     },
-    ...(deps.activeMeta()
+    ...(deps.activeMeta()?.git
       ? [
           {
-            name: "Create terminal in current directory",
-            keybind: [
-              SHORTCUTS.createTerminalInCwd.keybind,
-              SHORTCUTS.createTerminalInCwdAlt.keybind,
-            ],
-            onSelect: () => deps.handleCreate(deps.activeMeta()!.cwd),
+            name: `New worktree (${deps.activeMeta()!.git!.repoName})`,
+            onSelect: () =>
+              deps.handleCreateWorktree(deps.activeMeta()!.git!.mainRepoRoot),
+          },
+        ]
+      : []),
+    ...(deps.activeMeta()?.git?.isWorktree
+      ? [
+          {
+            name: "Close terminal and remove worktree",
+            onSelect: () => deps.handleKillWorktree(),
           },
         ]
       : []),
