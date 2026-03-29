@@ -45,8 +45,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 <For each={topLevel()}>
                   {(t) => (
                     <div class="text-xs text-fg-3 truncate" title={t.cwd}>
-                      {dirName(t.cwd)}
-                      <span class="ml-1 text-fg-3/50">{t.cwd}</span>
+                      {t.repoName ?? dirName(t.cwd)}
+                      <Show when={t.branch}>
+                        <span class="ml-1 text-fg-3/50">{t.branch}</span>
+                      </Show>
                     </div>
                   )}
                 </For>
@@ -81,7 +83,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
       </div>
       <Show when={!isPWA}>
         <p class="mt-4 pt-3 border-t border-edge text-xs text-fg-3">
-          Install as PWA for full shortcut support (<Kbd>⌘T</Kbd>,{" "}
+          💡 Install as PWA for full shortcut support (<Kbd>⌘T</Kbd>,{" "}
           <Kbd>⌃Tab</Kbd>, etc.)
         </p>
       </Show>

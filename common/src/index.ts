@@ -163,6 +163,10 @@ export const SavedTerminalSchema = z.object({
   cwd: z.string(),
   /** Index of parent terminal in the array (undefined = top-level). */
   parentIndex: z.number().int().nonnegative().optional(),
+  /** Snapshot of repo name at save time (for display only — not used for restore). */
+  repoName: z.string().optional(),
+  /** Snapshot of branch at save time (for display only). */
+  branch: z.string().optional(),
 });
 
 export const SavedSessionSchema = z.object({

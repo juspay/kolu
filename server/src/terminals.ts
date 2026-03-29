@@ -105,6 +105,10 @@ function snapshotSession(): SavedTerminal[] {
       const parentIdx = idToIndex.get(entry.parentId);
       if (parentIdx !== undefined) saved.parentIndex = parentIdx;
     }
+    if (entry.metadata.git) {
+      saved.repoName = entry.metadata.git.repoName;
+      saved.branch = entry.metadata.git.branch;
+    }
     idToIndex.set(id, result.length);
     result.push(saved);
   }
