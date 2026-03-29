@@ -18,9 +18,9 @@ When(
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     await this.page.waitForTimeout(200);
     const palette = this.page.locator('[data-testid="command-palette"]');
-    await palette.locator("input").fill("Close terminal");
+    await palette.locator("input").fill("Close workspace");
     await this.page.waitForTimeout(200);
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    await palette.locator("li", { hasText: "Close workspace" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
   },
@@ -33,10 +33,10 @@ When(
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     await this.page.waitForTimeout(200);
     const palette = this.page.locator('[data-testid="command-palette"]');
-    await palette.locator("input").fill("Close terminal");
+    await palette.locator("input").fill("Close workspace");
     await this.page.waitForTimeout(200);
     // Click the matching result
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    await palette.locator("li", { hasText: "Close workspace" }).click();
     await this.page.waitForTimeout(500);
   },
 );

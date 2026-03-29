@@ -16,20 +16,20 @@ interface DisplayEntry {
 const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.commandPalette,
   {
-    ...SHORTCUTS.createTerminal,
-    altKeybind: SHORTCUTS.createTerminalAlt.keybind,
+    ...SHORTCUTS.createWorkspace,
+    altKeybind: SHORTCUTS.createWorkspaceAlt.keybind,
   },
   SHORTCUTS.nextTerminalTab,
   SHORTCUTS.prevTerminalTab,
-  { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
+  { ...SHORTCUTS.switchTo1, label: "Switch to workspace 1–9" },
   SHORTCUTS.findInTerminal,
   SHORTCUTS.zoomIn,
   SHORTCUTS.zoomOut,
   SHORTCUTS.zoomReset,
-  SHORTCUTS.toggleSubPanel,
-  SHORTCUTS.createSubTerminal,
-  SHORTCUTS.nextSubTab,
-  SHORTCUTS.prevSubTab,
+  SHORTCUTS.toggleTerminalPanel,
+  SHORTCUTS.createTerminal,
+  SHORTCUTS.cycleTerminalForward,
+  SHORTCUTS.cycleTerminalBackward,
   SHORTCUTS.shortcutsHelp,
 ];
 

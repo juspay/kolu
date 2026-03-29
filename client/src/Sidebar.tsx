@@ -10,10 +10,12 @@ import {
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
+import { PlusIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import { cwdBasename } from "./path";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
@@ -24,6 +26,14 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
+  onCreateTerminal: () => void;
+  subTerminalIds: TerminalId[];
+  getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
+  onSelectTerminal: (subId: TerminalId) => void;
+  /** The sub-terminal that currently has focus (if any). */
+  activeSubTab: TerminalId | null;
+  /** True when focus is in the sub-panel (not the main shell). */
+  subFocused: boolean;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
@@ -42,35 +52,90 @@ const SidebarEntry: Component<{
           />
         )}
       </Show>
-      <button
-        ref={sortable.ref}
-        {...sortable.dragActivators}
-        data-terminal-id={props.id}
-        data-active={props.isActive ? "" : undefined}
-        data-activity={m()?.isActive ? "active" : "sleeping"}
-        class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
-        classList={{
-          "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
-            !props.isActive,
-          "opacity-25": sortable.isActiveDraggable,
-        }}
-        style={{
-          "border-left-color":
-            props.displayInfo?.repoColor ??
-            (props.isActive ? "var(--accent)" : "transparent"),
-        }}
-        onClick={() => props.onSelect(props.id)}
-        onMouseDown={(e) => e.preventDefault()}
-        title={m()?.meta?.cwd ?? String(props.id)}
-      >
-        <TerminalMeta info={props.displayInfo} />
-      </button>
+      <div class="group flex items-stretch border-b border-edge">
+        <button
+          ref={sortable.ref}
+          {...sortable.dragActivators}
+          data-terminal-id={props.id}
+          data-active={props.isActive ? "" : undefined}
+          data-activity={m()?.isActive ? "active" : "sleeping"}
+          class="flex-1 min-w-0 py-2 px-2 text-sm text-left transition-colors duration-150 touch-none"
+          classList={{
+            "border-l-4 bg-accent/10 text-fg": props.isActive,
+            "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+              !props.isActive,
+            "opacity-25": sortable.isActiveDraggable,
+          }}
+          style={{
+            "border-left-color":
+              props.displayInfo?.repoColor ??
+              (props.isActive ? "var(--accent)" : "transparent"),
+          }}
+          onClick={() => props.onSelect(props.id)}
+          onMouseDown={(e) => e.preventDefault()}
+          title={m()?.meta?.cwd ?? String(props.id)}
+        >
+          <TerminalMeta info={props.displayInfo} />
+        </button>
+        {/* + button — visible on hover/focus */}
+        <div
+          class="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+          classList={{ "opacity-100": props.isActive }}
+        >
+          <button
+            data-testid="add-terminal"
+            class="p-1 text-fg-3 hover:text-fg rounded transition-colors"
+            title="New terminal"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onCreateTerminal();
+            }}
+          >
+            <PlusIcon />
+          </button>
+        </div>
+      </div>
+      {/* Nested terminals — always visible when children exist */}
+      <Show when={props.subTerminalIds.length > 0}>
+        <div data-testid="terminal-list" class="border-b border-edge">
+          <For each={props.subTerminalIds}>
+            {(subId) => {
+              const subMeta = () => props.getSubMeta(subId);
+              const label = () => {
+                const m = subMeta();
+                return m?.meta ? cwdBasename(m.meta.cwd) : "terminal";
+              };
+              const isFocused = () =>
+                props.isActive &&
+                props.subFocused &&
+                props.activeSubTab === subId;
+              return (
+                <button
+                  data-testid="terminal-entry"
+                  data-terminal-id={subId}
+                  data-active={isFocused() ? "" : undefined}
+                  class="w-full pl-5 pr-2 py-1.5 text-xs text-left truncate transition-colors"
+                  classList={{
+                    "border-l-2 border-accent bg-accent/10 text-fg":
+                      isFocused(),
+                    "border-l-2 border-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+                      !isFocused(),
+                  }}
+                  onClick={() => props.onSelectTerminal(subId)}
+                  title={subMeta()?.meta?.cwd}
+                >
+                  {label()}
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 };
 
-/** Sidebar — collapsible terminal list with drag-to-reorder. */
+/** Sidebar — collapsible workspace list with drag-to-reorder. */
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
@@ -81,6 +146,14 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
+  getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
+  onCreateTerminal: (parentId: TerminalId) => void;
+  onSelectTerminal: (parentId: TerminalId, subId: TerminalId) => void;
+  /** The sub-terminal that has focus in the given workspace. */
+  activeSubTab: (id: TerminalId) => TerminalId | null;
+  /** Whether a sub-terminal has focus in the given workspace. */
+  isSubFocused: (id: TerminalId) => boolean;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -131,13 +204,13 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal" class="w-full">
+        <Tip label="New workspace" class="w-full">
           <button
-            data-testid="create-terminal"
+            data-testid="create-workspace"
             class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
             onClick={props.onCreate}
           >
-            + New terminal
+            + New workspace
           </button>
         </Tip>
         <nav class="flex-1 overflow-y-auto">
@@ -173,6 +246,14 @@ const Sidebar: Component<{
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
+                      onCreateTerminal={() => props.onCreateTerminal(id)}
+                      subTerminalIds={props.getSubTerminalIds(id)}
+                      getSubMeta={props.getSubMeta}
+                      onSelectTerminal={(subId) =>
+                        props.onSelectTerminal(id, subId)
+                      }
+                      activeSubTab={props.activeSubTab(id)}
+                      subFocused={props.isSubFocused(id)}
                     />
                   );
                 }}
@@ -188,7 +269,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": d()?.repoColor }}
                     >
                       <span style={{ color: d()?.repoColor }}>
-                        {d()?.name ?? "terminal"}
+                        {d()?.name ?? "workspace"}
                       </span>
                     </div>
                   );

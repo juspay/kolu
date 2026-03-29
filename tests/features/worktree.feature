@@ -23,6 +23,6 @@ Feature: Git worktree management
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
-    And I select "Close terminal and remove worktree" in the palette
+    And I select "Close workspace and remove worktree" in the palette
     Then the sidebar should have 1 fewer terminal entry
     And there should be no page errors

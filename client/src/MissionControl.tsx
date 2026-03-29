@@ -209,7 +209,7 @@ const MissionControl: Component<{
           when={displayIds().length > 0}
           fallback={
             <div class="flex-1 flex items-center justify-center text-fg-3 text-sm">
-              No terminals open
+              No workspaces open
             </div>
           }
         >

@@ -7,6 +7,12 @@
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+export const ChevronRightIcon: Component<{ class?: string }> = (props) => (
+  <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 16 16" fill="currentColor">
+    <path d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06-1.06L9.44 8 6.22 4.78a.75.75 0 0 1 0-1.06Z" />
+  </svg>
+);
+
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
@@ -102,6 +108,16 @@ export const GridIcon: Component<{ class?: string }> = (props) => (
       stroke-width="2"
       d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
     />
+  </svg>
+);
+
+export const PlusIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+  >
+    <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
   </svg>
 );
 

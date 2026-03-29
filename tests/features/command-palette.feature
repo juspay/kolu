@@ -30,21 +30,21 @@ Feature: Command Palette
     And I create a terminal
     And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    And I type "Terminal 1" in the palette
+    And I select "Switch workspace" in the palette
+    And I type "Workspace 1" in the palette
     Then the command palette should show 1 result
     And there should be no page errors
 
-  Scenario: Switch terminal via command palette
+  Scenario: Switch workspace via command palette
     When I open the app
     And I create a terminal
     And I run "echo palette-first"
     And I create a terminal
     And I run "echo palette-second"
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    # Terminal 1 is the Background terminal; Terminal 2 is the first explicitly created one
-    And I type "Terminal 2" in the palette
+    And I select "Switch workspace" in the palette
+    # Workspace 1 is the Background terminal; Workspace 2 is the first explicitly created one
+    And I type "Workspace 2" in the palette
     And I press Enter
     Then the command palette should not be visible
     And the active terminal should show "palette-first"
@@ -77,7 +77,7 @@ Feature: Command Palette
   Scenario: Create terminal via command palette
     Given I note the sidebar entry count
     When I open the command palette
-    And I type "Create new" in the palette
+    And I type "New workspace" in the palette
     Then the command palette should show 1 result
     When I press Enter
     Then the command palette should not be visible
@@ -112,8 +112,8 @@ Feature: Command Palette
     When I open the app
     And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then the palette breadcrumb should show "Switch terminal"
+    And I select "Switch workspace" in the palette
+    Then the palette breadcrumb should show "Switch workspace"
     When I press Backspace
     Then the palette breadcrumb should not be visible
     And there should be no page errors
@@ -122,8 +122,8 @@ Feature: Command Palette
     When I open the app
     And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then the palette breadcrumb should show "Switch terminal"
+    And I select "Switch workspace" in the palette
+    Then the palette breadcrumb should show "Switch workspace"
     When I click breadcrumb "Commands" in the palette
     Then the palette breadcrumb should not be visible
     And there should be no page errors
@@ -135,15 +135,15 @@ Feature: Command Palette
 
   Scenario: Keyboard shortcut hints shown on commands
     When I open the command palette
-    Then palette item "Create new terminal" should show shortcut "T"
+    Then palette item "New workspace" should show shortcut "T"
     And there should be no page errors
 
   Scenario: Shortcut hints shown in nested group
     When I open the app
     And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then palette item "Switch to terminal 1" should show shortcut "1"
+    And I select "Switch workspace" in the palette
+    Then palette item "Switch to workspace 1" should show shortcut "1"
     And there should be no page errors
 
   Scenario: Terminal retains focus after palette command

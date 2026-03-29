@@ -6,14 +6,14 @@ Feature: Sub-terminals
 
   Scenario: Create sub-terminal via command palette
     When I open the command palette
-    And I type "Toggle sub" in the palette
+    And I type "Toggle terminal" in the palette
     And I press Enter
     Then the sub-panel should be visible
     And the sub-terminal should have keyboard focus
-    And the sidebar entry should show sub-terminal count 1
+    And the sidebar entry should show terminal count 1
     And there should be no page errors
 
-  Scenario: Toggle sub-panel collapses and refocuses main terminal
+  Scenario: Toggle terminal-panel collapses and refocuses main terminal
     When I create a sub-terminal via command palette
     Then the sub-terminal should have keyboard focus
     When I toggle the sub-panel via command palette
@@ -41,7 +41,7 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     And I create another sub-terminal via command palette
     Then the sub-panel tab bar should have 2 tabs
-    And the sidebar entry should show sub-terminal count 2
+    And the sidebar entry should show terminal count 2
     When I click sub-panel tab 1
     Then sub-panel tab 1 should be active
     And there should be no page errors
@@ -61,7 +61,7 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     And I run "exit" in the sub-terminal
     Then the sub-panel should eventually collapse
-    And the sidebar entry should not show a sub-terminal count
+    And the sidebar entry should not show a terminal count
     And there should be no page errors
 
   Scenario: Sub-terminals restore after page refresh
@@ -69,7 +69,7 @@ Feature: Sub-terminals
     And I run "echo refresh-test" in the sub-terminal
     When I refresh the page
     Then the sub-panel should be visible
-    And the sidebar entry should show sub-terminal count 1
+    And the sidebar entry should show terminal count 1
     And there should be no page errors
 
   Scenario: Collapsed indicator visible when sub-panel is collapsed

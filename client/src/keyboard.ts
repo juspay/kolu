@@ -64,13 +64,13 @@ export function formatKeybind(kb: Keybind): string {
   return isMac ? parts.join("") : parts.join("+");
 }
 
-/** Mod+1 through Mod+9 for direct terminal switching. */
+/** Mod+1 through Mod+9 for direct workspace switching. */
 const SWITCH_SHORTCUTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [
     `switchTo${i + 1}`,
     {
       keybind: { key: String(i + 1), mod: true },
-      label: `Switch to terminal ${i + 1}`,
+      label: `Switch to workspace ${i + 1}`,
     },
   ]),
 ) as { [K in `switchTo${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`]: Shortcut };
@@ -78,21 +78,21 @@ const SWITCH_SHORTCUTS = Object.fromEntries(
 /** All global keyboard shortcuts with their keybinds and display labels. */
 export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
-  createTerminal: {
+  createWorkspace: {
     keybind: { key: "t", mod: true },
-    label: "Create new terminal",
+    label: "New workspace",
   },
-  createTerminalAlt: {
+  createWorkspaceAlt: {
     keybind: { key: "Enter", mod: true },
-    label: "Create new terminal",
+    label: "New workspace",
   },
-  nextTerminal: {
+  nextWorkspace: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
-    label: "Next terminal",
+    label: "Next workspace",
   },
-  prevTerminal: {
+  prevWorkspace: {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
-    label: "Previous terminal",
+    label: "Previous workspace",
   },
   nextTerminalTab: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
@@ -114,21 +114,21 @@ export const SHORTCUTS = {
   zoomIn: { keybind: { key: "+", mod: true }, label: "Zoom in" },
   zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
-  toggleSubPanel: {
+  toggleTerminalPanel: {
     keybind: { key: "`", code: "Backquote", ctrl: true },
-    label: "Toggle sub-panel",
+    label: "Toggle terminal panel",
   },
-  createSubTerminal: {
+  createTerminal: {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
-    label: "New sub-terminal",
+    label: "New terminal",
   },
-  nextSubTab: {
+  cycleTerminalForward: {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    label: "Next sub-tab",
+    label: "Next terminal tab",
   },
-  prevSubTab: {
+  cycleTerminalBackward: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    label: "Previous sub-tab",
+    label: "Previous terminal tab",
   },
   missionControl: {
     keybind: { key: ".", mod: true },

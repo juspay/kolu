@@ -57,8 +57,8 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (
-    matchesKeybind(e, SHORTCUTS.createTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.createTerminalAlt.keybind)
+    matchesKeybind(e, SHORTCUTS.createWorkspace.keybind) ||
+    matchesKeybind(e, SHORTCUTS.createWorkspaceAlt.keybind)
   ) {
     deps.handleCreate(deps.activeMeta()?.cwd ?? undefined);
     return true;
@@ -81,12 +81,12 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.nextWorkspace.keybind)) {
     cycleTerminal(deps, 1);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.prevWorkspace.keybind)) {
     cycleTerminal(deps, -1);
     return true;
   }
@@ -111,14 +111,14 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.createTerminal.keybind)) {
     const id = deps.activeId();
     if (id)
       deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.toggleTerminalPanel.keybind)) {
     const id = deps.activeId();
     if (id) {
       // If no sub-terminals exist yet, create one
@@ -131,13 +131,13 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.cycleTerminalForward.keybind)) {
     const id = deps.activeId();
     if (id) deps.cycleSubTab(id, 1);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.cycleTerminalBackward.keybind)) {
     const id = deps.activeId();
     if (id) deps.cycleSubTab(id, -1);
     return true;
