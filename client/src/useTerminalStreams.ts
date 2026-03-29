@@ -1,6 +1,6 @@
 /** Terminal streams — server event subscriptions for metadata, activity, and exit via TanStack Query. */
 
-import { createEffect, on } from "solid-js";
+import { createRoot, createEffect, on } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { orpc } from "./queryClient";
 import type { TerminalId } from "kolu-common";
@@ -19,62 +19,65 @@ export function useTerminalStreams(deps: {
 }) {
   /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
   function subscribeAll(id: TerminalId) {
-    // Metadata stream
-    const metaQuery = createQuery(() =>
-      orpc.terminal.onMetadataChange.experimental_liveOptions({
-        input: { id },
-        retry: true,
-      }),
-    );
-    createEffect(
-      on(
-        () => metaQuery.data,
-        (metadata) => {
-          if (!metadata) return;
-          const prevState = deps.meta[id]?.meta?.claude?.state;
-          deps.setMeta(id, "meta", metadata);
-          deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
-        },
-        { defer: true },
-      ),
-    );
+    // createRoot provides a reactive owner for queries created imperatively
+    createRoot(() => {
+      // Metadata stream
+      const metaQuery = createQuery(() =>
+        orpc.terminal.onMetadataChange.experimental_liveOptions({
+          input: { id },
+          retry: true,
+        }),
+      );
+      createEffect(
+        on(
+          () => metaQuery.data,
+          (metadata) => {
+            if (!metadata) return;
+            const prevState = deps.meta[id]?.meta?.claude?.state;
+            deps.setMeta(id, "meta", metadata);
+            deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
+          },
+          { defer: true },
+        ),
+      );
 
-    // Activity stream
-    const activityQuery = createQuery(() =>
-      orpc.terminal.onActivityChange.experimental_liveOptions({
-        input: { id },
-        retry: true,
-      }),
-    );
-    createEffect(
-      on(
-        () => activityQuery.data,
-        (isActive) => {
-          if (isActive === undefined) return;
-          deps.setMeta(id, "isActive", isActive);
-          deps.pushActivity(id, isActive);
-        },
-        { defer: true },
-      ),
-    );
+      // Activity stream
+      const activityQuery = createQuery(() =>
+        orpc.terminal.onActivityChange.experimental_liveOptions({
+          input: { id },
+          retry: true,
+        }),
+      );
+      createEffect(
+        on(
+          () => activityQuery.data,
+          (isActive) => {
+            if (isActive === undefined) return;
+            deps.setMeta(id, "isActive", isActive);
+            deps.pushActivity(id, isActive);
+          },
+          { defer: true },
+        ),
+      );
 
-    // Exit stream
-    const exitQuery = createQuery(() =>
-      orpc.terminal.onExit.experimental_liveOptions({
-        input: { id },
-        retry: false, // Don't retry exit — terminal is gone
-      }),
-    );
-    createEffect(
-      on(
-        () => exitQuery.data,
-        (code) => {
-          if (code === undefined) return;
-          deps.onExit(id, code);
-        },
-        { defer: true },
-      ),
-    );
+      // Exit stream
+      const exitQuery = createQuery(() =>
+        orpc.terminal.onExit.experimental_liveOptions({
+          input: { id },
+          retry: false, // Don't retry exit — terminal is gone
+        }),
+      );
+      createEffect(
+        on(
+          () => exitQuery.data,
+          (code) => {
+            if (code === undefined) return;
+            deps.onExit(id, code);
+          },
+          { defer: true },
+        ),
+      );
+    });
   }
 
   return { subscribeAll };
