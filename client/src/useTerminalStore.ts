@@ -1,5 +1,6 @@
 /** Terminal store — shared substrate for all terminal state modules.
- *  Pure state: signals, store, and read-only accessors. No behavior, no effects, no subscriptions. */
+ *  Signals, store, derived accessors, and reactive effects (MRU tracking).
+ *  No server calls, no subscriptions. */
 
 import {
   type Accessor,
@@ -8,7 +9,7 @@ import {
   on,
   createMemo,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { createStore, type SetStoreFunction } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type {
   TerminalId,
@@ -25,6 +26,9 @@ import {
 export type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
   notified?: boolean;
 };
+
+export type TerminalMetaStore = Record<TerminalId, TerminalState>;
+export type SetTerminalMeta = SetStoreFunction<TerminalMetaStore>;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
@@ -129,3 +133,5 @@ export function useTerminalStore(deps: {
     infoToState,
   };
 }
+
+export type TerminalStore = ReturnType<typeof useTerminalStore>;

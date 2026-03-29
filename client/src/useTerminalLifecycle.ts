@@ -9,48 +9,35 @@ import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { TerminalId, TerminalInfo, ActivitySample } from "kolu-common";
-import type { TerminalState } from "./useTerminalStore";
+import type {
+  TerminalMetaStore,
+  TerminalStore,
+} from "./useTerminalStore";
 
 export function useTerminalLifecycle(deps: {
-  meta: Record<TerminalId, TerminalState>;
-  setMeta: (...args: any[]) => void;
-  idOrder: Accessor<TerminalId[]>;
-  setIdOrder: (v: TerminalId[] | ((prev: TerminalId[]) => TerminalId[])) => void;
-  subOrder: Accessor<Record<TerminalId, TerminalId[]>>;
-  setSubOrder: (
-    v:
-      | Record<TerminalId, TerminalId[]>
-      | ((prev: Record<TerminalId, TerminalId[]>) => Record<TerminalId, TerminalId[]>),
-  ) => void;
-  activeId: Accessor<TerminalId | null>;
-  setActiveId: (v: TerminalId | null) => void;
-  mruOrder: Accessor<TerminalId[]>;
-  setMruOrder: (v: TerminalId[] | ((prev: TerminalId[]) => TerminalId[])) => void;
-  activeMeta: Accessor<import("kolu-common").TerminalMetadata | null>;
-  terminalLabel: (id: TerminalId) => string;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
-  infoToState: (t: TerminalInfo) => TerminalState;
+  store: TerminalStore;
   randomTheme: Accessor<boolean>;
   subscribeAll: (id: TerminalId) => void;
   seedActivity: (id: TerminalId, history: ActivitySample[]) => void;
   clearActivity: (id: TerminalId) => void;
 }) {
+  const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
 
   /** Set a terminal's theme name locally and on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    deps.setMeta(id, "themeName", name);
+    store.setMeta(id, "themeName", name);
     void client.terminal.setTheme({ id, themeName: name });
   }
 
   /** Remove a terminal from the store and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
-    const parentId = deps.meta[id]?.parentId;
+    const parentId = store.meta[id]?.parentId;
 
     if (parentId) {
       // This is a sub-terminal — remove from parent's sub-order
-      deps.setSubOrder((prev) => {
+      store.setSubOrder((prev) => {
         const subs = (prev[parentId] ?? []).filter((x) => x !== id);
         const next = { ...prev };
         if (subs.length === 0) {
@@ -66,35 +53,35 @@ export function useTerminalLifecycle(deps: {
         }
         return next;
       });
-      deps.setMeta(produce((s: Record<TerminalId, TerminalState>) => delete s[id]));
+      store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
       return;
     }
 
     // Top-level terminal — promote any sub-terminals to top-level (orphans)
-    const orphanIds = deps.getSubTerminalIds(id);
+    const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
-      deps.setMeta(subId, "parentId", undefined);
+      store.setMeta(subId, "parentId", undefined);
       void client.terminal.setParent({ id: subId, parentId: null });
     }
 
-    const ids = deps.idOrder();
+    const ids = store.idOrder();
     const idx = ids.indexOf(id);
     if (idx === -1) return;
     const remaining = ids.filter((x) => x !== id);
     // Insert orphans at the position of the killed parent
     remaining.splice(idx, 0, ...orphanIds);
-    deps.setIdOrder(remaining);
-    deps.setMeta(produce((s: Record<TerminalId, TerminalState>) => delete s[id]));
+    store.setIdOrder(remaining);
+    store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
     subPanel.removePanel(id);
-    deps.setSubOrder((prev) => {
+    store.setSubOrder((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
     deps.clearActivity(id);
-    deps.setMruOrder((prev) => prev.filter((x) => x !== id));
-    if (deps.activeId() === id) {
-      deps.setActiveId(
+    store.setMruOrder((prev) => prev.filter((x) => x !== id));
+    if (store.activeId() === id) {
+      store.setActiveId(
         remaining[Math.min(idx, remaining.length - 1)] ?? null,
       );
     }
@@ -105,9 +92,9 @@ export function useTerminalLifecycle(deps: {
     const existing = await client.terminal.list();
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
-      const initial: Record<TerminalId, TerminalState> = {};
-      for (const t of existing) initial[t.id] = deps.infoToState(t);
-      deps.setMeta(reconcile(initial));
+      const initial: TerminalMetaStore = {};
+      for (const t of existing) initial[t.id] = store.infoToState(t);
+      store.setMeta(reconcile(initial));
 
       // Partition into top-level and sub-terminals
       const topLevel: TerminalId[] = [];
@@ -119,8 +106,8 @@ export function useTerminalLifecycle(deps: {
           topLevel.push(t.id);
         }
       }
-      deps.setIdOrder(topLevel);
-      deps.setSubOrder(subs);
+      store.setIdOrder(topLevel);
+      store.setSubOrder(subs);
 
       // Initialize sub-panel active tabs for parents that have sub-terminals
       for (const [parentId, subIds] of Object.entries(subs)) {
@@ -131,15 +118,15 @@ export function useTerminalLifecycle(deps: {
       }
 
       // Keep persisted active terminal if it still exists; otherwise pick first
-      const persisted = deps.activeId();
-      const ids = deps.idOrder();
+      const persisted = store.activeId();
+      const ids = store.idOrder();
       if (persisted === null || !ids.includes(persisted)) {
-        deps.setActiveId(ids[0] ?? null);
+        store.setActiveId(ids[0] ?? null);
       }
 
       // Seed MRU with all top-level terminals (active first, rest in sidebar order).
-      const active = deps.activeId();
-      deps.setMruOrder(
+      const active = store.activeId();
+      store.setMruOrder(
         active ? [active, ...ids.filter((x) => x !== active)] : ids,
       );
 
@@ -159,19 +146,19 @@ export function useTerminalLifecycle(deps: {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     // Show worktree tip when creating a terminal while in a git repo
-    if (deps.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
+    if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     const info = await client.terminal.create({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    deps.setMeta(info.id, {
-      ...deps.infoToState(info),
+    store.setMeta(info.id, {
+      ...store.infoToState(info),
       ...(themeName && { themeName }),
     });
-    deps.setIdOrder((prev) => [...prev, info.id]);
-    deps.setActiveId(info.id);
+    store.setIdOrder((prev) => [...prev, info.id]);
+    store.setActiveId(info.id);
     deps.subscribeAll(info.id);
     if (themeName) setThemeName(info.id, themeName);
   }
@@ -179,8 +166,8 @@ export function useTerminalLifecycle(deps: {
   /** Create a sub-terminal under a parent. */
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
     const info = await client.terminal.create({ cwd, parentId });
-    deps.setMeta(info.id, deps.infoToState(info));
-    deps.setSubOrder((prev) => ({
+    store.setMeta(info.id, store.infoToState(info));
+    store.setSubOrder((prev) => ({
       ...prev,
       [parentId]: [...(prev[parentId] ?? []), info.id],
     }));
@@ -208,11 +195,11 @@ export function useTerminalLifecycle(deps: {
 
   /** Kill the active terminal (and sub-terminals) and remove its worktree. */
   async function handleKillWorktree() {
-    const id = deps.activeId();
+    const id = store.activeId();
     if (!id) return;
-    const meta = deps.activeMeta();
+    const meta = store.activeMeta();
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
-    const subs = deps.getSubTerminalIds(id);
+    const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await handleKill(subId);
     await handleKill(id);
     if (worktreePath) {
@@ -223,7 +210,7 @@ export function useTerminalLifecycle(deps: {
 
   /** Copy the active terminal's buffer as plain text to the clipboard. */
   async function handleCopyTerminalText() {
-    const id = deps.activeId();
+    const id = store.activeId();
     if (id === null) return;
     try {
       const text = await client.terminal.screenText({ id });

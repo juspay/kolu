@@ -6,13 +6,12 @@ import {
   fireActivityAlert,
   requestNotificationPermission,
 } from "./useActivityAlerts";
-import type { TerminalState } from "./useTerminalStore";
+import type { SetTerminalMeta } from "./useTerminalStore";
 
 export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
-  meta: Record<TerminalId, TerminalState>;
-  setMeta: (...args: any[]) => void;
+  setMeta: SetTerminalMeta;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {

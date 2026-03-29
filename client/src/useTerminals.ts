@@ -32,7 +32,6 @@ export function useTerminals(deps: {
   const alerts = useTerminalAlerts({
     activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
-    meta: store.meta,
     setMeta: store.setMeta,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
@@ -53,20 +52,7 @@ export function useTerminals(deps: {
   });
 
   const lifecycle = useTerminalLifecycle({
-    meta: store.meta,
-    setMeta: store.setMeta,
-    idOrder: store.idOrder,
-    setIdOrder: store.setIdOrder,
-    subOrder: store.subOrder,
-    setSubOrder: store.setSubOrder,
-    activeId: store.activeId,
-    setActiveId: store.setActiveId,
-    mruOrder: store.mruOrder,
-    setMruOrder: store.setMruOrder,
-    activeMeta: store.activeMeta,
-    terminalLabel: store.terminalLabel,
-    getSubTerminalIds: store.getSubTerminalIds,
-    infoToState: store.infoToState,
+    store,
     randomTheme: deps.randomTheme,
     subscribeAll: streams.subscribeAll,
     seedActivity,

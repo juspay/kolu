@@ -2,7 +2,7 @@
 
 import type { TerminalId } from "kolu-common";
 import { client } from "./rpc";
-import type { TerminalState } from "./useTerminalStore";
+import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
 
 /** Fire-and-forget stream subscription with AbortController cleanup. */
 function subscribeStream<T>(
@@ -22,8 +22,8 @@ function subscribeStream<T>(
 }
 
 export function useTerminalStreams(deps: {
-  meta: Record<TerminalId, TerminalState>;
-  setMeta: (...args: any[]) => void;
+  meta: TerminalMetaStore;
+  setMeta: SetTerminalMeta;
   pushActivity: (id: TerminalId, active: boolean) => void;
   onExit: (id: TerminalId, code: number) => void;
   onClaudeStateChange: (
