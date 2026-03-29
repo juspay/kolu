@@ -37,7 +37,9 @@ export interface ActivitySessionOpts {
   now?: () => number;
 }
 
-const DEFAULT_GRACE_MS = 3_000;
+// 10s filters out cursor blinks (~1-2s) and prompt refreshes (starship, etc.)
+// while keeping alerts responsive (~15s total: 5s idle threshold + 10s grace).
+const DEFAULT_GRACE_MS = 10_000;
 
 export function createActivitySession(
   opts: ActivitySessionOpts,
