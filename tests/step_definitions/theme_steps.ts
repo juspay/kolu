@@ -58,17 +58,17 @@ When("I press the random theme shortcut", async function (this: KoluWorld) {
 Then(
   "the header theme should differ from {string}",
   async function (this: KoluWorld, notExpected: string) {
-    const header = this.page.locator("header");
-    await header.waitFor({ state: "visible", timeout: 5_000 });
+    const themeName = this.page.locator('[data-testid="theme-name"]');
+    await themeName.waitFor({ state: "visible", timeout: 5_000 });
     const text = await pollUntil(
       this.page,
-      async () => (await header.textContent()) ?? "",
-      (t) => !t.includes(notExpected),
+      async () => (await themeName.textContent()) ?? "",
+      (t) => t !== notExpected,
       { attempts: 30 },
     );
     assert.ok(
-      !text.includes(notExpected),
-      `Expected header theme to differ from "${notExpected}" but header contains "${text}"`,
+      text !== notExpected,
+      `Expected theme to differ from "${notExpected}" but got "${text}"`,
     );
   },
 );
@@ -83,17 +83,18 @@ When("I click the theme name in the header", async function (this: KoluWorld) {
 Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {
-    const header = this.page.locator("header");
-    await header.waitFor({ state: "visible", timeout: 5_000 });
+    const themeName = this.page.locator('[data-testid="theme-name"]');
+    await themeName.waitFor({ state: "visible", timeout: 5_000 });
     const text = await pollUntil(
       this.page,
-      async () => (await header.textContent()) ?? "",
-      (t) => t.includes(expectedTheme),
+      async () => (await themeName.textContent()) ?? "",
+      (t) => t === expectedTheme,
       { attempts: 30 },
     );
-    assert.ok(
-      text.includes(expectedTheme),
-      `Expected header to contain "${expectedTheme}" but got "${text}"`,
+    assert.strictEqual(
+      text,
+      expectedTheme,
+      `Expected theme "${expectedTheme}" but got "${text}"`,
     );
   },
 );
