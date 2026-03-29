@@ -37,7 +37,7 @@ export interface CommandDeps {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos, refetch: refetchRecentRepos } = useRecentRepos();
+  const { recentRepos } = useRecentRepos();
 
   return createMemo((): PaletteCommand[] => [
     {
@@ -48,20 +48,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ],
       onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
     },
-    ...(deps.activeMeta()?.git
-      ? [
-          {
-            name: `New worktree (${deps.activeMeta()!.git!.repoName})`,
-            onSelect: () =>
-              deps.handleCreateWorktree(deps.activeMeta()!.git!.mainRepoRoot),
-          },
-        ]
-      : []),
     {
       name: "New worktree\u2026",
-      // Refetch on drill-in so recently visited repos appear immediately
       children: () => {
-        refetchRecentRepos();
         const repos = recentRepos();
         if (repos.length === 0) {
           return [{ name: "No recent repos" }];

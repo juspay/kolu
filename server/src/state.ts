@@ -6,6 +6,7 @@
  * corrupt/missing files can safely reset to defaults.
  */
 
+import fs from "node:fs";
 import Conf from "conf";
 import type { RecentRepo } from "kolu-common";
 
@@ -15,6 +16,8 @@ interface StateSchema {
 
 const store = new Conf<StateSchema>({
   projectName: "kolu",
+  // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
+  projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
   defaults: {
     recentRepos: [],
   },
@@ -38,7 +41,18 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
   store.set("recentRepos", repos.slice(0, MAX_RECENT_REPOS));
 }
 
-/** Get recent repos, most-recently-seen first. */
+/** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */
 export function getRecentRepos(): RecentRepo[] {
-  return store.get("recentRepos");
+  const repos = store.get("recentRepos");
+  const live = repos.filter((r) => {
+    try {
+      fs.accessSync(r.repoRoot);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  // Prune stale entries from disk
+  if (live.length < repos.length) store.set("recentRepos", live);
+  return live;
 }

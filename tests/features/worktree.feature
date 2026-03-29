@@ -11,6 +11,7 @@ Feature: Git worktree management
     Then the header CWD should show "/tmp/kolu-wt-test"
     When I open the command palette
     And I select "New worktree" in the palette
+    And I select "kolu-wt-test" in the palette
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
     And there should be no page errors
@@ -20,6 +21,7 @@ Feature: Git worktree management
     And I run "cd /tmp/kolu-wt-remove"
     When I open the command palette
     And I select "New worktree" in the palette
+    And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
