@@ -10,29 +10,26 @@ import {
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { toast } from "solid-sonner";
-import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import { availableThemes } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-  ActivitySample,
-} from "kolu-common";
-import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import type { Accessor } from "solid-js";
+import type { useActivity } from "./useActivity";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
-const RANDOM_THEME_KEY = "kolu-random-theme";
-const SCROLL_LOCK_KEY = "kolu-scroll-lock";
 
-export function useTerminals() {
+export function useTerminals(deps: {
+  randomTheme: Accessor<boolean>;
+  activity: ReturnType<typeof useActivity>;
+}) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
   const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
@@ -45,38 +42,8 @@ export function useTerminals() {
   >({});
 
   const subPanel = useSubPanel();
-
-  // Activity history: array of transitions per terminal for sparkline rendering.
-  const [activityHistory, setActivityHistory] = createStore<
-    Record<TerminalId, ActivitySample[]>
-  >({});
-
-  /** Append an activity sample and trim old entries beyond the rolling window. */
-  function pushActivity(id: TerminalId, active: boolean) {
-    const now = Date.now();
-    const cutoff = now - ACTIVITY_WINDOW_MS;
-    setActivityHistory(id, (prev) => [
-      ...(prev ?? []).filter(([t]) => t >= cutoff),
-      [now, active],
-    ]);
-  }
-
-  /** Get activity history for a terminal (for sparkline rendering). */
-  function getActivityHistory(id: TerminalId): ActivitySample[] {
-    return activityHistory[id] ?? [];
-  }
-
-  const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
-    name: RANDOM_THEME_KEY,
-    serialize: String,
-    deserialize: (s) => s !== "false",
-  });
-
-  const [scrollLock, setScrollLock] = makePersisted(createSignal(true), {
-    name: SCROLL_LOCK_KEY,
-    serialize: String,
-    deserialize: (s) => s !== "false",
-  });
+  const { pushActivity, getActivityHistory, seedActivity, clearActivity } =
+    deps.activity;
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
@@ -109,29 +76,10 @@ export function useTerminals() {
     return meta[id];
   }
 
-  /** The active terminal's committed theme name (for palette filter — not affected by preview). */
-  const committedThemeName = createMemo(() => {
-    const id = activeId();
-    return (id !== null && meta[id]?.themeName) || DEFAULT_THEME_NAME;
-  });
-
-  /** Temporary preview override while navigating the theme palette. */
-  const [previewThemeName, setPreviewThemeName] = createSignal<
-    string | undefined
-  >(undefined);
-
-  /** The displayed theme name: preview if active, otherwise committed. */
-  const activeThemeName = createMemo(
-    () => previewThemeName() ?? committedThemeName(),
-  );
-
-  /** The active terminal's resolved theme (for container background). */
-  const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
-
-  /** Resolve the display theme for a terminal, applying preview override for the active one. */
-  function getTerminalTheme(id: TerminalId): ITheme {
-    const preview = activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? meta[id]?.themeName);
+  /** Set a terminal's theme name locally and on the server. */
+  function setThemeName(id: TerminalId, name: string) {
+    setMeta(id, "themeName", name);
+    void client.terminal.setTheme({ id, themeName: name });
   }
 
   /** The active terminal's metadata (for header display). */
@@ -259,7 +207,7 @@ export function useTerminals() {
       delete next[id];
       return next;
     });
-    setActivityHistory(produce((s) => delete s[id]));
+    clearActivity(id);
     setMruOrder((prev) => prev.filter((x) => x !== id));
     if (activeId() === id) {
       setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
@@ -317,7 +265,7 @@ export function useTerminals() {
       // Seed activity history from server (late-joining clients get full sparkline)
       for (const t of existing) {
         if (t.activityHistory?.length) {
-          setActivityHistory(t.id, t.activityHistory);
+          seedActivity(t.id, t.activityHistory);
         }
       }
 
@@ -330,7 +278,7 @@ export function useTerminals() {
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
     const info = await client.terminal.create({ cwd });
-    const themeName = randomTheme()
+    const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
@@ -338,7 +286,7 @@ export function useTerminals() {
     setIdOrder((prev) => [...prev, info.id]);
     setActiveId(info.id);
     subscribeAll(info.id);
-    if (themeName) void client.terminal.setTheme({ id: info.id, themeName });
+    if (themeName) setThemeName(info.id, themeName);
   }
 
   /** Create a sub-terminal under a parent. */
@@ -364,14 +312,6 @@ export function useTerminals() {
     removeAndAutoSwitch(id);
   }
 
-  /** Set the theme for the active terminal, persisting to server. */
-  async function handleSetTheme(themeName: string) {
-    const id = activeId();
-    if (id === null) return;
-    setMeta(id, "themeName", themeName);
-    void client.terminal.setTheme({ id, themeName });
-  }
-
   /** Copy the active terminal's buffer as plain text to the clipboard. */
   async function handleCopyTerminalText() {
     const id = activeId();
@@ -386,17 +326,6 @@ export function useTerminals() {
     }
   }
 
-  /** Switch the active terminal to a random theme (different from current). */
-  function handleRandomizeTheme() {
-    const id = activeId();
-    if (id === null) return;
-    const current = meta[id]?.themeName;
-    const candidates = availableThemes.filter((t) => t.name !== current);
-    if (candidates.length === 0) return;
-    const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-    void handleSetTheme(pick.name);
-  }
-
   return {
     terminalIds,
     activeId,
@@ -404,10 +333,7 @@ export function useTerminals() {
     getMeta,
     getDisplayInfo,
     getActivityHistory,
-    activeThemeName,
-    activeTheme,
-    getTerminalTheme,
-    isPreviewingTheme: () => previewThemeName() !== undefined,
+    setThemeName,
     activeMeta,
     existingTerminals,
     handleCreate,
@@ -419,14 +345,6 @@ export function useTerminals() {
       void client.terminal.reorder({ ids });
     },
     mruOrder,
-    committedThemeName,
-    setPreviewThemeName,
-    handleSetTheme,
-    handleRandomizeTheme,
     handleCopyTerminalText,
-    randomTheme,
-    setRandomTheme,
-    scrollLock,
-    setScrollLock,
   };
 }
