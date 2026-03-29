@@ -3,6 +3,7 @@
 import { createSignal, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
 export interface ThemeManagerDeps {
