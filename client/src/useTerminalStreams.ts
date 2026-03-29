@@ -2,7 +2,7 @@
 
 import { createRoot, createEffect, on } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./queryClient";
+import { orpc, queryClient } from "./queryClient";
 import type { TerminalId } from "kolu-common";
 import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
 
@@ -19,15 +19,17 @@ export function useTerminalStreams(deps: {
 }) {
   /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
   function subscribeAll(id: TerminalId) {
-    // createRoot provides a reactive owner for queries created imperatively
+    // createRoot provides a reactive owner for queries created imperatively;
+    // queryClient is passed explicitly since createRoot doesn't inherit context.
     createRoot(() => {
       // Metadata stream
-      const metaQuery = createQuery(() =>
-        orpc.terminal.onMetadataChange.experimental_liveOptions({
+      const metaQuery = createQuery(() => ({
+        ...orpc.terminal.onMetadataChange.experimental_liveOptions({
           input: { id },
           retry: true,
         }),
-      );
+        queryClient,
+      }));
       createEffect(
         on(
           () => metaQuery.data,
@@ -42,37 +44,39 @@ export function useTerminalStreams(deps: {
       );
 
       // Activity stream
-      const activityQuery = createQuery(() =>
-        orpc.terminal.onActivityChange.experimental_liveOptions({
+      const activityQuery = createQuery(() => ({
+        ...orpc.terminal.onActivityChange.experimental_liveOptions({
           input: { id },
           retry: true,
         }),
-      );
+        queryClient,
+      }));
       createEffect(
         on(
           () => activityQuery.data,
           (isActive) => {
             if (isActive === undefined) return;
-            deps.setMeta(id, "isActive", isActive);
-            deps.pushActivity(id, isActive);
+            deps.setMeta(id, "isActive", isActive as boolean);
+            deps.pushActivity(id, isActive as boolean);
           },
           { defer: true },
         ),
       );
 
       // Exit stream
-      const exitQuery = createQuery(() =>
-        orpc.terminal.onExit.experimental_liveOptions({
+      const exitQuery = createQuery(() => ({
+        ...orpc.terminal.onExit.experimental_liveOptions({
           input: { id },
           retry: false, // Don't retry exit — terminal is gone
         }),
-      );
+        queryClient,
+      }));
       createEffect(
         on(
           () => exitQuery.data,
           (code) => {
             if (code === undefined) return;
-            deps.onExit(id, code);
+            deps.onExit(id, code as number);
           },
           { defer: true },
         ),
