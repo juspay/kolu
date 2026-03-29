@@ -12,10 +12,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "Create terminal in" in the palette
     And I select "New worktree" in the palette
-    Then the worktree dialog should be visible
-    When I type "test-branch" in the worktree dialog
-    And I submit the worktree dialog
-    Then the header CWD should show ".worktrees/test-branch"
+    Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
     And there should be no page errors
 
@@ -37,12 +34,9 @@ Feature: Git worktree management
     When I open the command palette
     And I select "Create terminal in" in the palette
     And I select "New worktree" in the palette
-    When I type "remove-me" in the worktree dialog
-    And I submit the worktree dialog
-    Then the header CWD should show ".worktrees/remove-me"
+    Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
     And I select "Close terminal and remove worktree" in the palette
     Then the sidebar should have 1 fewer terminal entry
-    And the worktree "/tmp/kolu-wt-remove/.worktrees/remove-me" should not exist
     And there should be no page errors

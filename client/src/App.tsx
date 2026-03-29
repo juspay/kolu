@@ -22,7 +22,6 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
-import WorktreeDialog from "./WorktreeDialog";
 import { createCommands } from "./commands";
 
 import { client, wsStatus } from "./rpc";
@@ -95,9 +94,6 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
-
-  // Worktree dialog state
-  const [worktreeDialogOpen, setWorktreeDialogOpen] = createSignal(false);
 
   // Worktree list — refreshes when active terminal's repo changes
   const [worktreeList] = createResource(
@@ -181,7 +177,6 @@ const App: Component = () => {
     setShortcutsHelpOpen,
     setAboutOpen,
     worktreeList: () => worktreeList() ?? [],
-    openWorktreeDialog: () => setWorktreeDialogOpen(true),
     handleCloseWorktreeTerminal: () => {
       const id = activeId();
       if (!id) return;
@@ -300,12 +295,6 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
-      <WorktreeDialog
-        open={worktreeDialogOpen()}
-        onOpenChange={withRefocus(setWorktreeDialogOpen)}
-        repoPath={activeMeta()?.git?.mainRepoRoot ?? null}
-        onCreated={(path) => void handleCreate(path)}
-      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

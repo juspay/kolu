@@ -6,6 +6,7 @@ import type { PaletteCommand } from "./CommandPalette";
 import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
+import { toast } from "solid-sonner";
 import { client } from "./rpc";
 import type { TerminalId, TerminalMetadata, WorktreeEntry } from "kolu-common";
 
@@ -30,9 +31,116 @@ export interface CommandDeps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
-  openWorktreeDialog: () => void;
   handleCloseWorktreeTerminal: () => void;
   worktreeList: Accessor<WorktreeEntry[]>;
+}
+
+// Two-word random names à la Claude Code's worktree naming
+const ADJECTIVES = [
+  "amber",
+  "bold",
+  "calm",
+  "dark",
+  "eager",
+  "fair",
+  "gentle",
+  "happy",
+  "idle",
+  "jade",
+  "keen",
+  "light",
+  "mellow",
+  "noble",
+  "odd",
+  "proud",
+  "quiet",
+  "rapid",
+  "sharp",
+  "tall",
+  "unique",
+  "vivid",
+  "warm",
+  "zesty",
+  "bright",
+  "crisp",
+  "deep",
+  "firm",
+  "grand",
+  "hazy",
+  "iron",
+  "just",
+  "kind",
+  "lean",
+  "mild",
+  "neat",
+  "open",
+  "plain",
+  "rich",
+  "safe",
+  "thin",
+  "vast",
+  "wise",
+  "young",
+  "blue",
+  "clear",
+  "fresh",
+  "pure",
+];
+const NOUNS = [
+  "arch",
+  "bay",
+  "cliff",
+  "dale",
+  "elm",
+  "fern",
+  "glen",
+  "hill",
+  "isle",
+  "jade",
+  "knoll",
+  "lake",
+  "mesa",
+  "nook",
+  "oak",
+  "peak",
+  "ridge",
+  "shore",
+  "trail",
+  "vale",
+  "wood",
+  "reef",
+  "brook",
+  "cove",
+  "dune",
+  "field",
+  "grove",
+  "heath",
+  "inlet",
+  "ledge",
+  "marsh",
+  "oasis",
+  "pond",
+  "ravine",
+  "shade",
+  "thicket",
+  "vista",
+  "weald",
+  "canyon",
+  "bluff",
+  "creek",
+  "delta",
+  "forge",
+  "harbor",
+  "knot",
+  "loft",
+  "mist",
+  "plume",
+];
+
+function randomWorktreeName(): string {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]!;
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)]!;
+  return `${adj}-${noun}`;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -54,7 +162,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               SHORTCUTS.createTerminalInCwdAlt.keybind,
             ],
             children: (): PaletteCommand[] => {
-              const meta = deps.activeMeta()!;
+              const meta = deps.activeMeta();
+              if (!meta) return [];
               const git = meta.git;
               const items: PaletteCommand[] = [
                 {
@@ -75,8 +184,26 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   });
                 }
                 items.push({
-                  name: "New worktree…",
-                  onSelect: () => deps.openWorktreeDialog(),
+                  name: "New worktree",
+                  onSelect: () => {
+                    const branch = randomWorktreeName();
+                    void (async () => {
+                      try {
+                        const result = await client.git.worktreeCreate({
+                          repoPath: git!.mainRepoRoot,
+                          branch,
+                        });
+                        toast(
+                          result.isNew
+                            ? `Created worktree ${result.branch}`
+                            : `Opened worktree ${result.branch}`,
+                        );
+                        deps.handleCreate(result.path);
+                      } catch (err) {
+                        toast.error(`Failed to create worktree: ${err}`);
+                      }
+                    })();
+                  },
                 });
               }
               return items;
