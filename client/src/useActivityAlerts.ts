@@ -1,19 +1,9 @@
-/** Activity alerts — audio tone + browser notification when a background terminal finishes. */
+/** Activity alerts — audio + browser notification when a background terminal finishes. */
 
-/** Play a short 800 Hz tone using Web Audio API. */
+/** Play the notification sound (pre-recorded mp3 in public/sounds/). */
 function playTone() {
   try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = 800;
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-    osc.connect(gain).connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.2);
-    osc.onended = () => ctx.close();
+    new Audio("/sounds/notification.mp3").play();
   } catch {
     // Autoplay policy or unsupported — ignore
   }
