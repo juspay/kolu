@@ -60,7 +60,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     matchesKeybind(e, SHORTCUTS.createTerminal.keybind) ||
     matchesKeybind(e, SHORTCUTS.createTerminalAlt.keybind)
   ) {
-    deps.handleCreate();
+    deps.handleCreate(deps.activeMeta()?.cwd ?? undefined);
     return true;
   }
 

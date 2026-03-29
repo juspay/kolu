@@ -42,7 +42,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         SHORTCUTS.createTerminal.keybind,
         SHORTCUTS.createTerminalAlt.keybind,
       ],
-      onSelect: () => deps.handleCreate(),
+      onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
     },
     ...(deps.activeMeta()?.git
       ? [
