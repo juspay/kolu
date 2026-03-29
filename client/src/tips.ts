@@ -62,6 +62,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-worktree",
-    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → Create terminal in… → New worktree for parallel sessions`,
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
   },
 ];
