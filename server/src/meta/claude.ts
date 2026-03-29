@@ -20,9 +20,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { ClaudeCodeInfo } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import type { TerminalEntry, ProcessMeta } from "../terminals.ts";
+import { updateProcess } from "./index.ts";
 import { log } from "../log.ts";
 
 /** Configurable via env for testing. */
@@ -134,7 +133,7 @@ function tailJsonlLines(filePath: string, bytes: number): string[] {
 /** Derive Claude Code state from the last relevant JSONL message. */
 function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): { state: "thinking" | "tool_use" | "waiting"; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -165,10 +164,12 @@ function deriveState(
   return null;
 }
 
-/** Compare two ClaudeCodeInfo values for equality. */
-function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
+type ClaudeEnrichment = NonNullable<ProcessMeta["claude"]>;
+
+/** Compare two claude enrichment values for equality. */
+function enrichmentEqual(
+  a: ClaudeEnrichment | undefined,
+  b: ClaudeEnrichment | undefined,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -257,19 +258,23 @@ export function startClaudeCodeProvider(
     }
     if (!matchedSession) return;
 
-    const info: ClaudeCodeInfo = {
+    const enrichment: ClaudeEnrichment = {
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
     };
 
-    if (infoEqual(info, entry.metadata.claude)) return;
-    entry.metadata.claude = info;
+    if (enrichmentEqual(enrichment, entry.processMeta.claude)) return;
+    entry.processMeta.claude = enrichment;
     plog.info(
-      { state: info.state, model: info.model, session: info.sessionId },
+      {
+        state: enrichment.state,
+        model: enrichment.model,
+        session: enrichment.sessionId,
+      },
       "claude code state updated",
     );
-    emitMetadata(entry, terminalId);
+    updateProcess(entry, terminalId);
   }
 
   /** Start watching the transcript file for changes. */
@@ -301,21 +306,30 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
-        if (entry.metadata.claude !== null) {
-          entry.metadata.claude = null;
-          emitMetadata(entry, terminalId);
+        if (entry.processMeta.claude) {
+          delete entry.processMeta.claude;
+          updateProcess(entry, terminalId);
         }
       }
       return;
     }
 
-    // New or different session matched
+    // New or different session matched — immediately write initializing
+    // enrichment so the UI shows the Claude icon before the transcript loads
     if (!matchedSession || matchedSession.sessionId !== session.sessionId) {
       plog.info(
         { session: session.sessionId, pid: session.pid },
         "claude code session matched",
       );
       matchedSession = session;
+      if (!entry.processMeta.claude) {
+        entry.processMeta.claude = {
+          state: null,
+          sessionId: session.sessionId,
+          model: null,
+        };
+        updateProcess(entry, terminalId);
+      }
     }
 
     // Retry transcript lookup on each poll — JSONL is created lazily

@@ -1,9 +1,9 @@
-/** Terminal metadata display — name, branch, PR, agent status, activity.
+/** Terminal metadata display — name, branch, PR, process status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
+import ProcessIndicator from "./ProcessIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
@@ -113,11 +113,11 @@ const TerminalMeta: Component<{
         )}
       </Show>
 
-      {/* Agent status + activity sparkline */}
-      <Show when={i()?.meta.claude || (i()?.activityHistory.length ?? 0) > 0}>
+      {/* Process status + activity sparkline */}
+      <Show when={i()?.meta.process || (i()?.activityHistory.length ?? 0) > 0}>
         <div class="flex items-center gap-1.5 mt-0.5">
-          <Show when={i()?.meta.claude}>
-            {(claude) => <ClaudeIndicator state={claude().state} />}
+          <Show when={i()?.meta.process}>
+            {(proc) => <ProcessIndicator process={proc()} />}
           </Show>
           <Show when={(i()?.activityHistory.length ?? 0) > 0}>
             <div class="ml-auto">

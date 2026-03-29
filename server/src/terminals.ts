@@ -8,6 +8,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  ClaudeProcess,
 } from "kolu-common";
 import {
   ACTIVITY_IDLE_THRESHOLD_S,
@@ -30,6 +31,11 @@ export interface TerminalEvents {
   activity: [isActive: boolean];
 }
 
+/** Enrichment data from special process providers, keyed by provider name. */
+export interface ProcessMeta {
+  claude?: Omit<ClaudeProcess, "kind" | "name">;
+}
+
 /** Server-side terminal state. Owns a PtyHandle and event emitter. */
 export interface TerminalEntry {
   handle: PtyHandle;
@@ -47,6 +53,10 @@ export interface TerminalEntry {
   activityHistory: ActivitySample[];
   /** Aggregated metadata from all providers. */
   metadata: TerminalMetadata;
+  /** Foreground process name from /proc (written by process provider). */
+  processName: string | null;
+  /** Enrichment data from special providers (claude, etc.). */
+  processMeta: ProcessMeta;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
 }
@@ -144,6 +154,8 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     // (touchActivity won't record it since isActive starts true — no transition).
     activityHistory: [[Date.now(), true] as ActivitySample],
     metadata,
+    processName: null,
+    processMeta: {},
     stopProviders: () => {},
   };
   // Start providers after entry is in the map (providers may emit immediately)

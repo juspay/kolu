@@ -1,10 +1,10 @@
 /** Claude Code session state indicator — logo + state label. Logo animates when active. */
 
 import type { Component } from "solid-js";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type { ClaudeProcess } from "kolu-common";
 import { ClaudeCodeIcon } from "./Icons";
 
-type ClaudeState = ClaudeCodeInfo["state"];
+type ClaudeState = NonNullable<ClaudeProcess["state"]>;
 
 /** Busy = actively working (thinking or running tools). Warning = needs user input. */
 const BUSY_COLOR = "text-[#D97757]";
@@ -30,8 +30,17 @@ const stateConfig: Record<
   },
 };
 
-const ClaudeIndicator: Component<{ state: ClaudeState }> = (props) => {
-  const cfg = () => stateConfig[props.state];
+/** Fallback config when state is null (session matched but transcript not read yet). */
+const unknownConfig = {
+  color: "text-fg-3",
+  animation: "animate-pulse",
+  label: "\u2026",
+};
+
+const ClaudeIndicator: Component<{ state: ClaudeProcess["state"] }> = (
+  props,
+) => {
+  const cfg = () => (props.state ? stateConfig[props.state] : unknownConfig);
   return (
     <span
       class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
