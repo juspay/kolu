@@ -53,7 +53,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       children: () => {
         const repos = recentRepos();
         if (repos.length === 0) {
-          return [{ name: "No recent repos" }];
+          return [
+            { name: "No recent repos", description: "cd into a git repo first" },
+          ];
         }
         return repos.map((r) => ({
           name: r.repoName,
