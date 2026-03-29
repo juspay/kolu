@@ -1,6 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource, createSignal } from "solid-js";
+import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
@@ -85,10 +85,6 @@ export function useTerminalLifecycle(deps: {
     if (store.activeId() === id) {
       store.setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
-    // All terminals gone — re-fetch saved session for the restore card
-    if (remaining.length === 0) {
-      client.session.get().then(setSavedSession);
-    }
   }
 
   // Saved session — populated when no running terminals exist, shown in EmptyState.
@@ -97,13 +93,8 @@ export function useTerminalLifecycle(deps: {
   );
 
   // Restore existing terminals on page load (e.g. after browser refresh).
-  // Fetch terminal list and saved session in parallel so both are ready
-  // before Suspense resolves — no flash of the old welcome screen.
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const [existing, session] = await Promise.all([
-      client.terminal.list(),
-      client.session.get(),
-    ]);
+    const existing = await client.terminal.list();
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
       const initial: TerminalMetaStore = {};
@@ -153,11 +144,16 @@ export function useTerminalLifecycle(deps: {
 
       // Subscribe to live updates for all terminals
       for (const t of existing) deps.subscribeAll(t.id);
-    } else {
-      // No running terminals — offer saved session restore (already fetched above)
-      setSavedSession(session);
     }
     return existing;
+  });
+
+  // Single reactive rule: fetch saved session whenever terminal count hits zero.
+  // Covers both initial load (no terminals on server) and mid-session (user killed all).
+  createEffect(() => {
+    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
+      client.session.get().then(setSavedSession);
+    }
   });
 
   /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
@@ -264,6 +260,16 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
+  /** Kill all terminals (debug command). */
+  async function handleCloseAll() {
+    const ids = [...store.idOrder()];
+    for (const id of ids) {
+      const subs = store.getSubTerminalIds(id);
+      for (const subId of subs) await handleKill(subId);
+      await handleKill(id);
+    }
+  }
+
   return {
     existingTerminals,
     savedSession,
@@ -272,6 +278,7 @@ export function useTerminalLifecycle(deps: {
     handleCreate,
     handleCreateSubTerminal,
     handleKill,
+    handleCloseAll,
     handleCreateWorktree,
     handleKillWorktree,
     handleCopyTerminalText,

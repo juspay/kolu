@@ -64,6 +64,7 @@ const App: Component = () => {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    handleCloseAll,
     savedSession,
     handleRestoreSession,
     simulateAlert,
@@ -183,6 +184,7 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
     handleKillWorktree: () => void handleKillWorktree(),
+    handleCloseAll: () => void handleCloseAll(),
     simulateAlert,
   });
 

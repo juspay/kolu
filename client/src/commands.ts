@@ -34,6 +34,7 @@ export interface CommandDeps {
   handleKillWorktree: () => void;
   // Debug
   simulateAlert: () => void;
+  handleCloseAll: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -181,6 +182,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               cols: 1,
               rows: 1,
             }),
+        },
+        {
+          name: "Close all terminals",
+          onSelect: () => deps.handleCloseAll(),
         },
         {
           name: "Clear localStorage",
