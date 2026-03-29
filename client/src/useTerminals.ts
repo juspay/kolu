@@ -314,6 +314,28 @@ export function useTerminals(deps: {
     removeAndAutoSwitch(id);
   }
 
+  /** Create a git worktree and open a terminal in it. */
+  async function handleCreateWorktree(repoPath: string) {
+    const result = await client.git.worktreeCreate({ repoPath });
+    toast(`Created worktree at ${result.path}`);
+    await handleCreate(result.path);
+  }
+
+  /** Kill the active terminal (and sub-terminals) and remove its worktree. */
+  async function handleKillWorktree() {
+    const id = activeId();
+    if (!id) return;
+    const meta = activeMeta();
+    const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+    const subs = getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    await handleKill(id);
+    if (worktreePath) {
+      await client.git.worktreeRemove({ worktreePath });
+      toast(`Removed worktree at ${worktreePath}`);
+    }
+  }
+
   /** Copy the active terminal's buffer as plain text to the clipboard. */
   async function handleCopyTerminalText() {
     const id = activeId();
@@ -348,5 +370,7 @@ export function useTerminals(deps: {
     },
     mruOrder,
     handleCopyTerminalText,
+    handleCreateWorktree,
+    handleKillWorktree,
   };
 }

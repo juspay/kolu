@@ -12,7 +12,7 @@ import {
   ErrorBoundary,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { Toaster, toast } from "solid-sonner";
+import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
@@ -55,6 +55,8 @@ const App: Component = () => {
     reorderTerminals,
     mruOrder,
     handleCopyTerminalText,
+    handleCreateWorktree,
+    handleKillWorktree,
   } = useTerminals({ randomTheme, activity: useActivity() });
 
   const {
@@ -163,25 +165,8 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCloseWorktreeTerminal: () => {
-      const id = activeId();
-      if (!id) return;
-      const meta = activeMeta();
-      const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
-      // Kill sub-terminals first, then parent
-      const subs = getSubTerminalIds(id);
-      for (const subId of subs) void handleKill(subId);
-      void handleKill(id).then(async () => {
-        if (worktreePath) {
-          try {
-            await client.git.worktreeRemove({ worktreePath });
-            toast(`Removed worktree at ${worktreePath}`);
-          } catch (err) {
-            toast.error(`Failed to remove worktree: ${err}`);
-          }
-        }
-      });
-    },
+    handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
+    handleKillWorktree: () => void handleKillWorktree(),
   });
 
   // Reset state on close and return focus to terminal

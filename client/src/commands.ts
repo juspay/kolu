@@ -6,8 +6,6 @@ import type { PaletteCommand } from "./CommandPalette";
 import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
-import { toast } from "solid-sonner";
-import { client } from "./rpc";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 export interface CommandDeps {
@@ -31,7 +29,8 @@ export interface CommandDeps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
-  handleCloseWorktreeTerminal: () => void;
+  handleCreateWorktree: (repoPath: string) => void;
+  handleKillWorktree: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -48,20 +47,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             name: `New worktree (${deps.activeMeta()!.git!.repoName})`,
-            onSelect: () => {
-              const git = deps.activeMeta()!.git!;
-              void (async () => {
-                try {
-                  const result = await client.git.worktreeCreate({
-                    repoPath: git.mainRepoRoot,
-                  });
-                  toast(`Created worktree at ${result.path}`);
-                  deps.handleCreate(result.path);
-                } catch (err) {
-                  toast.error(`Failed to create worktree: ${err}`);
-                }
-              })();
-            },
+            onSelect: () =>
+              deps.handleCreateWorktree(deps.activeMeta()!.git!.mainRepoRoot),
           },
         ]
       : []),
@@ -69,7 +56,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             name: "Close terminal and remove worktree",
-            onSelect: () => deps.handleCloseWorktreeTerminal(),
+            onSelect: () => deps.handleKillWorktree(),
           },
         ]
       : []),
