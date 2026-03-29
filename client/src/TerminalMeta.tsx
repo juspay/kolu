@@ -56,17 +56,31 @@ const TerminalMeta: Component<{
         </Show>
       </div>
 
-      {/* Branch */}
-      <Tip label={i()?.meta.git?.branch ?? ""}>
-        <div
-          data-testid="terminal-meta-branch"
-          class={`${detailClass()} truncate`}
-          style={{ color: i()?.branchColor }}
-          classList={{ "text-fg-2": !i()?.branchColor }}
-        >
-          {i()?.meta.git?.branch ?? "\u00A0"}
-        </div>
-      </Tip>
+      {/* Branch — tooltip shows full name when truncated */}
+      <Show
+        when={i()?.meta.git?.branch}
+        fallback={
+          <div
+            data-testid="terminal-meta-branch"
+            class={`${detailClass()} text-fg-2`}
+          >
+            {"\u00A0"}
+          </div>
+        }
+      >
+        {(branch) => (
+          <Tip label={branch()}>
+            <div
+              data-testid="terminal-meta-branch"
+              class={`${detailClass()} truncate`}
+              style={{ color: i()?.branchColor }}
+              classList={{ "text-fg-2": !i()?.branchColor }}
+            >
+              {branch()}
+            </div>
+          </Tip>
+        )}
+      </Show>
 
       {/* PR info — hidden on inactive sidebar entries, visible on hover/active */}
       <div
