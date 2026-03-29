@@ -93,8 +93,13 @@ export function useTerminalLifecycle(deps: {
   );
 
   // Restore existing terminals on page load (e.g. after browser refresh).
+  // Fetch terminal list and saved session in parallel so both are ready
+  // before Suspense resolves — no flash of the old welcome screen.
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const existing = await client.terminal.list();
+    const [existing, session] = await Promise.all([
+      client.terminal.list(),
+      client.session.get(),
+    ]);
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
       const initial: TerminalMetaStore = {};
@@ -145,8 +150,7 @@ export function useTerminalLifecycle(deps: {
       // Subscribe to live updates for all terminals
       for (const t of existing) deps.subscribeAll(t.id);
     } else {
-      // No running terminals — check for a saved session to offer restore
-      const session = await client.session.get();
+      // No running terminals — offer saved session restore (already fetched above)
       setSavedSession(session);
     }
     return existing;
