@@ -21,7 +21,6 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
-import { saveSession } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
@@ -96,32 +95,24 @@ function touchActivity(entry: TerminalEntry): void {
 }
 
 /** Build a session snapshot from current terminal state. */
-function snapshotSession(): SavedTerminal[] {
-  const result: SavedTerminal[] = [];
-  const idToIndex = new Map<TerminalId, number>();
-  for (const [id, entry] of terminals) {
-    const saved: SavedTerminal = { cwd: entry.metadata.cwd };
-    if (entry.parentId) {
-      const parentIdx = idToIndex.get(entry.parentId);
-      if (parentIdx !== undefined) saved.parentIndex = parentIdx;
-    }
-    if (entry.metadata.git) {
-      saved.repoName = entry.metadata.git.repoName;
-      saved.branch = entry.metadata.git.branch;
-    }
-    idToIndex.set(id, result.length);
-    result.push(saved);
-  }
-  return result;
+export function snapshotSession(): SavedTerminal[] {
+  return [...terminals.entries()].map(([id, entry]) => ({
+    id,
+    cwd: entry.metadata.cwd,
+    ...(entry.parentId && { parentId: entry.parentId }),
+    ...(entry.metadata.git && {
+      repoName: entry.metadata.git.repoName,
+      branch: entry.metadata.git.branch,
+    }),
+  }));
 }
 
-/** Debounced session save — coalesces rapid changes (e.g. multiple CWD updates). */
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-function debouncedSaveSession(): void {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveSession(snapshotSession());
-  }, 500);
+/** Event emitter for session-relevant changes. Listeners handle persistence. */
+export const terminalChanges = new (EventEmitter<{ changed: [] }>)();
+
+/** Notify listeners that terminal state changed (debounced by consumer). */
+function emitChanged(): void {
+  terminalChanges.emit("changed");
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
@@ -157,7 +148,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         if (entry) {
           entry.metadata.cwd = newCwd;
           emitMetadata(entry, id);
-          debouncedSaveSession();
+          emitChanged();
         }
       },
     },
@@ -183,7 +174,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
-  debouncedSaveSession();
+  emitChanged();
   return toInfo(id, entry);
 }
 

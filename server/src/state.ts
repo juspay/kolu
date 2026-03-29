@@ -25,6 +25,18 @@ const store = new Conf<StateSchema>({
   },
 });
 
+/** Check if a path exists on disk. */
+function existsOnDisk(path: string): boolean {
+  try {
+    fs.accessSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- Recent repos ---
+
 const MAX_RECENT_REPOS = 20;
 
 /** Upsert a repo into the recent repos list (most-recently-seen first). */
@@ -46,15 +58,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */
 export function getRecentRepos(): RecentRepo[] {
   const repos = store.get("recentRepos");
-  const live = repos.filter((r) => {
-    try {
-      fs.accessSync(r.repoRoot);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  // Prune stale entries from disk
+  const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
 }
@@ -72,33 +76,16 @@ export function getSavedSession(): SavedSession | null {
   const session = store.get("session");
   if (!session || session.terminals.length === 0) return null;
 
-  // Filter out terminals whose CWD no longer exists
-  const live = session.terminals.filter((t) => {
-    try {
-      fs.accessSync(t.cwd);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  const live = session.terminals.filter((t) => existsOnDisk(t.cwd));
   if (live.length === 0) return null;
 
-  // Re-index parentIndex references after filtering
-  const oldToNew = new Map<number, number>();
-  let newIdx = 0;
-  for (let i = 0; i < session.terminals.length; i++) {
-    if (live.includes(session.terminals[i]!)) {
-      oldToNew.set(i, newIdx++);
-    }
-  }
-  const reindexed = live.map((t) => ({
-    ...t,
-    ...(t.parentIndex !== undefined && oldToNew.has(t.parentIndex)
-      ? { parentIndex: oldToNew.get(t.parentIndex)! }
-      : { parentIndex: undefined }),
-  }));
+  // Drop orphaned sub-terminals whose parent was filtered out
+  const liveIds = new Set(live.map((t) => t.id));
+  const valid = live.filter((t) => !t.parentId || liveIds.has(t.parentId));
 
-  return { terminals: reindexed, savedAt: session.savedAt };
+  return valid.length > 0
+    ? { terminals: valid, savedAt: session.savedAt }
+    : null;
 }
 
 /** Clear the saved session (e.g. after successful restore). */
@@ -109,4 +96,19 @@ export function clearSavedSession(): void {
 /** Set the saved session directly (test-only). */
 export function setSavedSession(session: SavedSession): void {
   store.set("session", session);
+}
+
+// --- Auto-save: terminal lifecycle → session persistence (decoupled via event) ---
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Wire up debounced session save from terminal change events. Called once at startup. */
+export function initSessionAutoSave(
+  onChange: { on: (event: "changed", fn: () => void) => void },
+  snapshot: () => SavedTerminal[],
+): void {
+  onChange.on("changed", () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => saveSession(snapshot()), 500);
+  });
 }

@@ -15,7 +15,10 @@ Given(
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({
         json: {
-          terminals: [{ cwd: cwdA }, { cwd: cwdB }],
+          terminals: [
+            { id: "a", cwd: cwdA },
+            { id: "b", cwd: cwdB },
+          ],
           savedAt: Date.now(),
         },
       }),

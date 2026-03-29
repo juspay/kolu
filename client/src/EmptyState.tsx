@@ -28,9 +28,9 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
       <Show when={props.savedSession}>
         {(session) => {
           const topLevel = () =>
-            session().terminals.filter((t) => t.parentIndex === undefined);
+            session().terminals.filter((t) => !t.parentId);
           const subCount = () =>
-            session().terminals.filter((t) => t.parentIndex !== undefined)
+            session().terminals.filter((t) => t.parentId)
               .length;
           return (
             <div data-testid="session-restore" class="mb-4 pb-4 border-b border-edge">

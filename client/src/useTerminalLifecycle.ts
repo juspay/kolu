@@ -162,23 +162,19 @@ export function useTerminalLifecycle(deps: {
     const session = savedSession();
     if (!session) return;
     setSavedSession(null);
-    // Map saved array index → live terminal ID (parents are always earlier in array)
-    const indexToId: TerminalId[] = [];
-    const idsBefore = store.idOrder().length;
-    for (let i = 0; i < session.terminals.length; i++) {
-      const t = session.terminals[i]!;
-      if (t.parentIndex !== undefined) {
-        const parentId = indexToId[t.parentIndex];
-        if (parentId) await handleCreateSubTerminal(parentId, t.cwd);
-        // Sub-terminals aren't in idOrder; grab ID from subOrder
-        const subs = store.getSubTerminalIds(parentId!);
-        indexToId.push(subs[subs.length - 1]!);
-      } else {
-        await handleCreate(t.cwd);
-        // Newly appended top-level terminal
-        const ids = store.idOrder();
-        indexToId.push(ids[ids.length - 1]!);
-      }
+    // Map saved terminal ID → new live terminal ID
+    const oldToNew = new Map<string, TerminalId>();
+    // Create top-level terminals first, then sub-terminals
+    const topLevel = session.terminals.filter((t) => !t.parentId);
+    const subs = session.terminals.filter((t) => t.parentId);
+    for (const t of topLevel) {
+      await handleCreate(t.cwd);
+      const ids = store.idOrder();
+      oldToNew.set(t.id, ids[ids.length - 1]!);
+    }
+    for (const t of subs) {
+      const newParentId = oldToNew.get(t.parentId!);
+      if (newParentId) await handleCreateSubTerminal(newParentId, t.cwd);
     }
   }
 

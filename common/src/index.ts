@@ -160,10 +160,12 @@ export const RecentRepoSchema = z.object({
 // --- Session persistence ---
 
 export const SavedTerminalSchema = z.object({
+  /** Stable ID within this session (original terminal UUID at save time). */
+  id: z.string(),
   cwd: z.string(),
-  /** Index of parent terminal in the array (undefined = top-level). */
-  parentIndex: z.number().int().nonnegative().optional(),
-  /** Snapshot of repo name at save time (for display only — not used for restore). */
+  /** References another saved terminal's `id` (sub-terminal relationship). */
+  parentId: z.string().optional(),
+  /** Snapshot of repo name at save time (for display only). */
   repoName: z.string().optional(),
   /** Snapshot of branch at save time (for display only). */
   branch: z.string().optional(),
