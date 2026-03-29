@@ -82,44 +82,36 @@ const TerminalMeta: Component<{
         )}
       </Show>
 
-      {/* PR info — hidden on inactive sidebar entries, visible on hover/active */}
-      <div
-        class={
-          mode() === "normal"
-            ? "hidden group-hover:block group-data-[active]:block"
-            : ""
-        }
-      >
-        <Show when={i()?.meta.pr}>
-          {(pr) => (
-            <div
-              class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
-              data-testid="terminal-meta-pr"
-              title={`#${pr().number} ${pr().title}`}
+      {/* PR info */}
+      <Show when={i()?.meta.pr}>
+        {(pr) => (
+          <div
+            class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
+            data-testid="terminal-meta-pr"
+            title={`#${pr().number} ${pr().title}`}
+          >
+            <PrStateIcon state={pr().state} class="w-3 h-3" />
+            <Show when={pr().checks}>
+              {(checks) => <ChecksIndicator status={checks()} />}
+            </Show>
+            <Show
+              when={mode() === "normal"}
+              fallback={<span class="shrink-0">#{pr().number}</span>}
             >
-              <PrStateIcon state={pr().state} class="w-3 h-3" />
-              <Show when={pr().checks}>
-                {(checks) => <ChecksIndicator status={checks()} />}
-              </Show>
-              <Show
-                when={mode() === "normal"}
-                fallback={<span class="shrink-0">#{pr().number}</span>}
+              <a
+                href={pr().url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="hover:text-accent shrink-0"
+                onClick={(e) => e.stopPropagation()}
               >
-                <a
-                  href={pr().url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="hover:text-accent shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  #{pr().number}
-                </a>
-              </Show>
-              <span class="truncate">{pr().title}</span>
-            </div>
-          )}
-        </Show>
-      </div>
+                #{pr().number}
+              </a>
+            </Show>
+            <span class="truncate">{pr().title}</span>
+          </div>
+        )}
+      </Show>
 
       {/* Agent status + activity sparkline */}
       <Show when={i()?.meta.claude || (i()?.activityHistory.length ?? 0) > 0}>

@@ -54,7 +54,6 @@ const SidebarEntry: Component<{
           "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
             !props.isActive,
           "opacity-25": sortable.isActiveDraggable,
-          "ring-1 ring-accent/20": m()?.meta?.claude?.state === "waiting",
         }}
         style={{
           "border-left-color":
@@ -125,7 +124,7 @@ const Sidebar: Component<{
       {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-48 lg:w-56 xl:w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
