@@ -57,14 +57,6 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (
-    matchesKeybind(e, SHORTCUTS.createTerminalInCwd.keybind) ||
-    matchesKeybind(e, SHORTCUTS.createTerminalInCwdAlt.keybind)
-  ) {
-    deps.handleCreate(deps.activeMeta()?.cwd ?? undefined);
-    return true;
-  }
-
-  if (
     matchesKeybind(e, SHORTCUTS.createTerminal.keybind) ||
     matchesKeybind(e, SHORTCUTS.createTerminalAlt.keybind)
   ) {

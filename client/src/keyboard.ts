@@ -86,14 +86,6 @@ export const SHORTCUTS = {
     keybind: { key: "Enter", mod: true },
     label: "Create new terminal",
   },
-  createTerminalInCwd: {
-    keybind: { key: "T", code: "KeyT", mod: true, shift: true },
-    label: "Create terminal in current directory",
-  },
-  createTerminalInCwdAlt: {
-    keybind: { key: "Enter", mod: true, shift: true },
-    label: "Create terminal in current directory",
-  },
   nextTerminal: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
     label: "Next terminal",

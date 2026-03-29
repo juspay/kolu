@@ -44,47 +44,27 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ],
       onSelect: () => deps.handleCreate(),
     },
-    ...(deps.activeMeta()
+    ...(deps.activeMeta()?.git
       ? [
           {
-            name: "Create terminal in…",
-            keybind: [
-              SHORTCUTS.createTerminalInCwd.keybind,
-              SHORTCUTS.createTerminalInCwdAlt.keybind,
-            ],
-            children: (): PaletteCommand[] => {
-              const meta = deps.activeMeta();
-              if (!meta) return [];
-              const git = meta.git;
-              const items: PaletteCommand[] = [
-                {
-                  name: "Current directory",
-                  onSelect: () => deps.handleCreate(meta.cwd),
-                },
-              ];
-              if (git) {
-                items.push({
-                  name: "New worktree",
-                  onSelect: () => {
-                    void (async () => {
-                      try {
-                        const result = await client.git.worktreeCreate({
-                          repoPath: git!.mainRepoRoot,
-                        });
-                        toast(
-                          result.isNew
-                            ? `Created worktree ${result.branch}`
-                            : `Opened worktree ${result.branch}`,
-                        );
-                        deps.handleCreate(result.path);
-                      } catch (err) {
-                        toast.error(`Failed to create worktree: ${err}`);
-                      }
-                    })();
-                  },
-                });
-              }
-              return items;
+            name: `New worktree (${deps.activeMeta()!.git!.repoName})`,
+            onSelect: () => {
+              const git = deps.activeMeta()!.git!;
+              void (async () => {
+                try {
+                  const result = await client.git.worktreeCreate({
+                    repoPath: git.mainRepoRoot,
+                  });
+                  toast(
+                    result.isNew
+                      ? `Created worktree ${result.branch}`
+                      : `Opened worktree ${result.branch}`,
+                  );
+                  deps.handleCreate(result.path);
+                } catch (err) {
+                  toast.error(`Failed to create worktree: ${err}`);
+                }
+              })();
             },
           },
         ]

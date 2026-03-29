@@ -53,10 +53,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
   },
   {
-    id: "amb-cwd",
-    text: `${formatKeybind(SHORTCUTS.createTerminalInCwdAlt.keybind)} opens a terminal in the current directory`,
-  },
-  {
     id: "amb-search",
     text: `${formatKeybind(SHORTCUTS.findInTerminal.keybind)} searches terminal output`,
   },

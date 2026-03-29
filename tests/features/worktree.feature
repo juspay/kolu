@@ -10,7 +10,6 @@ Feature: Git worktree management
     And I run "cd /tmp/kolu-wt-test"
     Then the header CWD should show "/tmp/kolu-wt-test"
     When I open the command palette
-    And I select "Create terminal in" in the palette
     And I select "New worktree" in the palette
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
@@ -20,7 +19,6 @@ Feature: Git worktree management
     When I set up a git repo at "/tmp/kolu-wt-remove"
     And I run "cd /tmp/kolu-wt-remove"
     When I open the command palette
-    And I select "Create terminal in" in the palette
     And I select "New worktree" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
