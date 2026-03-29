@@ -24,7 +24,7 @@ import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import { createCommands } from "./commands";
 
-import { client, wsStatus } from "./rpc";
+import { client, wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
 import { useActivity } from "./useActivity";
@@ -197,7 +197,7 @@ const App: Component = () => {
 
   return (
     <div
-      class="flex flex-col h-dvh bg-surface-0 text-fg font-sans"
+      class="relative flex flex-col h-dvh bg-surface-0 text-fg font-sans"
       style={{
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",
@@ -206,6 +206,10 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
+      {/* Dim the app when the server process has changed — state is stale */}
+      <Show when={serverRestarted()}>
+        <div class="absolute inset-0 bg-black/60 z-50 pointer-events-auto" />
+      </Show>
       <Toaster
         position="bottom-right"
         theme="dark"

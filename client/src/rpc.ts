@@ -28,6 +28,8 @@ export const client = createORPCClient<Client>(link);
 
 // Track WebSocket connection status as a reactive signal
 const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
+/** True when the server process has changed — app state is stale. */
+const [serverRestarted, setServerRestarted] = createSignal(false);
 let wasConnected = false;
 let knownProcessId: string | null = null;
 
@@ -41,6 +43,7 @@ ws.addEventListener("open", () => {
     .then(({ processId }) => {
       if (isReconnect) {
         if (knownProcessId && processId !== knownProcessId) {
+          setServerRestarted(true);
           toast.info("Server updated", {
             description: "Reload to apply the latest version.",
             action: { label: "Reload", onClick: () => location.reload() },
@@ -62,4 +65,4 @@ ws.addEventListener("close", () => {
   if (wasConnected) toast.error("Disconnected from server");
 });
 
-export { wsStatus };
+export { wsStatus, serverRestarted };
