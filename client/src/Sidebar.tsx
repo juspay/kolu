@@ -10,6 +10,7 @@ import {
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
+import { PlusIcon, ChevronRightIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { cwdBasename } from "./path";
@@ -91,9 +92,7 @@ const SidebarEntry: Component<{
               props.onCreateTerminal();
             }}
           >
-            <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
-            </svg>
+            <PlusIcon />
           </button>
           <Show when={hasChildren()}>
             <button
@@ -105,14 +104,12 @@ const SidebarEntry: Component<{
                 props.onToggleExpand();
               }}
             >
-              <svg
-                class="w-3 h-3 transition-transform"
+              <span
+                class="transition-transform inline-block"
                 classList={{ "rotate-90": props.expanded }}
-                viewBox="0 0 16 16"
-                fill="currentColor"
               >
-                <path d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06-1.06L9.44 8 6.22 4.78a.75.75 0 0 1 0-1.06Z" />
-              </svg>
+                <ChevronRightIcon />
+              </span>
             </button>
           </Show>
         </div>

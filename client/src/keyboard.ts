@@ -122,11 +122,11 @@ export const SHORTCUTS = {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     label: "New terminal",
   },
-  nextTerminalTab2: {
+  cycleTerminalForward: {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
     label: "Next terminal tab",
   },
-  prevTerminalTab2: {
+  cycleTerminalBackward: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous terminal tab",
   },

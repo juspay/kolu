@@ -28,8 +28,8 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.zoomReset,
   SHORTCUTS.toggleTerminalPanel,
   SHORTCUTS.createTerminal,
-  SHORTCUTS.nextTerminalTab2,
-  SHORTCUTS.prevTerminalTab2,
+  SHORTCUTS.cycleTerminalForward,
+  SHORTCUTS.cycleTerminalBackward,
   SHORTCUTS.shortcutsHelp,
 ];
 

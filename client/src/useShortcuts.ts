@@ -131,13 +131,13 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.nextTerminalTab2.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.cycleTerminalForward.keybind)) {
     const id = deps.activeId();
     if (id) deps.cycleSubTab(id, 1);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.prevTerminalTab2.keybind)) {
+  if (matchesKeybind(e, SHORTCUTS.cycleTerminalBackward.keybind)) {
     const id = deps.activeId();
     if (id) deps.cycleSubTab(id, -1);
     return true;
