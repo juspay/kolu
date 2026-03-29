@@ -1,8 +1,8 @@
 /**
  * Git worktree operations — create, remove, and list worktrees.
  *
- * Worktrees are stored in `.worktrees/<branch>` relative to the main repo root.
- * Branch names are sanitized for use as directory names (slashes → dashes).
+ * Worktrees are stored in `.worktrees/<name>` relative to the main repo root.
+ * Names are random adjective-noun pairs from a Nix-provided word list.
  */
 
 import path from "node:path";
@@ -11,10 +11,48 @@ import { simpleGit } from "simple-git";
 import type { WorktreeEntry } from "kolu-common";
 import { log } from "./log.ts";
 
-/** Sanitize a branch name for use as a directory name. */
-function sanitizeBranch(branch: string): string {
-  return branch.replace(/\//g, "-");
+// --- Word list for random worktree names ---
+
+interface WordList {
+  adjectives: string[];
+  nouns: string[];
 }
+
+let wordList: WordList | null = null;
+
+function getWordList(): WordList {
+  if (wordList) return wordList;
+
+  const wordsPath = process.env.KOLU_WORKTREE_WORDS;
+  if (wordsPath && fs.existsSync(wordsPath)) {
+    wordList = JSON.parse(fs.readFileSync(wordsPath, "utf-8")) as WordList;
+    log.info(
+      {
+        path: wordsPath,
+        adjectives: wordList.adjectives.length,
+        nouns: wordList.nouns.length,
+      },
+      "loaded worktree word list",
+    );
+  } else {
+    // Fallback for dev without Nix
+    wordList = {
+      adjectives: ["calm", "bold", "warm", "keen", "swift"],
+      nouns: ["brook", "ridge", "vale", "peak", "cove"],
+    };
+    log.warn("KOLU_WORKTREE_WORDS not set, using fallback word list");
+  }
+  return wordList;
+}
+
+function randomWorktreeName(): string {
+  const { adjectives, nouns } = getWordList();
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]!;
+  const noun = nouns[Math.floor(Math.random() * nouns.length)]!;
+  return `${adj}-${noun}`;
+}
+
+// --- Git helpers ---
 
 /** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {
@@ -30,10 +68,8 @@ async function detectDefaultBranch(repoPath: string): Promise<string> {
     const ref = (
       await git.raw(["symbolic-ref", "refs/remotes/origin/HEAD"])
     ).trim();
-    // refs/remotes/origin/main → main
     return ref.replace("refs/remotes/origin/", "");
   } catch {
-    // Fallback: try common names
     try {
       await git.raw(["rev-parse", "--verify", "origin/main"]);
       return "main";
@@ -43,51 +79,54 @@ async function detectDefaultBranch(repoPath: string): Promise<string> {
   }
 }
 
+// --- Worktree operations ---
+
 /**
- * Create a git worktree at `.worktrees/<sanitized-branch>` with a new branch
- * based on `origin/<default-branch>`.
+ * Create a git worktree with a random name, branching from origin/<default>.
+ * Retries with a new name on collision.
  */
 export async function worktreeCreate(
   repoPath: string,
-  branch: string,
 ): Promise<{ path: string; branch: string; isNew: boolean }> {
   const mainRoot = await resolveMainRepoRoot(repoPath);
-  const sanitized = sanitizeBranch(branch);
-  const targetPath = path.join(mainRoot, ".worktrees", sanitized);
-
-  // If worktree already exists at this path, return it
-  if (fs.existsSync(targetPath)) {
-    log.info({ path: targetPath, branch }, "worktree already exists");
-    return { path: targetPath, branch, isNew: false };
-  }
-
   const git = simpleGit(mainRoot);
   const defaultBranch = await detectDefaultBranch(mainRoot);
 
-  // Fetch latest from origin
   log.info({ mainRoot }, "fetching origin");
   await git.fetch("origin");
 
-  // Create worktree with new branch from origin/<default>
-  log.info(
-    { targetPath, branch, base: `origin/${defaultBranch}` },
-    "creating worktree",
-  );
-  await git.raw([
-    "worktree",
-    "add",
-    targetPath,
-    "-b",
-    branch,
-    `origin/${defaultBranch}`,
-  ]);
+  // Try up to 5 times to find a unique name
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const branch = randomWorktreeName();
+    const targetPath = path.join(mainRoot, ".worktrees", branch);
 
-  return { path: targetPath, branch, isNew: true };
+    if (fs.existsSync(targetPath)) {
+      log.info({ branch }, "name collision, retrying");
+      continue;
+    }
+
+    log.info(
+      { targetPath, branch, base: `origin/${defaultBranch}` },
+      "creating worktree",
+    );
+    await git.raw([
+      "worktree",
+      "add",
+      targetPath,
+      "-b",
+      branch,
+      `origin/${defaultBranch}`,
+    ]);
+
+    return { path: targetPath, branch, isNew: true };
+  }
+
+  // Extremely unlikely — 48×48 = 2304 possible names
+  throw new Error("Failed to generate unique worktree name after 5 attempts");
 }
 
 /** Remove a git worktree by path. */
 export async function worktreeRemove(worktreePath: string): Promise<void> {
-  // Resolve which repo this worktree belongs to
   const mainRoot = await resolveMainRepoRoot(worktreePath);
   const git = simpleGit(mainRoot);
   log.info({ worktreePath }, "removing worktree");
@@ -107,18 +146,15 @@ export async function worktreeList(repoPath: string): Promise<WorktreeEntry[]> {
 
   for (const line of output.split("\n")) {
     if (line.startsWith("worktree ")) {
-      // Start of a new entry — flush previous
       if (currentPath !== null && currentPath !== mainRoot) {
         entries.push({ path: currentPath, branch: currentBranch });
       }
       currentPath = line.slice("worktree ".length);
       currentBranch = null;
     } else if (line.startsWith("branch ")) {
-      // refs/heads/foo → foo
       currentBranch = line.slice("branch ".length).replace("refs/heads/", "");
     }
   }
-  // Flush last entry
   if (currentPath !== null && currentPath !== mainRoot) {
     entries.push({ path: currentPath, branch: currentBranch });
   }

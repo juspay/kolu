@@ -156,7 +156,7 @@ export const appRouter = t.router({
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) =>
-      worktreeCreate(input.repoPath, input.branch),
+      worktreeCreate(input.repoPath),
     ),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       await worktreeRemove(input.worktreePath);

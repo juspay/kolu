@@ -8,6 +8,7 @@ let
   pnpm = pkgs.pnpm;
   ghosttyThemes = pkgs.callPackage ./nix/ghostty-themes { };
   fonts = pkgs.callPackage ./nix/fonts { };
+  worktreeWords = pkgs.callPackage ./nix/worktree-words { };
 
   xclip-kolu-shim = pkgs.writeShellApplication {
     name = "xclip";
@@ -79,6 +80,7 @@ let
     KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
     KOLU_FONTS_DIR = "${fonts}";
     KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
+    KOLU_WORKTREE_WORDS = "${worktreeWords}/words.json";
   };
 
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
