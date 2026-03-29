@@ -139,6 +139,19 @@ export function useTerminals(deps: {
     return () => controller.abort();
   }
 
+  /** Alert when Claude transitions to "waiting" on a terminal. */
+  function checkClaudeFinished(
+    id: TerminalId,
+    prev: string | undefined,
+    next: string | undefined,
+  ) {
+    if (!deps.activityAlerts() || next !== "waiting" || prev === "waiting")
+      return;
+    const isBackground = id !== activeId();
+    if (isBackground) setMeta(id, "notified", true);
+    if (isBackground || document.hidden) fireActivityAlert(terminalLabel(id));
+  }
+
   /** Subscribe to metadata changes for a terminal. Called when terminal is created or restored. */
   function subscribeMetadata(id: TerminalId) {
     return subscribeStream(
@@ -146,24 +159,7 @@ export function useTerminals(deps: {
       (metadata) => {
         const prevState = meta[id]?.meta?.claude?.state;
         setMeta(id, "meta", metadata);
-
-        // Alert when Claude transitions to "waiting"
-        if (
-          deps.activityAlerts() &&
-          metadata.claude?.state === "waiting" &&
-          prevState !== "waiting"
-        ) {
-          const isBackground = id !== activeId();
-          const tabHidden = document.hidden;
-
-          // Sidebar glow only for non-active terminals (active one is already visible)
-          if (isBackground) setMeta(id, "notified", true);
-
-          // Audio + browser notification when terminal is background OR tab is unfocused
-          if (isBackground || tabHidden) {
-            fireActivityAlert(terminalLabel(id));
-          }
-        }
+        checkClaudeFinished(id, prevState, metadata.claude?.state);
       },
     );
   }
