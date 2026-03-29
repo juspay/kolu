@@ -145,8 +145,13 @@ export function useTerminals(deps: {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
+        const isChild = !!meta[id]?.parentId;
         const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        const label = isChild
+          ? "Terminal"
+          : pos > 0
+            ? `Workspace ${pos}`
+            : "Workspace";
         toast(
           code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );

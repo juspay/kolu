@@ -59,7 +59,7 @@ export function buildTerminalDisplayInfos(
   for (const id of ids) {
     const info = getMeta(id);
     if (!info?.meta) continue;
-    const name = terminalName(info) ?? "terminal";
+    const name = terminalName(info) ?? "workspace";
     const repoKey =
       info.meta.git?.repoName || cwdBasename(info.meta.cwd) || undefined;
     const branchKey = info.meta.git?.branch;

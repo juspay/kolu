@@ -55,7 +55,7 @@ export class KoluWorld extends World {
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     const countBefore = await entries.count();
 
-    await this.page.locator('[data-testid="create-terminal"]').click();
+    await this.page.locator('[data-testid="create-workspace"]').click();
 
     // Wait for the new entry to appear in the sidebar
     await entries.nth(countBefore).waitFor({ state: "visible", timeout });

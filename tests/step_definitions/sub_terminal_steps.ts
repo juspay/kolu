@@ -21,7 +21,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
 When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal");
   },
 );
 
@@ -35,7 +35,7 @@ When("I click the main terminal", async function (this: KoluWorld) {
 When(
   "I toggle the sub-panel via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal");
   },
 );
 
@@ -113,11 +113,11 @@ Then(
 );
 
 Then(
-  "the sidebar entry should show sub-terminal count {int}",
+  "the sidebar entry should show terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     // Look for the +N badge text in the active sidebar entry
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[data-active] [data-testid="terminal-count"]',
     );
     const text = await badge.textContent({ timeout: 5000 });
     assert.strictEqual(text, `+${expected}`);
@@ -127,7 +127,7 @@ Then(
 When(
   "I create another sub-terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "New sub-terminal");
+    await paletteCommand(this, "New terminal");
   },
 );
 
@@ -135,7 +135,7 @@ When(
   "I click sub-panel tab {int}",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])',
     );
     await tabs.nth(index - 1).click();
     await this.page.waitForTimeout(300);
@@ -146,7 +146,7 @@ Then(
   "the sub-panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])',
     );
     const count = await tabs.count();
     assert.strictEqual(
@@ -161,7 +161,7 @@ Then(
   "sub-panel tab {int} should be active",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])',
     );
     const tab = tabs.nth(index - 1);
     const classes = await tab.getAttribute("class");
@@ -186,13 +186,13 @@ Then(
 );
 
 Then(
-  "the sidebar entry should not show a sub-terminal count",
+  "the sidebar entry should not show a terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[data-active] [data-testid="terminal-count"]',
     );
     const count = await badge.count();
-    assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
+    assert.strictEqual(count, 0, "Expected no terminal count badge");
   },
 );
 

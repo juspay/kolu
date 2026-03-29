@@ -79,6 +79,14 @@ export function useSubPanel() {
       setState(parentId, "focusTarget", target);
     },
 
+    /** Select a specific sub-tab and expand the panel. */
+    selectAndExpand(parentId: TerminalId, subId: TerminalId) {
+      ensureState(parentId);
+      setState(parentId, "activeSubTab", subId);
+      setState(parentId, "collapsed", false);
+      setState(parentId, "focusTarget", "sub");
+    },
+
     /** Clean up state for a parent that no longer exists. */
     removePanel(parentId: TerminalId) {
       setState(produce((s) => delete s[parentId]));

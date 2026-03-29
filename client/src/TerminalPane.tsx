@@ -101,7 +101,7 @@ const TerminalPane: Component<{
             aria-label={
               isExpanded()
                 ? "Resize sub-panel"
-                : `${props.subTerminalIds.length} sub-terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
+                : `${props.subTerminalIds.length} terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
             }
             onClick={() => {
               if (!isExpanded()) subPanel.expandPanel(props.terminalId);

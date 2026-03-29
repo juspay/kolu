@@ -7,10 +7,10 @@ import Kbd from "./Kbd";
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 
 const features = [
-  { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
+  { label: "New workspace", shortcut: SHORTCUTS.createWorkspaceAlt.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
   { label: "Mission Control", shortcut: SHORTCUTS.missionControl.keybind },
-  { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
+  { label: "New terminal", shortcut: SHORTCUTS.toggleTerminalPanel.keybind },
 ];
 
 const EmptyState: Component = () => (

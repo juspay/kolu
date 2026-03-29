@@ -49,9 +49,9 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     : []),
   {
     id: "amb-sub",
-    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal with a sub-panel`,
+    text: `${formatKeybind(SHORTCUTS.toggleTerminalPanel.keybind)} opens a terminal panel below`,
   },
-  { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
+  { id: "amb-drag", text: "Drag sidebar entries to reorder workspaces" },
   {
     id: "amb-mru",
     text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,

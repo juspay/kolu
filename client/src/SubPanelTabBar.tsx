@@ -42,7 +42,7 @@ const SubPanelTabBar: Component<{
       <button
         class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
-        title="New sub-terminal"
+        title="New terminal"
       >
         +
       </button>

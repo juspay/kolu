@@ -12,8 +12,9 @@ import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import { cwdBasename } from "./path";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
@@ -24,9 +25,18 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
+  /** Child terminal IDs for this workspace. */
+  subTerminalIds: TerminalId[];
+  /** Whether the child terminal list is expanded. */
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onCreateTerminal: () => void;
+  getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
+  onSelectTerminal: (subId: TerminalId) => void;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
+  const hasChildren = () => props.subTerminalIds.length > 0;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -42,35 +52,100 @@ const SidebarEntry: Component<{
           />
         )}
       </Show>
-      <button
-        ref={sortable.ref}
-        {...sortable.dragActivators}
-        data-terminal-id={props.id}
-        data-active={props.isActive ? "" : undefined}
-        data-activity={m()?.isActive ? "active" : "sleeping"}
-        class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
-        classList={{
-          "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
-            !props.isActive,
-          "opacity-25": sortable.isActiveDraggable,
-        }}
-        style={{
-          "border-left-color":
-            props.displayInfo?.repoColor ??
-            (props.isActive ? "var(--accent)" : "transparent"),
-        }}
-        onClick={() => props.onSelect(props.id)}
-        onMouseDown={(e) => e.preventDefault()}
-        title={m()?.meta?.cwd ?? String(props.id)}
-      >
-        <TerminalMeta info={props.displayInfo} />
-      </button>
+      <div class="group flex items-stretch border-b border-edge">
+        <button
+          ref={sortable.ref}
+          {...sortable.dragActivators}
+          data-terminal-id={props.id}
+          data-active={props.isActive ? "" : undefined}
+          data-activity={m()?.isActive ? "active" : "sleeping"}
+          class="flex-1 min-w-0 py-2 px-2 text-sm text-left transition-colors duration-150 touch-none"
+          classList={{
+            "border-l-4 bg-accent/10 text-fg": props.isActive,
+            "border-l-4 border-l-transparent text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+              !props.isActive,
+            "opacity-25": sortable.isActiveDraggable,
+          }}
+          style={{
+            "border-left-color":
+              props.displayInfo?.repoColor ??
+              (props.isActive ? "var(--accent)" : "transparent"),
+          }}
+          onClick={() => props.onSelect(props.id)}
+          onMouseDown={(e) => e.preventDefault()}
+          title={m()?.meta?.cwd ?? String(props.id)}
+        >
+          <TerminalMeta info={props.displayInfo} />
+        </button>
+        {/* Action buttons — visible on hover/focus */}
+        <div
+          class="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+          classList={{ "opacity-100": props.isActive }}
+        >
+          <button
+            data-testid="add-terminal"
+            class="p-1 text-fg-3 hover:text-fg rounded transition-colors"
+            title="New terminal"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onCreateTerminal();
+            }}
+          >
+            <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z" />
+            </svg>
+          </button>
+          <Show when={hasChildren()}>
+            <button
+              data-testid="toggle-expand"
+              class="p-1 text-fg-3 hover:text-fg rounded transition-colors"
+              title={props.expanded ? "Collapse terminals" : "Expand terminals"}
+              onClick={(e) => {
+                e.stopPropagation();
+                props.onToggleExpand();
+              }}
+            >
+              <svg
+                class="w-3 h-3 transition-transform"
+                classList={{ "rotate-90": props.expanded }}
+                viewBox="0 0 16 16"
+                fill="currentColor"
+              >
+                <path d="M6.22 4.22a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06-1.06L9.44 8 6.22 4.78a.75.75 0 0 1 0-1.06Z" />
+              </svg>
+            </button>
+          </Show>
+        </div>
+      </div>
+      {/* Nested terminal list when expanded */}
+      <Show when={props.expanded && hasChildren()}>
+        <div data-testid="terminal-list" class="bg-surface-0/50">
+          <For each={props.subTerminalIds}>
+            {(subId) => {
+              const subMeta = () => props.getSubMeta(subId);
+              const label = () => {
+                const m = subMeta();
+                return m?.meta ? cwdBasename(m.meta.cwd) : "terminal";
+              };
+              return (
+                <button
+                  data-testid="terminal-entry"
+                  class="w-full pl-6 pr-2 py-1.5 text-xs text-fg-3 hover:text-fg-2 hover:bg-surface-2 text-left truncate transition-colors"
+                  onClick={() => props.onSelectTerminal(subId)}
+                  title={subMeta()?.meta?.cwd}
+                >
+                  {label()}
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 };
 
-/** Sidebar — collapsible terminal list with drag-to-reorder. */
+/** Sidebar — collapsible workspace list with drag-to-reorder. */
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
@@ -81,8 +156,30 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
+  getSubTerminalIds: (id: TerminalId) => TerminalId[];
+  getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
+  onCreateTerminal: (parentId: TerminalId) => void;
+  onSelectTerminal: (parentId: TerminalId, subId: TerminalId) => void;
 }> = (props) => {
   const { showTipOnce } = useTips();
+
+  // Local expanded state — not persisted, collapsed by default
+  const [expandedSet, setExpandedSet] = createSignal<Set<TerminalId>>(
+    new Set(),
+  );
+
+  function isExpanded(id: TerminalId) {
+    return expandedSet().has(id);
+  }
+
+  function toggleExpand(id: TerminalId) {
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function handleSelect(id: TerminalId) {
     const idx = props.terminalIds.indexOf(id);
@@ -131,13 +228,13 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal" class="w-full">
+        <Tip label="New workspace" class="w-full">
           <button
-            data-testid="create-terminal"
+            data-testid="create-workspace"
             class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
             onClick={props.onCreate}
           >
-            + New terminal
+            + New workspace
           </button>
         </Tip>
         <nav class="flex-1 overflow-y-auto">
@@ -173,6 +270,14 @@ const Sidebar: Component<{
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
+                      subTerminalIds={props.getSubTerminalIds(id)}
+                      expanded={isExpanded(id)}
+                      onToggleExpand={() => toggleExpand(id)}
+                      onCreateTerminal={() => props.onCreateTerminal(id)}
+                      getSubMeta={props.getSubMeta}
+                      onSelectTerminal={(subId) =>
+                        props.onSelectTerminal(id, subId)
+                      }
                     />
                   );
                 }}
@@ -188,7 +293,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": d()?.repoColor }}
                     >
                       <span style={{ color: d()?.repoColor }}>
-                        {d()?.name ?? "terminal"}
+                        {d()?.name ?? "workspace"}
                       </span>
                     </div>
                   );
