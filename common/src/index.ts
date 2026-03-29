@@ -51,8 +51,8 @@ const GenericProcessSchema = z.object({
 const ClaudeProcessSchema = z.object({
   kind: z.literal("claude"),
   name: z.literal("claude"),
-  /** Current state derived from session JSONL. */
-  state: ClaudeCodeStateSchema,
+  /** Current state derived from session JSONL. Null when session matched but transcript not yet read. */
+  state: ClaudeCodeStateSchema.nullable(),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */

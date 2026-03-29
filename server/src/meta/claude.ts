@@ -314,13 +314,22 @@ export function startClaudeCodeProvider(
       return;
     }
 
-    // New or different session matched
+    // New or different session matched — immediately write initializing
+    // enrichment so the UI shows the Claude icon before the transcript loads
     if (!matchedSession || matchedSession.sessionId !== session.sessionId) {
       plog.info(
         { session: session.sessionId, pid: session.pid },
         "claude code session matched",
       );
       matchedSession = session;
+      if (!entry.processMeta.claude) {
+        entry.processMeta.claude = {
+          state: null,
+          sessionId: session.sessionId,
+          model: null,
+        };
+        updateProcess(entry, terminalId);
+      }
     }
 
     // Retry transcript lookup on each poll — JSONL is created lazily
