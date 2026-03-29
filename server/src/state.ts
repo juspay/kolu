@@ -105,3 +105,8 @@ export function getSavedSession(): SavedSession | null {
 export function clearSavedSession(): void {
   store.set("session", null);
 }
+
+/** Set the saved session directly (test-only). */
+export function setSavedSession(session: SavedSession): void {
+  store.set("session", session);
+}

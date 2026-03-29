@@ -23,7 +23,12 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos, getSavedSession, clearSavedSession } from "./state.ts";
+import {
+  getRecentRepos,
+  getSavedSession,
+  clearSavedSession,
+  setSavedSession,
+} from "./state.ts";
 
 const t = implement(contract);
 
@@ -169,6 +174,9 @@ export const appRouter = t.router({
     get: t.session.get.handler(async () => getSavedSession()),
     clear: t.session.clear.handler(async () => {
       clearSavedSession();
+    }),
+    test__set: t.session.test__set.handler(async ({ input }) => {
+      setSavedSession(input);
     }),
   },
 });

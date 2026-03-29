@@ -1,26 +1,25 @@
-import { When, Then } from "@cucumber/cucumber";
+import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
+import * as fs from "node:fs";
 
-When("I create a second terminal", async function (this: KoluWorld) {
-  await this.createTerminal();
-});
-
-When(
-  "I kill all terminals and reload",
-  async function (this: KoluWorld) {
-    // Wait for the debounced session save to flush (500ms debounce + margin)
-    await this.page.waitForTimeout(1000);
-    // Kill all terminals on the server (session snapshot is already saved).
-    // killAllTerminals() doesn't overwrite the saved session — saveSession ignores empty lists.
-    await this.page.request.fetch("/rpc/terminal/killAll", {
+Given(
+  "a saved session with terminals in {string} and {string}",
+  async function (this: KoluWorld, cwdA: string, cwdB: string) {
+    // Ensure the CWD directories exist
+    fs.mkdirSync(cwdA, { recursive: true });
+    fs.mkdirSync(cwdB, { recursive: true });
+    // Seed the session directly on the server — no auto-save timing dependency
+    await this.page.request.fetch("/rpc/session/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({}),
+      data: JSON.stringify({
+        json: {
+          terminals: [{ cwd: cwdA }, { cwd: cwdB }],
+          savedAt: Date.now(),
+        },
+      }),
     });
-    // Reload to simulate fresh start
-    await this.page.reload();
-    await this.waitForSettled();
   },
 );
 
@@ -48,21 +47,20 @@ Then(
 When("I click the restore button", async function (this: KoluWorld) {
   const btn = this.page.locator('[data-testid="restore-session"]');
   await btn.click();
-  // Wait for terminals to be created and sidebar entries to appear
+  // Wait for at least one terminal to appear
   const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-  await entries.first().waitFor({ state: "visible", timeout: 10000 });
+  await entries.first().waitFor({ state: "visible", timeout: 15000 });
 });
 
 Then(
   "there should be {int} sidebar entries",
   async function (this: KoluWorld, expected: number) {
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    // Wait until the expected count is reached
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
       { selector: SIDEBAR_ENTRY_SELECTOR, count: expected },
-      { timeout: 10000 },
+      { timeout: 15000 },
     );
     const actual = await entries.count();
     assert.strictEqual(

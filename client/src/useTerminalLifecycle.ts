@@ -150,6 +150,7 @@ export function useTerminalLifecycle(deps: {
 
   // Single reactive rule: fetch saved session whenever terminal count hits zero.
   // Covers both initial load (no terminals on server) and mid-session (user killed all).
+  // TODO: Replace with reactive server stream (https://github.com/juspay/kolu/issues/229)
   createEffect(() => {
     if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
       client.session.get().then(setSavedSession);
