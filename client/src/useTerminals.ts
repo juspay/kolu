@@ -20,6 +20,8 @@ import {
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
 type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
@@ -277,8 +279,13 @@ export function useTerminals(deps: {
     return existing;
   });
 
+  const { showTipOnce } = useTips();
+
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
+    // Show worktree tip when creating a terminal while in a git repo
+    if (activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
+
     const info = await client.terminal.create({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
