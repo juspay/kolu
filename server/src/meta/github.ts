@@ -109,13 +109,10 @@ async function resolveGitHubPr(
     );
     const results = JSON.parse(stdout) as Array<Record<string, unknown>>;
     if (results.length === 0) return null;
-    // Pick the most recently updated PR (prefer open over closed/merged)
-    results.sort((a, b) => {
-      const aOpen = (a.state as string).toUpperCase() === "OPEN" ? 1 : 0;
-      const bOpen = (b.state as string).toUpperCase() === "OPEN" ? 1 : 0;
-      if (aOpen !== bOpen) return bOpen - aOpen;
-      return String(b.updatedAt).localeCompare(String(a.updatedAt));
-    });
+    // Pick the most recently updated PR regardless of state
+    results.sort((a, b) =>
+      String(b.updatedAt).localeCompare(String(a.updatedAt)),
+    );
     const data = results[0];
     return {
       number: data.number,
