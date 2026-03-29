@@ -204,11 +204,13 @@ export const WorktreeIcon: Component<{ class?: string }> = (props) => (
     stroke="currentColor"
     viewBox="0 0 24 24"
   >
+    <circle cx="12" cy="4" r="2" stroke-width="1.5" />
+    <circle cx="6" cy="20" r="2" stroke-width="1.5" />
+    <circle cx="18" cy="20" r="2" stroke-width="1.5" />
     <path
       stroke-linecap="round"
-      stroke-linejoin="round"
-      stroke-width="2"
-      d="M13 10V3L4 14h7v7l9-11h-7z"
+      stroke-width="1.5"
+      d="M12 6v4c0 2-2 4-6 8M12 10c0 2 2 4 6 8"
     />
   </svg>
 );
