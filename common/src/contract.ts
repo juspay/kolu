@@ -77,5 +77,7 @@ export const contract = oc.router({
   },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),
+    // Clear saved session (test-only: reset state between scenarios)
+    clear: oc.output(z.void()),
   },
 });
