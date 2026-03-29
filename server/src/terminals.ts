@@ -21,6 +21,8 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
+import { saveSession } from "./state.ts";
+import type { SavedTerminal } from "kolu-common";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -93,6 +95,31 @@ function touchActivity(entry: TerminalEntry): void {
   }, IDLE_MS);
 }
 
+/** Build a session snapshot from current terminal state. */
+function snapshotSession(): SavedTerminal[] {
+  const result: SavedTerminal[] = [];
+  const idToIndex = new Map<TerminalId, number>();
+  for (const [id, entry] of terminals) {
+    const saved: SavedTerminal = { cwd: entry.metadata.cwd };
+    if (entry.parentId) {
+      const parentIdx = idToIndex.get(entry.parentId);
+      if (parentIdx !== undefined) saved.parentIndex = parentIdx;
+    }
+    idToIndex.set(id, result.length);
+    result.push(saved);
+  }
+  return result;
+}
+
+/** Debounced session save — coalesces rapid changes (e.g. multiple CWD updates). */
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function debouncedSaveSession(): void {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveSession(snapshotSession());
+  }, 500);
+}
+
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
 export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
@@ -119,6 +146,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         }
         emitter.emit("exit", exitCode);
         terminals.delete(id);
+        debouncedSaveSession();
       },
       // PTY callback (OSC 7): update metadata CWD, providers react to the event
       onCwd: (newCwd) => {
@@ -126,6 +154,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         if (entry) {
           entry.metadata.cwd = newCwd;
           emitMetadata(entry, id);
+          debouncedSaveSession();
         }
       },
     },
@@ -151,6 +180,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
+  debouncedSaveSession();
   return toInfo(id, entry);
 }
 
@@ -176,6 +206,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
   terminals.delete(id);
+  debouncedSaveSession();
   return info;
 }
 

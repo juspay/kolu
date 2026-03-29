@@ -157,6 +157,19 @@ export const RecentRepoSchema = z.object({
   lastSeen: z.number(),
 });
 
+// --- Session persistence ---
+
+export const SavedTerminalSchema = z.object({
+  cwd: z.string(),
+  /** Index of parent terminal in the array (undefined = top-level). */
+  parentIndex: z.number().int().nonnegative().optional(),
+});
+
+export const SavedSessionSchema = z.object({
+  terminals: z.array(SavedTerminalSchema),
+  savedAt: z.number(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
@@ -167,3 +180,5 @@ export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
+export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
+export type SavedSession = z.infer<typeof SavedSessionSchema>;

@@ -81,6 +81,8 @@ export function useTerminals(deps: {
     handleCopyTerminalText: lifecycle.handleCopyTerminalText,
     handleCreateWorktree: lifecycle.handleCreateWorktree,
     handleKillWorktree: lifecycle.handleKillWorktree,
+    savedSession: lifecycle.savedSession,
+    handleRestoreSession: lifecycle.handleRestoreSession,
     simulateAlert: alerts.simulateAlert,
   };
 }

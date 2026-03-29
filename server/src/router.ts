@@ -23,7 +23,7 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos } from "./state.ts";
+import { getRecentRepos, getSavedSession } from "./state.ts";
 
 const t = implement(contract);
 
@@ -164,5 +164,8 @@ export const appRouter = t.router({
       await worktreeRemove(input.worktreePath);
     }),
     recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
+  },
+  session: {
+    get: t.session.get.handler(async () => getSavedSession()),
   },
 });

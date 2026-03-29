@@ -8,10 +8,11 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo } from "kolu-common";
+import type { RecentRepo, SavedSession, SavedTerminal } from "kolu-common";
 
 interface StateSchema {
   recentRepos: RecentRepo[];
+  session: SavedSession | null;
 }
 
 const store = new Conf<StateSchema>({
@@ -20,6 +21,7 @@ const store = new Conf<StateSchema>({
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
   defaults: {
     recentRepos: [],
+    session: null,
   },
 });
 
@@ -55,4 +57,51 @@ export function getRecentRepos(): RecentRepo[] {
   // Prune stale entries from disk
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
+}
+
+// --- Session persistence ---
+
+/** Save a session snapshot. Only saves when terminals exist (avoids overwriting with empty). */
+export function saveSession(terminals: SavedTerminal[]): void {
+  if (terminals.length === 0) return;
+  store.set("session", { terminals, savedAt: Date.now() });
+}
+
+/** Get the saved session, or null if none exists. Filters out terminals with non-existent CWDs. */
+export function getSavedSession(): SavedSession | null {
+  const session = store.get("session");
+  if (!session || session.terminals.length === 0) return null;
+
+  // Filter out terminals whose CWD no longer exists
+  const live = session.terminals.filter((t) => {
+    try {
+      fs.accessSync(t.cwd);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (live.length === 0) return null;
+
+  // Re-index parentIndex references after filtering
+  const oldToNew = new Map<number, number>();
+  let newIdx = 0;
+  for (let i = 0; i < session.terminals.length; i++) {
+    if (live.includes(session.terminals[i]!)) {
+      oldToNew.set(i, newIdx++);
+    }
+  }
+  const reindexed = live.map((t) => ({
+    cwd: t.cwd,
+    ...(t.parentIndex !== undefined && oldToNew.has(t.parentIndex)
+      ? { parentIndex: oldToNew.get(t.parentIndex)! }
+      : {}),
+  }));
+
+  return { terminals: reindexed, savedAt: session.savedAt };
+}
+
+/** Clear the saved session (e.g. after successful restore). */
+export function clearSavedSession(): void {
+  store.set("session", null);
 }
