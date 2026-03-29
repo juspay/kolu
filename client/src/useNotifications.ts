@@ -1,14 +1,10 @@
-/** Terminal activity notifications — audio, toast, and browser notifications when long-running activity ceases. */
+/** Terminal activity notifications — audio, toast, and browser notifications when a session ends. */
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
-import type { TerminalId } from "kolu-common";
-import { MIN_ACTIVITY_DURATION_S } from "kolu-common/config";
+import type { SessionEndEvent } from "kolu-common";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-
-/** Track when each terminal became active. */
-const activeStartTimes = new Map<TerminalId, number>();
 
 /** Format a duration in seconds to a human-readable string. */
 function formatDuration(seconds: number): string {
@@ -54,26 +50,12 @@ function showBrowserNotification(title: string, body: string) {
 export function useNotifications(deps: { enabled: Accessor<boolean> }) {
   const { showTipOnce } = useTips();
 
-  /** Call when a terminal's isActive state changes. */
-  function onActivityTransition(
-    id: TerminalId,
-    isActive: boolean,
-    label: string,
-  ) {
-    if (isActive) {
-      activeStartTimes.set(id, Date.now());
-      return;
-    }
-
-    const startTime = activeStartTimes.get(id);
-    activeStartTimes.delete(id);
-    if (!startTime || !deps.enabled()) return;
-
-    const durationS = (Date.now() - startTime) / 1000;
-    if (durationS < MIN_ACTIVITY_DURATION_S) return;
+  /** Called by useTerminals when the server emits a session-end event for a terminal. */
+  function onSessionEnd(label: string, event: SessionEndEvent) {
+    if (!deps.enabled()) return;
 
     const title = `${label} finished`;
-    const description = `Active for ${formatDuration(durationS)}`;
+    const description = `Active for ${formatDuration(event.durationS)}`;
 
     // Toast always fires — non-intrusive when tab is visible
     toast(title, { description });
@@ -86,5 +68,5 @@ export function useNotifications(deps: { enabled: Accessor<boolean> }) {
     }
   }
 
-  return { onActivityTransition } as const;
+  return { onSessionEnd } as const;
 }

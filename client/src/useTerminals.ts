@@ -144,12 +144,15 @@ export function useTerminals(deps: {
       (isActive) => {
         setMeta(id, "isActive", isActive);
         pushActivity(id, isActive);
-        deps.notifications.onActivityTransition(
-          id,
-          isActive,
-          terminalLabel(id),
-        );
       },
+    );
+  }
+
+  /** Subscribe to coalesced session-end events for notifications. */
+  function subscribeSessionEnd(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onSessionEnd({ id }, { signal }),
+      (event) => deps.notifications.onSessionEnd(terminalLabel(id), event),
     );
   }
 
@@ -167,10 +170,11 @@ export function useTerminals(deps: {
     );
   }
 
-  /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
+  /** Start all per-terminal stream subscriptions (metadata, activity, session end, exit). */
   function subscribeAll(id: TerminalId) {
     subscribeMetadata(id);
     subscribeActivity(id);
+    subscribeSessionEnd(id);
     subscribeExit(id);
   }
 

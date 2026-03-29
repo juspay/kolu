@@ -120,6 +120,13 @@ export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
 export const TerminalActivityOutputSchema = z.boolean();
 
+/** Emitted when a coalesced activity session ends (terminal went quiet after sustained activity). */
+export const SessionEndOutputSchema = z.object({
+  /** Total session duration in seconds (first activity → last activity). */
+  durationS: z.number(),
+});
+export type SessionEndEvent = z.infer<typeof SessionEndOutputSchema>;
+
 export const TerminalScreenTextInputSchema = z.object({
   id: TerminalIdSchema,
   /** First line to capture (0-based, inclusive). Defaults to 0 (start of scrollback). */

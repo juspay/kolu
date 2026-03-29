@@ -139,6 +139,14 @@ export const appRouter = t.router({
       yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);
     }),
 
+    onSessionEnd: t.terminal.onSessionEnd.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = requireTerminal(input.id);
+      yield* subscribeAndYield(entry.emitter, "sessionEnd", signal);
+    }),
+
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
 

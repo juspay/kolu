@@ -23,6 +23,3 @@ export const ACTIVITY_IDLE_THRESHOLD_S = 5;
 
 /** Rolling window for activity history (ms). Both server and client use this. */
 export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-
-/** Minimum seconds a terminal must be active before an idle transition triggers a notification. */
-export const MIN_ACTIVITY_DURATION_S = 30;

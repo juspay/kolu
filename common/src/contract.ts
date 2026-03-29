@@ -18,6 +18,7 @@ import {
   TerminalSetParentInputSchema,
   TerminalMetadataSchema,
   TerminalActivityOutputSchema,
+  SessionEndOutputSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
   ServerInfoSchema,
@@ -55,6 +56,10 @@ export const contract = oc.router({
     onActivityChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalActivityOutputSchema)),
+    // Stream coalesced session-end events (fires after sustained activity ceases)
+    onSessionEnd: oc
+      .input(TerminalAttachInputSchema)
+      .output(eventIterator(SessionEndOutputSchema)),
     // Save image data to the terminal's clipboard shim for Ctrl+V paste
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     // Kill a single terminal
