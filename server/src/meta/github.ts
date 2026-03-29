@@ -87,6 +87,16 @@ function deriveCheckStatus(
   return "pass";
 }
 
+/** Shape of a single entry returned by `gh pr list --json ...`. */
+interface GhPrListEntry {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  statusCheckRollup?: Parameters<typeof deriveCheckStatus>[0];
+  updatedAt: string;
+}
+
 /** Look up the GitHub PR for the current branch. Returns null if none found. */
 async function resolveGitHubPr(
   repoRoot: string,
@@ -107,21 +117,17 @@ async function resolveGitHubPr(
       ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const results = JSON.parse(stdout) as Array<Record<string, unknown>>;
+    const results = JSON.parse(stdout) as GhPrListEntry[];
     if (results.length === 0) return null;
     // Pick the most recently updated PR regardless of state
-    results.sort((a, b) =>
-      String(b.updatedAt).localeCompare(String(a.updatedAt)),
-    );
+    results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const data = results[0]!;
     return {
-      number: data.number as number,
-      title: data.title as string,
-      url: data.url as string,
-      state: GitHubPrStateSchema.parse((data.state as string).toLowerCase()),
-      checks: deriveCheckStatus(
-        data.statusCheckRollup as Parameters<typeof deriveCheckStatus>[0],
-      ),
+      number: data.number,
+      title: data.title,
+      url: data.url,
+      state: GitHubPrStateSchema.parse(data.state.toLowerCase()),
+      checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
     log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
