@@ -6,17 +6,20 @@ import { ClaudeCodeIcon } from "./Icons";
 
 type ClaudeState = ClaudeCodeInfo["state"];
 
+/** Busy = actively working (thinking or running tools). Warning = needs user input. */
+const BUSY_COLOR = "text-[#D97757]";
+
 const stateConfig: Record<
   ClaudeState,
   { color: string; animation: string; label: string }
 > = {
   thinking: {
-    color: "text-[#D97757]",
+    color: BUSY_COLOR,
     animation: "animate-pulse",
     label: "Thinking",
   },
   tool_use: {
-    color: "text-[#D97757]",
+    color: BUSY_COLOR,
     animation: "animate-spin",
     label: "Running tools",
   },
