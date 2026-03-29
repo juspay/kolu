@@ -92,10 +92,10 @@ export function getSavedSession(): SavedSession | null {
     }
   }
   const reindexed = live.map((t) => ({
-    cwd: t.cwd,
+    ...t,
     ...(t.parentIndex !== undefined && oldToNew.has(t.parentIndex)
       ? { parentIndex: oldToNew.get(t.parentIndex)! }
-      : {}),
+      : { parentIndex: undefined }),
   }));
 
   return { terminals: reindexed, savedAt: session.savedAt };
