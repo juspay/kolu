@@ -45,7 +45,6 @@ const App: Component = () => {
     setActiveId,
     getMeta,
     getDisplayInfo,
-    getActivityHistory,
     setThemeName,
     activeMeta,
     existingTerminals,

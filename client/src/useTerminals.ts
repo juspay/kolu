@@ -1,6 +1,7 @@
 /** Terminal session state: single store keyed by UUID, using TerminalInfo from common. */
 
 import {
+  type Accessor,
   createSignal,
   createEffect,
   on,
@@ -18,7 +19,6 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
-import type { Accessor } from "solid-js";
 import type { useActivity } from "./useActivity";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */

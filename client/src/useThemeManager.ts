@@ -5,46 +5,41 @@ import type { Accessor } from "solid-js";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import type { TerminalId } from "kolu-common";
 
-let cached: ReturnType<typeof createThemeManager> | undefined;
-
-function createThemeManager(deps: {
+export interface ThemeManagerDeps {
   activeId: Accessor<TerminalId | null>;
   getThemeName: (id: TerminalId) => string | undefined;
   setThemeName: (id: TerminalId, name: string) => void;
-}) {
-  /** The active terminal's committed theme name (for palette filter — not affected by preview). */
+}
+
+let cached: ReturnType<typeof init> | undefined;
+
+function init(deps: ThemeManagerDeps) {
   const committedThemeName = createMemo(() => {
     const id = deps.activeId();
     return (id !== null && deps.getThemeName(id)) || DEFAULT_THEME_NAME;
   });
 
-  /** Temporary preview override while navigating the theme palette. */
   const [previewThemeName, setPreviewThemeName] = createSignal<
     string | undefined
   >(undefined);
 
-  /** The displayed theme name: preview if active, otherwise committed. */
   const activeThemeName = createMemo(
     () => previewThemeName() ?? committedThemeName(),
   );
 
-  /** The active terminal's resolved theme (for container background). */
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  /** Resolve the display theme for a terminal, applying preview override for the active one. */
   function getTerminalTheme(id: TerminalId): ITheme {
     const preview = deps.activeId() === id ? previewThemeName() : undefined;
     return getThemeByName(preview ?? deps.getThemeName(id));
   }
 
-  /** Set the theme for the active terminal, persisting to server. */
   function handleSetTheme(themeName: string) {
     const id = deps.activeId();
     if (id === null) return;
     deps.setThemeName(id, themeName);
   }
 
-  /** Switch the active terminal to a random theme (different from current). */
   function handleRandomizeTheme() {
     const id = deps.activeId();
     if (id === null) return;
@@ -57,7 +52,6 @@ function createThemeManager(deps: {
 
   return {
     committedThemeName,
-    previewThemeName,
     setPreviewThemeName,
     activeThemeName,
     activeTheme,
@@ -65,12 +59,10 @@ function createThemeManager(deps: {
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleRandomizeTheme,
-  };
+  } as const;
 }
 
-export function useThemeManager(
-  deps: Parameters<typeof createThemeManager>[0],
-) {
-  if (!cached) cached = createThemeManager(deps);
+export function useThemeManager(deps: ThemeManagerDeps) {
+  if (!cached) cached = init(deps);
   return cached;
 }
