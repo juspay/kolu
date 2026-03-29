@@ -6,40 +6,37 @@ import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
-import type { ColoredTerminalMeta as ColoredMeta } from "./path";
-import type { ActivitySample } from "./useTerminals";
+import type { TerminalDisplayInfo } from "./path";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
 
 const TerminalMeta: Component<{
-  colored: ColoredMeta | undefined;
-  activityHistory: ActivitySample[];
-  subCount?: number;
+  info: TerminalDisplayInfo | undefined;
   mode?: TerminalMetaMode;
 }> = (props) => {
   const mode = () => props.mode ?? "normal";
   const nameClass = () =>
     mode() === "normal" ? "text-sm font-medium" : "text-base font-semibold";
   const detailClass = () => (mode() === "normal" ? "text-xs" : "text-sm");
-  const c = () => props.colored;
+  const i = () => props.info;
 
   return (
     <>
       {/* Name row */}
       <div class={`flex items-center gap-1.5 ${nameClass()} truncate`}>
-        <Show when={c()}>
-          {(colored) => (
+        <Show when={i()}>
+          {(info) => (
             <span
               data-testid="terminal-meta-name"
               class="truncate"
-              style={{ color: colored().repoColor }}
+              style={{ color: info().repoColor }}
             >
-              {colored().name}
+              {info().name}
             </span>
           )}
         </Show>
-        <Show when={c()?.meta.git?.isWorktree}>
+        <Show when={i()?.meta.git?.isWorktree}>
           <span
             data-testid="worktree-indicator"
             class="text-fg-3 shrink-0"
@@ -48,12 +45,12 @@ const TerminalMeta: Component<{
             <WorktreeIcon />
           </span>
         </Show>
-        <Show when={(props.subCount ?? 0) > 0}>
+        <Show when={(i()?.subCount ?? 0) > 0}>
           <span
             data-testid="sub-count"
             class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
           >
-            +{props.subCount}
+            +{i()!.subCount}
           </span>
         </Show>
       </div>
@@ -62,15 +59,15 @@ const TerminalMeta: Component<{
       <div
         data-testid="terminal-meta-branch"
         class={`${detailClass()} truncate`}
-        title={c()?.meta.git?.branch}
-        style={{ color: c()?.branchColor }}
-        classList={{ "text-fg-2": !c()?.branchColor }}
+        title={i()?.meta.git?.branch}
+        style={{ color: i()?.branchColor }}
+        classList={{ "text-fg-2": !i()?.branchColor }}
       >
-        {c()?.meta.git?.branch ?? "\u00A0"}
+        {i()?.meta.git?.branch ?? "\u00A0"}
       </div>
 
       {/* PR info */}
-      <Show when={c()?.meta.pr}>
+      <Show when={i()?.meta.pr}>
         {(pr) => (
           <div
             class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
@@ -101,14 +98,14 @@ const TerminalMeta: Component<{
       </Show>
 
       {/* Agent status + activity sparkline */}
-      <Show when={c()?.meta.claude || props.activityHistory.length > 0}>
+      <Show when={i()?.meta.claude || (i()?.activityHistory.length ?? 0) > 0}>
         <div class="flex items-center gap-1.5 mt-0.5">
-          <Show when={c()?.meta.claude}>
+          <Show when={i()?.meta.claude}>
             {(claude) => <ClaudeIndicator state={claude().state} />}
           </Show>
-          <Show when={props.activityHistory.length > 0}>
+          <Show when={(i()?.activityHistory.length ?? 0) > 0}>
             <div class="ml-auto">
-              <ActivityGraph samples={props.activityHistory} />
+              <ActivityGraph samples={i()!.activityHistory} />
             </div>
           </Show>
         </div>

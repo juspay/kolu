@@ -21,25 +21,35 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-/** TerminalMetadata enriched with resolved display colors.
- *  Produced by `buildColoredMetas` so consumers never resolve colors manually. */
-export type ColoredTerminalMeta = {
+/** Everything needed to display a terminal in any surface (sidebar, mission control, etc.).
+ *  Combines server metadata with client-derived display properties (colors, activity, sub-count). */
+export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */
   name: string;
   repoColor?: string;
   branchColor?: string;
   meta: import("kolu-common").TerminalMetadata;
+  activityHistory: ActivitySample[];
+  subCount: number;
 };
 
-/** Build color-enriched metadata for all terminals.
- *  Returns a getter so consumers access per-terminal colored meta by ID.
- *  All repo + branch names share one hue sequence for global uniqueness. */
-export function buildColoredMetas(
+import type { ActivitySample } from "./useTerminals";
+
+/** Build display info for all terminals.
+ *  Resolves colors from the full terminal list (global hue uniqueness)
+ *  and bundles activity + sub-count so consumers get one complete object. */
+export function buildTerminalDisplayInfos(
   ids: import("kolu-common").TerminalId[],
   getMeta: (
     id: import("kolu-common").TerminalId,
   ) => Omit<TerminalInfo, "id"> | undefined,
-): Map<import("kolu-common").TerminalId, ColoredTerminalMeta> {
+  getActivityHistory: (
+    id: import("kolu-common").TerminalId,
+  ) => ActivitySample[],
+  getSubTerminalIds: (
+    id: import("kolu-common").TerminalId,
+  ) => import("kolu-common").TerminalId[],
+): Map<import("kolu-common").TerminalId, TerminalDisplayInfo> {
   const repoKeys = new Set<string>();
   const branchKeys = new Set<string>();
   const entries: Array<{
@@ -65,7 +75,7 @@ export function buildColoredMetas(
   const unified = assignColors([...repoKeys, ...branchKeys]);
   const result = new Map<
     import("kolu-common").TerminalId,
-    ColoredTerminalMeta
+    TerminalDisplayInfo
   >();
   for (const { id, name, meta, repoKey, branchKey } of entries) {
     result.set(id, {
@@ -73,6 +83,8 @@ export function buildColoredMetas(
       meta,
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
+      activityHistory: getActivityHistory(id),
+      subCount: getSubTerminalIds(id).length,
     });
   }
   return result;

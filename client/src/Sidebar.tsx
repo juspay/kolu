@@ -12,20 +12,16 @@ import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
-import type { ColoredTerminalMeta } from "./path";
+import type { TerminalDisplayInfo } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
-import type { ActivitySample } from "./useTerminals";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   meta: Omit<TerminalInfo, "id"> | undefined;
-  colored: ColoredTerminalMeta | undefined;
+  displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
-  activityHistory: ActivitySample[];
-  /** Number of sub-terminals attached to this terminal. */
-  subCount: number;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
@@ -61,18 +57,14 @@ const SidebarEntry: Component<{
         }}
         style={{
           "border-left-color":
-            props.colored?.repoColor ??
+            props.displayInfo?.repoColor ??
             (props.isActive ? "var(--accent)" : "transparent"),
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
         title={m()?.meta?.cwd ?? String(props.id)}
       >
-        <TerminalMeta
-          colored={props.colored}
-          activityHistory={props.activityHistory}
-          subCount={props.subCount}
-        />
+        <TerminalMeta info={props.displayInfo} />
       </button>
     </div>
   );
@@ -83,9 +75,7 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
-  getColoredMeta: (id: TerminalId) => ColoredTerminalMeta | undefined;
-  getActivityHistory: (id: TerminalId) => ActivitySample[];
-  getSubTerminalIds: (id: TerminalId) => TerminalId[];
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
   onReorder: (ids: TerminalId[]) => void;
@@ -180,9 +170,7 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       meta={props.getMeta(id)}
-                      colored={props.getColoredMeta(id)}
-                      activityHistory={props.getActivityHistory(id)}
-                      subCount={props.getSubTerminalIds(id).length}
+                      displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
                     />
@@ -193,14 +181,14 @@ const Sidebar: Component<{
             <DragOverlay>
               <Show when={activeItem()}>
                 {(dragId) => {
-                  const c = () => props.getColoredMeta(dragId());
+                  const d = () => props.getDisplayInfo(dragId());
                   return (
                     <div
                       class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": c()?.repoColor }}
+                      style={{ "border-left-color": d()?.repoColor }}
                     >
-                      <span style={{ color: c()?.repoColor }}>
-                        {c()?.name ?? "terminal"}
+                      <span style={{ color: d()?.repoColor }}>
+                        {d()?.name ?? "terminal"}
                       </span>
                     </div>
                   );

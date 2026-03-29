@@ -19,9 +19,8 @@ import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import TerminalMeta from "./TerminalMeta";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { ColoredTerminalMeta } from "./path";
+import type { TerminalDisplayInfo } from "./path";
 import type { TerminalId, TerminalInfo } from "kolu-common";
-import type { ActivitySample } from "./useTerminals";
 import type { ITheme } from "@xterm/xterm";
 
 /** Mission Control mode — discriminated union eliminates impossible states
@@ -45,9 +44,7 @@ const MissionControl: Component<{
   mruOrder: TerminalId[];
   activeId: TerminalId | null;
   getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
-  getColoredMeta: (id: TerminalId) => ColoredTerminalMeta | undefined;
-  getActivityHistory: (id: TerminalId) => ActivitySample[];
-  getSubTerminalIds: (id: TerminalId) => TerminalId[];
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
@@ -262,9 +259,7 @@ const MissionControl: Component<{
                       {/* Metadata footer — fixed height so cards align when PR info varies */}
                       <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
                         <TerminalMeta
-                          colored={props.getColoredMeta(id)}
-                          activityHistory={props.getActivityHistory(id)}
-                          subCount={props.getSubTerminalIds(id).length}
+                          info={props.getDisplayInfo(id)}
                           mode="readonly"
                         />
                       </div>
