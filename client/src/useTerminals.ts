@@ -214,10 +214,12 @@ export function useTerminals(deps: {
     }
   }
 
-  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory). */
+  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory).
+   *  Ensures `meta` is always present so SolidJS store tracks it from creation —
+   *  without this, setting `meta` later via subscription won't trigger memo re-runs. */
   function infoToState(t: TerminalInfo): TerminalState {
     const { id: _, activityHistory: _history, ...state } = t;
-    return state;
+    return { meta: undefined, ...state };
   }
 
   // Restore existing terminals on page load (e.g. after browser refresh).
