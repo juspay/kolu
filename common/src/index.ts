@@ -149,6 +149,14 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+// --- Recent repos (server-side persistent state) ---
+
+export const RecentRepoSchema = z.object({
+  repoRoot: z.string(),
+  repoName: z.string(),
+  lastSeen: z.number(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
@@ -158,3 +166,4 @@ export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
+export type RecentRepo = z.infer<typeof RecentRepoSchema>;

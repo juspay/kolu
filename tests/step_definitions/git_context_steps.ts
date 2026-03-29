@@ -104,10 +104,10 @@ Then(
 Then(
   "the sidebar should show a worktree indicator",
   async function (this: KoluWorld) {
-    const count = await this.page
+    await this.page
       .locator('[data-testid="worktree-indicator"]')
-      .count();
-    assert.ok(count > 0, `Expected a worktree indicator but found none`);
+      .first()
+      .waitFor({ state: "visible", timeout: 5000 });
   },
 );
 

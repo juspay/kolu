@@ -6,7 +6,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
+    "dev": "KOLU_STATE_SUFFIX=dev node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",
+    "conf": "^15.1.0",
     "hono": "^4.7.0",
     "hono-pino": "^0.10.3",
     "kolu-common": "workspace:*",

@@ -188,6 +188,17 @@ Then(
 );
 
 Then(
+  "palette item {string} should be visible",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator(PALETTE_SELECTOR);
+    const item = palette
+      .locator("li")
+      .filter({ hasText: new RegExp(`^${text}`) });
+    await item.first().waitFor({ state: "visible", timeout: 3000 });
+  },
+);
+
+Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
     const messages: string[] = await this.page.evaluate(

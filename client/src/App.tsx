@@ -34,6 +34,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { useRecentRepos } from "./useRecentRepos";
 
 const App: Component = () => {
   const {
@@ -138,9 +139,12 @@ const App: Component = () => {
     handleCopyTerminalText: () => void handleCopyTerminalText(),
   });
 
+  const { refetch: refetchRecentRepos } = useRecentRepos();
+
   function openPalette() {
     setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
+    refetchRecentRepos();
   }
 
   /** Wrap a boolean setter so closing any dialog refocuses the terminal. */

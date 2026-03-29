@@ -80,6 +80,7 @@ BeforeAll(async function () {
       ],
       {
         stdio: "pipe",
+        env: { ...process.env, KOLU_STATE_SUFFIX: "test" },
       },
     );
     serverProcess.stderr?.on("data", (data: Buffer) => {

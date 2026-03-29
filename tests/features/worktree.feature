@@ -9,8 +9,10 @@ Feature: Git worktree management
     When I set up a git repo at "/tmp/kolu-wt-test"
     And I run "cd /tmp/kolu-wt-test"
     Then the header CWD should show "/tmp/kolu-wt-test"
+    And the header should show a branch name
     When I open the command palette
     And I select "New worktree" in the palette
+    And I select "kolu-wt-test" in the palette
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
     And there should be no page errors
@@ -18,8 +20,10 @@ Feature: Git worktree management
   Scenario: Close terminal and remove worktree
     When I set up a git repo at "/tmp/kolu-wt-remove"
     And I run "cd /tmp/kolu-wt-remove"
+    And the header should show a branch name
     When I open the command palette
     And I select "New worktree" in the palette
+    And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette

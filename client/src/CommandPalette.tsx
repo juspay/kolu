@@ -30,6 +30,8 @@ import Kbd from "./Kbd";
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
   name: string;
+  /** Secondary text shown after the name, de-emphasized. */
+  description?: string;
   /** Execute this command (leaf). Mutually exclusive with `children`. */
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
@@ -86,7 +88,10 @@ const CommandPalette: Component<{
     const q = query().toLowerCase();
     // Search within the current level only (groups + leaves)
     return currentItems().filter(
-      (cmd) => !q || cmd.name.toLowerCase().includes(q),
+      (cmd) =>
+        !q ||
+        cmd.name.toLowerCase().includes(q) ||
+        cmd.description?.toLowerCase().includes(q),
     );
   });
 
@@ -291,7 +296,14 @@ const CommandPalette: Component<{
                     onMouseEnter={() => mouseActive && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
-                    <span class="truncate">{cmd.name}</span>
+                    <span class="truncate">
+                      {cmd.name}
+                      <Show when={cmd.description}>
+                        <span class="ml-2 text-fg-3 text-xs">
+                          {cmd.description}
+                        </span>
+                      </Show>
+                    </span>
                     <Show when={isGroup(cmd)}>
                       <span class="ml-auto shrink-0 pl-4 text-xs text-fg-3">
                         →
