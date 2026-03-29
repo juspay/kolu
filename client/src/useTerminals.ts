@@ -13,7 +13,10 @@ import { toast } from "solid-sonner";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
 import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
-import { buildTerminalDisplayInfos, type TerminalDisplayInfo } from "./path";
+import {
+  buildTerminalDisplayInfos,
+  type TerminalDisplayInfo,
+} from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */

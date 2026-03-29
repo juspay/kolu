@@ -12,7 +12,7 @@ import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
-import type { TerminalDisplayInfo } from "./path";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */

@@ -6,7 +6,7 @@ import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
-import type { TerminalDisplayInfo } from "./path";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";

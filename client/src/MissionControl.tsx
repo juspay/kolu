@@ -19,7 +19,7 @@ import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
 import TerminalMeta from "./TerminalMeta";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { TerminalDisplayInfo } from "./path";
+import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 
