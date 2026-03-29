@@ -9,9 +9,10 @@ const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Open command palette, search for a command, and execute it. */
 async function paletteCommand(world: KoluWorld, query: string) {
   await world.page.keyboard.press(`${MOD_KEY}+k`);
-  await world.page.waitForTimeout(200);
   const palette = world.page.locator('[data-testid="command-palette"]');
-  await palette.locator("input").fill(query);
+  const input = palette.locator("input");
+  await input.waitFor({ state: "visible", timeout: 5000 });
+  await input.fill(query);
   await world.page.waitForTimeout(200);
   await world.page.keyboard.press("Enter");
   await world.page.waitForTimeout(500);
