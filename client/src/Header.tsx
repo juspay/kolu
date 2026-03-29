@@ -51,7 +51,7 @@ const Header: Component<{
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
-    <header class="flex items-center gap-2 px-2 sm:px-4 py-1.5 bg-surface-1 border-b border-edge">
+    <header class="flex items-center gap-2 px-2 sm:px-4 h-10 shrink-0 overflow-hidden bg-surface-1 border-b border-edge">
       <Tip label="Toggle sidebar">
         <button
           data-testid="sidebar-toggle"
