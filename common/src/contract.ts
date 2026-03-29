@@ -73,5 +73,7 @@ export const contract = oc.router({
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
     recentRepos: oc.output(z.array(RecentRepoSchema)),
+    // Stream recent repos changes (yields current list immediately, then updates)
+    onRecentReposChange: oc.output(eventIterator(z.array(RecentRepoSchema))),
   },
 });

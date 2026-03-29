@@ -1,25 +1,10 @@
-/** Terminal streams — server event subscriptions for metadata, activity, and exit. */
+/** Terminal streams — server event subscriptions for metadata, activity, and exit via TanStack Query. */
 
+import { createEffect, on } from "solid-js";
+import { createQuery } from "@tanstack/solid-query";
+import { orpc } from "./queryClient";
 import type { TerminalId } from "kolu-common";
-import { client } from "./rpc";
 import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
-
-/** Fire-and-forget stream subscription with AbortController cleanup. */
-function subscribeStream<T>(
-  startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
-  onValue: (value: T) => void,
-): () => void {
-  const controller = new AbortController();
-  (async () => {
-    try {
-      const stream = await startStream(controller.signal);
-      for await (const value of stream) onValue(value);
-    } catch {
-      // Stream aborted or terminal gone — expected on cleanup
-    }
-  })();
-  return () => controller.abort();
-}
 
 export function useTerminalStreams(deps: {
   meta: TerminalMetaStore;
@@ -32,42 +17,64 @@ export function useTerminalStreams(deps: {
     next: string | undefined,
   ) => void;
 }) {
-  /** Subscribe to metadata changes for a terminal. */
-  function subscribeMetadata(id: TerminalId) {
-    return subscribeStream(
-      (signal) => client.terminal.onMetadataChange({ id }, { signal }),
-      (metadata) => {
-        const prevState = deps.meta[id]?.meta?.claude?.state;
-        deps.setMeta(id, "meta", metadata);
-        deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
-      },
-    );
-  }
-
-  /** Subscribe to activity state changes for a terminal. */
-  function subscribeActivity(id: TerminalId) {
-    return subscribeStream(
-      (signal) => client.terminal.onActivityChange({ id }, { signal }),
-      (isActive) => {
-        deps.setMeta(id, "isActive", isActive);
-        deps.pushActivity(id, isActive);
-      },
-    );
-  }
-
-  /** Subscribe to exit events for a terminal. */
-  function subscribeExit(id: TerminalId) {
-    return subscribeStream(
-      (signal) => client.terminal.onExit({ id }, { signal }),
-      (code) => deps.onExit(id, code),
-    );
-  }
-
   /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
   function subscribeAll(id: TerminalId) {
-    subscribeMetadata(id);
-    subscribeActivity(id);
-    subscribeExit(id);
+    // Metadata stream
+    const metaQuery = createQuery(() =>
+      orpc.terminal.onMetadataChange.experimental_liveOptions({
+        input: { id },
+        retry: true,
+      }),
+    );
+    createEffect(
+      on(
+        () => metaQuery.data,
+        (metadata) => {
+          if (!metadata) return;
+          const prevState = deps.meta[id]?.meta?.claude?.state;
+          deps.setMeta(id, "meta", metadata);
+          deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
+        },
+        { defer: true },
+      ),
+    );
+
+    // Activity stream
+    const activityQuery = createQuery(() =>
+      orpc.terminal.onActivityChange.experimental_liveOptions({
+        input: { id },
+        retry: true,
+      }),
+    );
+    createEffect(
+      on(
+        () => activityQuery.data,
+        (isActive) => {
+          if (isActive === undefined) return;
+          deps.setMeta(id, "isActive", isActive);
+          deps.pushActivity(id, isActive);
+        },
+        { defer: true },
+      ),
+    );
+
+    // Exit stream
+    const exitQuery = createQuery(() =>
+      orpc.terminal.onExit.experimental_liveOptions({
+        input: { id },
+        retry: false, // Don't retry exit — terminal is gone
+      }),
+    );
+    createEffect(
+      on(
+        () => exitQuery.data,
+        (code) => {
+          if (code === undefined) return;
+          deps.onExit(id, code);
+        },
+        { defer: true },
+      ),
+    );
   }
 
   return { subscribeAll };

@@ -5,11 +5,8 @@ import {
   createSignal,
   createEffect,
   on,
-  createResource,
   Show,
   For,
-  Suspense,
-  ErrorBoundary,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
@@ -24,7 +21,9 @@ import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import { createCommands } from "./commands";
 
-import { client, wsStatus, serverRestarted } from "./rpc";
+import { wsStatus, serverRestarted } from "./rpc";
+import { createQuery } from "@tanstack/solid-query";
+import { orpc } from "./queryClient";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
 import { useActivity } from "./useActivity";
@@ -90,9 +89,9 @@ const App: Component = () => {
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
-  const [serverInfo] = createResource(() => client.server.info());
+  const serverInfo = createQuery(() => orpc.server.info.queryOptions());
   const appTitle = () => {
-    const h = serverInfo()?.hostname;
+    const h = serverInfo.data?.hostname;
     return h ? `kolu@${h}` : "kolu";
   };
 
@@ -139,12 +138,12 @@ const App: Component = () => {
     handleCopyTerminalText: () => void handleCopyTerminalText(),
   });
 
-  const { refetch: refetchRecentRepos } = useRecentRepos();
+  // Initialize live-streaming recent repos (auto-updates, no manual refetch needed)
+  useRecentRepos();
 
   function openPalette() {
     setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
-    refetchRecentRepos();
   }
 
   /** Wrap a boolean setter so closing any dialog refocuses the terminal. */
@@ -332,45 +331,36 @@ const App: Component = () => {
             class="h-full overflow-hidden"
             style={{ "background-color": activeTheme().background }}
           >
-            <ErrorBoundary
-              fallback={(err) => (
-                <div class="text-danger p-4">
-                  Failed to connect: {String(err)}
+            <Show
+              when={existingTerminals() !== undefined}
+              fallback={
+                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                  Connecting...
                 </div>
-              )}
+              }
             >
-              <Suspense
-                fallback={
-                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                    Connecting...
-                  </div>
-                }
-              >
-                {/* Read the resource to trigger Suspense while it loads */}
-                {void existingTerminals()}
-                <Show when={terminalIds().length === 0}>
-                  <EmptyState />
-                </Show>
-                <For each={terminalIds()}>
-                  {(id) => (
-                    <TerminalPane
-                      terminalId={id}
-                      visible={activeId() === id}
-                      theme={getTerminalTheme(id)}
-                      searchOpen={searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                      subTerminalIds={getSubTerminalIds(id)}
-                      getMeta={getMeta}
-                      onCreateSubTerminal={(parentId, cwd) =>
-                        void handleCreateSubTerminal(parentId, cwd)
-                      }
-                      activeMeta={activeMeta()}
-                      scrollLockEnabled={scrollLock()}
-                    />
-                  )}
-                </For>
-              </Suspense>
-            </ErrorBoundary>
+              <Show when={terminalIds().length === 0}>
+                <EmptyState />
+              </Show>
+              <For each={terminalIds()}>
+                {(id) => (
+                  <TerminalPane
+                    terminalId={id}
+                    visible={activeId() === id}
+                    theme={getTerminalTheme(id)}
+                    searchOpen={searchOpen()}
+                    onSearchOpenChange={setSearchOpen}
+                    subTerminalIds={getSubTerminalIds(id)}
+                    getMeta={getMeta}
+                    onCreateSubTerminal={(parentId, cwd) =>
+                      void handleCreateSubTerminal(parentId, cwd)
+                    }
+                    activeMeta={activeMeta()}
+                    scrollLockEnabled={scrollLock()}
+                  />
+                )}
+              </For>
+            </Show>
           </div>
         </div>
       </div>

@@ -1,14 +1,13 @@
-/** Recent repos — fetched from server for worktree creation without needing an active git terminal. */
+/** Recent repos — live-streamed from server for worktree creation. */
 
-import { createResource } from "solid-js";
-import { client } from "./rpc";
+import { createQuery } from "@tanstack/solid-query";
+import { orpc } from "./queryClient";
 import type { RecentRepo } from "kolu-common";
 
-const [recentRepos, { refetch }] = createResource<RecentRepo[]>(
-  () => client.git.recentRepos(),
-  { initialValue: [] },
+const query = createQuery(() =>
+  orpc.git.onRecentReposChange.experimental_liveOptions({ retry: true }),
 );
 
 export function useRecentRepos() {
-  return { recentRepos, refetch };
+  return { recentRepos: () => (query.data ?? []) as RecentRepo[] };
 }

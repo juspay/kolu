@@ -11,7 +11,8 @@
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "./rpc";
+import { createMutation } from "@tanstack/solid-query";
+import { orpc } from "./queryClient";
 import type { TerminalId } from "kolu-common";
 import type { useActivity } from "./useActivity";
 import { useTerminalStore } from "./useTerminalStore";
@@ -28,6 +29,9 @@ export function useTerminals(deps: {
     deps.activity;
 
   const store = useTerminalStore({ getActivityHistory });
+  const reorderMut = createMutation(() =>
+    orpc.terminal.reorder.mutationOptions(),
+  );
 
   const alerts = useTerminalAlerts({
     activityAlerts: deps.activityAlerts,
@@ -75,7 +79,7 @@ export function useTerminals(deps: {
     getSubTerminalIds: store.getSubTerminalIds,
     reorderTerminals: (ids: TerminalId[]) => {
       store.setIdOrder(ids);
-      void client.terminal.reorder({ ids });
+      reorderMut.mutate({ ids });
     },
     mruOrder: store.mruOrder,
     handleCopyTerminalText: lifecycle.handleCopyTerminalText,

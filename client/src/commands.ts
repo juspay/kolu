@@ -7,8 +7,8 @@ import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { useRecentRepos } from "./useRecentRepos";
 import { client } from "./rpc";
+import { useRecentRepos } from "./useRecentRepos";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;

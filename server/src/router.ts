@@ -8,6 +8,7 @@ import { implement } from "@orpc/server";
 
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
+import type { RecentRepo } from "kolu-common";
 import {
   createTerminal,
   getTerminal,
@@ -23,7 +24,7 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos } from "./state.ts";
+import { getRecentRepos, stateEvents } from "./state.ts";
 
 const t = implement(contract);
 
@@ -164,5 +165,16 @@ export const appRouter = t.router({
       await worktreeRemove(input.worktreePath);
     }),
     recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
+    onRecentReposChange: t.git.onRecentReposChange.handler(async function* ({
+      signal,
+    }) {
+      const live = subscribeAndYield<RecentRepo[]>(
+        stateEvents,
+        "recentRepos",
+        signal,
+      );
+      yield getRecentRepos();
+      yield* live;
+    }),
   },
 });
