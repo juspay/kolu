@@ -1,12 +1,13 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
-import { type Component, Show } from "solid-js";
+import { type Component, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
+import type { ClaudeProcess } from "kolu-common";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
@@ -113,12 +114,32 @@ const TerminalMeta: Component<{
         )}
       </Show>
 
-      {/* Agent status + activity sparkline */}
-      <Show when={i()?.meta.claude || (i()?.activityHistory.length ?? 0) > 0}>
+      {/* Process status + activity sparkline */}
+      <Show when={i()?.meta.process || (i()?.activityHistory.length ?? 0) > 0}>
         <div class="flex items-center gap-1.5 mt-0.5">
-          <Show when={i()?.meta.claude}>
-            {(claude) => <ClaudeIndicator state={claude().state} />}
-          </Show>
+          <Switch>
+            <Match
+              when={
+                i()?.meta.process?.kind === "claude"
+                  ? (i()!.meta.process as ClaudeProcess)
+                  : undefined
+              }
+            >
+              {(claude) => <ClaudeIndicator state={claude().state} />}
+            </Match>
+            <Match
+              when={i()?.meta.process?.kind === "generic" && i()!.meta.process}
+            >
+              {(proc) => (
+                <span
+                  class="text-xs text-fg-3 truncate"
+                  data-testid="process-indicator"
+                >
+                  {proc().name}
+                </span>
+              )}
+            </Match>
+          </Switch>
           <Show when={(i()?.activityHistory.length ?? 0) > 0}>
             <div class="ml-auto">
               <ActivityGraph samples={i()!.activityHistory} />

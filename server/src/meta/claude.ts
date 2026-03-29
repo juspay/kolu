@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type { ClaudeProcess } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { emitMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -134,7 +134,7 @@ function tailJsonlLines(filePath: string, bytes: number): string[] {
 /** Derive Claude Code state from the last relevant JSONL message. */
 function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): { state: ClaudeProcess["state"]; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -165,10 +165,10 @@ function deriveState(
   return null;
 }
 
-/** Compare two ClaudeCodeInfo values for equality. */
-function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
+/** Compare two ClaudeProcess values for equality. */
+function claudeEqual(
+  a: ClaudeProcess | null,
+  b: ClaudeProcess | null,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -257,14 +257,18 @@ export function startClaudeCodeProvider(
     }
     if (!matchedSession) return;
 
-    const info: ClaudeCodeInfo = {
+    const info: ClaudeProcess = {
+      kind: "claude",
+      name: "claude",
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
     };
 
-    if (infoEqual(info, entry.metadata.claude)) return;
-    entry.metadata.claude = info;
+    const prev =
+      entry.metadata.process?.kind === "claude" ? entry.metadata.process : null;
+    if (claudeEqual(info, prev)) return;
+    entry.metadata.process = info;
     plog.info(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
@@ -301,8 +305,8 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
-        if (entry.metadata.claude !== null) {
-          entry.metadata.claude = null;
+        if (entry.metadata.process?.kind === "claude") {
+          entry.metadata.process = null;
           emitMetadata(entry, terminalId);
         }
       }

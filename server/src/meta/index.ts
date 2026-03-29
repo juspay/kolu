@@ -12,11 +12,12 @@ import type { TerminalEntry } from "../terminals.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
+import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null };
+  return { cwd, git: null, pr: null, process: null };
 }
 
 /** Emit the current metadata snapshot to all subscribers. */
@@ -30,8 +31,11 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
-      // Only include claude field when present to avoid noisy null logs
-      ...(m.claude && { claude: m.claude.state }),
+      // Only include process field when present to avoid noisy null logs
+      ...(m.process && {
+        process: m.process.name,
+        ...(m.process.kind === "claude" && { claudeState: m.process.state }),
+      }),
     },
     "metadata emit",
   );
@@ -48,10 +52,12 @@ export function startProviders(
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
+  const stopProcess = startProcessProvider(entry, terminalId);
   const stopClaude = startClaudeCodeProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
+    stopProcess();
     stopClaude();
   };
 }

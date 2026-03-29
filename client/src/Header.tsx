@@ -13,6 +13,7 @@ import Kbd from "./Kbd";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
+import type { ClaudeProcess } from "kolu-common";
 import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -103,10 +104,27 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show when={meta().claude}>
-              {(claude) => (
+            <Show when={meta().process}>
+              {(proc) => (
                 <span class="shrink-0">
-                  &middot; <ClaudeIndicator state={claude().state} />
+                  &middot;{" "}
+                  <Show
+                    when={proc().kind === "claude" && proc()}
+                    fallback={
+                      <span
+                        class="text-xs text-fg-3"
+                        data-testid="process-indicator"
+                      >
+                        {proc().name}
+                      </span>
+                    }
+                  >
+                    {(claude) => (
+                      <ClaudeIndicator
+                        state={(claude() as ClaudeProcess).state}
+                      />
+                    )}
+                  </Show>
                 </span>
               )}
             </Show>

@@ -33,7 +33,7 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
-// --- Claude Code context ---
+// --- Active process context ---
 
 export const ClaudeCodeStateSchema = z.enum([
   "thinking",
@@ -41,7 +41,16 @@ export const ClaudeCodeStateSchema = z.enum([
   "waiting",
 ]);
 
-export const ClaudeCodeInfoSchema = z.object({
+/** Generic foreground process (btop, vim, node, …). */
+const GenericProcessSchema = z.object({
+  kind: z.literal("generic"),
+  name: z.string(),
+});
+
+/** Claude Code process — generic identity plus rich session state. */
+const ClaudeProcessSchema = z.object({
+  kind: z.literal("claude"),
+  name: z.literal("claude"),
   /** Current state derived from session JSONL. */
   state: ClaudeCodeStateSchema,
   /** Session UUID from ~/.claude/sessions/. */
@@ -50,13 +59,18 @@ export const ClaudeCodeInfoSchema = z.object({
   model: z.string().nullable(),
 });
 
+export const ProcessInfoSchema = z.discriminatedUnion("kind", [
+  GenericProcessSchema,
+  ClaudeProcessSchema,
+]);
+
 // --- Terminal metadata (unified, provider-aggregated) ---
 
 export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
-  claude: ClaudeCodeInfoSchema.nullable(),
+  process: ProcessInfoSchema.nullable(),
 });
 
 // --- Activity ---
@@ -138,5 +152,6 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
-export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type ProcessInfo = z.infer<typeof ProcessInfoSchema>;
+export type ClaudeProcess = Extract<ProcessInfo, { kind: "claude" }>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
