@@ -10,7 +10,7 @@ import {
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
-import { PlusIcon, ChevronRightIcon } from "./Icons";
+import { PlusIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { cwdBasename } from "./path";
@@ -26,18 +26,17 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
-  /** Child terminal IDs for this workspace. */
-  subTerminalIds: TerminalId[];
-  /** Whether the child terminal list is expanded. */
-  expanded: boolean;
-  onToggleExpand: () => void;
   onCreateTerminal: () => void;
+  subTerminalIds: TerminalId[];
   getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
   onSelectTerminal: (subId: TerminalId) => void;
+  /** The sub-terminal that currently has focus (if any). */
+  activeSubTab: TerminalId | null;
+  /** True when focus is in the sub-panel (not the main shell). */
+  subFocused: boolean;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const m = () => props.meta;
-  const hasChildren = () => props.subTerminalIds.length > 0;
 
   return (
     <div class="relative" style={sortable.style}>
@@ -78,9 +77,9 @@ const SidebarEntry: Component<{
         >
           <TerminalMeta info={props.displayInfo} />
         </button>
-        {/* Action buttons — visible on hover/focus */}
+        {/* + button — visible on hover/focus */}
         <div
-          class="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+          class="flex items-center pr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
           classList={{ "opacity-100": props.isActive }}
         >
           <button
@@ -94,29 +93,11 @@ const SidebarEntry: Component<{
           >
             <PlusIcon />
           </button>
-          <Show when={hasChildren()}>
-            <button
-              data-testid="toggle-expand"
-              class="p-1 text-fg-3 hover:text-fg rounded transition-colors"
-              title={props.expanded ? "Collapse terminals" : "Expand terminals"}
-              onClick={(e) => {
-                e.stopPropagation();
-                props.onToggleExpand();
-              }}
-            >
-              <span
-                class="transition-transform inline-block"
-                classList={{ "rotate-90": props.expanded }}
-              >
-                <ChevronRightIcon />
-              </span>
-            </button>
-          </Show>
         </div>
       </div>
-      {/* Nested terminal list when expanded */}
-      <Show when={props.expanded && hasChildren()}>
-        <div data-testid="terminal-list" class="bg-surface-0/50">
+      {/* Nested terminals — always visible when children exist */}
+      <Show when={props.subTerminalIds.length > 0}>
+        <div data-testid="terminal-list" class="border-b border-edge">
           <For each={props.subTerminalIds}>
             {(subId) => {
               const subMeta = () => props.getSubMeta(subId);
@@ -124,10 +105,21 @@ const SidebarEntry: Component<{
                 const m = subMeta();
                 return m?.meta ? cwdBasename(m.meta.cwd) : "terminal";
               };
+              const isFocused = () =>
+                props.isActive &&
+                props.subFocused &&
+                props.activeSubTab === subId;
               return (
                 <button
                   data-testid="terminal-entry"
-                  class="w-full pl-6 pr-2 py-1.5 text-xs text-fg-3 hover:text-fg-2 hover:bg-surface-2 text-left truncate transition-colors"
+                  data-terminal-id={subId}
+                  data-active={isFocused() ? "" : undefined}
+                  class="w-full pl-6 pr-2 py-1.5 text-xs text-left truncate transition-colors"
+                  classList={{
+                    "text-accent bg-accent/10": isFocused(),
+                    "text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+                      !isFocused(),
+                  }}
                   onClick={() => props.onSelectTerminal(subId)}
                   title={subMeta()?.meta?.cwd}
                 >
@@ -157,26 +149,12 @@ const Sidebar: Component<{
   getSubMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
   onCreateTerminal: (parentId: TerminalId) => void;
   onSelectTerminal: (parentId: TerminalId, subId: TerminalId) => void;
+  /** The sub-terminal that has focus in the given workspace. */
+  activeSubTab: (id: TerminalId) => TerminalId | null;
+  /** Whether a sub-terminal has focus in the given workspace. */
+  isSubFocused: (id: TerminalId) => boolean;
 }> = (props) => {
   const { showTipOnce } = useTips();
-
-  // Local expanded state — not persisted, collapsed by default
-  const [expandedSet, setExpandedSet] = createSignal<Set<TerminalId>>(
-    new Set(),
-  );
-
-  function isExpanded(id: TerminalId) {
-    return expandedSet().has(id);
-  }
-
-  function toggleExpand(id: TerminalId) {
-    setExpandedSet((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   function handleSelect(id: TerminalId) {
     const idx = props.terminalIds.indexOf(id);
@@ -267,14 +245,14 @@ const Sidebar: Component<{
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
-                      subTerminalIds={props.getSubTerminalIds(id)}
-                      expanded={isExpanded(id)}
-                      onToggleExpand={() => toggleExpand(id)}
                       onCreateTerminal={() => props.onCreateTerminal(id)}
+                      subTerminalIds={props.getSubTerminalIds(id)}
                       getSubMeta={props.getSubMeta}
                       onSelectTerminal={(subId) =>
                         props.onSelectTerminal(id, subId)
                       }
+                      activeSubTab={props.activeSubTab(id)}
+                      subFocused={props.isSubFocused(id)}
                     />
                   );
                 }}

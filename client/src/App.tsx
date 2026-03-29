@@ -306,6 +306,11 @@ const App: Component = () => {
             setActiveId(parentId);
             subPanel.selectAndExpand(parentId, subId);
           }}
+          activeSubTab={(id) => subPanel.getSubPanel(id).activeSubTab}
+          isSubFocused={(id) => {
+            const panel = subPanel.getSubPanel(id);
+            return !panel.collapsed && panel.focusTarget === "sub";
+          }}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0">
