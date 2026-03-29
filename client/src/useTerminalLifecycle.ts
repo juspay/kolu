@@ -1,6 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
+import { type Accessor, createResource, createSignal } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
@@ -85,6 +85,10 @@ export function useTerminalLifecycle(deps: {
     if (store.activeId() === id) {
       store.setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
+    // All terminals gone — re-fetch saved session for the restore card
+    if (remaining.length === 0) {
+      client.session.get().then(setSavedSession);
+    }
   }
 
   // Saved session — populated when no running terminals exist, shown in EmptyState.
@@ -156,44 +160,29 @@ export function useTerminalLifecycle(deps: {
     return existing;
   });
 
-  // Re-fetch saved session whenever all terminals are gone (e.g. user killed them all).
-  // The initial load is handled by Promise.all above; this covers the mid-session case.
-  createEffect(() => {
-    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
-      client.session.get().then(setSavedSession);
-    }
-  });
-
   /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
   async function handleRestoreSession() {
     const session = savedSession();
     if (!session) return;
-    // Clear the accessor immediately so the UI updates
     setSavedSession(null);
-    const newIds: TerminalId[] = [];
-    for (const t of session.terminals) {
-      const parentId =
-        t.parentIndex !== undefined ? newIds[t.parentIndex] : undefined;
-      if (parentId) {
-        const info = await client.terminal.create({ cwd: t.cwd, parentId });
-        store.setMeta(info.id, store.infoToState(info));
-        store.setSubOrder((prev) => ({
-          ...prev,
-          [parentId]: [...(prev[parentId] ?? []), info.id],
-        }));
-        deps.subscribeAll(info.id);
-        newIds.push(info.id);
+    // Map saved array index → live terminal ID (parents are always earlier in array)
+    const indexToId: TerminalId[] = [];
+    const idsBefore = store.idOrder().length;
+    for (let i = 0; i < session.terminals.length; i++) {
+      const t = session.terminals[i]!;
+      if (t.parentIndex !== undefined) {
+        const parentId = indexToId[t.parentIndex];
+        if (parentId) await handleCreateSubTerminal(parentId, t.cwd);
+        // Sub-terminals aren't in idOrder; grab ID from subOrder
+        const subs = store.getSubTerminalIds(parentId!);
+        indexToId.push(subs[subs.length - 1]!);
       } else {
-        const info = await client.terminal.create({ cwd: t.cwd });
-        store.setMeta(info.id, store.infoToState(info));
-        store.setIdOrder((prev) => [...prev, info.id]);
-        deps.subscribeAll(info.id);
-        newIds.push(info.id);
+        await handleCreate(t.cwd);
+        // Newly appended top-level terminal
+        const ids = store.idOrder();
+        indexToId.push(ids[ids.length - 1]!);
       }
     }
-    // Activate the first top-level terminal
-    const firstTopLevel = newIds[0];
-    if (firstTopLevel) store.setActiveId(firstTopLevel);
   }
 
   /** Create a new terminal on the server, add it to the list, and make it active. */
