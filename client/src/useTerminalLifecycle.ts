@@ -1,6 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource, createSignal } from "solid-js";
+import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
@@ -154,6 +154,14 @@ export function useTerminalLifecycle(deps: {
       setSavedSession(session);
     }
     return existing;
+  });
+
+  // Re-fetch saved session whenever all terminals are gone (e.g. user killed them all).
+  // The initial load is handled by Promise.all above; this covers the mid-session case.
+  createEffect(() => {
+    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
+      client.session.get().then(setSavedSession);
+    }
   });
 
   /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
