@@ -6,7 +6,8 @@ import type { PaletteCommand } from "./CommandPalette";
 import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
-import type { TerminalId, TerminalMetadata, RecentRepo } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { useRecentRepos } from "./useRecentRepos";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -31,13 +32,13 @@ export interface CommandDeps {
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
   handleKillWorktree: () => void;
-  recentRepos: Accessor<RecentRepo[]>;
-  refetchRecentRepos: () => void;
   // Debug
   simulateAlert: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
+  const { recentRepos, refetch: refetchRecentRepos } = useRecentRepos();
+
   return createMemo((): PaletteCommand[] => [
     {
       name: "Create new terminal",
@@ -60,8 +61,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "New worktree\u2026",
       // Refetch on drill-in so recently visited repos appear immediately
       children: () => {
-        deps.refetchRecentRepos();
-        const repos = deps.recentRepos();
+        refetchRecentRepos();
+        const repos = recentRepos();
         if (repos.length === 0) {
           return [{ name: "No recent repos" }];
         }
