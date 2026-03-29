@@ -20,6 +20,7 @@ import {
 } from "./terminalDisplay";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
+import type { useNotifications } from "./useNotifications";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 
@@ -31,6 +32,7 @@ const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
+  notifications: ReturnType<typeof useNotifications>;
 }) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
@@ -129,6 +131,12 @@ export function useTerminals(deps: {
     );
   }
 
+  /** 1-based display label for toasts/notifications (e.g. "Terminal 3"). */
+  function terminalLabel(id: TerminalId): string {
+    const pos = terminalIds().indexOf(id) + 1;
+    return pos > 0 ? `Terminal ${pos}` : "Terminal";
+  }
+
   /** Subscribe to activity state changes for a terminal. */
   function subscribeActivity(id: TerminalId) {
     return subscribeStream(
@@ -140,13 +148,20 @@ export function useTerminals(deps: {
     );
   }
 
+  /** Subscribe to coalesced session-end events for notifications. */
+  function subscribeSessionEnd(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onSessionEnd({ id }, { signal }),
+      (event) => deps.notifications.onSessionEnd(terminalLabel(id), event),
+    );
+  }
+
   /** Subscribe to exit events for a terminal. On exit, notify and remove. */
   function subscribeExit(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        const label = terminalLabel(id);
         toast(
           code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );
@@ -155,10 +170,11 @@ export function useTerminals(deps: {
     );
   }
 
-  /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
+  /** Start all per-terminal stream subscriptions (metadata, activity, session end, exit). */
   function subscribeAll(id: TerminalId) {
     subscribeMetadata(id);
     subscribeActivity(id);
+    subscribeSessionEnd(id);
     subscribeExit(id);
   }
 

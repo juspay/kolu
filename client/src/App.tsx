@@ -33,11 +33,18 @@ import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
+import { useNotifications } from "./useNotifications";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
-  const { randomTheme, setRandomTheme, scrollLock, setScrollLock } =
-    usePreferences();
+  const {
+    randomTheme,
+    setRandomTheme,
+    scrollLock,
+    setScrollLock,
+    notifications,
+    setNotifications,
+  } = usePreferences();
 
   const {
     terminalIds,
@@ -57,7 +64,11 @@ const App: Component = () => {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
-  } = useTerminals({ randomTheme, activity: useActivity() });
+  } = useTerminals({
+    randomTheme,
+    activity: useActivity(),
+    notifications: useNotifications({ enabled: notifications }),
+  });
 
   const {
     committedThemeName,
@@ -282,6 +293,8 @@ const App: Component = () => {
         onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
+        notifications={notifications()}
+        onNotificationsChange={setNotifications}
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />

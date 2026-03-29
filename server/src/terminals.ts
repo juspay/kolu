@@ -8,11 +8,16 @@ import type {
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  SessionEndEvent,
 } from "kolu-common";
 import {
   ACTIVITY_IDLE_THRESHOLD_S,
   ACTIVITY_WINDOW_MS,
 } from "kolu-common/config";
+import {
+  createActivitySession,
+  type ActivitySessionTracker,
+} from "./activitySession.ts";
 import { EventEmitter } from "node:events";
 import { log } from "./log.ts";
 import {
@@ -28,6 +33,8 @@ export interface TerminalEvents {
   exit: [exitCode: number];
   metadata: [meta: TerminalMetadata];
   activity: [isActive: boolean];
+  /** Fired when a coalesced activity session ends (sustained activity followed by quiet). */
+  sessionEnd: [event: SessionEndEvent];
 }
 
 /** Server-side terminal state. Owns a PtyHandle and event emitter. */
@@ -39,6 +46,8 @@ export interface TerminalEntry {
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
+  /** Coalesces activity bursts into sessions with a longer grace period. */
+  sessionTracker: ActivitySessionTracker;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
   /** If set, this terminal is a sub-terminal of the given parent. */
@@ -91,6 +100,8 @@ function touchActivity(entry: TerminalEntry): void {
     pushActivitySample(entry, false);
     entry.emitter.emit("activity", false);
   }, IDLE_MS);
+  // Also feed the session tracker (longer grace period for coalesced notifications)
+  entry.sessionTracker.touch();
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
@@ -114,6 +125,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const entry = terminals.get(id);
         if (entry) {
           if (entry.idleTimer) clearTimeout(entry.idleTimer);
+          entry.sessionTracker.dispose();
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
@@ -134,12 +146,16 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   );
 
   const metadata = createMetadata(handle.cwd);
+  const sessionTracker = createActivitySession({
+    onSessionEnd: (event) => emitter.emit("sessionEnd", event),
+  });
   const entry: TerminalEntry = {
     handle,
     emitter,
     isActive: true,
     clipboardDir,
     parentId,
+    sessionTracker,
     // Seed initial "active" sample so the first active period appears in history
     // (touchActivity won't record it since isActive starts true — no transition).
     activityHistory: [[Date.now(), true] as ActivitySample],
@@ -171,6 +187,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
+  entry.sessionTracker.dispose();
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
@@ -215,6 +232,7 @@ export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   for (const entry of terminals.values()) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
+    entry.sessionTracker.dispose();
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
