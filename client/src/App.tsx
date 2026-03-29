@@ -4,9 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
-  createMemo,
   on,
-  batch,
   createResource,
   Show,
   For,
@@ -18,17 +16,19 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
-import CommandPalette, { type PaletteCommand } from "./CommandPalette";
+import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
-import { SHORTCUTS } from "./keyboard";
 import EmptyState from "./EmptyState";
-import { availableThemes } from "./theme";
+import { createCommands } from "./commands";
 
 import { client, wsStatus } from "./rpc";
 import { useTerminals } from "./useTerminals";
+import { usePreferences } from "./usePreferences";
+import { useActivity } from "./useActivity";
+import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
@@ -36,17 +36,16 @@ import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
+  const { randomTheme, setRandomTheme, scrollLock, setScrollLock } =
+    usePreferences();
+
   const {
     terminalIds,
     activeId,
     setActiveId,
     getMeta,
     getDisplayInfo,
-    getActivityHistory,
-    activeThemeName,
-    activeTheme,
-    getTerminalTheme,
-    isPreviewingTheme,
+    setThemeName,
     activeMeta,
     existingTerminals,
     handleCreate,
@@ -55,16 +54,23 @@ const App: Component = () => {
     getSubTerminalIds,
     reorderTerminals,
     mruOrder,
+    handleCopyTerminalText,
+  } = useTerminals({ randomTheme, activity: useActivity() });
+
+  const {
     committedThemeName,
     setPreviewThemeName,
+    activeThemeName,
+    activeTheme,
+    getTerminalTheme,
+    isPreviewingTheme,
     handleSetTheme,
     handleRandomizeTheme,
-    handleCopyTerminalText,
-    randomTheme,
-    setRandomTheme,
-    scrollLock,
-    setScrollLock,
-  } = useTerminals();
+  } = useThemeManager({
+    activeId,
+    getThemeName: (id) => getMeta(id)?.themeName,
+    setThemeName,
+  });
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
@@ -138,141 +144,26 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  // Command palette entries — all terminal + app-level commands in one place.
-  const commands = createMemo((): PaletteCommand[] => [
-    {
-      name: "Create new terminal",
-      keybind: [
-        SHORTCUTS.createTerminal.keybind,
-        SHORTCUTS.createTerminalAlt.keybind,
-      ],
-      onSelect: () => void handleCreate(),
-    },
-    ...(activeMeta()
-      ? [
-          {
-            name: "Create terminal in current directory",
-            keybind: [
-              SHORTCUTS.createTerminalInCwd.keybind,
-              SHORTCUTS.createTerminalInCwdAlt.keybind,
-            ],
-            onSelect: () => void handleCreate(activeMeta()!.cwd),
-          },
-        ]
-      : []),
-    ...(activeId() !== null
-      ? [
-          {
-            name: "Close terminal",
-            onSelect: () => void handleKill(activeId()!),
-          },
-          {
-            name: "Toggle sub-panel",
-            keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => {
-              const id = activeId()!;
-              if (getSubTerminalIds(id).length === 0) {
-                void handleCreateSubTerminal(id, activeMeta()?.cwd);
-              } else {
-                subPanel.togglePanel(id);
-              }
-            },
-          },
-          {
-            name: "New sub-terminal",
-            keybind: SHORTCUTS.createSubTerminal.keybind,
-            onSelect: () =>
-              void handleCreateSubTerminal(activeId()!, activeMeta()?.cwd),
-          },
-          {
-            name: "Copy terminal text",
-            keybind: SHORTCUTS.copyTerminalText.keybind,
-            onSelect: () => void handleCopyTerminalText(),
-          },
-        ]
-      : []),
-    {
-      name: "Mission Control",
-      keybind: [
-        SHORTCUTS.missionControl.keybind,
-        SHORTCUTS.nextTerminalTab.keybind,
-      ],
-      onSelect: () => setMcMode({ mode: "browse" }),
-    },
-    ...(terminalIds().length > 0
-      ? [
-          {
-            name: "Switch terminal",
-            children: () =>
-              terminalIds().map((id, i) => ({
-                name: `Switch to terminal ${i + 1}`,
-                keybind:
-                  i < 9
-                    ? SHORTCUTS[
-                        `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
-                      ].keybind
-                    : undefined,
-                onSelect: () => setActiveId(id),
-              })),
-          },
-        ]
-      : []),
-    {
-      name: "Theme",
-      onCancel: () => setPreviewThemeName(undefined),
-      children: () =>
-        availableThemes
-          .filter((t) => t.name !== committedThemeName())
-          .map((t) => ({
-            name: t.name,
-            onHighlight: () => setPreviewThemeName(t.name),
-            onSelect: () =>
-              batch(() => {
-                setPreviewThemeName(undefined);
-                void handleSetTheme(t.name);
-              }),
-          })),
-    },
-    ...(activeId() !== null
-      ? [
-          {
-            name: "Random theme",
-            keybind: SHORTCUTS.randomizeTheme.keybind,
-            onSelect: () => handleRandomizeTheme(),
-          },
-        ]
-      : []),
-    {
-      name: "Keyboard shortcuts",
-      keybind: SHORTCUTS.shortcutsHelp.keybind,
-      onSelect: () => setShortcutsHelpOpen(true),
-    },
-    {
-      name: "About kolu",
-      onSelect: () => setAboutOpen(true),
-    },
-    {
-      name: "Debug",
-      children: [
-        {
-          name: "Trigger server error",
-          onSelect: () =>
-            void client.terminal.resize({
-              id: "00000000-0000-0000-0000-000000000000",
-              cols: 1,
-              rows: 1,
-            }),
-        },
-        {
-          name: "Clear localStorage",
-          onSelect: () => {
-            localStorage.clear();
-            location.reload();
-          },
-        },
-      ],
-    },
-  ]);
+  const commands = createCommands({
+    terminalIds,
+    activeId,
+    setActiveId,
+    activeMeta,
+    handleCreate: (cwd) => void handleCreate(cwd),
+    handleCreateSubTerminal: (parentId, cwd) =>
+      void handleCreateSubTerminal(parentId, cwd),
+    handleKill: (id) => void handleKill(id),
+    handleCopyTerminalText: () => void handleCopyTerminalText(),
+    getSubTerminalIds,
+    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    committedThemeName,
+    setPreviewThemeName,
+    handleSetTheme,
+    handleRandomizeTheme,
+    setMcMode,
+    setShortcutsHelpOpen,
+    setAboutOpen,
+  });
 
   // Reset state on close and return focus to terminal
   function handlePaletteOpenChange(open: boolean) {
