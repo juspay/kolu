@@ -50,6 +50,7 @@ const Header: Component<{
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
+  let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
@@ -153,9 +154,10 @@ const Header: Component<{
             <SearchIcon />
           </button>
         </Tip>
-        <div class="relative">
+        <div>
           <Tip label="Settings">
             <button
+              ref={settingsTriggerRef}
               data-testid="settings-trigger"
               class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => setSettingsOpen(!settingsOpen())}
@@ -166,6 +168,7 @@ const Header: Component<{
           <SettingsPopover
             open={settingsOpen()}
             onOpenChange={setSettingsOpen}
+            triggerRef={settingsTriggerRef}
             randomTheme={props.randomTheme ?? true}
             onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
             scrollLock={props.scrollLock ?? true}
