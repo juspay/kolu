@@ -1,0 +1,37 @@
+import { When, Then } from "@cucumber/cucumber";
+import { KoluWorld } from "../support/world.ts";
+import * as assert from "node:assert";
+
+When("I click the activity alerts toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="activity-alerts-toggle"]');
+  await this.page.waitForTimeout(200);
+});
+
+When("I simulate an activity alert", async function (this: KoluWorld) {
+  // Use page.evaluate to call the simulate function directly,
+  // avoiding command palette navigation complexity.
+  await this.page.evaluate(() => {
+    (window as any).__koluSimulateAlert?.();
+  });
+  await this.page.waitForTimeout(300);
+});
+
+Then("a sidebar entry should be notified", async function (this: KoluWorld) {
+  const notified = this.page.locator('[data-testid="sidebar"] [data-notified]');
+  await notified.first().waitFor({ state: "visible", timeout: 3000 });
+});
+
+Then("no sidebar entry should be notified", async function (this: KoluWorld) {
+  await this.page.waitForTimeout(300);
+  const count = await this.page
+    .locator('[data-testid="sidebar"] [data-notified]')
+    .count();
+  assert.strictEqual(count, 0, `Expected no notified entries, found ${count}`);
+});
+
+When("I click the notified sidebar entry", async function (this: KoluWorld) {
+  const notified = this.page.locator('[data-testid="sidebar"] [data-notified]');
+  await notified.first().waitFor({ state: "visible", timeout: 3000 });
+  await notified.first().click();
+  await this.page.waitForTimeout(300);
+});

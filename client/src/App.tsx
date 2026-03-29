@@ -36,8 +36,14 @@ import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
-  const { randomTheme, setRandomTheme, scrollLock, setScrollLock } =
-    usePreferences();
+  const {
+    randomTheme,
+    setRandomTheme,
+    scrollLock,
+    setScrollLock,
+    activityAlerts,
+    setActivityAlerts,
+  } = usePreferences();
 
   const {
     terminalIds,
@@ -57,7 +63,11 @@ const App: Component = () => {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
-  } = useTerminals({ randomTheme, activity: useActivity() });
+    simulateAlert,
+  } = useTerminals({ randomTheme, activity: useActivity(), activityAlerts });
+
+  // Expose for e2e test access
+  (window as any).__koluSimulateAlert = simulateAlert;
 
   const {
     committedThemeName,
@@ -167,6 +177,7 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
     handleKillWorktree: () => void handleKillWorktree(),
+    simulateAlert,
   });
 
   // Reset state on close and return focus to terminal
@@ -282,6 +293,8 @@ const App: Component = () => {
         onScrollLockChange={setScrollLock}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
+        activityAlerts={activityAlerts()}
+        onActivityAlertsChange={setActivityAlerts}
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />

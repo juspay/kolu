@@ -62,3 +62,14 @@
     transform: scale(1);
   }
 }
+
+/* Pulsing accent glow on sidebar entry when a background terminal's Claude finishes */
+@keyframes notified-glow {
+  0%,
+  100% {
+    background-color: oklch(from var(--color-accent) l c h / 0.08);
+  }
+  50% {
+    background-color: oklch(from var(--color-accent) l c h / 0.25);
+  }
+}

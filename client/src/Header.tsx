@@ -45,6 +45,8 @@ const Header: Component<{
   onColorSchemeChange?: (scheme: ColorScheme) => void;
   startupTips?: boolean;
   onStartupTipsChange?: (on: boolean) => void;
+  activityAlerts?: boolean;
+  onActivityAlertsChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -173,6 +175,8 @@ const Header: Component<{
             onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
             colorScheme={props.colorScheme ?? "dark"}
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
+            activityAlerts={props.activityAlerts ?? true}
+            onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
             startupTips={props.startupTips ?? true}
             onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />

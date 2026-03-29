@@ -31,6 +31,8 @@ export interface CommandDeps {
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
   handleKillWorktree: () => void;
+  // Debug
+  simulateAlert: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -157,6 +159,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     {
       name: "Debug",
       children: [
+        {
+          name: "Simulate activity alert",
+          onSelect: () => deps.simulateAlert(),
+        },
         {
           name: "Trigger server error",
           onSelect: () =>

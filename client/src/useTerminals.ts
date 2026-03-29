@@ -22,15 +22,22 @@ import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { useActivity } from "./useActivity";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
+import {
+  fireActivityAlert,
+  requestNotificationPermission,
+} from "./useActivityAlerts";
 
 /** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
-type TerminalState = Omit<TerminalInfo, "id" | "activityHistory">;
+type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
+  notified?: boolean;
+};
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
+  activityAlerts: Accessor<boolean>;
 }) {
   // Single store: all per-terminal metadata keyed by ID.
   // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
@@ -46,6 +53,9 @@ export function useTerminals(deps: {
   const subPanel = useSubPanel();
   const { pushActivity, getActivityHistory, seedActivity, clearActivity } =
     deps.activity;
+
+  // Request browser notification permission eagerly when alerts are enabled
+  if (deps.activityAlerts()) requestNotificationPermission();
 
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
@@ -65,6 +75,8 @@ export function useTerminals(deps: {
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
+      // Clear notification when user visits the terminal
+      if (meta[id]?.notified) setMeta(id, "notified", false);
     }),
   );
 
@@ -104,6 +116,12 @@ export function useTerminals(deps: {
     return displayInfos().get(id);
   }
 
+  /** Human-readable label for a terminal by its sidebar position. */
+  function terminalLabel(id: TerminalId): string {
+    const pos = terminalIds().indexOf(id) + 1;
+    return pos > 0 ? `Terminal ${pos}` : "Terminal";
+  }
+
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
     startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
@@ -121,11 +139,28 @@ export function useTerminals(deps: {
     return () => controller.abort();
   }
 
+  /** Alert when Claude transitions to "waiting" on a terminal. */
+  function checkClaudeFinished(
+    id: TerminalId,
+    prev: string | undefined,
+    next: string | undefined,
+  ) {
+    if (!deps.activityAlerts() || next !== "waiting" || prev === "waiting")
+      return;
+    const isBackground = id !== activeId();
+    if (isBackground) setMeta(id, "notified", true);
+    if (isBackground || document.hidden) fireActivityAlert(terminalLabel(id));
+  }
+
   /** Subscribe to metadata changes for a terminal. Called when terminal is created or restored. */
   function subscribeMetadata(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onMetadataChange({ id }, { signal }),
-      (metadata) => setMeta(id, "meta", metadata),
+      (metadata) => {
+        const prevState = meta[id]?.meta?.claude?.state;
+        setMeta(id, "meta", metadata);
+        checkClaudeFinished(id, prevState, metadata.claude?.state);
+      },
     );
   }
 
@@ -145,8 +180,7 @@ export function useTerminals(deps: {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        const label = terminalLabel(id);
         toast(
           code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );
@@ -357,6 +391,17 @@ export function useTerminals(deps: {
     }
   }
 
+  /** Simulate an activity alert on a random background terminal (debug).
+   *  Respects the activityAlerts preference, mirroring real behavior. */
+  function simulateAlert() {
+    if (!deps.activityAlerts()) return;
+    const inactive = terminalIds().filter((id) => id !== activeId());
+    if (inactive.length === 0) return;
+    const id = inactive[Math.floor(Math.random() * inactive.length)]!;
+    setMeta(id, "notified", true);
+    fireActivityAlert(terminalLabel(id));
+  }
+
   return {
     terminalIds,
     activeId,
@@ -379,5 +424,6 @@ export function useTerminals(deps: {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    simulateAlert,
   };
 }
