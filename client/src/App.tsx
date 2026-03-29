@@ -141,10 +141,16 @@ const App: Component = () => {
 
   const { refetch: refetchRecentRepos } = useRecentRepos();
 
+  // Refetch recent repos whenever the palette opens, regardless of how (Ctrl+K, header click, etc.)
+  createEffect(
+    on(paletteOpen, (open) => {
+      if (open) refetchRecentRepos();
+    }),
+  );
+
   function openPalette() {
     setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
-    refetchRecentRepos();
   }
 
   /** Wrap a boolean setter so closing any dialog refocuses the terminal. */
