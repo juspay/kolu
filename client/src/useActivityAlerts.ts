@@ -53,12 +53,16 @@ export function useActivityAlerts(deps: { enabled: Accessor<boolean> }) {
   /** Called when a background terminal's session ends and the user hasn't seen the activity.
    *  Fires audio + browser notification only when the tab is backgrounded. */
   function onSessionEnd(label: string, event: SessionEndEvent) {
-    if (!deps.enabled() || !document.hidden) return;
+    if (!deps.enabled()) return;
 
-    const title = `${label} finished`;
-    const description = `Active for ${formatDuration(event.durationS)}`;
     playTone();
-    showBrowserNotification(title, description);
+
+    // Browser notification only when tab is backgrounded — redundant when user can see the sidebar glow
+    if (document.hidden) {
+      const title = `${label} finished`;
+      const description = `Active for ${formatDuration(event.durationS)}`;
+      showBrowserNotification(title, description);
+    }
   }
 
   return { enabled: deps.enabled, onSessionEnd } as const;
