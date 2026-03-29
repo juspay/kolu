@@ -80,7 +80,7 @@ let
     KOLU_THEMES_JSON = "${ghosttyThemes}/themes.json";
     KOLU_FONTS_DIR = "${fonts}";
     KOLU_CLIPBOARD_SHIM_DIR = "${clipboard-shims}/bin";
-    KOLU_WORKTREE_WORDS = "${worktreeWords}/words.json";
+    KOLU_WORKTREE_WORDS = "${worktreeWords}";
   };
 
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";

@@ -13,43 +13,33 @@ import { log } from "./log.ts";
 
 // --- Word list for random worktree names ---
 
-interface WordList {
-  adjectives: string[];
-  nouns: string[];
-}
+let words: string[] | null = null;
 
-let wordList: WordList | null = null;
-
-function getWordList(): WordList {
-  if (wordList) return wordList;
+function getWords(): string[] {
+  if (words) return words;
 
   const wordsPath = process.env.KOLU_WORKTREE_WORDS;
   if (wordsPath && fs.existsSync(wordsPath)) {
-    wordList = JSON.parse(fs.readFileSync(wordsPath, "utf-8")) as WordList;
-    log.info(
-      {
-        path: wordsPath,
-        adjectives: wordList.adjectives.length,
-        nouns: wordList.nouns.length,
-      },
-      "loaded worktree word list",
-    );
+    words = fs
+      .readFileSync(wordsPath, "utf-8")
+      .split("\n")
+      .filter((w) => w.length > 0);
+    log.info({ path: wordsPath, count: words.length }, "loaded word list");
   } else {
-    // Fallback for dev without Nix
-    wordList = {
-      adjectives: ["calm", "bold", "warm", "keen", "swift"],
-      nouns: ["brook", "ridge", "vale", "peak", "cove"],
-    };
+    words = ["calm", "bold", "warm", "keen", "swift", "brook", "ridge", "vale"];
     log.warn("KOLU_WORKTREE_WORDS not set, using fallback word list");
   }
-  return wordList;
+  return words;
 }
 
 function randomWorktreeName(): string {
-  const { adjectives, nouns } = getWordList();
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]!;
-  const noun = nouns[Math.floor(Math.random() * nouns.length)]!;
-  return `${adj}-${noun}`;
+  const w = getWords();
+  const a = w[Math.floor(Math.random() * w.length)]!;
+  let b: string;
+  do {
+    b = w[Math.floor(Math.random() * w.length)]!;
+  } while (b === a && w.length > 1);
+  return `${a}-${b}`;
 }
 
 // --- Git helpers ---
