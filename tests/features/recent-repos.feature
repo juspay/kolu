@@ -9,6 +9,7 @@ Feature: Recent repos in command palette
     When I set up a git repo at "/tmp/kolu-recent-test"
     And I run "cd /tmp/kolu-recent-test"
     Then the header CWD should show "/tmp/kolu-recent-test"
+    And the header should show a branch name
     When I open the command palette
     And I select "New worktree…" in the palette
     Then the palette breadcrumb should show "New worktree…"
