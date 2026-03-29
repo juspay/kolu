@@ -14,12 +14,6 @@ const features = [
   { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
 ];
 
-/** Extract the last path component for compact display. */
-function dirName(cwd: string): string {
-  const parts = cwd.replace(/\/+$/, "").split("/");
-  return parts[parts.length - 1] || cwd;
-}
-
 interface EmptyStateProps {
   savedSession?: SavedSession;
   onRestore?: () => void;
@@ -45,9 +39,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 <For each={topLevel()}>
                   {(t) => (
                     <div class="text-xs text-fg-3 truncate" title={t.cwd}>
-                      {t.repoName ?? dirName(t.cwd)}
-                      <Show when={t.branch}>
-                        <span class="ml-1 text-fg-3/50">{t.branch}</span>
+                      <Show when={t.repoName} fallback={t.cwd}>
+                        {t.repoName}
+                        <Show when={t.branch}>
+                          <span class="ml-1 text-fg-3/50">{t.branch}</span>
+                        </Show>
                       </Show>
                     </div>
                   )}
