@@ -6,7 +6,7 @@ import type { PaletteCommand } from "./CommandPalette";
 import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata, RecentRepo } from "kolu-common";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -31,6 +31,8 @@ export interface CommandDeps {
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
   handleKillWorktree: () => void;
+  recentRepos: Accessor<RecentRepo[]>;
+  refetchRecentRepos: () => void;
   // Debug
   simulateAlert: () => void;
 }
@@ -54,6 +56,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+    {
+      name: "New worktree\u2026",
+      // Refetch on drill-in so recently visited repos appear immediately
+      children: () => {
+        deps.refetchRecentRepos();
+        const repos = deps.recentRepos();
+        if (repos.length === 0) {
+          return [{ name: "No recent repos" }];
+        }
+        return repos.map((r) => ({
+          name: r.repoName,
+          onSelect: () => deps.handleCreateWorktree(r.repoRoot),
+        }));
+      },
+    },
     ...(deps.activeMeta()?.git?.isWorktree
       ? [
           {

@@ -34,6 +34,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { useRecentRepos } from "./useRecentRepos";
 
 const App: Component = () => {
   const {
@@ -84,6 +85,7 @@ const App: Component = () => {
     setThemeName,
   });
 
+  const { recentRepos, refetch: refetchRecentRepos } = useRecentRepos();
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
@@ -177,6 +179,8 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
     handleKillWorktree: () => void handleKillWorktree(),
+    recentRepos,
+    refetchRecentRepos,
     simulateAlert,
   });
 

@@ -15,6 +15,7 @@ import type { GitInfo, TerminalMetadata } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
 import { emitMetadata } from "./index.ts";
 import { log } from "../log.ts";
+import { trackRecentRepo } from "../state.ts";
 
 const DEBOUNCE_MS = 150;
 
@@ -156,6 +157,8 @@ export function startGitProvider(
       stopHeadWatch = watchGitHead(cwd, handleHeadChange);
     }
     entry.metadata.git = git;
+    // Track repo in persistent recent repos list
+    if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");

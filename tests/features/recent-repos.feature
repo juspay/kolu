@@ -1,0 +1,16 @@
+Feature: Recent repos in command palette
+  Users can create worktrees for previously seen repos via "New worktree…"
+  in the command palette, without needing an active git terminal.
+
+  Background:
+    Given the terminal is ready
+
+  Scenario: Recent repo appears in "New worktree…" picker after visiting a git repo
+    When I set up a git repo at "/tmp/kolu-recent-test"
+    And I run "cd /tmp/kolu-recent-test"
+    Then the header CWD should show "/tmp/kolu-recent-test"
+    When I open the command palette
+    And I select "New worktree…" in the palette
+    Then the palette breadcrumb should show "New worktree…"
+    And palette item "kolu-recent-test" should be visible
+    And there should be no page errors
