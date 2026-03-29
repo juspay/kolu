@@ -5,6 +5,7 @@ import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
+import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -55,16 +56,31 @@ const TerminalMeta: Component<{
         </Show>
       </div>
 
-      {/* Branch */}
-      <div
-        data-testid="terminal-meta-branch"
-        class={`${detailClass()} truncate`}
-        title={i()?.meta.git?.branch}
-        style={{ color: i()?.branchColor }}
-        classList={{ "text-fg-2": !i()?.branchColor }}
+      {/* Branch — tooltip shows full name when truncated */}
+      <Show
+        when={i()?.meta.git?.branch}
+        fallback={
+          <div
+            data-testid="terminal-meta-branch"
+            class={`${detailClass()} text-fg-2`}
+          >
+            {"\u00A0"}
+          </div>
+        }
       >
-        {i()?.meta.git?.branch ?? "\u00A0"}
-      </div>
+        {(branch) => (
+          <Tip label={branch()}>
+            <div
+              data-testid="terminal-meta-branch"
+              class={`${detailClass()} truncate`}
+              style={{ color: i()?.branchColor }}
+              classList={{ "text-fg-2": !i()?.branchColor }}
+            >
+              {branch()}
+            </div>
+          </Tip>
+        )}
+      </Show>
 
       {/* PR info */}
       <Show when={i()?.meta.pr}>

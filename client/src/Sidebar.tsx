@@ -124,7 +124,7 @@ const Sidebar: Component<{
       {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-52 bg-surface-1 transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-48 lg:w-56 xl:w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
