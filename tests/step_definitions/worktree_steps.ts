@@ -23,22 +23,6 @@ When(
   },
 );
 
-When(
-  "I create a worktree {string} in {string}",
-  async function (this: KoluWorld, branch: string, repoPath: string) {
-    const wtPath = `${repoPath}/.worktrees/${branch}`;
-    execFileSync("git", [
-      "-C",
-      repoPath,
-      "worktree",
-      "add",
-      "-b",
-      branch,
-      wtPath,
-    ]);
-  },
-);
-
 Then(
   "the sidebar should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {

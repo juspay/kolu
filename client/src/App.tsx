@@ -95,19 +95,6 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
-  // Worktree list — refreshes when active terminal's repo changes
-  const [worktreeList] = createResource(
-    () => activeMeta()?.git?.mainRepoRoot,
-    async (repoPath) => {
-      if (!repoPath) return [];
-      try {
-        return await client.git.worktreeList({ repoPath });
-      } catch {
-        return [];
-      }
-    },
-  );
-
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
 
@@ -176,7 +163,6 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    worktreeList: () => worktreeList() ?? [],
     handleCloseWorktreeTerminal: () => {
       const id = activeId();
       if (!id) return;

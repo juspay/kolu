@@ -1,6 +1,6 @@
 Feature: Git worktree management
-  Users can create terminals in new or existing git worktrees via the
-  command palette, and close terminals while removing the worktree.
+  Users can create terminals in new git worktrees via the command palette,
+  and close terminals while removing the worktree.
 
   Background:
     Given the terminal is ready
@@ -14,18 +14,6 @@ Feature: Git worktree management
     And I select "New worktree" in the palette
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
-    And there should be no page errors
-
-  Scenario: Existing worktree appears in command palette
-    When I set up a git repo at "/tmp/kolu-wt-exist"
-    And I create a worktree "existing-wt" in "/tmp/kolu-wt-exist"
-    And I run "cd /tmp/kolu-wt-exist"
-    Then the header CWD should show "/tmp/kolu-wt-exist"
-    When I open the command palette
-    And I select "Create terminal in" in the palette
-    And I select "Existing worktree" in the palette
-    And I select "existing-wt" in the palette
-    Then the header CWD should show ".worktrees/existing-wt"
     And there should be no page errors
 
   Scenario: Close terminal and remove worktree

@@ -24,8 +24,6 @@ import {
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
-  WorktreeListInputSchema,
-  WorktreeEntrySchema,
 } from "./index";
 import { z } from "zod";
 
@@ -73,8 +71,5 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-    worktreeList: oc
-      .input(WorktreeListInputSchema)
-      .output(z.array(WorktreeEntrySchema)),
   },
 });

@@ -34,15 +34,6 @@ export const WorktreeRemoveInputSchema = z.object({
   worktreePath: z.string(),
 });
 
-export const WorktreeEntrySchema = z.object({
-  path: z.string(),
-  branch: z.string().nullable(),
-});
-
-export const WorktreeListInputSchema = z.object({
-  repoPath: z.string(),
-});
-
 // --- GitHub PR context ---
 
 export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
@@ -166,4 +157,3 @@ export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
-export type WorktreeEntry = z.infer<typeof WorktreeEntrySchema>;

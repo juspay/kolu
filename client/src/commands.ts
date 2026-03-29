@@ -8,7 +8,7 @@ import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import { toast } from "solid-sonner";
 import { client } from "./rpc";
-import type { TerminalId, TerminalMetadata, WorktreeEntry } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -32,7 +32,6 @@ export interface CommandDeps {
   setAboutOpen: (open: boolean) => void;
   // Worktree
   handleCloseWorktreeTerminal: () => void;
-  worktreeList: Accessor<WorktreeEntry[]>;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -64,17 +63,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ];
               if (git) {
-                const worktrees = deps.worktreeList();
-                if (worktrees.length > 0) {
-                  items.push({
-                    name: "Existing worktree",
-                    children: () =>
-                      worktrees.map((wt) => ({
-                        name: wt.branch ?? wt.path,
-                        onSelect: () => deps.handleCreate(wt.path),
-                      })),
-                  });
-                }
                 items.push({
                   name: "New worktree",
                   onSelect: () => {

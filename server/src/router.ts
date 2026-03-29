@@ -22,7 +22,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname } from "./hostname.ts";
-import { worktreeCreate, worktreeRemove, worktreeList } from "./git.ts";
+import { worktreeCreate, worktreeRemove } from "./git.ts";
 
 const t = implement(contract);
 
@@ -161,8 +161,5 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       await worktreeRemove(input.worktreePath);
     }),
-    worktreeList: t.git.worktreeList.handler(async ({ input }) =>
-      worktreeList(input.repoPath),
-    ),
   },
 });

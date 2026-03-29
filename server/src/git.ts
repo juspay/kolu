@@ -8,7 +8,6 @@
 import path from "node:path";
 import fs from "node:fs";
 import { simpleGit } from "simple-git";
-import type { WorktreeEntry } from "kolu-common";
 import { log } from "./log.ts";
 
 // --- Word list for random worktree names ---
@@ -121,33 +120,4 @@ export async function worktreeRemove(worktreePath: string): Promise<void> {
   const git = simpleGit(mainRoot);
   log.info({ worktreePath }, "removing worktree");
   await git.raw(["worktree", "remove", worktreePath, "--force"]);
-}
-
-/** List all worktrees for a repo, excluding the main worktree. */
-export async function worktreeList(repoPath: string): Promise<WorktreeEntry[]> {
-  const mainRoot = await resolveMainRepoRoot(repoPath);
-  const git = simpleGit(mainRoot);
-  const output = (await git.raw(["worktree", "list", "--porcelain"])).trim();
-  if (!output) return [];
-
-  const entries: WorktreeEntry[] = [];
-  let currentPath: string | null = null;
-  let currentBranch: string | null = null;
-
-  for (const line of output.split("\n")) {
-    if (line.startsWith("worktree ")) {
-      if (currentPath !== null && currentPath !== mainRoot) {
-        entries.push({ path: currentPath, branch: currentBranch });
-      }
-      currentPath = line.slice("worktree ".length);
-      currentBranch = null;
-    } else if (line.startsWith("branch ")) {
-      currentBranch = line.slice("branch ".length).replace("refs/heads/", "");
-    }
-  }
-  if (currentPath !== null && currentPath !== mainRoot) {
-    entries.push({ path: currentPath, branch: currentBranch });
-  }
-
-  return entries;
 }
