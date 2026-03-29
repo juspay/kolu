@@ -15,6 +15,33 @@ export const GitInfoSchema = z.object({
   worktreePath: z.string(),
   branch: z.string(),
   isWorktree: z.boolean(),
+  mainRepoRoot: z.string(),
+});
+
+// --- Git worktree operations ---
+
+export const WorktreeCreateInputSchema = z.object({
+  repoPath: z.string(),
+  branch: z.string(),
+});
+
+export const WorktreeCreateOutputSchema = z.object({
+  path: z.string(),
+  branch: z.string(),
+  isNew: z.boolean(),
+});
+
+export const WorktreeRemoveInputSchema = z.object({
+  worktreePath: z.string(),
+});
+
+export const WorktreeEntrySchema = z.object({
+  path: z.string(),
+  branch: z.string().nullable(),
+});
+
+export const WorktreeListInputSchema = z.object({
+  repoPath: z.string(),
 });
 
 // --- GitHub PR context ---
@@ -140,3 +167,4 @@ export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
+export type WorktreeEntry = z.infer<typeof WorktreeEntrySchema>;

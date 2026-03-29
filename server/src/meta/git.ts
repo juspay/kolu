@@ -55,6 +55,7 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
       worktreePath: cwd,
       branch,
       isWorktree,
+      mainRepoRoot,
     };
   } catch {
     return null;

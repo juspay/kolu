@@ -64,4 +64,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-random-theme",
     text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the terminal color theme`,
   },
+  {
+    id: "amb-worktree",
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → Create terminal in… → New worktree for parallel sessions`,
+  },
 ];

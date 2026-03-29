@@ -9,8 +9,8 @@ Feature: CWD-aware terminal creation
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"
     When I open the command palette
-    And I type "current" in the palette
-    And I press Enter
+    And I select "Create terminal in" in the palette
+    And I select "Current directory" in the palette
     Then the header CWD should show "/tmp"
     And there should be no page errors
 

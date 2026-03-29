@@ -12,7 +12,7 @@ import {
   ErrorBoundary,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { Toaster } from "solid-sonner";
+import { Toaster, toast } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
@@ -22,6 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import WorktreeDialog from "./WorktreeDialog";
 import { createCommands } from "./commands";
 
 import { client, wsStatus } from "./rpc";
@@ -95,6 +96,22 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
+  // Worktree dialog state
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = createSignal(false);
+
+  // Worktree list — refreshes when active terminal's repo changes
+  const [worktreeList] = createResource(
+    () => activeMeta()?.git?.mainRepoRoot,
+    async (repoPath) => {
+      if (!repoPath) return [];
+      try {
+        return await client.git.worktreeList({ repoPath });
+      } catch {
+        return [];
+      }
+    },
+  );
+
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
 
@@ -163,6 +180,27 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
+    worktreeList: () => worktreeList() ?? [],
+    openWorktreeDialog: () => setWorktreeDialogOpen(true),
+    handleCloseWorktreeTerminal: () => {
+      const id = activeId();
+      if (!id) return;
+      const meta = activeMeta();
+      const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+      // Kill sub-terminals first, then parent
+      const subs = getSubTerminalIds(id);
+      for (const subId of subs) void handleKill(subId);
+      void handleKill(id).then(async () => {
+        if (worktreePath) {
+          try {
+            await client.git.worktreeRemove({ worktreePath });
+            toast(`Removed worktree at ${worktreePath}`);
+          } catch (err) {
+            toast.error(`Failed to remove worktree: ${err}`);
+          }
+        }
+      });
+    },
   });
 
   // Reset state on close and return focus to terminal
@@ -262,6 +300,12 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <WorktreeDialog
+        open={worktreeDialogOpen()}
+        onOpenChange={withRefocus(setWorktreeDialogOpen)}
+        repoPath={activeMeta()?.git?.mainRepoRoot ?? null}
+        onCreated={(path) => void handleCreate(path)}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

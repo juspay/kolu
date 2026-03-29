@@ -7,7 +7,7 @@ import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata, WorktreeEntry } from "kolu-common";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -29,6 +29,10 @@ export interface CommandDeps {
   setMcMode: (mode: MCMode) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  // Worktree
+  openWorktreeDialog: () => void;
+  handleCloseWorktreeTerminal: () => void;
+  worktreeList: Accessor<WorktreeEntry[]>;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -44,12 +48,47 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.activeMeta()
       ? [
           {
-            name: "Create terminal in current directory",
+            name: "Create terminal in…",
             keybind: [
               SHORTCUTS.createTerminalInCwd.keybind,
               SHORTCUTS.createTerminalInCwdAlt.keybind,
             ],
-            onSelect: () => deps.handleCreate(deps.activeMeta()!.cwd),
+            children: (): PaletteCommand[] => {
+              const meta = deps.activeMeta()!;
+              const git = meta.git;
+              const items: PaletteCommand[] = [
+                {
+                  name: "Current directory",
+                  onSelect: () => deps.handleCreate(meta.cwd),
+                },
+              ];
+              if (git) {
+                const worktrees = deps.worktreeList();
+                if (worktrees.length > 0) {
+                  items.push({
+                    name: "Existing worktree",
+                    children: () =>
+                      worktrees.map((wt) => ({
+                        name: wt.branch ?? wt.path,
+                        onSelect: () => deps.handleCreate(wt.path),
+                      })),
+                  });
+                }
+                items.push({
+                  name: "New worktree…",
+                  onSelect: () => deps.openWorktreeDialog(),
+                });
+              }
+              return items;
+            },
+          },
+        ]
+      : []),
+    ...(deps.activeMeta()?.git?.isWorktree
+      ? [
+          {
+            name: "Close terminal and remove worktree",
+            onSelect: () => deps.handleCloseWorktreeTerminal(),
           },
         ]
       : []),

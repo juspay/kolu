@@ -1,0 +1,48 @@
+Feature: Git worktree management
+  Users can create terminals in new or existing git worktrees via the
+  command palette, and close terminals while removing the worktree.
+
+  Background:
+    Given the terminal is ready
+
+  Scenario: Create terminal in a new worktree via command palette
+    When I set up a git repo at "/tmp/kolu-wt-test"
+    And I run "cd /tmp/kolu-wt-test"
+    Then the header CWD should show "/tmp/kolu-wt-test"
+    When I open the command palette
+    And I select "Create terminal in" in the palette
+    And I select "New worktree" in the palette
+    Then the worktree dialog should be visible
+    When I type "test-branch" in the worktree dialog
+    And I submit the worktree dialog
+    Then the header CWD should show ".worktrees/test-branch"
+    And the sidebar should show a worktree indicator
+    And there should be no page errors
+
+  Scenario: Existing worktree appears in command palette
+    When I set up a git repo at "/tmp/kolu-wt-exist"
+    And I create a worktree "existing-wt" in "/tmp/kolu-wt-exist"
+    And I run "cd /tmp/kolu-wt-exist"
+    Then the header CWD should show "/tmp/kolu-wt-exist"
+    When I open the command palette
+    And I select "Create terminal in" in the palette
+    And I select "Existing worktree" in the palette
+    And I select "existing-wt" in the palette
+    Then the header CWD should show ".worktrees/existing-wt"
+    And there should be no page errors
+
+  Scenario: Close terminal and remove worktree
+    When I set up a git repo at "/tmp/kolu-wt-remove"
+    And I run "cd /tmp/kolu-wt-remove"
+    When I open the command palette
+    And I select "Create terminal in" in the palette
+    And I select "New worktree" in the palette
+    When I type "remove-me" in the worktree dialog
+    And I submit the worktree dialog
+    Then the header CWD should show ".worktrees/remove-me"
+    Given I note the sidebar entry count
+    When I open the command palette
+    And I select "Close terminal and remove worktree" in the palette
+    Then the sidebar should have 1 fewer terminal entry
+    And the worktree "/tmp/kolu-wt-remove/.worktrees/remove-me" should not exist
+    And there should be no page errors
