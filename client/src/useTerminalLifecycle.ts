@@ -9,10 +9,7 @@ import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { TerminalId, TerminalInfo, ActivitySample } from "kolu-common";
-import type {
-  TerminalMetaStore,
-  TerminalStore,
-} from "./useTerminalStore";
+import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
 
 export function useTerminalLifecycle(deps: {
   store: TerminalStore;
@@ -81,9 +78,7 @@ export function useTerminalLifecycle(deps: {
     deps.clearActivity(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
-      store.setActiveId(
-        remaining[Math.min(idx, remaining.length - 1)] ?? null,
-      );
+      store.setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
   }
 
