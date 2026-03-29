@@ -146,7 +146,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         }
         emitter.emit("exit", exitCode);
         terminals.delete(id);
-        debouncedSaveSession();
       },
       // PTY callback (OSC 7): update metadata CWD, providers react to the event
       onCwd: (newCwd) => {
@@ -206,7 +205,6 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
   terminals.delete(id);
-  debouncedSaveSession();
   return info;
 }
 
