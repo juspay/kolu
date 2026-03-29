@@ -35,6 +35,7 @@ import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "./zoom";
 import { createScrollLock } from "./scrollLock";
+import { refitOnTabVisible } from "./refitOnTabVisible";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -284,6 +285,8 @@ const Terminal: Component<{
         if (props.visible) debouncedFit();
       },
     );
+
+    refitOnTabVisible(debouncedFit, () => props.visible);
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),

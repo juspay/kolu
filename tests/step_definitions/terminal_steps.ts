@@ -61,6 +61,22 @@ When(
   },
 );
 
+When("I simulate a tab visibility change", async function (this: KoluWorld) {
+  // Simulate hidden→visible cycle so the visibilitychange listener re-fits.
+  await this.page.evaluate(() => {
+    for (const hidden of [true, false]) {
+      Object.defineProperty(document, "hidden", {
+        value: hidden,
+        writable: true,
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+  });
+  // Wait for rAF-debounced fit to settle
+  await this.page.waitForTimeout(500);
+});
+
 When("I zoom in {int} time(s)", async function (this: KoluWorld, n: number) {
   for (let i = 0; i < n; i++) await this.zoomIn();
 });

@@ -65,6 +65,13 @@ Feature: Terminal
     Then the terminal input should be focused
     And there should be no page errors
 
+  Scenario: Canvas refits after tab visibility change
+    Given I note the canvas dimensions
+    When I resize the viewport to 800x400
+    And I simulate a tab visibility change
+    Then the canvas should fill at least 90% of its container
+    And there should be no page errors
+
   Scenario: Zoom changes font size
     Given I note the font size
     When I zoom in 1 time
