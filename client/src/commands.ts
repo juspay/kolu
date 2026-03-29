@@ -55,11 +55,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   const result = await client.git.worktreeCreate({
                     repoPath: git.mainRepoRoot,
                   });
-                  toast(
-                    result.isNew
-                      ? `Created worktree ${result.branch}`
-                      : `Opened worktree ${result.branch}`,
-                  );
+                  toast(`Created worktree ${result.branch}`);
                   deps.handleCreate(result.path);
                 } catch (err) {
                   toast.error(`Failed to create worktree: ${err}`);

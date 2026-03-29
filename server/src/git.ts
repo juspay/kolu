@@ -76,7 +76,7 @@ async function detectDefaultBranch(repoPath: string): Promise<string> {
  */
 export async function worktreeCreate(
   repoPath: string,
-): Promise<{ path: string; branch: string; isNew: boolean }> {
+): Promise<{ path: string; branch: string }> {
   const mainRoot = await resolveMainRepoRoot(repoPath);
   const git = simpleGit(mainRoot);
   const defaultBranch = await detectDefaultBranch(mainRoot);
@@ -107,7 +107,7 @@ export async function worktreeCreate(
       `origin/${defaultBranch}`,
     ]);
 
-    return { path: targetPath, branch, isNew: true };
+    return { path: targetPath, branch };
   }
 
   // Extremely unlikely — 48×48 = 2304 possible names

@@ -27,7 +27,6 @@ export const WorktreeCreateInputSchema = z.object({
 export const WorktreeCreateOutputSchema = z.object({
   path: z.string(),
   branch: z.string(),
-  isNew: z.boolean(),
 });
 
 export const WorktreeRemoveInputSchema = z.object({
