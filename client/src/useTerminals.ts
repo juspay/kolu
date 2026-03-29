@@ -116,6 +116,12 @@ export function useTerminals(deps: {
     return displayInfos().get(id);
   }
 
+  /** Human-readable label for a terminal by its sidebar position. */
+  function terminalLabel(id: TerminalId): string {
+    const pos = terminalIds().indexOf(id) + 1;
+    return pos > 0 ? `Terminal ${pos}` : "Terminal";
+  }
+
   /** Fire-and-forget stream subscription with AbortController cleanup. */
   function subscribeStream<T>(
     startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
@@ -155,9 +161,7 @@ export function useTerminals(deps: {
 
           // Audio + browser notification when terminal is background OR tab is unfocused
           if (isBackground || tabHidden) {
-            const pos = terminalIds().indexOf(id) + 1;
-            const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
-            fireActivityAlert(label);
+            fireActivityAlert(terminalLabel(id));
           }
         }
       },
@@ -180,8 +184,7 @@ export function useTerminals(deps: {
     return subscribeStream(
       (signal) => client.terminal.onExit({ id }, { signal }),
       (code) => {
-        const pos = terminalIds().indexOf(id) + 1;
-        const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
+        const label = terminalLabel(id);
         toast(
           code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
         );
@@ -399,10 +402,8 @@ export function useTerminals(deps: {
     const inactive = terminalIds().filter((id) => id !== activeId());
     if (inactive.length === 0) return;
     const id = inactive[Math.floor(Math.random() * inactive.length)]!;
-    const pos = terminalIds().indexOf(id) + 1;
-    const label = pos > 0 ? `Terminal ${pos}` : "Terminal";
     setMeta(id, "notified", true);
-    fireActivityAlert(label);
+    fireActivityAlert(terminalLabel(id));
   }
 
   return {
