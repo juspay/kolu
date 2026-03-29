@@ -62,21 +62,16 @@ When(
 );
 
 When("I simulate a tab visibility change", async function (this: KoluWorld) {
-  // Simulate the browser tab going hidden then visible again.
-  // This triggers the visibilitychange listener that re-fits the terminal.
+  // Simulate hidden→visible cycle so the visibilitychange listener re-fits.
   await this.page.evaluate(() => {
-    Object.defineProperty(document, "hidden", {
-      value: true,
-      writable: true,
-      configurable: true,
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-    Object.defineProperty(document, "hidden", {
-      value: false,
-      writable: true,
-      configurable: true,
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
+    for (const hidden of [true, false]) {
+      Object.defineProperty(document, "hidden", {
+        value: hidden,
+        writable: true,
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
   });
   // Wait for rAF-debounced fit to settle
   await this.page.waitForTimeout(500);
