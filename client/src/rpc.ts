@@ -21,13 +21,35 @@ const wsUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
 const ws = new PartySocket(wsUrl);
 
+// Cast: PartySocket is API-compatible with WebSocket but types don't overlap
+const link = new RPCLink({ websocket: ws as unknown as WebSocket });
+
+export const client = createORPCClient<Client>(link);
+
 // Track WebSocket connection status as a reactive signal
 const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
 let wasConnected = false;
+let knownProcessId: string | null = null;
+
 ws.addEventListener("open", () => {
   setWsStatus("open");
-  if (wasConnected) toast.success("Reconnected to server");
+  const isReconnect = wasConnected;
   wasConnected = true;
+  // Fetch server identity on every connect to detect restarts
+  client.server.info().then(({ processId }) => {
+    if (isReconnect) {
+      if (knownProcessId && processId !== knownProcessId) {
+        toast.info("Server updated", {
+          description: "Reload to apply the latest version.",
+          action: { label: "Reload", onClick: () => location.reload() },
+          duration: Infinity,
+        });
+      } else {
+        toast.success("Reconnected to server");
+      }
+    }
+    knownProcessId = processId;
+  });
 });
 ws.addEventListener("close", () => {
   setWsStatus("closed");
@@ -35,8 +57,3 @@ ws.addEventListener("close", () => {
 });
 
 export { wsStatus };
-
-// Cast: PartySocket is API-compatible with WebSocket but types don't overlap
-const link = new RPCLink({ websocket: ws as unknown as WebSocket });
-
-export const client = createORPCClient<Client>(link);

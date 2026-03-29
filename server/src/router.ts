@@ -21,7 +21,7 @@ import {
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
-import { serverHostname } from "./hostname.ts";
+import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 
 const t = implement(contract);
@@ -37,6 +37,7 @@ export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
       hostname: serverHostname,
+      processId: serverProcessId,
     })),
   },
   terminal: {

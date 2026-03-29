@@ -145,6 +145,8 @@ export const TerminalReorderInputSchema = z.object({
 
 export const ServerInfoSchema = z.object({
   hostname: z.string(),
+  /** Unique ID for this server process — changes on restart. */
+  processId: z.string().uuid(),
 });
 
 // --- Derived types ---
