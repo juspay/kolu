@@ -215,6 +215,13 @@ const App: Component = () => {
             color: "var(--color-fg)",
             border: "1px solid var(--color-edge-bright)",
           },
+          actionButtonStyle: {
+            background: "var(--color-accent)",
+            color: "var(--color-surface-1)",
+            "font-weight": "600",
+            "border-radius": "4px",
+            padding: "4px 12px",
+          },
         }}
       />
       <CommandPalette
