@@ -13,7 +13,7 @@ default: _run-all
     just ci::_summary
 
 [parallel]
-_run-all: _linux _darwin
+_run-all: _linux _darwin typecheck
 
 _linux: _preflight
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
@@ -26,6 +26,9 @@ nix:
 
 home-manager: nix
     just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
+
+typecheck:
+    just ci::_run typecheck bash -c "pnpm install && pnpm typecheck"
 
 e2e: nix
     just ci::_run e2e just test

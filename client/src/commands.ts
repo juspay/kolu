@@ -8,6 +8,7 @@ import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { useRecentRepos } from "./useRecentRepos";
+import { client } from "./rpc";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -54,7 +55,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         const repos = recentRepos();
         if (repos.length === 0) {
           return [
-            { name: "No recent repos", description: "cd into a git repo first" },
+            {
+              name: "No recent repos",
+              description: "cd into a git repo first",
+            },
           ];
         }
         return repos.map((r) => ({

@@ -6,6 +6,7 @@ import {
   SortableProvider,
   createSortable,
   closestCenter,
+  transformStyle,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
@@ -13,13 +14,14 @@ import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId } from "kolu-common";
+import type { TerminalState } from "./useTerminalStore";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
-  meta: Omit<TerminalInfo, "id"> | undefined;
+  meta: TerminalState | undefined;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
@@ -29,7 +31,7 @@ const SidebarEntry: Component<{
   const m = () => props.meta;
 
   return (
-    <div class="relative" style={sortable.style}>
+    <div class="relative" style={transformStyle(sortable.transform)}>
       {/* Drop indicator line — positioned at the edge where the item will be inserted */}
       <Show when={props.dropEdge}>
         {(edge) => (
@@ -80,7 +82,7 @@ const SidebarEntry: Component<{
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getMeta: (id: TerminalId) => TerminalState | undefined;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;

@@ -113,13 +113,15 @@ async function resolveGitHubPr(
     results.sort((a, b) =>
       String(b.updatedAt).localeCompare(String(a.updatedAt)),
     );
-    const data = results[0];
+    const data = results[0]!;
     return {
-      number: data.number,
-      title: data.title,
-      url: data.url,
+      number: data.number as number,
+      title: data.title as string,
+      url: data.url as string,
       state: GitHubPrStateSchema.parse((data.state as string).toLowerCase()),
-      checks: deriveCheckStatus(data.statusCheckRollup),
+      checks: deriveCheckStatus(
+        data.statusCheckRollup as Parameters<typeof deriveCheckStatus>[0],
+      ),
     };
   } catch (err) {
     log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
