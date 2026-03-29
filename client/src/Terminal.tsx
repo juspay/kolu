@@ -35,6 +35,7 @@ import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "./zoom";
 import { createScrollLock } from "./scrollLock";
+import { refitOnTabVisible } from "./refitOnTabVisible";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -285,12 +286,7 @@ const Terminal: Component<{
       },
     );
 
-    // Re-fit when browser tab regains visibility. Browsers may pause
-    // ResizeObserver while the tab is hidden, so the terminal can end up
-    // with stale dimensions after returning (see #217).
-    makeEventListener(document, "visibilitychange", () => {
-      if (!document.hidden && props.visible) debouncedFit();
-    });
+    refitOnTabVisible(debouncedFit, () => props.visible);
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),
