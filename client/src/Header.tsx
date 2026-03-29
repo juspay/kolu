@@ -12,8 +12,7 @@ import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Kbd from "./Kbd";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
-import type { ClaudeProcess } from "kolu-common";
+import ProcessIndicator from "./ProcessIndicator";
 import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -107,24 +106,7 @@ const Header: Component<{
             <Show when={meta().process}>
               {(proc) => (
                 <span class="shrink-0">
-                  &middot;{" "}
-                  <Show
-                    when={proc().kind === "claude" && proc()}
-                    fallback={
-                      <span
-                        class="text-xs text-fg-3"
-                        data-testid="process-indicator"
-                      >
-                        {proc().name}
-                      </span>
-                    }
-                  >
-                    {(claude) => (
-                      <ClaudeIndicator
-                        state={(claude() as ClaudeProcess).state}
-                      />
-                    )}
-                  </Show>
+                  &middot; <ProcessIndicator process={proc()} />
                 </span>
               )}
             </Show>

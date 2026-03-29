@@ -12,7 +12,7 @@
 
 import fs from "node:fs";
 import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import { updateProcess } from "./index.ts";
 import { log } from "../log.ts";
 
 const POLL_INTERVAL_MS = 1_000;
@@ -74,22 +74,16 @@ export function startProcessProvider(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
-  let lastName: string | null = null;
 
   plog.info("started");
 
   function poll() {
     const name = getForegroundProcess(entry.handle.pid);
+    if (name === entry.processName) return;
 
-    if (name === lastName) return;
-    lastName = name;
-
-    // Claude provider owns the process field when a session is active
-    if (entry.metadata.process?.kind === "claude") return;
-
-    entry.metadata.process = name ? { kind: "generic", name } : null;
+    entry.processName = name;
     plog.debug(name ? { name } : {}, name ? "detected" : "cleared");
-    emitMetadata(entry, terminalId);
+    updateProcess(entry, terminalId);
   }
 
   poll();

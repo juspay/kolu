@@ -1,13 +1,12 @@
-/** Terminal metadata display — name, branch, PR, agent status, activity.
+/** Terminal metadata display — name, branch, PR, process status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
+import ProcessIndicator from "./ProcessIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
-import type { ClaudeProcess } from "kolu-common";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
@@ -118,25 +117,7 @@ const TerminalMeta: Component<{
       <Show when={i()?.meta.process || (i()?.activityHistory.length ?? 0) > 0}>
         <div class="flex items-center gap-1.5 mt-0.5">
           <Show when={i()?.meta.process}>
-            {(proc) => (
-              <Show
-                when={
-                  proc().kind === "claude"
-                    ? (proc() as ClaudeProcess)
-                    : undefined
-                }
-                fallback={
-                  <span
-                    class="text-xs text-fg-3 truncate"
-                    data-testid="process-indicator"
-                  >
-                    {proc().name}
-                  </span>
-                }
-              >
-                {(claude) => <ClaudeIndicator state={claude().state} />}
-              </Show>
-            )}
+            {(proc) => <ProcessIndicator process={proc()} />}
           </Show>
           <Show when={(i()?.activityHistory.length ?? 0) > 0}>
             <div class="ml-auto">
