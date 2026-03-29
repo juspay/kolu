@@ -57,6 +57,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         }
         return repos.map((r) => ({
           name: r.repoName,
+          description: r.repoRoot,
           onSelect: () => deps.handleCreateWorktree(r.repoRoot),
         }));
       },
