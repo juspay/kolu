@@ -100,15 +100,22 @@ async function resolveGitHubPr(
         "list",
         "--head",
         branch,
+        "--state",
+        "all",
         "--json",
-        "number,title,url,state,statusCheckRollup",
-        "--limit",
-        "1",
+        "number,title,url,state,statusCheckRollup,updatedAt",
       ],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const results = JSON.parse(stdout);
-    if (!Array.isArray(results) || results.length === 0) return null;
+    const results = JSON.parse(stdout) as Array<Record<string, unknown>>;
+    if (results.length === 0) return null;
+    // Pick the most recently updated PR (prefer open over closed/merged)
+    results.sort((a, b) => {
+      const aOpen = (a.state as string).toUpperCase() === "OPEN" ? 1 : 0;
+      const bOpen = (b.state as string).toUpperCase() === "OPEN" ? 1 : 0;
+      if (aOpen !== bOpen) return bOpen - aOpen;
+      return String(b.updatedAt).localeCompare(String(a.updatedAt));
+    });
     const data = results[0];
     return {
       number: data.number,
