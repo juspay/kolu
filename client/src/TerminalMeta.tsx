@@ -1,7 +1,7 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
-import { type Component, Match, Show, Switch } from "solid-js";
+import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
@@ -117,29 +117,27 @@ const TerminalMeta: Component<{
       {/* Process status + activity sparkline */}
       <Show when={i()?.meta.process || (i()?.activityHistory.length ?? 0) > 0}>
         <div class="flex items-center gap-1.5 mt-0.5">
-          <Switch>
-            <Match
-              when={
-                i()?.meta.process?.kind === "claude"
-                  ? (i()!.meta.process as ClaudeProcess)
-                  : undefined
-              }
-            >
-              {(claude) => <ClaudeIndicator state={claude().state} />}
-            </Match>
-            <Match
-              when={i()?.meta.process?.kind === "generic" && i()!.meta.process}
-            >
-              {(proc) => (
-                <span
-                  class="text-xs text-fg-3 truncate"
-                  data-testid="process-indicator"
-                >
-                  {proc().name}
-                </span>
-              )}
-            </Match>
-          </Switch>
+          <Show when={i()?.meta.process}>
+            {(proc) => (
+              <Show
+                when={
+                  proc().kind === "claude"
+                    ? (proc() as ClaudeProcess)
+                    : undefined
+                }
+                fallback={
+                  <span
+                    class="text-xs text-fg-3 truncate"
+                    data-testid="process-indicator"
+                  >
+                    {proc().name}
+                  </span>
+                }
+              >
+                {(claude) => <ClaudeIndicator state={claude().state} />}
+              </Show>
+            )}
+          </Show>
           <Show when={(i()?.activityHistory.length ?? 0) > 0}>
             <div class="ml-auto">
               <ActivityGraph samples={i()!.activityHistory} />
