@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { render } from "solid-js/web";
 import { MetaProvider } from "@solidjs/meta";
 import App from "./App";

@@ -93,8 +93,13 @@ export function useTerminalLifecycle(deps: {
   );
 
   // Restore existing terminals on page load (e.g. after browser refresh).
+  // Fetch session in parallel so it's ready before Suspense resolves (no flash).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const existing = await client.terminal.list();
+    const [existing, session] = await Promise.all([
+      client.terminal.list(),
+      client.session.get(),
+    ]);
+    if (existing.length === 0) setSavedSession(session);
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
       const initial: TerminalMetaStore = {};
@@ -148,9 +153,9 @@ export function useTerminalLifecycle(deps: {
     return existing;
   });
 
-  // Single reactive rule: fetch saved session whenever terminal count hits zero.
-  // Covers both initial load (no terminals on server) and mid-session (user killed all).
-  // TODO: Replace with reactive server stream (https://github.com/juspay/kolu/issues/229)
+  // Re-fetch saved session when all terminals are killed mid-session.
+  // Initial load is handled by Promise.all above (blocks Suspense).
+  // TODO: Replace both with reactive server stream (https://github.com/juspay/kolu/issues/229)
   createEffect(() => {
     if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
       client.session.get().then(setSavedSession);
