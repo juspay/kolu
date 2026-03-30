@@ -1,13 +1,19 @@
-/** Typed in-memory publisher for terminal events.
- *  Single pub/sub mechanism for metadata, activity, and inter-provider chaining. */
+/** Typed in-memory publisher for all terminal events.
+ *  Single pub/sub mechanism — replaces per-terminal EventEmitter entirely. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { TerminalMetadata } from "kolu-common";
 import { log } from "./log.ts";
 
 export type PublisherChannels = {
+  /** CWD, git, PR, Claude state — from metadata providers */
   metadata: { terminalId: string; metadata: TerminalMetadata };
+  /** Active/sleeping transitions — from idle timer */
   activity: { terminalId: string; isActive: boolean };
+  /** Raw PTY output bytes — high frequency, drives xterm.js */
+  data: { terminalId: string; data: string };
+  /** Terminal process exited — fires once per terminal lifetime */
+  exit: { terminalId: string; exitCode: number };
 };
 
 export const publisher = new MemoryPublisher<PublisherChannels>();

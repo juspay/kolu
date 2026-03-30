@@ -13,7 +13,7 @@ import {
   ACTIVITY_IDLE_THRESHOLD_S,
   ACTIVITY_WINDOW_MS,
 } from "kolu-common/config";
-import { EventEmitter } from "node:events";
+import { EventEmitter } from "node:events"; // Only for terminalChanges (session persistence)
 import { log } from "./log.ts";
 import {
   CLIPBOARD_SHIM_DIR,
@@ -24,16 +24,9 @@ import { createMetadata, publishMetadata, startProviders } from "./meta/index.ts
 import { publisher } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
-/** Typed event map — eliminates stringly-typed emit/on/off calls. */
-export interface TerminalEvents {
-  data: [data: string]; // PTY byte stream (attach)
-  exit: [exitCode: number]; // Terminal process exit
-}
-
-/** Server-side terminal state. Owns a PtyHandle and event emitter. */
+/** Server-side terminal state. Owns a PtyHandle. */
 export interface TerminalEntry {
   handle: PtyHandle;
-  emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
   /** Current activity state. Transitions published via publisher. */
   isActive: boolean;
@@ -118,7 +111,6 @@ function emitChanged(): void {
 export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
-  const emitter = new EventEmitter<TerminalEvents>();
   const clipboardDir = createClipboardDir(id);
 
   const handle = spawnPty(
@@ -127,7 +119,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onData: (data) => {
         const entry = terminals.get(id);
         if (entry) touchActivity(entry, id);
-        emitter.emit("data", data);
+        void publisher.publish("data", { terminalId: id, data });
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -138,7 +130,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
-        emitter.emit("exit", exitCode);
+        void publisher.publish("exit", { terminalId: id, exitCode });
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
@@ -161,7 +153,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const metadata = createMetadata(handle.cwd);
   const entry: TerminalEntry = {
     handle,
-    emitter,
     isActive: true,
     clipboardDir,
     parentId,
