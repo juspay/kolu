@@ -20,15 +20,14 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
-import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
+import { createMetadata, publishMetadata, startProviders } from "./meta/index.ts";
 import { publisher } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
-  data: [data: string];
-  exit: [exitCode: number];
-  metadata: [meta: TerminalMetadata]; // Used for inter-provider chaining (git→github)
+  data: [data: string]; // PTY byte stream (attach)
+  exit: [exitCode: number]; // Terminal process exit
 }
 
 /** Server-side terminal state. Owns a PtyHandle and event emitter. */
@@ -36,7 +35,7 @@ export interface TerminalEntry {
   handle: PtyHandle;
   emitter: EventEmitter<TerminalEvents>;
   themeName?: string;
-  /** Current activity state. Transitions emit "activity" event. */
+  /** Current activity state. Transitions published via publisher. */
   isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
@@ -150,7 +149,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const entry = terminals.get(id);
         if (entry) {
           entry.metadata.cwd = newCwd;
-          emitMetadata(entry, id);
+          publishMetadata(entry, id);
           emitChanged();
         }
       },

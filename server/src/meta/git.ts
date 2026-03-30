@@ -13,7 +13,8 @@ import { execSync } from "node:child_process";
 import { simpleGit } from "simple-git";
 import type { GitInfo, TerminalMetadata } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import { subscribeForTerminal } from "../publisher.ts";
+import { publishMetadata } from "./index.ts";
 import { log } from "../log.ts";
 import { trackRecentRepo } from "../state.ts";
 
@@ -162,13 +163,14 @@ export function startGitProvider(
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
     entry.metadata.pr = null;
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
-    emitMetadata(entry, terminalId);
+    publishMetadata(entry, terminalId);
   }
 
-  entry.emitter.on("metadata", onMetadata);
+  const abort = new AbortController();
+  subscribeForTerminal("metadata", terminalId, abort.signal, (e) => onMetadata(e.metadata));
 
   return () => {
-    entry.emitter.off("metadata", onMetadata);
+    abort.abort();
     stopHeadWatch();
     plog.info("stopped");
   };
