@@ -263,8 +263,8 @@ export function startClaudeCodeProvider(
       model: derived.model,
     };
 
-    if (infoEqual(info, entry.info.meta!.claude)) return;
-    entry.info.meta!.claude = info;
+    if (infoEqual(info, entry.info.meta.claude)) return;
+    entry.info.meta.claude = info;
     plog.info(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
@@ -301,8 +301,8 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
-        if (entry.info.meta!.claude !== null) {
-          entry.info.meta!.claude = null;
+        if (entry.info.meta.claude !== null) {
+          entry.info.meta.claude = null;
           publishMetadata(entry, terminalId);
         }
       }

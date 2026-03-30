@@ -126,7 +126,7 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      const snapshot = () => ({ ...entry.info.meta! });
+      const snapshot = () => ({ ...entry.info.meta });
       yield snapshot();
 
       // Merge metadata and activity channels — yield full metadata snapshot on either change.

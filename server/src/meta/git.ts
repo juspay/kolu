@@ -120,7 +120,7 @@ export function startGitProvider(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
-  const meta = entry.info.meta!;
+  const meta = entry.info.meta;
   let lastCwd = meta.cwd;
   let stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
 
@@ -138,7 +138,7 @@ export function startGitProvider(
       stopHeadWatch();
       stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
       void resolve(meta.cwd);
-    } else if (entry.info.meta!.git === null && hasGitDir(meta.cwd)) {
+    } else if (entry.info.meta.git === null && hasGitDir(meta.cwd)) {
       // Re-resolve when .git appears — detects `git init` in the current dir
       // without spawning a git process on every prompt in non-git dirs
       void resolve(meta.cwd);
@@ -152,7 +152,7 @@ export function startGitProvider(
 
   async function resolve(cwd: string) {
     const git = await resolveGitInfo(cwd);
-    const m = entry.info.meta!;
+    const m = entry.info.meta;
     if (gitInfoEqual(git, m.git)) return;
     // Start HEAD watcher when a repo appears (e.g. after `git init`)
     if (m.git === null && git !== null) {

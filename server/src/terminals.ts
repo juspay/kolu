@@ -54,13 +54,13 @@ function pushActivitySample(entry: TerminalProcess, active: boolean): void {
 /** Mark terminal busy and reset the idle timer. */
 function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.info.meta!.busy) {
-    entry.info.meta!.busy = true;
+  if (!entry.info.meta.busy) {
+    entry.info.meta.busy = true;
     pushActivitySample(entry, true);
     publishForTerminal("activity", terminalId, true);
   }
   entry.idleTimer = setTimeout(() => {
-    entry.info.meta!.busy = false;
+    entry.info.meta.busy = false;
     pushActivitySample(entry, false);
     publishForTerminal("activity", terminalId, false);
   }, IDLE_MS);
@@ -69,7 +69,7 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 /** Build a session snapshot from current terminal state. */
 export function snapshotSession(): SavedTerminal[] {
   return [...terminals.entries()].map(([id, entry]) => {
-    const m = entry.info.meta!;
+    const m = entry.info.meta;
     return {
       id,
       cwd: m.cwd,
@@ -117,7 +117,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          entry.info.meta!.cwd = newCwd;
+          entry.info.meta.cwd = newCwd;
           publishMetadata(entry, id);
           emitChanged();
         }
@@ -181,7 +181,7 @@ export function setTerminalParent(
 ): void {
   const entry = terminals.get(id);
   if (entry) {
-    entry.info.meta!.parentId = parentId ?? undefined;
+    entry.info.meta.parentId = parentId ?? undefined;
     publishMetadata(entry, id);
   }
 }
@@ -190,7 +190,7 @@ export function setTerminalParent(
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) {
-    entry.info.meta!.themeName = themeName;
+    entry.info.meta.themeName = themeName;
     publishMetadata(entry, id);
   }
 }
