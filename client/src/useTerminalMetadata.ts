@@ -34,10 +34,11 @@ export function useTerminalMetadata(deps: {
 
   // --- Order derived from metadata sortOrder ---
 
-  /** Top-level terminal IDs sorted by sortOrder. */
+  /** Top-level terminal IDs sorted by sortOrder.
+   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
     deps.knownIds()
-      .filter((id) => !getMetadata(id)?.parentId)
+      .filter((id) => { const m = getMetadata(id); return m && !m.parentId; })
       .sort((a, b) => (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0)),
   );
 
