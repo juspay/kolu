@@ -15,13 +15,25 @@ interface StateSchema {
   session: SavedSession | null;
 }
 
+/**
+ * Schema version — bump this when adding migrations.
+ * Must be valid semver. `conf` runs all migration handlers
+ * whose keys are > the last-seen version and ≤ this value.
+ */
+const SCHEMA_VERSION = "1.0.0";
+
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
+  projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
     session: null,
+  },
+  migrations: {
+    // Example for future use:
+    // "1.1.0": store => { store.set("newField", defaultValue); },
   },
 });
 
