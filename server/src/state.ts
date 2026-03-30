@@ -6,9 +6,13 @@
  * corrupt/missing files can safely reset to defaults.
  */
 
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import Conf from "conf";
 import type { RecentRepo } from "kolu-common";
+
+/** Emits state change events for streaming to clients. */
+export const stateEvents = new EventEmitter();
 
 interface StateSchema {
   recentRepos: RecentRepo[];
@@ -39,6 +43,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
   // Sort most-recent first, then trim
   repos.sort((a, b) => b.lastSeen - a.lastSeen);
   store.set("recentRepos", repos.slice(0, MAX_RECENT_REPOS));
+  stateEvents.emit("recentRepos", getRecentRepos());
 }
 
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */
