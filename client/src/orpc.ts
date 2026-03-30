@@ -1,6 +1,6 @@
-/** oRPC + TanStack Query integration — type-safe queryOptions/mutationOptions from the oRPC client. */
+/** oRPC + TanStack Query integration — type-safe queryOptions/mutationOptions/liveOptions from the oRPC client. */
 
-import { createORPCSolidQueryUtils } from "@orpc/solid-query";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { client } from "./rpc";
 
-export const orpc = createORPCSolidQueryUtils(client);
+export const orpc = createTanstackQueryUtils(client);

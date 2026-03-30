@@ -16,7 +16,7 @@
     "@corvu/tooltip": "^0.2.2",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
-    "@orpc/solid-query": "^1.13.13",
+    "@orpc/tanstack-query": "^1.13.13",
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/media": "^2.3.5",
     "@solid-primitives/resize-observer": "^2.1.5",

@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   Show,
   For,
@@ -21,6 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import TerminalLiveData from "./TerminalLiveData";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -67,6 +69,8 @@ const App: Component = () => {
     savedSession,
     handleRestoreSession,
     simulateAlert,
+    setMeta,
+    pushActivity,
   } = useTerminals({ randomTheme, activity: useActivity(), activityAlerts });
 
   // Expose for e2e test access
@@ -116,6 +120,11 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+
+  // All terminal IDs (top-level + sub-terminals) for live query subscriptions
+  const allTerminalIds = createMemo(() =>
+    terminalIds().flatMap((id) => [id, ...getSubTerminalIds(id)]),
+  );
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds });
@@ -355,6 +364,12 @@ const App: Component = () => {
                   onRestore={() => void handleRestoreSession()}
                 />
               </Show>
+              {/* Per-terminal live queries for metadata + activity (all terminals including subs) */}
+              <For each={allTerminalIds()}>
+                {(id) => (
+                  <TerminalLiveData id={id} setMeta={setMeta} pushActivity={pushActivity} />
+                )}
+              </For>
               <For each={terminalIds()}>
                 {(id) => (
                   <TerminalPane

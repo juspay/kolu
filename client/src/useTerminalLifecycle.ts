@@ -21,7 +21,7 @@ import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
 export function useTerminalLifecycle(deps: {
   store: TerminalStore;
   randomTheme: Accessor<boolean>;
-  subscribeAll: (id: TerminalId) => void;
+  subscribeExit: (id: TerminalId) => void;
   seedActivity: (id: TerminalId, history: ActivitySample[]) => void;
   clearActivity: (id: TerminalId) => void;
 }) {
@@ -206,7 +206,7 @@ export function useTerminalLifecycle(deps: {
     }
 
     // Subscribe to live updates for all terminals
-    for (const t of existing) deps.subscribeAll(t.id);
+    for (const t of existing) deps.subscribeExit(t.id);
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
@@ -253,7 +253,7 @@ export function useTerminalLifecycle(deps: {
     });
     store.setIdOrder((prev) => [...prev, info.id]);
     store.setActiveId(info.id);
-    deps.subscribeAll(info.id);
+    deps.subscribeExit(info.id);
     if (themeName) setThemeName(info.id, themeName);
   }
 
@@ -267,7 +267,7 @@ export function useTerminalLifecycle(deps: {
     }));
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
-    deps.subscribeAll(info.id);
+    deps.subscribeExit(info.id);
   }
 
   /** Kill a terminal on the server, then remove + auto-switch locally. */
