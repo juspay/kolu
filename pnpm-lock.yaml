@@ -144,6 +144,9 @@ importers:
       '@orpc/experimental-pino':
         specifier: ^1.13.13
         version: 1.13.13(pino@10.3.1)(ws@8.19.0)
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.19.0)
@@ -1204,6 +1207,17 @@ packages:
     resolution: {integrity: sha512-Jfjzv24tkkOdjNsnzCO0vw70dB75Qm5NAuJxv9Mog4BOjiYnCUjNkAEnUqpLI4SZrOL/BJnGWe0uXTB0FlycDA==}
     peerDependencies:
       pino: '>=10.1.0'
+
+  '@orpc/experimental-publisher@1.13.13':
+    resolution: {integrity: sha512-Tuj2+X/44papyh1fsGMgzfCy3Tqz/EBNIQDqQPL6KqfOpFgpkd9xvRDa6JsN/nEZbUZFsQK0TM5eHBAhRrDIxQ==}
+    peerDependencies:
+      '@upstash/redis': '>=1.35.6'
+      ioredis: '>=5.8.1'
+    peerDependenciesMeta:
+      '@upstash/redis':
+        optional: true
+      ioredis:
+        optional: true
 
   '@orpc/interop@1.13.13':
     resolution: {integrity: sha512-S8edIRA7ekD3/gHx5MrsO9CxZ0QvCaVDkVbNf42SZbLYPXuvxtdH0CYwaB1q9uQg2Jk0PBP8AquLH6WFwjMSbQ==}
@@ -4577,6 +4591,14 @@ snapshots:
       - crossws
       - fastify
       - ws
+
+  '@orpc/experimental-publisher@1.13.13':
+    dependencies:
+      '@orpc/client': 1.13.13
+      '@orpc/shared': 1.13.13
+      '@orpc/standard-server': 1.13.13
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
 
   '@orpc/interop@1.13.13': {}
 

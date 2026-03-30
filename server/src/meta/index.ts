@@ -9,6 +9,7 @@
 
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
+import { publisher } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -36,6 +37,7 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
     "metadata emit",
   );
   entry.emitter.emit("metadata", { ...m });
+  void publisher.publish("metadata", { terminalId, metadata: { ...m } });
 }
 
 /**
