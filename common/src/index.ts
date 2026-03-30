@@ -76,6 +76,8 @@ export const TerminalMetadataSchema = z.object({
   themeName: z.string().optional(),
   /** True when the PTY process recently produced output (vs idle/sleeping). */
   busy: z.boolean(),
+  /** If set, this terminal is a sub-terminal of the given parent. */
+  parentId: z.string().optional(),
 });
 
 // --- Activity ---
@@ -90,7 +92,6 @@ export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
   meta: TerminalMetadataSchema.optional(),
-  parentId: TerminalIdSchema.optional(),
   /** Server-side activity history for sparkline rendering. */
   activityHistory: z.array(ActivitySampleSchema).optional(),
 });

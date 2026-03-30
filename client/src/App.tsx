@@ -50,7 +50,8 @@ const App: Component = () => {
     terminalIds,
     activeId,
     setActiveId,
-    getMeta,
+    getMetadata,
+    needsAttention,
     getDisplayInfo,
     setThemeName,
     activeMeta,
@@ -84,7 +85,7 @@ const App: Component = () => {
     handleRandomizeTheme,
   } = useThemeManager({
     activeId,
-    getThemeName: (id) => getMeta(id)?.meta?.themeName,
+    getThemeName: (id) => getMetadata(id)?.themeName,
     setThemeName,
   });
 
@@ -262,7 +263,7 @@ const App: Component = () => {
         terminalIds={terminalIds()}
         mruOrder={mruOrder()}
         activeId={activeId()}
-        getMeta={getMeta}
+        getMetadata={getMetadata}
         getDisplayInfo={getDisplayInfo}
         getTerminalTheme={getTerminalTheme}
         onSelect={setActiveId}
@@ -328,7 +329,8 @@ const App: Component = () => {
         <Sidebar
           terminalIds={terminalIds()}
           activeId={activeId()}
-          getMeta={getMeta}
+          getMetadata={getMetadata}
+          needsAttention={needsAttention}
           getDisplayInfo={getDisplayInfo}
           onSelect={setActiveId}
           onCreate={() => handleCreate()}
@@ -365,7 +367,7 @@ const App: Component = () => {
                     searchOpen={searchOpen()}
                     onSearchOpenChange={setSearchOpen}
                     subTerminalIds={getSubTerminalIds(id)}
-                    getMeta={getMeta}
+                    getMetadata={getMetadata}
                     onCreateSubTerminal={(parentId, cwd) =>
                       void handleCreateSubTerminal(parentId, cwd)
                     }

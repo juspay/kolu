@@ -15,9 +15,7 @@ const TerminalPane: Component<{
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
   subTerminalIds: TerminalId[];
-  getMeta: (
-    id: TerminalId,
-  ) => { meta?: TerminalMetadata; themeName?: string } | undefined;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeMeta: TerminalMetadata | null;
   scrollLockEnabled?: boolean;
@@ -121,7 +119,7 @@ const TerminalPane: Component<{
               <SubPanelTabBar
                 subIds={props.subTerminalIds}
                 activeSubTab={activeSubTab()}
-                getMeta={props.getMeta}
+                getMetadata={props.getMetadata}
                 onSelect={(id) =>
                   subPanel.setActiveSubTab(props.terminalId, id)
                 }
