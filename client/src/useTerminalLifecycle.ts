@@ -265,12 +265,7 @@ export function useTerminalLifecycle(deps: {
   /** Close all terminals without clearing the saved session (debug command). */
   async function handleCloseAll() {
     await client.terminal.killAll();
-    // Clear client state
-    store.setMeta(reconcile({}));
-    store.setIdOrder([]);
-    store.setSubOrder({});
-    store.setActiveId(null);
-    store.setMruOrder([]);
+    store.reset();
   }
 
   return {

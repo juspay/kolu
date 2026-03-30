@@ -9,7 +9,7 @@ import {
   on,
   createMemo,
 } from "solid-js";
-import { createStore, type SetStoreFunction } from "solid-js/store";
+import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type {
   TerminalId,
@@ -113,6 +113,15 @@ export function useTerminalStore(deps: {
     return { meta: undefined, ...state };
   }
 
+  /** Reset all state to defaults — used by bulk operations like close-all. */
+  function reset() {
+    setMeta(reconcile({}));
+    setIdOrder([]);
+    setSubOrder({});
+    setActiveId(null);
+    setMruOrder([]);
+  }
+
   return {
     meta,
     setMeta,
@@ -131,6 +140,7 @@ export function useTerminalStore(deps: {
     getDisplayInfo,
     terminalLabel,
     infoToState,
+    reset,
   };
 }
 
