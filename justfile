@@ -77,6 +77,7 @@ test-quick *args: install
     KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+        --format pretty \
         {{ if args == "" { "--profile ui" } else { args } }}
 
 # Run pre-commit hooks on all files
