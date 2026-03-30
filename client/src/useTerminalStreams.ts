@@ -1,10 +1,29 @@
-/** Terminal streams — server event subscriptions for metadata, activity, and exit via TanStack Query. */
+/** Terminal streams — server event subscriptions for metadata, activity, and exit.
+ *
+ * Per-terminal streams are started imperatively (outside component lifecycle),
+ * so they use direct oRPC client calls rather than TanStack Query.
+ */
 
-import { createRoot, createEffect, on } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
-import { orpc, queryClient } from "./queryClient";
+import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
+
+/** Fire-and-forget stream subscription with AbortController cleanup. */
+function subscribeStream<T>(
+  startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  onValue: (value: T) => void,
+): () => void {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const stream = await startStream(controller.signal);
+      for await (const value of stream) onValue(value);
+    } catch {
+      // Stream aborted or terminal gone — expected on cleanup
+    }
+  })();
+  return () => controller.abort();
+}
 
 export function useTerminalStreams(deps: {
   meta: TerminalMetaStore;
@@ -17,71 +36,42 @@ export function useTerminalStreams(deps: {
     next: string | undefined,
   ) => void;
 }) {
+  /** Subscribe to metadata changes for a terminal. */
+  function subscribeMetadata(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onMetadataChange({ id }, { signal }),
+      (metadata) => {
+        const prevState = deps.meta[id]?.meta?.claude?.state;
+        deps.setMeta(id, "meta", metadata);
+        deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
+      },
+    );
+  }
+
+  /** Subscribe to activity state changes for a terminal. */
+  function subscribeActivity(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onActivityChange({ id }, { signal }),
+      (isActive) => {
+        deps.setMeta(id, "isActive", isActive);
+        deps.pushActivity(id, isActive);
+      },
+    );
+  }
+
+  /** Subscribe to exit events for a terminal. */
+  function subscribeExit(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onExit({ id }, { signal }),
+      (code) => deps.onExit(id, code),
+    );
+  }
+
   /** Start all per-terminal stream subscriptions (metadata, activity, exit). */
   function subscribeAll(id: TerminalId) {
-    // createRoot provides a reactive owner for queries created imperatively;
-    // queryClient is passed explicitly since createRoot doesn't inherit context.
-    createRoot(() => {
-      // Metadata stream
-      const metaQuery = createQuery(() => ({
-        ...orpc.terminal.onMetadataChange.experimental_liveOptions({
-          input: { id },
-          retry: true,
-        }),
-        queryClient,
-      }));
-      createEffect(
-        on(
-          () => metaQuery.data,
-          (metadata) => {
-            if (!metadata) return;
-            const prevState = deps.meta[id]?.meta?.claude?.state;
-            deps.setMeta(id, "meta", metadata);
-            deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
-          },
-          { defer: true },
-        ),
-      );
-
-      // Activity stream
-      const activityQuery = createQuery(() => ({
-        ...orpc.terminal.onActivityChange.experimental_liveOptions({
-          input: { id },
-          retry: true,
-        }),
-        queryClient,
-      }));
-      createEffect(
-        on(
-          () => activityQuery.data,
-          (isActive) => {
-            if (isActive === undefined) return;
-            deps.setMeta(id, "isActive", isActive as boolean);
-            deps.pushActivity(id, isActive as boolean);
-          },
-          { defer: true },
-        ),
-      );
-
-      // Exit stream
-      const exitQuery = createQuery(() => ({
-        ...orpc.terminal.onExit.experimental_liveOptions({
-          input: { id },
-          retry: false, // Don't retry exit — terminal is gone
-        }),
-        queryClient,
-      }));
-      createEffect(
-        on(
-          () => exitQuery.data,
-          (code) => {
-            if (code === undefined) return;
-            deps.onExit(id, code as number);
-          },
-          { defer: true },
-        ),
-      );
-    });
+    subscribeMetadata(id);
+    subscribeActivity(id);
+    subscribeExit(id);
   }
 
   return { subscribeAll };
