@@ -1,10 +1,9 @@
 /** Terminal session state — thin composition shell.
  *
  *  ARCHITECTURE: This file wires together focused modules:
- *    - useTerminalStore.ts  — store, signals, accessors (pure state)
+ *    - useTerminalStore.ts  — store + TanStack live queries (client + server state)
  *    - useTerminalLifecycle.ts — CRUD, restore-on-load, worktree ops
- *    - useTerminalAlerts.ts — Claude state detection (watches store reactively)
- *    - TerminalQueries.tsx — per-terminal live queries (metadata + activity via TanStack)
+ *    - useTerminalAlerts.ts — Claude state detection (watches TanStack metadata reactively)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221. */
 
@@ -25,14 +24,15 @@ export function useTerminals(deps: {
   const { pushActivity, getActivityHistory, seedActivity, clearActivity } =
     deps.activity;
 
-  const store = useTerminalStore({ getActivityHistory });
+  const store = useTerminalStore({ getActivityHistory, pushActivity });
 
-  // Alerts watch the store reactively — no callback wiring needed
+  // Alerts watch metadata reactively via TanStack queries
   const alerts = useTerminalAlerts({
     activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
     meta: store.meta,
     setMeta: store.setMeta,
+    getMetadata: store.getMetadata,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
   });
@@ -91,8 +91,6 @@ export function useTerminals(deps: {
     savedSession: lifecycle.savedSession,
     handleRestoreSession: lifecycle.handleRestoreSession,
     simulateAlert: alerts.simulateAlert,
-    // Exposed for TerminalQueries (per-terminal live queries)
     setMeta: store.setMeta,
-    pushActivity,
   };
 }

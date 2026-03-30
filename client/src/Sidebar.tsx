@@ -15,13 +15,14 @@ import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId } from "kolu-common";
+import type { TerminalMetadata } from "kolu-common";
 import type { TerminalClientState } from "./useTerminalStore";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
-  meta: TerminalClientState | undefined;
+  meta: (TerminalClientState & { meta?: TerminalMetadata }) | undefined;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
@@ -49,7 +50,7 @@ const SidebarEntry: Component<{
         {...sortable.dragActivators}
         data-terminal-id={props.id}
         data-active={props.isActive ? "" : undefined}
-        data-activity={m()?.isActive ? "active" : "sleeping"}
+        data-activity={m()?.meta?.busy ? "active" : "sleeping"}
         data-notified={m()?.notified ? "" : undefined}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
@@ -82,7 +83,7 @@ const SidebarEntry: Component<{
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => TerminalClientState | undefined;
+  getMeta: (id: TerminalId) => (TerminalClientState & { meta?: TerminalMetadata }) | undefined;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;

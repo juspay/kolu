@@ -74,6 +74,8 @@ export const TerminalMetadataSchema = z.object({
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
   themeName: z.string().optional(),
+  /** True when the PTY process recently produced output (vs idle/sleeping). */
+  busy: z.boolean(),
 });
 
 // --- Activity ---
@@ -87,7 +89,6 @@ export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
-  isActive: z.boolean(),
   meta: TerminalMetadataSchema.optional(),
   parentId: TerminalIdSchema.optional(),
   /** Server-side activity history for sparkline rendering. */
@@ -118,7 +119,6 @@ export const TerminalCreateInputSchema = z.object({
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
-export const TerminalActivityOutputSchema = z.boolean();
 
 export const TerminalScreenTextInputSchema = z.object({
   id: TerminalIdSchema,

@@ -20,7 +20,8 @@ import {
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_ } from "./publisher.ts";
+import { subscribeForTerminal_, mergeIterables } from "./publisher.ts";
+import type { TerminalMetadata } from "kolu-common";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -126,19 +127,24 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
       yield { ...entry.info.meta! };
-      for await (const meta of subscribeForTerminal_("metadata", input.id, signal)) {
-        yield meta;
-      }
-    }),
 
-    onActivityChange: t.terminal.onActivityChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      const entry = requireTerminal(input.id);
-      yield entry.info.isActive;
-      for await (const isActive of subscribeForTerminal_("activity", input.id, signal)) {
-        yield isActive;
+      // Merge metadata and activity channels — yield full metadata snapshot on either change.
+      // Providers publish to "metadata", idle timer publishes to "activity".
+      const metaStream = subscribeForTerminal_("metadata", input.id, signal);
+      const activityStream = subscribeForTerminal_("activity", input.id, signal);
+
+      const tagged = mergeIterables<{ type: "meta"; value: TerminalMetadata } | { type: "activity"; value: boolean }>([
+        (async function* () { for await (const v of metaStream) yield { type: "meta" as const, value: v }; })(),
+        (async function* () { for await (const v of activityStream) yield { type: "activity" as const, value: v }; })(),
+      ], signal);
+
+      for await (const event of tagged) {
+        if (event.type === "meta") {
+          yield event.value;
+        } else {
+          // Activity changed — yield current metadata snapshot (busy already updated by touchActivity)
+          yield { ...entry.info.meta! };
+        }
       }
     }),
 
