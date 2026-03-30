@@ -18,7 +18,6 @@ import type {
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
-
 export function useTerminalLifecycle(deps: {
   store: TerminalStore;
   randomTheme: Accessor<boolean>;

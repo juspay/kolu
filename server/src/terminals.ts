@@ -25,7 +25,7 @@ import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
 export interface TerminalProcess {
-  /** The wire-type snapshot — single source of truth for id, pid, meta, parentId, activityHistory. */
+  /** The wire-type snapshot — single source of truth for id, pid, meta, activityHistory. */
   info: TerminalInfo;
   handle: PtyHandle;
   /** Timer that flips busy→false after idle threshold. */
@@ -68,15 +68,15 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 
 /** Build a session snapshot from current terminal state. */
 export function snapshotSession(): SavedTerminal[] {
-  return [...terminals.entries()].map(([id, entry]) => ({
-    id,
-    cwd: entry.info.meta!.cwd,
-    ...(entry.info.meta!.parentId && { parentId: entry.info.meta!.parentId }),
-    ...(entry.info.meta!.git && {
-      repoName: entry.info.meta!.git.repoName,
-      branch: entry.info.meta!.git.branch,
-    }),
-  }));
+  return [...terminals.entries()].map(([id, entry]) => {
+    const m = entry.info.meta!;
+    return {
+      id,
+      cwd: m.cwd,
+      ...(m.parentId && { parentId: m.parentId }),
+      ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
+    };
+  });
 }
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
