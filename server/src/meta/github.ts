@@ -13,7 +13,8 @@ import {
   type TerminalMetadata,
 } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import { subscribeForTerminal } from "../publisher.ts";
+import { publishMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 const execFileAsync = promisify(execFile);
@@ -180,7 +181,7 @@ export function startGitHubPrProvider(
       // No longer in a git repo
       if (entry.metadata.pr !== null) {
         entry.metadata.pr = null;
-        emitMetadata(entry, terminalId);
+        publishMetadata(entry, terminalId);
       }
     }
   }
@@ -195,7 +196,7 @@ export function startGitHubPrProvider(
         : { pr: null },
       "pr info updated",
     );
-    emitMetadata(entry, terminalId);
+    publishMetadata(entry, terminalId);
   }
 
   // Periodic poll — PRs can be created/updated externally
@@ -206,10 +207,11 @@ export function startGitHubPrProvider(
     }
   }, POLL_INTERVAL_MS);
 
-  entry.emitter.on("metadata", onMetadata);
+  const abort = new AbortController();
+  subscribeForTerminal("metadata", terminalId, abort.signal, (e) => onMetadata(e.metadata));
 
   return () => {
-    entry.emitter.off("metadata", onMetadata);
+    abort.abort();
     clearInterval(pollTimer);
     plog.info("stopped");
   };

@@ -22,7 +22,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ClaudeCodeInfo } from "kolu-common";
 import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import { publishMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 /** Configurable via env for testing. */
@@ -269,7 +269,7 @@ export function startClaudeCodeProvider(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
     );
-    emitMetadata(entry, terminalId);
+    publishMetadata(entry, terminalId);
   }
 
   /** Start watching the transcript file for changes. */
@@ -303,7 +303,7 @@ export function startClaudeCodeProvider(
         stopWatching();
         if (entry.metadata.claude !== null) {
           entry.metadata.claude = null;
-          emitMetadata(entry, terminalId);
+          publishMetadata(entry, terminalId);
         }
       }
       return;

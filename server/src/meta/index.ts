@@ -2,9 +2,9 @@
  * Terminal metadata aggregation — unified state from independent providers.
  *
  * Each provider runs its own async loop, writes to a shared TerminalMetadata
- * object, and calls emitMetadata() to notify subscribers. Providers chain by
- * listening to the "metadata" event for upstream changes (e.g. GitHub PR
- * provider watches for branch changes from the git provider).
+ * object, and calls publishMetadata() to notify subscribers. Providers chain
+ * by subscribing to the publisher (e.g. GitHub PR provider watches for branch
+ * changes from the git provider).
  */
 
 import type { TerminalMetadata } from "kolu-common";
@@ -20,8 +20,8 @@ export function createMetadata(cwd: string): TerminalMetadata {
   return { cwd, git: null, pr: null, claude: null };
 }
 
-/** Emit the current metadata snapshot to all subscribers. */
-export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
+/** Publish the current metadata snapshot to all subscribers. */
+export function publishMetadata(entry: TerminalEntry, terminalId: string): void {
   const m = entry.metadata;
   log.info(
     {
@@ -34,9 +34,8 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
       // Only include claude field when present to avoid noisy null logs
       ...(m.claude && { claude: m.claude.state }),
     },
-    "metadata emit",
+    "metadata publish",
   );
-  entry.emitter.emit("metadata", { ...m });
   void publisher.publish("metadata", { terminalId, metadata: { ...m } });
 }
 
