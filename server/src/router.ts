@@ -23,12 +23,12 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
+import { getRecentRepos } from "./state.ts";
 import {
-  getRecentRepos,
   getSavedSession,
   clearSavedSession,
   setSavedSession,
-} from "./state.ts";
+} from "./session.ts";
 
 const t = implement(contract);
 

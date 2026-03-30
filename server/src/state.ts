@@ -8,14 +8,14 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo, SavedSession, SavedTerminal } from "kolu-common";
+import type { RecentRepo, SavedSession } from "kolu-common";
 
 interface StateSchema {
   recentRepos: RecentRepo[];
   session: SavedSession | null;
 }
 
-const store = new Conf<StateSchema>({
+export const store = new Conf<StateSchema>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
@@ -61,44 +61,4 @@ export function getRecentRepos(): RecentRepo[] {
   const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
-}
-
-// --- Session persistence ---
-
-/** Save a session snapshot. Only saves when terminals exist (avoids overwriting with empty). */
-export function saveSession(terminals: SavedTerminal[]): void {
-  if (terminals.length === 0) return;
-  store.set("session", { terminals, savedAt: Date.now() });
-}
-
-/** Get the saved session, or null if none exists. */
-export function getSavedSession(): SavedSession | null {
-  const session = store.get("session");
-  if (!session || session.terminals.length === 0) return null;
-  return session;
-}
-
-/** Clear the saved session (e.g. after successful restore). */
-export function clearSavedSession(): void {
-  store.set("session", null);
-}
-
-/** Set the saved session directly (test-only). */
-export function setSavedSession(session: SavedSession): void {
-  store.set("session", session);
-}
-
-// --- Auto-save: terminal lifecycle → session persistence (decoupled via event) ---
-
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-
-/** Wire up debounced session save from terminal change events. Called once at startup. */
-export function initSessionAutoSave(
-  onChange: { on: (event: "changed", fn: () => void) => void },
-  snapshot: () => SavedTerminal[],
-): void {
-  onChange.on("changed", () => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveSession(snapshot()), 500);
-  });
 }
