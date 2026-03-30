@@ -11,7 +11,6 @@
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { useActivity } from "./useActivity";
 import { useTerminalStore } from "./useTerminalStore";
@@ -68,14 +67,14 @@ export function useTerminals(deps: {
     getActivityHistory,
     setThemeName: lifecycle.setThemeName,
     activeMeta: store.activeMeta,
-    existingTerminals: lifecycle.existingTerminals,
+    isLoading: lifecycle.isLoading,
     handleCreate: lifecycle.handleCreate,
     handleCreateSubTerminal: lifecycle.handleCreateSubTerminal,
     handleKill: lifecycle.handleKill,
     getSubTerminalIds: store.getSubTerminalIds,
     reorderTerminals: (ids: TerminalId[]) => {
       store.setIdOrder(ids);
-      void client.terminal.reorder({ ids });
+      lifecycle.reorderTerminals(ids);
     },
     mruOrder: store.mruOrder,
     handleCopyTerminalText: lifecycle.handleCopyTerminalText,
