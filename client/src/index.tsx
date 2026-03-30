@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { render } from "solid-js/web";
 import { MetaProvider } from "@solidjs/meta";
+import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import App from "./App";
 import "./index.css";
 
@@ -12,11 +13,15 @@ if (import.meta.env.DEV && "serviceWorker" in navigator) {
   });
 }
 
+const queryClient = new QueryClient();
+
 render(
   () => (
-    <MetaProvider>
-      <App />
-    </MetaProvider>
+    <QueryClientProvider client={queryClient}>
+      <MetaProvider>
+        <App />
+      </MetaProvider>
+    </QueryClientProvider>
   ),
   document.body,
 );

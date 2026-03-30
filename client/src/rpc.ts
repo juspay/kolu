@@ -26,6 +26,11 @@ const link = new RPCLink({ websocket: ws as unknown as WebSocket });
 
 export const client = createORPCClient<Client>(link);
 
+// TanStack Query utilities — typed query/mutation options from oRPC contract
+export { createTanstackQueryUtils } from "@orpc/tanstack-query";
+import { createTanstackQueryUtils } from "@orpc/tanstack-query";
+export const orpc = createTanstackQueryUtils(client);
+
 // Track WebSocket connection status as a reactive signal
 const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
 /** True when the server process has changed — app state is stale. */

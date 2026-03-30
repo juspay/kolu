@@ -1,10 +1,11 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
+import { type Accessor, createResource } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
+import { useQuery } from "@tanstack/solid-query";
 import { availableThemes } from "./theme";
-import { client } from "./rpc";
+import { client, orpc } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -87,19 +88,19 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
-  // Saved session — populated when no running terminals exist, shown in EmptyState.
-  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
-    null,
+  // Saved session — TanStack Query fetches when terminal count is zero.
+  // Auto-refetches on window focus, reconnect, and when terminals go to zero.
+  // TODO: Replace with reactive server stream (https://github.com/juspay/kolu/issues/229)
+  const sessionQuery = useQuery(() =>
+    orpc.session.get.queryOptions({
+      enabled: store.terminalIds().length === 0,
+    }),
   );
+  const savedSession = () => sessionQuery.data ?? null;
 
   // Restore existing terminals on page load (e.g. after browser refresh).
-  // Fetch session in parallel so it's ready before Suspense resolves (no flash).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const [existing, session] = await Promise.all([
-      client.terminal.list(),
-      client.session.get(),
-    ]);
-    if (existing.length === 0) setSavedSession(session);
+    const existing = await client.terminal.list();
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
       const initial: TerminalMetaStore = {};
@@ -153,20 +154,10 @@ export function useTerminalLifecycle(deps: {
     return existing;
   });
 
-  // Re-fetch saved session when all terminals are killed mid-session.
-  // Initial load is handled by Promise.all above (blocks Suspense).
-  // TODO: Replace both with reactive server stream (https://github.com/juspay/kolu/issues/229)
-  createEffect(() => {
-    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
-      client.session.get().then(setSavedSession);
-    }
-  });
-
   /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
   async function handleRestoreSession() {
     const session = savedSession();
     if (!session) return;
-    setSavedSession(null);
     // Map saved terminal ID → new live terminal ID
     const oldToNew = new Map<string, TerminalId>();
     // Create top-level terminals first, then sub-terminals

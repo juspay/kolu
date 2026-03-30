@@ -14,5 +14,8 @@
     "overrides": {
       "serialize-javascript": "^7.0.3"
     }
+  },
+  "dependencies": {
+    "@orpc/tanstack-query": "^1.13.13"
   }
 }

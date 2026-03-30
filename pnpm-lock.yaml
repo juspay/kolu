@@ -9,7 +9,11 @@ overrides:
 
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      '@orpc/tanstack-query':
+        specifier: ^1.13.13
+        version: 1.13.13(@orpc/client@1.13.13)(@tanstack/query-core@5.95.2)
 
   client:
     dependencies:
@@ -46,6 +50,9 @@ importers:
       '@solidjs/meta':
         specifier: ^0.29.4
         version: 0.29.4(solid-js@1.9.11)
+      '@tanstack/solid-query':
+        specifier: ^5.95.2
+        version: 5.95.2(solid-js@1.9.11)
       '@thisbeyond/solid-dnd':
         specifier: ^0.7.5
         version: 0.7.5(solid-js@1.9.11)
@@ -1182,6 +1189,9 @@ packages:
     resolution: {integrity: sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==}
     engines: {node: '>= 16'}
 
+  '@orpc/client@1.13.13':
+    resolution: {integrity: sha512-jagx/Sa+9K4HEC5lBrUlMSrmR/06hvZctWh93/sKZc8GBk4zM0+71oT1kXQVw1oRYFV2XAq3xy3m6NdM6gfKYA==}
+
   '@orpc/client@1.13.9':
     resolution: {integrity: sha512-RmD2HDgmGgF6zgHHdybE4zH6QJoHjC+/C3n56yLf+fmWbiZtwnOUETgGCroY6S8aK2fpy6hJ3wZaJUjfWVuGHg==}
 
@@ -1207,6 +1217,14 @@ packages:
       ws:
         optional: true
 
+  '@orpc/shared@1.13.13':
+    resolution: {integrity: sha512-kNpYOBjHvmgKHla6munWOaEeA0utEfAvoiZpXjiRjjt1RxTibdwQvVHgxRIBNMXfQsb+ON3Q/wDkoaUhvvSnIw==}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0'
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+
   '@orpc/shared@1.13.9':
     resolution: {integrity: sha512-gpMY2e9jDsSyikh4DjBCO2Cs0wGj2I6xo2juIcmogYK5ecsTGO/U5huIftQn+2NUMk1cItwmykJBwc4pqHWVHw==}
     peerDependencies:
@@ -1226,17 +1244,32 @@ packages:
       fastify:
         optional: true
 
+  '@orpc/standard-server-fetch@1.13.13':
+    resolution: {integrity: sha512-Lffy26+WtCQkwOUacsrdyeJF1GNzrhm75O3LXKVFXqmSdyVVdyI6zuqLn/YKGODU2L9IqGxZ2CwsV2tE298SSA==}
+
   '@orpc/standard-server-fetch@1.13.9':
     resolution: {integrity: sha512-/dJmHO+EVONyvmX3CFZkRjlRHeBfq0+6nnpFIVueGo4fNUbtQc+qurKEtpQqPxL/b7GSehskNH21XKLE0IE0gQ==}
 
   '@orpc/standard-server-node@1.13.9':
     resolution: {integrity: sha512-Ea8YT05kh47FzGBsaaUihYvTDxSSQoa1F2QKgCFz6mbSfX04bJZyWxdBAyLZ4BLousdItDdvzWon6066HuUaRw==}
 
+  '@orpc/standard-server-peer@1.13.13':
+    resolution: {integrity: sha512-FeWAbXfnZDPYQRajM0hD6GJvHeC3DZILngAjdcLHy5zt3riu6nL2lLPSWDv5yNWWscmYU+CfKmXWd0Z01BOeWA==}
+
   '@orpc/standard-server-peer@1.13.9':
     resolution: {integrity: sha512-r8hSykxNIKwXSMuLYWBxQx1c3DU8b6nU8V76DZhtwC5g1SLYIzw+dzT/EgHplOfmsFeyodiEDXXX1k/twRLuzw==}
 
+  '@orpc/standard-server@1.13.13':
+    resolution: {integrity: sha512-9pgS8XvauuRQElkyuD8F3om+nN0KBEnTkhblDHCBzkZERjWkmfirJmshQrWHoFaDTk+nnXHIaY6d7TBTxXdPRw==}
+
   '@orpc/standard-server@1.13.9':
     resolution: {integrity: sha512-dwsky7CScgOaDBa7CBF85aPGk/3UoB4fJjitVghb/sZD0Nt+CGIeiPHMsjEgxw5rJwgawMWLI5KxFH9euAJlWw==}
+
+  '@orpc/tanstack-query@1.13.13':
+    resolution: {integrity: sha512-6+Cheaiu+RDPdszdeRKoBINrF8MQp64zSeZB+L3gqgF43zlYDhLOgELZMzYa6U3U6bLk4rmIeubpk+i1kACfRg==}
+    peerDependencies:
+      '@orpc/client': 1.13.13
+      '@tanstack/query-core': '>=5.80.2'
 
   '@peculiar/asn1-cms@2.6.1':
     resolution: {integrity: sha512-vdG4fBF6Lkirkcl53q6eOdn3XYKt+kJTG59edgRZORlg/3atWWEReRCx5rYE1ZzTTX6vLK5zDMjHh7vbrcXGtw==}
@@ -1622,6 +1655,14 @@ packages:
     resolution: {integrity: sha512-mEiF5HO1QqCLXoNEfXVA1Tzo+cYsrqV7w9Juj2wdUFyW07JRenqMG225MvPwr3ZD9N1bFQj46X7r33iHxLUW0w==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@tanstack/query-core@5.95.2':
+    resolution: {integrity: sha512-o4T8vZHZET4Bib3jZ/tCW9/7080urD4c+0/AUaYVpIqOsr7y0reBc1oX3ttNaSW5mYyvZHctiQ/UOP2PfdmFEQ==}
+
+  '@tanstack/solid-query@5.95.2':
+    resolution: {integrity: sha512-1xsEybSKZhgaSMUmU71f4Ows5cLWtA6YyLMDUxhSwe8J9nD1b8J2VQF7KxiSESxDOznX7WabYCSv6CtcR4XVbg==}
+    peerDependencies:
+      solid-js: ^1.6.0
 
   '@teppeis/multimaps@3.0.0':
     resolution: {integrity: sha512-ID7fosbc50TbT0MK0EG12O+gAP3W3Aa/Pz4DaTtQtEvlc9Odaqi0de+xuZ7Li2GtK4HzEX7IuRWS/JmZLksR3Q==}
@@ -4522,6 +4563,15 @@ snapshots:
 
   '@noble/hashes@1.4.0': {}
 
+  '@orpc/client@1.13.13':
+    dependencies:
+      '@orpc/shared': 1.13.13
+      '@orpc/standard-server': 1.13.13
+      '@orpc/standard-server-fetch': 1.13.13
+      '@orpc/standard-server-peer': 1.13.13
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
   '@orpc/client@1.13.9':
     dependencies:
       '@orpc/shared': 1.13.9
@@ -4573,6 +4623,11 @@ snapshots:
       - '@opentelemetry/api'
       - fastify
 
+  '@orpc/shared@1.13.13':
+    dependencies:
+      radash: 12.1.1
+      type-fest: 5.5.0
+
   '@orpc/shared@1.13.9':
     dependencies:
       radash: 12.1.1
@@ -4595,6 +4650,13 @@ snapshots:
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
+  '@orpc/standard-server-fetch@1.13.13':
+    dependencies:
+      '@orpc/shared': 1.13.13
+      '@orpc/standard-server': 1.13.13
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
   '@orpc/standard-server-fetch@1.13.9':
     dependencies:
       '@orpc/shared': 1.13.9
@@ -4610,6 +4672,13 @@ snapshots:
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
+  '@orpc/standard-server-peer@1.13.13':
+    dependencies:
+      '@orpc/shared': 1.13.13
+      '@orpc/standard-server': 1.13.13
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
   '@orpc/standard-server-peer@1.13.9':
     dependencies:
       '@orpc/shared': 1.13.9
@@ -4617,9 +4686,23 @@ snapshots:
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
+  '@orpc/standard-server@1.13.13':
+    dependencies:
+      '@orpc/shared': 1.13.13
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
   '@orpc/standard-server@1.13.9':
     dependencies:
       '@orpc/shared': 1.13.9
+    transitivePeerDependencies:
+      - '@opentelemetry/api'
+
+  '@orpc/tanstack-query@1.13.13(@orpc/client@1.13.13)(@tanstack/query-core@5.95.2)':
+    dependencies:
+      '@orpc/client': 1.13.13
+      '@orpc/shared': 1.13.13
+      '@tanstack/query-core': 5.95.2
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
@@ -4973,6 +5056,13 @@ snapshots:
       '@tailwindcss/oxide': 4.2.2
       tailwindcss: 4.2.2
       vite: 6.4.1(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.2)
+
+  '@tanstack/query-core@5.95.2': {}
+
+  '@tanstack/solid-query@5.95.2(solid-js@1.9.11)':
+    dependencies:
+      '@tanstack/query-core': 5.95.2
+      solid-js: 1.9.11
 
   '@teppeis/multimaps@3.0.0': {}
 
