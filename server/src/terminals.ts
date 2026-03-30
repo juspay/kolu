@@ -241,11 +241,14 @@ export function reorderTerminals(ids: TerminalId[]): void {
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
-  for (const entry of terminals.values()) {
+  // Snapshot entries and clear map BEFORE disposing — prevents onExit
+  // callbacks from finding terminals and triggering session saves.
+  const entries = [...terminals.values()];
+  terminals.clear();
+  for (const entry of entries) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
-  terminals.clear();
 }
