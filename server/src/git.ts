@@ -52,9 +52,18 @@ export async function worktreeCreate(
     const branch = randomName();
     const targetPath = path.join(mainRoot, ".worktrees", branch);
 
+    // Check for both directory and branch name collision — a previous worktree
+    // removal deletes the directory but leaves the branch behind.
     if (fs.existsSync(targetPath)) {
-      log.info({ branch }, "name collision, retrying");
+      log.info({ branch }, "path collision, retrying");
       continue;
+    }
+    try {
+      await git.raw(["rev-parse", "--verify", `refs/heads/${branch}`]);
+      log.info({ branch }, "branch collision, retrying");
+      continue;
+    } catch {
+      // Branch doesn't exist — good
     }
 
     log.info(
