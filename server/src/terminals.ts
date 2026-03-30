@@ -21,6 +21,7 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
+import type { SavedTerminal } from "kolu-common";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
@@ -93,6 +94,27 @@ function touchActivity(entry: TerminalEntry): void {
   }, IDLE_MS);
 }
 
+/** Build a session snapshot from current terminal state. */
+export function snapshotSession(): SavedTerminal[] {
+  return [...terminals.entries()].map(([id, entry]) => ({
+    id,
+    cwd: entry.metadata.cwd,
+    ...(entry.parentId && { parentId: entry.parentId }),
+    ...(entry.metadata.git && {
+      repoName: entry.metadata.git.repoName,
+      branch: entry.metadata.git.branch,
+    }),
+  }));
+}
+
+/** Event emitter for session-relevant changes. Listeners handle persistence. */
+export const terminalChanges = new (EventEmitter<{ changed: [] }>)();
+
+/** Notify listeners that terminal state changed (debounced by consumer). */
+function emitChanged(): void {
+  terminalChanges.emit("changed");
+}
+
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
 export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
@@ -118,7 +140,10 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           cleanupClipboardDir(entry.clipboardDir);
         }
         emitter.emit("exit", exitCode);
-        terminals.delete(id);
+        // Only save session on natural exit (entry still in map).
+        // killAllTerminals clears the map first, so entry is gone — skip.
+        const wasNaturalExit = terminals.delete(id);
+        if (wasNaturalExit) emitChanged();
       },
       // PTY callback (OSC 7): update metadata CWD, providers react to the event
       onCwd: (newCwd) => {
@@ -126,6 +151,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         if (entry) {
           entry.metadata.cwd = newCwd;
           emitMetadata(entry, id);
+          emitChanged();
         }
       },
     },
@@ -151,6 +177,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
+  emitChanged();
   return toInfo(id, entry);
 }
 
@@ -176,6 +203,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
   terminals.delete(id);
+  emitChanged();
   return info;
 }
 
@@ -213,11 +241,14 @@ export function reorderTerminals(ids: TerminalId[]): void {
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
-  for (const entry of terminals.values()) {
+  // Snapshot entries and clear map BEFORE disposing — prevents onExit
+  // callbacks from finding terminals and triggering session saves.
+  const entries = [...terminals.values()];
+  terminals.clear();
+  for (const entry of entries) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
-  terminals.clear();
 }

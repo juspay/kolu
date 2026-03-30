@@ -1,6 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource } from "solid-js";
+import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
@@ -8,7 +8,12 @@ import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import type { TerminalId, TerminalInfo, ActivitySample } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  ActivitySample,
+  SavedSession,
+} from "kolu-common";
 import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
 
 export function useTerminalLifecycle(deps: {
@@ -82,9 +87,19 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
+  // Saved session — populated when no running terminals exist, shown in EmptyState.
+  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
+    null,
+  );
+
   // Restore existing terminals on page load (e.g. after browser refresh).
+  // Fetch session in parallel so it's ready before Suspense resolves (no flash).
   const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const existing = await client.terminal.list();
+    const [existing, session] = await Promise.all([
+      client.terminal.list(),
+      client.session.get(),
+    ]);
+    if (existing.length === 0) setSavedSession(session);
     if (existing.length > 0) {
       // Build initial metadata store from server state (preserving server order)
       const initial: TerminalMetaStore = {};
@@ -137,6 +152,35 @@ export function useTerminalLifecycle(deps: {
     }
     return existing;
   });
+
+  // Re-fetch saved session when all terminals are killed mid-session.
+  // Initial load is handled by Promise.all above (blocks Suspense).
+  createEffect(() => {
+    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
+      client.session.get().then(setSavedSession);
+    }
+  });
+
+  /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
+  async function handleRestoreSession() {
+    const session = savedSession();
+    if (!session) return;
+    setSavedSession(null);
+    // Map saved terminal ID → new live terminal ID
+    const oldToNew = new Map<string, TerminalId>();
+    // Create top-level terminals first, then sub-terminals
+    const topLevel = session.terminals.filter((t) => !t.parentId);
+    const subs = session.terminals.filter((t) => t.parentId);
+    for (const t of topLevel) {
+      await handleCreate(t.cwd);
+      const newId = store.idOrder()[store.idOrder().length - 1]!;
+      oldToNew.set(t.id, newId);
+    }
+    for (const t of subs) {
+      const newParentId = oldToNew.get(t.parentId!);
+      if (newParentId) await handleCreateSubTerminal(newParentId, t.cwd);
+    }
+  }
 
   /** Create a new terminal on the server, add it to the list, and make it active. */
   async function handleCreate(cwd?: string) {
@@ -217,12 +261,22 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
+  /** Kill all terminals (debug command). */
+  /** Close all terminals without clearing the saved session (debug command). */
+  async function handleCloseAll() {
+    await client.terminal.killAll();
+    store.reset();
+  }
+
   return {
     existingTerminals,
+    savedSession,
+    handleRestoreSession,
     setThemeName,
     handleCreate,
     handleCreateSubTerminal,
     handleKill,
+    handleCloseAll,
     handleCreateWorktree,
     handleKillWorktree,
     handleCopyTerminalText,

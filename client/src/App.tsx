@@ -64,6 +64,9 @@ const App: Component = () => {
     handleCopyTerminalText,
     handleCreateWorktree,
     handleKillWorktree,
+    handleCloseAll,
+    savedSession,
+    handleRestoreSession,
     simulateAlert,
   } = useTerminals({ randomTheme, activity: useActivity(), activityAlerts });
 
@@ -187,6 +190,7 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
     handleKillWorktree: () => void handleKillWorktree(),
+    handleCloseAll: () => void handleCloseAll(),
     simulateAlert,
   });
 
@@ -355,7 +359,10 @@ const App: Component = () => {
                 {/* Read the resource to trigger Suspense while it loads */}
                 {void existingTerminals()}
                 <Show when={terminalIds().length === 0}>
-                  <EmptyState />
+                  <EmptyState
+                    savedSession={savedSession() ?? undefined}
+                    onRestore={() => void handleRestoreSession()}
+                  />
                 </Show>
                 <For each={terminalIds()}>
                   {(id) => (

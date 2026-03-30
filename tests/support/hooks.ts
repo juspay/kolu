@@ -80,7 +80,7 @@ BeforeAll(async function () {
       ],
       {
         stdio: "pipe",
-        env: { ...process.env, KOLU_STATE_SUFFIX: "test" },
+        env: { ...process.env, KOLU_STATE_SUFFIX: `test-${workerId}` },
       },
     );
     serverProcess.stderr?.on("data", (data: Buffer) => {
@@ -104,12 +104,19 @@ AfterAll(async function () {
 });
 
 Before(async function (this: KoluWorld) {
-  // Kill leftover terminals from previous scenarios so each starts with a clean slate
-  await fetch(`${baseUrl}/rpc/terminal/killAll`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
+  // Kill leftover terminals and clear saved session so each scenario starts clean
+  await Promise.all([
+    fetch(`${baseUrl}/rpc/terminal/killAll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+    fetch(`${baseUrl}/rpc/session/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }),
+  ]);
 
   this.browser = browser;
   this.context = await browser.newContext({

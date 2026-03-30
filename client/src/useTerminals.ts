@@ -79,8 +79,11 @@ export function useTerminals(deps: {
     },
     mruOrder: store.mruOrder,
     handleCopyTerminalText: lifecycle.handleCopyTerminalText,
+    handleCloseAll: lifecycle.handleCloseAll,
     handleCreateWorktree: lifecycle.handleCreateWorktree,
     handleKillWorktree: lifecycle.handleKillWorktree,
+    savedSession: lifecycle.savedSession,
+    handleRestoreSession: lifecycle.handleRestoreSession,
     simulateAlert: alerts.simulateAlert,
   };
 }

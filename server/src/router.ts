@@ -24,6 +24,11 @@ import { subscribeAndYield } from "./streaming.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
+import {
+  getSavedSession,
+  clearSavedSession,
+  setSavedSession,
+} from "./session.ts";
 
 const t = implement(contract);
 
@@ -164,5 +169,14 @@ export const appRouter = t.router({
       await worktreeRemove(input.worktreePath);
     }),
     recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
+  },
+  session: {
+    get: t.session.get.handler(async () => getSavedSession()),
+    clear: t.session.clear.handler(async () => {
+      clearSavedSession();
+    }),
+    test__set: t.session.test__set.handler(async ({ input }) => {
+      setSavedSession(input);
+    }),
   },
 });

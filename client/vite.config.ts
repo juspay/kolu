@@ -40,6 +40,8 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
+    headers: { "Cache-Control": "no-store" },
     proxy: {
       "/api": `http://localhost:${DEFAULT_PORT}`,
       "/manifest.webmanifest": `http://localhost:${DEFAULT_PORT}`,

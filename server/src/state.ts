@@ -8,20 +8,34 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo } from "kolu-common";
+import type { RecentRepo, SavedSession } from "kolu-common";
 
 interface StateSchema {
   recentRepos: RecentRepo[];
+  session: SavedSession | null;
 }
 
-const store = new Conf<StateSchema>({
+export const store = new Conf<StateSchema>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
   defaults: {
     recentRepos: [],
+    session: null,
   },
 });
+
+/** Check if a path exists on disk. */
+function existsOnDisk(path: string): boolean {
+  try {
+    fs.accessSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// --- Recent repos ---
 
 const MAX_RECENT_REPOS = 20;
 
@@ -44,15 +58,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */
 export function getRecentRepos(): RecentRepo[] {
   const repos = store.get("recentRepos");
-  const live = repos.filter((r) => {
-    try {
-      fs.accessSync(r.repoRoot);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  // Prune stale entries from disk
+  const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
 }
