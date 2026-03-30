@@ -74,7 +74,8 @@ test-quick *args: install
     export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     cd tests
     {{ nix_shell }} pnpm install
-    KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
+    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \
+        {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
         --format pretty \
