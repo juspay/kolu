@@ -1,20 +1,20 @@
 /** Terminal alerts — reactively detect Claude state transitions and fire notifications.
- *  Watches the terminal store for Claude state changes instead of being called via callback. */
+ *  Watches TanStack metadata queries for Claude state changes. */
 
 import { type Accessor, createEffect } from "solid-js";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import {
   fireActivityAlert,
   requestNotificationPermission,
 } from "./useActivityAlerts";
 import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
 
-
 export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
   meta: TerminalMetaStore;
   setMeta: SetTerminalMeta;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
@@ -34,7 +34,7 @@ export function useTerminalAlerts(deps: {
       if (!activeIds.has(id)) prevStates.delete(id);
     }
     for (const id of ids) {
-      const state = deps.meta[id]?.meta?.claude?.state;
+      const state = deps.getMetadata(id)?.claude?.state;
       const prev = prevStates.get(id);
       // Skip initial observation (prev not yet tracked) — only fire on transitions
       if (prev !== undefined) {

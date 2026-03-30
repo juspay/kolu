@@ -17,7 +17,6 @@ import {
   TerminalReorderInputSchema,
   TerminalSetParentInputSchema,
   TerminalMetadataSchema,
-  TerminalActivityOutputSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
   ServerInfoSchema,
@@ -49,14 +48,10 @@ export const contract = oc.router({
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
     // Plain text content of the terminal buffer (scrollback + viewport)
     screenText: oc.input(TerminalScreenTextInputSchema).output(z.string()),
-    // Stream terminal metadata changes (CWD, git, PR, etc.). Yields current state immediately.
+    // Stream terminal metadata changes (CWD, git, PR, activity, etc.). Yields current state immediately.
     onMetadataChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalMetadataSchema)),
-    // Stream activity state changes (active/sleeping) for a terminal
-    onActivityChange: oc
-      .input(TerminalAttachInputSchema)
-      .output(eventIterator(TerminalActivityOutputSchema)),
     // Save image data to the terminal's clipboard shim for Ctrl+V paste
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     // Kill a single terminal

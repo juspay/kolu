@@ -13,6 +13,7 @@ import { CONTEXTUAL_TIPS } from "./tips";
 import type {
   TerminalId,
   TerminalInfo,
+  TerminalMetadata,
   ActivitySample,
   SavedSession,
 } from "kolu-common";
@@ -75,7 +76,11 @@ export function useTerminalLifecycle(deps: {
   /** Set a terminal's theme name locally (optimistic) and on the server.
    *  themeName lives in TerminalMetadata — server publishes it back via live query. */
   function setThemeName(id: TerminalId, name: string) {
-    store.setMeta(id, "meta", "themeName", name);
+    // Optimistic update in TanStack cache
+    const key = orpc.terminal.onMetadataChange.key({ input: { id } });
+    qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
+      old ? { ...old, themeName: name } : old,
+    );
     setThemeMut.mutate({ id, themeName: name });
   }
 

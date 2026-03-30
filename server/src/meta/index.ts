@@ -17,7 +17,7 @@ import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null };
+  return { cwd, git: null, pr: null, claude: null, busy: true };
 }
 
 /** Publish the current metadata snapshot to all subscribers. */

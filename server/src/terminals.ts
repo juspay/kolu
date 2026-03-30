@@ -25,10 +25,10 @@ import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
 export interface TerminalProcess {
-  /** The wire-type snapshot — single source of truth for id, pid, isActive, meta, parentId, activityHistory. */
+  /** The wire-type snapshot — single source of truth for id, pid, meta, parentId, activityHistory. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Timer that flips isActive→false after idle threshold. */
+  /** Timer that flips busy→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
@@ -51,16 +51,16 @@ function pushActivitySample(entry: TerminalProcess, active: boolean): void {
   h.push([now, active]);
 }
 
-/** Mark terminal active and reset the idle timer. */
+/** Mark terminal busy and reset the idle timer. */
 function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.info.isActive) {
-    entry.info.isActive = true;
+  if (!entry.info.meta!.busy) {
+    entry.info.meta!.busy = true;
     pushActivitySample(entry, true);
     publishForTerminal("activity", terminalId, true);
   }
   entry.idleTimer = setTimeout(() => {
-    entry.info.isActive = false;
+    entry.info.meta!.busy = false;
     pushActivitySample(entry, false);
     publishForTerminal("activity", terminalId, false);
   }, IDLE_MS);
@@ -132,7 +132,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     info: {
       id,
       pid: handle.pid,
-      isActive: true,
       meta,
       parentId,
       activityHistory: [[Date.now(), true] as ActivitySample],
