@@ -21,7 +21,6 @@ import {
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_ } from "./publisher.ts";
-import { mergeIterables } from "./utils/merge.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -126,19 +125,9 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      const snapshot = () => ({ ...entry.info.meta });
-      yield snapshot();
-
-      // Merge metadata and activity channels — yield full metadata snapshot on either change.
-      // Providers publish to "metadata", idle timer publishes to "activity".
-      // We ignore the values — both are just signals to re-snapshot entry.info.meta.
-      const merged = mergeIterables<unknown>([
-        subscribeForTerminal_("metadata", input.id, signal),
-        subscribeForTerminal_("activity", input.id, signal),
-      ], signal);
-
-      for await (const _ of merged) {
-        yield snapshot();
+      yield { ...entry.info.meta };
+      for await (const meta of subscribeForTerminal_("metadata", input.id, signal)) {
+        yield meta;
       }
     }),
 

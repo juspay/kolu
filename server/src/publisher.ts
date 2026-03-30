@@ -11,10 +11,8 @@ import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
 type TerminalChannels = {
-  /** CWD, git, PR, Claude state — from metadata providers */
+  /** All server-derived terminal state — from metadata providers and idle timer */
   metadata: TerminalMetadata;
-  /** Active/sleeping transitions — from idle timer */
-  activity: boolean;
   /** Raw PTY output bytes — high frequency, drives xterm.js */
   data: string;
   /** Terminal process exited — fires once per terminal lifetime */
