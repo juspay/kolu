@@ -17,7 +17,7 @@ import {
   setTerminalTheme,
   setTerminalParent,
   reorderTerminals,
-  type TerminalEntry,
+  type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_ } from "./publisher.ts";
@@ -33,7 +33,7 @@ import {
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
-function requireTerminal(id: string): TerminalEntry {
+function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
@@ -82,7 +82,7 @@ export const appRouter = t.router({
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      for await (const event of live) yield event.data;
+      for await (const data of live) yield data;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -125,9 +125,9 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      yield { ...entry.metadata };
-      for await (const event of subscribeForTerminal_("metadata", input.id, signal)) {
-        yield event.metadata;
+      yield { ...entry.info.meta! };
+      for await (const meta of subscribeForTerminal_("metadata", input.id, signal)) {
+        yield meta;
       }
     }),
 
@@ -136,16 +136,16 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      yield entry.isActive;
-      for await (const event of subscribeForTerminal_("activity", input.id, signal)) {
-        yield event.isActive;
+      yield entry.info.isActive;
+      for await (const isActive of subscribeForTerminal_("activity", input.id, signal)) {
+        yield isActive;
       }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      for await (const event of subscribeForTerminal_("exit", input.id, signal)) {
-        yield event.exitCode;
+      for await (const exitCode of subscribeForTerminal_("exit", input.id, signal)) {
+        yield exitCode;
         return;
       }
     }),

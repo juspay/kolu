@@ -8,7 +8,7 @@
  */
 
 import type { TerminalMetadata } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
+import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
@@ -21,8 +21,8 @@ export function createMetadata(cwd: string): TerminalMetadata {
 }
 
 /** Publish the current metadata snapshot to all subscribers. */
-export function publishMetadata(entry: TerminalEntry, terminalId: string): void {
-  const m = entry.metadata;
+export function publishMetadata(entry: TerminalProcess, terminalId: string): void {
+  const m = entry.info.meta!;
   log.info(
     {
       terminal: terminalId,
@@ -36,7 +36,7 @@ export function publishMetadata(entry: TerminalEntry, terminalId: string): void 
     },
     "metadata publish",
   );
-  publishForTerminal("metadata", terminalId, { metadata: { ...m } });
+  publishForTerminal("metadata", terminalId, { ...m });
 }
 
 /**
@@ -44,7 +44,7 @@ export function publishMetadata(entry: TerminalEntry, terminalId: string): void 
  * Returns a cleanup function that stops all providers.
  */
 export function startProviders(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);
