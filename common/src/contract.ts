@@ -77,6 +77,8 @@ export const contract = oc.router({
   },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),
+    // Stream session changes — yields current value then pushes updates
+    onChange: oc.output(eventIterator(SavedSessionSchema.nullable())),
     // Clear saved session (test-only: reset state between scenarios)
     clear: oc.output(z.void()),
     // Set saved session (test-only: seed state for scenarios)

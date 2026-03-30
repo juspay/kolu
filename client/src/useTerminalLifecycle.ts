@@ -88,12 +88,12 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
-  // Saved session — TanStack Query fetches when terminal count is zero.
-  // Auto-refetches on window focus, reconnect, and when terminals go to zero.
-  // TODO: Replace with reactive server stream (https://github.com/juspay/kolu/issues/229)
+  // Saved session — live query streams changes from server via event iterator.
+  // Data is always the latest value pushed by the server (no polling).
   const sessionQuery = useQuery(() =>
-    orpc.session.get.queryOptions({
+    orpc.session.onChange.experimental_liveOptions({
       enabled: store.terminalIds().length === 0,
+      retry: true,
     }),
   );
   const savedSession = () => sessionQuery.data ?? null;

@@ -7,6 +7,7 @@
  */
 
 import fs from "node:fs";
+import { EventEmitter } from "node:events";
 import Conf from "conf";
 import type { RecentRepo, SavedSession, SavedTerminal } from "kolu-common";
 
@@ -65,10 +66,15 @@ export function getRecentRepos(): RecentRepo[] {
 
 // --- Session persistence ---
 
+/** Emits when the saved session changes. Consumers (e.g. streaming endpoint) subscribe here. */
+export const sessionChanges = new EventEmitter<{ changed: [SavedSession | null] }>();
+
 /** Save a session snapshot. Only saves when terminals exist (avoids overwriting with empty). */
 export function saveSession(terminals: SavedTerminal[]): void {
   if (terminals.length === 0) return;
-  store.set("session", { terminals, savedAt: Date.now() });
+  const session: SavedSession = { terminals, savedAt: Date.now() };
+  store.set("session", session);
+  sessionChanges.emit("changed", session);
 }
 
 /** Get the saved session, or null if none exists. */

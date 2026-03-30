@@ -7,6 +7,7 @@
 import { implement } from "@orpc/server";
 
 import { contract } from "kolu-common/contract";
+import type { SavedSession } from "kolu-common";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
   createTerminal,
@@ -28,6 +29,7 @@ import {
   getSavedSession,
   clearSavedSession,
   setSavedSession,
+  sessionChanges,
 } from "./state.ts";
 
 const t = implement(contract);
@@ -172,6 +174,14 @@ export const appRouter = t.router({
   },
   session: {
     get: t.session.get.handler(async () => getSavedSession()),
+    onChange: t.session.onChange.handler(async function* ({ signal }) {
+      yield getSavedSession();
+      yield* subscribeAndYield<SavedSession | null>(
+        sessionChanges,
+        "changed",
+        signal,
+      );
+    }),
     clear: t.session.clear.handler(async () => {
       clearSavedSession();
     }),
