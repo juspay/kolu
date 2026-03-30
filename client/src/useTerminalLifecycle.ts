@@ -1,7 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
 import { type Accessor, createSignal, createEffect } from "solid-js";
-import { produce, reconcile } from "solid-js/store";
 import { createQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
@@ -17,7 +16,7 @@ import type {
   ActivitySample,
   SavedSession,
 } from "kolu-common";
-import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
+import type { TerminalStore } from "./useTerminalStore";
 
 
 export function useTerminalLifecycle(deps: {
@@ -86,7 +85,7 @@ export function useTerminalLifecycle(deps: {
 
   /** Remove a terminal from the store and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
-    const parentId = store.meta[id]?.parentId;
+    const parentId = store.getMetadata(id)?.parentId;
 
     if (parentId) {
       // This is a sub-terminal — remove from parent's sub-order
@@ -106,14 +105,12 @@ export function useTerminalLifecycle(deps: {
         }
         return next;
       });
-      store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
       return;
     }
 
     // Top-level terminal — promote any sub-terminals to top-level (orphans)
     const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
-      store.setMeta(subId, "parentId", undefined);
       setParentMut.mutate({ id: subId, parentId: null });
     }
 
@@ -124,7 +121,6 @@ export function useTerminalLifecycle(deps: {
     // Insert orphans at the position of the killed parent
     remaining.splice(idx, 0, ...orphanIds);
     store.setIdOrder(remaining);
-    store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
     subPanel.removePanel(id);
     store.setSubOrder((prev) => {
       const next = { ...prev };
@@ -166,17 +162,12 @@ export function useTerminalLifecycle(deps: {
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
-    // Build initial metadata store from server state (preserving server order)
-    const initial: TerminalMetaStore = {};
-    for (const t of existing) initial[t.id] = store.infoToState(t);
-    store.setMeta(reconcile(initial));
-
-    // Partition into top-level and sub-terminals
+    // Partition into top-level and sub-terminals (parentId now in metadata)
     const topLevel: TerminalId[] = [];
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
-      if (t.parentId) {
-        (subs[t.parentId] ??= []).push(t.id);
+      if (t.meta?.parentId) {
+        (subs[t.meta.parentId] ??= []).push(t.id);
       } else {
         topLevel.push(t.id);
       }
@@ -254,7 +245,6 @@ export function useTerminalLifecycle(deps: {
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    store.setMeta(info.id, store.infoToState(info));
     store.setIdOrder((prev) => [...prev, info.id]);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
@@ -264,7 +254,6 @@ export function useTerminalLifecycle(deps: {
   /** Create a sub-terminal under a parent. */
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
     const info = await createMut.mutateAsync({ cwd, parentId });
-    store.setMeta(info.id, store.infoToState(info));
     store.setSubOrder((prev) => ({
       ...prev,
       [parentId]: [...(prev[parentId] ?? []), info.id],

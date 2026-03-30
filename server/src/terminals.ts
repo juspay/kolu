@@ -71,7 +71,7 @@ export function snapshotSession(): SavedTerminal[] {
   return [...terminals.entries()].map(([id, entry]) => ({
     id,
     cwd: entry.info.meta!.cwd,
-    ...(entry.info.parentId && { parentId: entry.info.parentId }),
+    ...(entry.info.meta!.parentId && { parentId: entry.info.meta!.parentId }),
     ...(entry.info.meta!.git && {
       repoName: entry.info.meta!.git.repoName,
       branch: entry.info.meta!.git.branch,
@@ -128,12 +128,12 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   );
 
   const meta = createMetadata(handle.cwd);
+  if (parentId) meta.parentId = parentId;
   const entry: TerminalProcess = {
     info: {
       id,
       pid: handle.pid,
       meta,
-      parentId,
       activityHistory: [[Date.now(), true] as ActivitySample],
     },
     handle,
@@ -174,13 +174,16 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   return entry.info;
 }
 
-/** Set or clear a terminal's parent relationship. */
+/** Set or clear a terminal's parent relationship. Publishes metadata so clients see the change. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
   const entry = terminals.get(id);
-  if (entry) entry.info.parentId = parentId ?? undefined;
+  if (entry) {
+    entry.info.meta!.parentId = parentId ?? undefined;
+    publishMetadata(entry, id);
+  }
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

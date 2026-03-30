@@ -14,22 +14,20 @@ import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId } from "kolu-common";
-import type { TerminalMetadata } from "kolu-common";
-import type { TerminalClientState } from "./useTerminalStore";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
-  meta: (TerminalClientState & { meta?: TerminalMetadata }) | undefined;
+  metadata: TerminalMetadata | undefined;
+  notified: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
   const sortable = createSortable(props.id);
-  const m = () => props.meta;
 
   return (
     <div class="relative" style={transformStyle(sortable.transform)}>
@@ -50,28 +48,28 @@ const SidebarEntry: Component<{
         {...sortable.dragActivators}
         data-terminal-id={props.id}
         data-active={props.isActive ? "" : undefined}
-        data-activity={m()?.meta?.busy ? "active" : "sleeping"}
-        data-notified={m()?.notified ? "" : undefined}
+        data-activity={props.metadata?.busy ? "active" : "sleeping"}
+        data-notified={props.notified ? "" : undefined}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-4 bg-accent/10 text-fg": props.isActive,
           "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
-          "text-fg": !props.isActive && !!m()?.notified,
-          "text-fg-3 hover:text-fg-2": !props.isActive && !m()?.notified,
+          "text-fg": !props.isActive && !!props.notified,
+          "text-fg-3 hover:text-fg-2": !props.isActive && !props.notified,
           "opacity-25": sortable.isActiveDraggable,
         }}
         style={{
-          "border-left-color": m()?.notified
+          "border-left-color": props.notified
             ? "var(--color-accent)"
             : (props.displayInfo?.repoColor ??
               (props.isActive ? "var(--accent)" : "transparent")),
-          ...(m()?.notified
+          ...(props.notified
             ? { animation: "notified-glow 1.5s ease-in-out infinite" }
             : {}),
         }}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
-        title={m()?.meta?.cwd ?? String(props.id)}
+        title={props.metadata?.cwd ?? String(props.id)}
       >
         <TerminalMeta info={props.displayInfo} />
       </button>
@@ -83,7 +81,8 @@ const SidebarEntry: Component<{
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => (TerminalClientState & { meta?: TerminalMetadata }) | undefined;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
+  needsAttention: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
@@ -178,7 +177,8 @@ const Sidebar: Component<{
                     <SidebarEntry
                       id={id}
                       isActive={props.activeId === id}
-                      meta={props.getMeta(id)}
+                      metadata={props.getMetadata(id)}
+                      notified={props.needsAttention(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}

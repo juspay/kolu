@@ -1,6 +1,6 @@
-/** Terminal store — shared substrate for all terminal state modules.
- *  Client-only state (notified, parentId) in SolidJS store.
- *  Server-derived state (metadata) in TanStack cache via createQueries. */
+/** Terminal store — combines server state (TanStack) with client view state.
+ *  Server-derived state (metadata) lives in TanStack cache via createQueries.
+ *  Client view state (activeId, attention, mruOrder) lives in local signals/store. */
 
 import {
   type Accessor,
@@ -9,7 +9,7 @@ import {
   on,
   createMemo,
 } from "solid-js";
-import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
+import { createStore, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { createQueries } from "@tanstack/solid-query";
 import type {
@@ -24,30 +24,26 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Per-terminal client-only state. Server-derived fields live in TanStack cache. */
-export type TerminalClientState = {
-  notified?: boolean;
-  parentId?: string;
-};
-
-export type TerminalMetaStore = Record<TerminalId, TerminalClientState>;
-export type SetTerminalMeta = SetStoreFunction<TerminalMetaStore>;
-
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
 export function useTerminalStore(deps: {
   getActivityHistory: (id: TerminalId) => ActivitySample[];
   pushActivity: (id: TerminalId, active: boolean) => void;
 }) {
-  // Client-only store: notified flag and parentId per terminal.
-  const [meta, setMeta] = createStore<TerminalMetaStore>({});
-  // Explicit ordering — UUIDs don't sort chronologically, so track insertion order.
+  // --- Terminal ordering (server-derived, hydrated from terminal.list) ---
   const [idOrder, setIdOrder] = createSignal<TerminalId[]>([]);
-  // Sub-terminal ordering per parent.
   const [subOrder, setSubOrder] = createSignal<
     Record<TerminalId, TerminalId[]>
   >({});
 
+  const terminalIds = idOrder;
+
+  /** Get sub-terminal IDs for a given parent. */
+  function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
+    return subOrder()[parentId] ?? [];
+  }
+
+  // --- View state: per-browser-tab UI state ---
   const [activeId, setActiveId] = makePersisted(
     createSignal<TerminalId | null>(null),
     {
@@ -57,27 +53,33 @@ export function useTerminalStore(deps: {
     },
   );
 
-  const terminalIds = idOrder;
+  /** Terminals with unseen Claude completions (cleared when user visits). */
+  const [attention, setAttention] = createStore<Record<TerminalId, true>>({});
 
-  // MRU (most-recently-used) order: tracks terminal switch history for quick-switch.
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
-      // Clear notification when user visits the terminal
-      if (meta[id]?.notified) setMeta(id, "notified", false);
+      // Clear attention when user visits the terminal
+      if (attention[id]) setAttention(id, undefined as never);
     }),
   );
 
+  function markAttention(id: TerminalId) {
+    setAttention(id, true);
+  }
+
+  function needsAttention(id: TerminalId): boolean {
+    return !!attention[id];
+  }
+
+  // --- TanStack live queries: one metadata stream per terminal ---
   /** All terminal IDs (top-level + sub-terminals) for live query subscriptions. */
   const allTerminalIds = createMemo(() =>
     terminalIds().flatMap((id) => [id, ...getSubTerminalIds(id)]),
   );
 
-  // --- TanStack live queries: one metadata stream per terminal ---
-  // createQueries dynamically adds/removes queries as terminals come and go.
-  // Covers all terminals (top-level + sub-terminals).
   const metadataQueries = createQueries(() => ({
     queries: allTerminalIds().map((id) =>
       orpc.terminal.onMetadataChange.experimental_liveOptions({
@@ -96,7 +98,6 @@ export function useTerminalStore(deps: {
   const prevBusy = new Map<TerminalId, boolean>();
   createEffect(() => {
     const ids = allTerminalIds();
-    // Prune removed terminals
     for (const id of prevBusy.keys()) {
       if (!ids.includes(id)) prevBusy.delete(id);
     }
@@ -112,22 +113,7 @@ export function useTerminalStore(deps: {
     }
   });
 
-  /** Get sub-terminal IDs for a given parent. */
-  function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return subOrder()[parentId] ?? [];
-  }
-
-  /** Get client state for a terminal (notified, parentId). */
-  function getClientState(id: TerminalId): TerminalClientState | undefined {
-    return meta[id];
-  }
-
-  /** Get combined view: client state + server metadata. For consumers that need both. */
-  function getMeta(id: TerminalId): (TerminalClientState & { meta?: TerminalMetadata }) | undefined {
-    const client = meta[id];
-    if (!client) return undefined;
-    return { ...client, meta: getMetadata(id) };
-  }
+  // --- Derived accessors ---
 
   /** The active terminal's metadata (for header display). */
   const activeMeta = createMemo((): TerminalMetadata | null => {
@@ -155,40 +141,38 @@ export function useTerminalStore(deps: {
     return pos > 0 ? `Terminal ${pos}` : "Terminal";
   }
 
-  /** Convert a TerminalInfo (wire type) to client store entry. */
-  function infoToState(t: TerminalInfo): TerminalClientState {
-    return { parentId: t.parentId };
-  }
-
   /** Reset all state to defaults — used by bulk operations like close-all. */
   function reset() {
-    setMeta(reconcile({}));
     setIdOrder([]);
     setSubOrder({});
     setActiveId(null);
     setMruOrder([]);
+    setAttention(reconcile({}));
   }
 
   return {
-    meta,
-    setMeta,
+    // Ordering
     idOrder,
     setIdOrder,
     subOrder,
     setSubOrder,
+    terminalIds,
+    getSubTerminalIds,
+    // View state
     activeId,
     setActiveId,
-    terminalIds,
     mruOrder,
     setMruOrder,
-    getSubTerminalIds,
-    getClientState,
-    getMeta,
+    attention,
+    markAttention,
+    needsAttention,
+    // Server metadata (TanStack)
     getMetadata,
     activeMeta,
+    // Display
     getDisplayInfo,
     terminalLabel,
-    infoToState,
+    // Lifecycle helpers
     reset,
   };
 }
