@@ -1,27 +1,35 @@
-/** Terminal metadata — TanStack live queries for server-derived state.
- *  One metadata stream per terminal (slow-changing: CWD, git, PR, claude).
- *  Activity (busy/idle transitions) is accumulated from a separate stream
- *  into a local store — TanStack live queries replace data per event,
- *  but activity needs to accumulate a time-series for sparkline rendering.
+/** Terminal metadata — TanStack queries for server-derived state.
+ *
+ *  Two query types per terminal:
+ *  - Metadata (liveOptions): slow-changing state (CWD, git, PR, claude).
+ *    Each event replaces the previous — only current state matters.
+ *  - Activity (streamedOptions): high-frequency busy/idle transitions.
+ *    Events accumulate into an array for sparkline rendering. Server yields
+ *    a history snapshot on connect, then individual [epochMs, boolean] samples.
+ *    maxChunks caps the source array; select trims to the display window.
+ *
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
-import { type Accessor, createEffect, on, createMemo } from "solid-js";
-import { createStore, produce } from "solid-js/store";
+import { type Accessor, createMemo } from "solid-js";
 import { createQueries } from "@tanstack/solid-query";
 import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
-import { client } from "./rpc";
 import { orpc } from "./orpc";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
+/** Max samples retained in TanStack cache per terminal.
+ *  At ~20 samples/min during active use, 200 covers ~10 min — well beyond
+ *  the 5-min display window. Prevents unbounded growth in long sessions. */
+const MAX_ACTIVITY_CHUNKS = 200;
+
 export function useTerminalMetadata(deps: {
   knownIds: Accessor<TerminalId[]>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  // --- Metadata (slow-changing) via TanStack live queries ---
+  // --- Metadata (slow-changing) — each event replaces the previous ---
 
   const metadataQueries = createQueries(() => ({
     queries: deps.knownIds().map((id) =>
@@ -36,63 +44,40 @@ export function useTerminalMetadata(deps: {
     return idx >= 0 ? metadataQueries[idx]?.data : undefined;
   }
 
-  // --- Activity (high-frequency) via direct stream into local store ---
+  // --- Activity (high-frequency) — events accumulate for sparkline ---
 
-  const [activityStore, setActivityStore] = createStore<
-    Record<TerminalId, ActivitySample[]>
-  >({});
-
-  /** Active stream subscriptions — cleanup when terminal is removed. */
-  const abortControllers = new Map<TerminalId, AbortController>();
-
-  /** Subscribe to activity stream for a terminal. Accumulates samples in store. */
-  function subscribeActivity(id: TerminalId) {
-    const ac = new AbortController();
-    abortControllers.set(id, ac);
-    (async () => {
-      try {
-        const stream = await client.terminal.onActivityChange({ id });
-        for await (const sample of stream) {
-          if (ac.signal.aborted) break;
-          setActivityStore(id, (prev) => {
-            const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
-            const trimmed = (prev ?? []).filter(([t]) => t >= cutoff);
-            return [...trimmed, sample];
-          });
-        }
-      } catch {
-        // Stream aborted or terminal gone — expected on cleanup
-      }
-    })();
-  }
-
-  function unsubscribeActivity(id: TerminalId) {
-    abortControllers.get(id)?.abort();
-    abortControllers.delete(id);
-    setActivityStore(produce((s) => delete s[id]));
-  }
-
-  // Manage activity subscriptions when knownIds change
-  createEffect(
-    on(deps.knownIds, (ids, prevIds) => {
-      const prev = new Set(prevIds ?? []);
-      const curr = new Set(ids);
-      for (const id of ids) {
-        if (!prev.has(id)) subscribeActivity(id);
-      }
-      for (const id of prevIds ?? []) {
-        if (!curr.has(id)) unsubscribeActivity(id);
-      }
-    }),
-  );
+  const activityQueries = createQueries(() => ({
+    queries: deps.knownIds().map((id) =>
+      orpc.terminal.onActivityChange.experimental_streamedOptions({
+        input: { id },
+        queryFnOptions: {
+          maxChunks: MAX_ACTIVITY_CHUNKS,
+          // On reconnect, server yields fresh history — discard stale client cache
+          refetchMode: "reset" as const,
+        },
+        // Trim to display window on read. The source array may hold samples
+        // slightly older than the window (up to maxChunks), but consumers
+        // only see the 5-min slice. This runs on every access — cheap for
+        // small arrays (~50-200 items).
+        select: (samples: ActivitySample[]) => {
+          const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
+          return samples.filter(([t]) => t >= cutoff);
+        },
+      }),
+    ),
+  }));
 
   function getActivityHistory(id: TerminalId): ActivitySample[] {
-    return activityStore[id] ?? [];
+    const idx = deps.knownIds().indexOf(id);
+    return idx >= 0 ? (activityQueries[idx]?.data ?? []) : [];
   }
 
-  /** Is the terminal currently producing output? Derived from last activity sample. */
+  /** Is the terminal currently producing output? Derived from last sample
+   *  in the windowed activity history. */
   function isBusy(id: TerminalId): boolean {
-    const samples = activityStore[id];
+    const idx = deps.knownIds().indexOf(id);
+    if (idx < 0) return false;
+    const samples = activityQueries[idx]?.data;
     if (!samples || samples.length === 0) return false;
     return samples[samples.length - 1]![1];
   }
