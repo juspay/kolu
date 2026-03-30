@@ -104,6 +104,7 @@ export function snapshotSession(): SavedTerminal[] {
       repoName: entry.metadata.git.repoName,
       branch: entry.metadata.git.branch,
     }),
+    ...(entry.themeName && { themeName: entry.themeName }),
   }));
 }
 

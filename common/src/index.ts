@@ -169,6 +169,8 @@ export const SavedTerminalSchema = z.object({
   repoName: z.string().optional(),
   /** Snapshot of branch at save time (for display only). */
   branch: z.string().optional(),
+  /** Per-terminal color theme. */
+  themeName: z.string().optional(),
 });
 
 export const SavedSessionSchema = z.object({

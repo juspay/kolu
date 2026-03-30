@@ -155,7 +155,6 @@ export function useTerminalLifecycle(deps: {
 
   // Re-fetch saved session when all terminals are killed mid-session.
   // Initial load is handled by Promise.all above (blocks Suspense).
-  // TODO: Replace both with reactive server stream (https://github.com/juspay/kolu/issues/229)
   createEffect(() => {
     if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
       client.session.get().then(setSavedSession);
@@ -174,12 +173,18 @@ export function useTerminalLifecycle(deps: {
     const subs = session.terminals.filter((t) => t.parentId);
     for (const t of topLevel) {
       await handleCreate(t.cwd);
-      const ids = store.idOrder();
-      oldToNew.set(t.id, ids[ids.length - 1]!);
+      const newId = store.idOrder()[store.idOrder().length - 1]!;
+      oldToNew.set(t.id, newId);
+      if (t.themeName) setThemeName(newId, t.themeName);
     }
     for (const t of subs) {
       const newParentId = oldToNew.get(t.parentId!);
-      if (newParentId) await handleCreateSubTerminal(newParentId, t.cwd);
+      if (!newParentId) continue;
+      await handleCreateSubTerminal(newParentId, t.cwd);
+      // Sub-terminals: get the last added sub-terminal ID
+      const subIds = store.getSubTerminalIds(newParentId);
+      const newId = subIds[subIds.length - 1]!;
+      if (t.themeName) setThemeName(newId, t.themeName);
     }
   }
 
