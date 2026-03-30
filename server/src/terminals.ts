@@ -21,14 +21,14 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { createMetadata, emitMetadata, startProviders } from "./meta/index.ts";
+import { publisher } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Typed event map — eliminates stringly-typed emit/on/off calls. */
 export interface TerminalEvents {
   data: [data: string];
   exit: [exitCode: number];
-  metadata: [meta: TerminalMetadata];
-  activity: [isActive: boolean];
+  metadata: [meta: TerminalMetadata]; // Used for inter-provider chaining (git→github)
 }
 
 /** Server-side terminal state. Owns a PtyHandle and event emitter. */
@@ -80,17 +80,17 @@ function pushActivitySample(entry: TerminalEntry, active: boolean): void {
 }
 
 /** Mark terminal active and reset the idle timer. */
-function touchActivity(entry: TerminalEntry): void {
+function touchActivity(entry: TerminalEntry, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.isActive) {
     entry.isActive = true;
     pushActivitySample(entry, true);
-    entry.emitter.emit("activity", true);
+    void publisher.publish("activity", { terminalId, isActive: true });
   }
   entry.idleTimer = setTimeout(() => {
     entry.isActive = false;
     pushActivitySample(entry, false);
-    entry.emitter.emit("activity", false);
+    void publisher.publish("activity", { terminalId, isActive: false });
   }, IDLE_MS);
 }
 
@@ -127,7 +127,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     {
       onData: (data) => {
         const entry = terminals.get(id);
-        if (entry) touchActivity(entry);
+        if (entry) touchActivity(entry, id);
         emitter.emit("data", data);
       },
       // On natural exit: notify clients, then remove from server state

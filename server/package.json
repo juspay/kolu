@@ -15,6 +15,7 @@
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/experimental-pino": "^1.13.13",
+    "@orpc/experimental-publisher": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",

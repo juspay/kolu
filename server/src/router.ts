@@ -21,6 +21,7 @@ import {
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeAndYield } from "./streaming.ts";
+import { publisher } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -129,8 +130,10 @@ export const appRouter = t.router({
       // Yield current metadata immediately
       yield { ...entry.metadata };
 
-      // Then stream changes from all providers
-      yield* subscribeAndYield(entry.emitter, "metadata", signal);
+      // Then stream changes via publisher (typed, no manual queue plumbing)
+      for await (const event of publisher.subscribe("metadata", { signal })) {
+        if (event.terminalId === input.id) yield event.metadata;
+      }
     }),
 
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({
@@ -139,11 +142,13 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
 
-      // Yield current state immediately (isActive lives on TerminalBase, always available)
+      // Yield current state immediately
       yield entry.isActive;
 
-      // Then stream changes (activity events emit booleans)
-      yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);
+      // Then stream changes via publisher
+      for await (const event of publisher.subscribe("activity", { signal })) {
+        if (event.terminalId === input.id) yield event.isActive;
+      }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
