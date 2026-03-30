@@ -1,7 +1,7 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers (attach, onExit) use async generators over WebSocket.
+ * Streaming handlers use the publisher for push-based events over WebSocket.
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
@@ -20,7 +20,6 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeAndYield } from "./streaming.ts";
 import { publisher } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
@@ -77,13 +76,15 @@ export const appRouter = t.router({
       const entry = requireTerminal(input.id);
 
       // Subscribe FIRST, then serialize — any output between these two
-      // steps is queued inside the generator, not lost.
-      const live = subscribeAndYield(entry.emitter, "data", signal);
+      // steps is queued inside the publisher, not lost.
+      const live = publisher.subscribe("data", { signal });
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      yield* live;
+      for await (const event of live) {
+        if (event.terminalId === input.id) yield event.data;
+      }
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -152,17 +153,13 @@ export const appRouter = t.router({
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
-      const entry = requireTerminal(input.id);
+      requireTerminal(input.id);
 
-      // Use subscribeAndYield instead of events.once() — it handles abort
-      // gracefully (clean return, no thrown AbortError) when clients disconnect.
-      for await (const exitCode of subscribeAndYield<number>(
-        entry.emitter,
-        "exit",
-        signal,
-      )) {
-        yield exitCode;
-        return;
+      for await (const event of publisher.subscribe("exit", { signal })) {
+        if (event.terminalId === input.id) {
+          yield event.exitCode;
+          return;
+        }
       }
     }),
   },
