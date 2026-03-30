@@ -57,12 +57,12 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (!entry.info.meta.busy) {
     entry.info.meta.busy = true;
     pushActivitySample(entry, true);
-    publishForTerminal("activity", terminalId, true);
+    publishMetadata(entry, terminalId);
   }
   entry.idleTimer = setTimeout(() => {
     entry.info.meta.busy = false;
     pushActivitySample(entry, false);
-    publishForTerminal("activity", terminalId, false);
+    publishMetadata(entry, terminalId);
   }, IDLE_MS);
 }
 
