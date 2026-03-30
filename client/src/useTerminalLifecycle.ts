@@ -205,7 +205,7 @@ export function useTerminalLifecycle(deps: {
       }
     }
 
-    // Subscribe to live updates for all terminals
+    // Subscribe to exit events for all terminals
     for (const t of existing) deps.subscribeExit(t.id);
   }
 

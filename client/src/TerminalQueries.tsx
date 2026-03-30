@@ -1,4 +1,4 @@
-/** Per-terminal live queries — streams metadata and activity from server into the store via TanStack Query. */
+/** Per-terminal live queries — syncs metadata and activity from server into the store via TanStack Query. */
 
 import { createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
