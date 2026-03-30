@@ -3,18 +3,16 @@
  *  Client view state (activeId, attention, mruOrder) lives in local signals/store. */
 
 import {
-  type Accessor,
   createSignal,
   createEffect,
   on,
   createMemo,
 } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import { createQueries } from "@tanstack/solid-query";
 import type {
   TerminalId,
-  TerminalInfo,
   TerminalMetadata,
   ActivitySample,
 } from "kolu-common";
@@ -62,7 +60,7 @@ export function useTerminalStore(deps: {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
       // Clear attention when user visits the terminal
-      if (attention[id]) setAttention(id, undefined as never);
+      if (attention[id]) setAttention(produce((s) => delete s[id]));
     }),
   );
 
