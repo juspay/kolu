@@ -23,30 +23,21 @@ export function useTerminalLifecycle(deps: {
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
 
-  const setThemeMutation = createMutation(() =>
-    orpc.terminal.setTheme.mutationOptions(),
-  );
-  const setParentMutation = createMutation(() =>
-    orpc.terminal.setParent.mutationOptions(),
-  );
-  const createMut = createMutation(() =>
-    orpc.terminal.create.mutationOptions(),
-  );
-  const killMut = createMutation(() => orpc.terminal.kill.mutationOptions());
-  const worktreeCreateMut = createMutation(() =>
-    orpc.git.worktreeCreate.mutationOptions(),
-  );
-  const worktreeRemoveMut = createMutation(() =>
-    orpc.git.worktreeRemove.mutationOptions(),
-  );
-  const screenTextMut = createMutation(() =>
-    orpc.terminal.screenText.mutationOptions(),
-  );
+  // Mutations — TanStack Query wrappers for oRPC write operations
+  const mut = {
+    create: createMutation(() => orpc.terminal.create.mutationOptions()),
+    kill: createMutation(() => orpc.terminal.kill.mutationOptions()),
+    setTheme: createMutation(() => orpc.terminal.setTheme.mutationOptions()),
+    setParent: createMutation(() => orpc.terminal.setParent.mutationOptions()),
+    screenText: createMutation(() => orpc.terminal.screenText.mutationOptions()),
+    worktreeCreate: createMutation(() => orpc.git.worktreeCreate.mutationOptions()),
+    worktreeRemove: createMutation(() => orpc.git.worktreeRemove.mutationOptions()),
+  };
 
   /** Set a terminal's theme name locally and on the server. */
   function setThemeName(id: TerminalId, name: string) {
     store.setMeta(id, "themeName", name);
-    setThemeMutation.mutate({ id, themeName: name });
+    mut.setTheme.mutate({ id, themeName: name });
   }
 
   /** Remove a terminal from the store and auto-switch if it was active. */
@@ -79,7 +70,7 @@ export function useTerminalLifecycle(deps: {
     const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
       store.setMeta(subId, "parentId", undefined);
-      setParentMutation.mutate({ id: subId, parentId: null });
+      mut.setParent.mutate({ id: subId, parentId: null });
     }
 
     const ids = store.idOrder();
@@ -175,7 +166,7 @@ export function useTerminalLifecycle(deps: {
     // Show worktree tip when creating a terminal while in a git repo
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    const info = await createMut.mutateAsync({ cwd });
+    const info = await mut.create.mutateAsync({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
@@ -192,7 +183,7 @@ export function useTerminalLifecycle(deps: {
 
   /** Create a sub-terminal under a parent. */
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const info = await createMut.mutateAsync({ cwd, parentId });
+    const info = await mut.create.mutateAsync({ cwd, parentId });
     store.setMeta(info.id, store.infoToState(info));
     store.setSubOrder((prev) => ({
       ...prev,
@@ -206,7 +197,7 @@ export function useTerminalLifecycle(deps: {
   /** Kill a terminal on the server, then remove + auto-switch locally. */
   async function handleKill(id: TerminalId) {
     try {
-      await killMut.mutateAsync({ id });
+      await mut.kill.mutateAsync({ id });
     } catch {
       // Terminal may already be gone
     }
@@ -215,7 +206,7 @@ export function useTerminalLifecycle(deps: {
 
   /** Create a git worktree and open a terminal in it. */
   async function handleCreateWorktree(repoPath: string) {
-    const result = await worktreeCreateMut.mutateAsync({ repoPath });
+    const result = await mut.worktreeCreate.mutateAsync({ repoPath });
     toast(`Created worktree at ${result.path}`);
     await handleCreate(result.path);
   }
@@ -230,7 +221,7 @@ export function useTerminalLifecycle(deps: {
     for (const subId of subs) await handleKill(subId);
     await handleKill(id);
     if (worktreePath) {
-      await worktreeRemoveMut.mutateAsync({ worktreePath });
+      await mut.worktreeRemove.mutateAsync({ worktreePath });
       toast(`Removed worktree at ${worktreePath}`);
     }
   }
@@ -240,7 +231,7 @@ export function useTerminalLifecycle(deps: {
     const id = store.activeId();
     if (id === null) return;
     try {
-      const text = await screenTextMut.mutateAsync({ id });
+      const text = await mut.screenText.mutateAsync({ id });
       await navigator.clipboard.writeText(text);
       toast("Copied terminal text to clipboard");
     } catch (err) {
