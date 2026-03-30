@@ -1,22 +1,41 @@
-/** Terminal alerts — detect Claude state transitions and fire notifications. */
+/** Terminal alerts — reactively detect Claude state transitions and fire notifications.
+ *  Watches the terminal store for Claude state changes instead of being called via callback. */
 
-import type { Accessor } from "solid-js";
+import { type Accessor, createEffect } from "solid-js";
 import type { TerminalId } from "kolu-common";
 import {
   fireActivityAlert,
   requestNotificationPermission,
 } from "./useActivityAlerts";
-import type { SetTerminalMeta } from "./useTerminalStore";
+import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
 
 export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
+  meta: TerminalMetaStore;
   setMeta: SetTerminalMeta;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
   // Request browser notification permission eagerly when alerts are enabled
   if (deps.activityAlerts()) requestNotificationPermission();
+
+  // Track previous Claude state per terminal for transition detection.
+  const prevStates = new Map<TerminalId, string | undefined>();
+
+  // Reactively watch Claude state for all terminals.
+  // Re-runs when terminalIds change or any terminal's Claude state changes.
+  createEffect(() => {
+    for (const id of deps.terminalIds()) {
+      const state = deps.meta[id]?.meta?.claude?.state;
+      const prev = prevStates.get(id);
+      // Skip initial observation (prev not yet tracked) — only fire on transitions
+      if (prev !== undefined) {
+        checkClaudeFinished(id, prev, state);
+      }
+      prevStates.set(id, state);
+    }
+  });
 
   /** Alert when Claude transitions to "waiting" on a terminal. */
   function checkClaudeFinished(
@@ -43,5 +62,5 @@ export function useTerminalAlerts(deps: {
     fireActivityAlert(deps.terminalLabel(id));
   }
 
-  return { checkClaudeFinished, simulateAlert };
+  return { simulateAlert };
 }

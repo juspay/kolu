@@ -1,8 +1,9 @@
-/** Terminal streams — server event subscriptions for metadata, activity, and exit. */
+/** Terminal streams — server event subscriptions for metadata, activity, and exit.
+ *  Streams write to the store. Alert detection is handled reactively elsewhere. */
 
 import type { TerminalId } from "kolu-common";
 import { client } from "./rpc";
-import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
+import type { SetTerminalMeta } from "./useTerminalStore";
 
 /** Fire-and-forget stream subscription with AbortController cleanup. */
 function subscribeStream<T>(
@@ -22,25 +23,15 @@ function subscribeStream<T>(
 }
 
 export function useTerminalStreams(deps: {
-  meta: TerminalMetaStore;
   setMeta: SetTerminalMeta;
   pushActivity: (id: TerminalId, active: boolean) => void;
   onExit: (id: TerminalId, code: number) => void;
-  onClaudeStateChange: (
-    id: TerminalId,
-    prev: string | undefined,
-    next: string | undefined,
-  ) => void;
 }) {
   /** Subscribe to metadata changes for a terminal. */
   function subscribeMetadata(id: TerminalId) {
     return subscribeStream(
       (signal) => client.terminal.onMetadataChange({ id }, { signal }),
-      (metadata) => {
-        const prevState = deps.meta[id]?.meta?.claude?.state;
-        deps.setMeta(id, "meta", metadata);
-        deps.onClaudeStateChange(id, prevState, metadata.claude?.state);
-      },
+      (metadata) => deps.setMeta(id, "meta", metadata),
     );
   }
 

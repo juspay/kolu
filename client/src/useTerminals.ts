@@ -3,9 +3,9 @@
  *  ARCHITECTURE: This file wires together four focused modules via deps objects.
  *  Do NOT add behavior here — each concern has its own module:
  *    - useTerminalStore.ts  — store, signals, accessors (pure state)
- *    - useTerminalStreams.ts — server event subscriptions
+ *    - useTerminalStreams.ts — server event subscriptions (write to store)
  *    - useTerminalLifecycle.ts — CRUD, restore-on-load, worktree ops
- *    - useTerminalAlerts.ts — Claude state detection + notifications
+ *    - useTerminalAlerts.ts — Claude state detection (watches store reactively)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221. */
 
@@ -28,16 +28,17 @@ export function useTerminals(deps: {
 
   const store = useTerminalStore({ getActivityHistory });
 
+  // Alerts watch the store reactively — no callback wiring needed
   const alerts = useTerminalAlerts({
     activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
+    meta: store.meta,
     setMeta: store.setMeta,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
   });
 
   const streams = useTerminalStreams({
-    meta: store.meta,
     setMeta: store.setMeta,
     pushActivity,
     onExit: (id, code) => {
@@ -47,7 +48,6 @@ export function useTerminals(deps: {
       );
       lifecycle.removeAndAutoSwitch(id);
     },
-    onClaudeStateChange: alerts.checkClaudeFinished,
   });
 
   const lifecycle = useTerminalLifecycle({
