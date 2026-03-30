@@ -91,7 +91,7 @@ export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
-  meta: TerminalMetadataSchema.optional(),
+  meta: TerminalMetadataSchema,
   /** Server-side activity history for sparkline rendering. */
   activityHistory: z.array(ActivitySampleSchema).optional(),
 });

@@ -158,7 +158,7 @@ export function startGitHubPrProvider(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "github-pr", terminal: terminalId });
-  const meta = entry.info.meta!;
+  const meta = entry.info.meta;
   let lastBranch: string | undefined = meta.git?.branch;
   let lastRepoRoot: string | undefined = meta.git?.repoRoot;
 
@@ -180,8 +180,8 @@ export function startGitHubPrProvider(
       void resolve(repoRoot, branch);
     } else {
       // No longer in a git repo
-      if (entry.info.meta!.pr !== null) {
-        entry.info.meta!.pr = null;
+      if (entry.info.meta.pr !== null) {
+        entry.info.meta.pr = null;
         publishMetadata(entry, terminalId);
       }
     }
@@ -189,8 +189,8 @@ export function startGitHubPrProvider(
 
   async function resolve(repoRoot: string, branch: string) {
     const pr = await resolveGitHubPr(repoRoot, branch);
-    if (prInfoEqual(pr, entry.info.meta!.pr)) return;
-    entry.info.meta!.pr = pr;
+    if (prInfoEqual(pr, entry.info.meta.pr)) return;
+    entry.info.meta.pr = pr;
     plog.info(
       pr
         ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }

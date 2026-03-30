@@ -22,7 +22,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
 
 /** Publish the current metadata snapshot to all subscribers. */
 export function publishMetadata(entry: TerminalProcess, terminalId: string): void {
-  const m = entry.info.meta!;
+  const m = entry.info.meta;
   log.info(
     {
       terminal: terminalId,
