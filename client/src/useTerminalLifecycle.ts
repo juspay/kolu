@@ -262,13 +262,15 @@ export function useTerminalLifecycle(deps: {
   }
 
   /** Kill all terminals (debug command). */
+  /** Close all terminals without clearing the saved session (debug command). */
   async function handleCloseAll() {
-    const ids = [...store.idOrder()];
-    for (const id of ids) {
-      const subs = store.getSubTerminalIds(id);
-      for (const subId of subs) await handleKill(subId);
-      await handleKill(id);
-    }
+    await client.terminal.killAll();
+    // Clear client state
+    store.setMeta(reconcile({}));
+    store.setIdOrder([]);
+    store.setSubOrder({});
+    store.setActiveId(null);
+    store.setMruOrder([]);
   }
 
   return {
