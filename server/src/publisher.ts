@@ -6,13 +6,17 @@
  *  System events ("session:changed") are broadcast channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import type { TerminalMetadata } from "kolu-common";
+import type { TerminalMetadata, GitInfo } from "kolu-common";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
 type TerminalChannels = {
-  /** All server-derived terminal state — from metadata providers and idle timer */
+  /** All server-derived terminal state — client-facing aggregated channel */
   metadata: TerminalMetadata;
+  /** CWD changed (OSC 7 from PTY) — triggers git provider */
+  cwd: string;
+  /** Git context changed — triggers github PR provider */
+  git: GitInfo | null;
   /** Raw PTY output bytes — high frequency, drives xterm.js */
   data: string;
   /** Terminal process exited — fires once per terminal lifetime */
