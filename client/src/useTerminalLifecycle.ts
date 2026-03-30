@@ -1,6 +1,6 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createSignal, createEffect, on } from "solid-js";
+import { type Accessor, createSignal, createEffect } from "solid-js";
 import { produce, reconcile } from "solid-js/store";
 import { createQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
@@ -212,9 +212,7 @@ export function useTerminalLifecycle(deps: {
   // Re-fetch saved session when all terminals are killed mid-session.
   createEffect(() => {
     if (store.terminalIds().length === 0 && hydrated) {
-      qc.invalidateQueries({ queryKey: orpc.session.get.key() }).then(() => {
-        setSavedSession(sessionQuery.data ?? null);
-      });
+      client.session.get().then(setSavedSession);
     }
   });
 
