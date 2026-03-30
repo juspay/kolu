@@ -2,21 +2,37 @@
  *
  *  ARCHITECTURE: This file wires together focused modules:
  *    - useTerminalStore.ts  — store, signals, accessors (pure state)
- *    - useTerminalStreams.ts — exit event subscription
  *    - useTerminalLifecycle.ts — CRUD, restore-on-load, worktree ops
  *    - useTerminalAlerts.ts — Claude state detection (watches store reactively)
- *    - TerminalLiveData.tsx — per-terminal live queries (metadata + activity via TanStack)
+ *    - TerminalQueries.tsx — per-terminal live queries (metadata + activity via TanStack)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221. */
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
+import { client } from "./rpc";
 import type { useActivity } from "./useActivity";
 import { useTerminalStore } from "./useTerminalStore";
-import { useTerminalStreams } from "./useTerminalStreams";
 import { useTerminalLifecycle } from "./useTerminalLifecycle";
 import { useTerminalAlerts } from "./useTerminalAlerts";
+
+/** Fire-and-forget stream subscription with AbortController cleanup. */
+function subscribeStream<T>(
+  startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  onValue: (value: T) => void,
+): () => void {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const stream = await startStream(controller.signal);
+      for await (const value of stream) onValue(value);
+    } catch {
+      // Stream aborted or terminal gone — expected on cleanup
+    }
+  })();
+  return () => controller.abort();
+}
 
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
@@ -38,20 +54,26 @@ export function useTerminals(deps: {
     terminalLabel: store.terminalLabel,
   });
 
-  const streams = useTerminalStreams({
-    onExit: (id, code) => {
-      const label = store.terminalLabel(id);
-      toast(
-        code === 0 ? `${label} exited` : `${label} exited with code ${code}`,
-      );
-      lifecycle.removeAndAutoSwitch(id);
-    },
-  });
+  /** Subscribe to exit events for a terminal (one-shot action, not queryable state). */
+  function subscribeExit(id: TerminalId) {
+    return subscribeStream(
+      (signal) => client.terminal.onExit({ id }, { signal }),
+      (code) => {
+        const label = store.terminalLabel(id);
+        toast(
+          code === 0
+            ? `${label} exited`
+            : `${label} exited with code ${code}`,
+        );
+        lifecycle.removeAndAutoSwitch(id);
+      },
+    );
+  }
 
   const lifecycle = useTerminalLifecycle({
     store,
     randomTheme: deps.randomTheme,
-    subscribeExit: streams.subscribeExit,
+    subscribeExit,
     seedActivity,
     clearActivity,
   });
@@ -82,7 +104,7 @@ export function useTerminals(deps: {
     savedSession: lifecycle.savedSession,
     handleRestoreSession: lifecycle.handleRestoreSession,
     simulateAlert: alerts.simulateAlert,
-    // Exposed for TerminalLiveData (per-terminal live queries)
+    // Exposed for TerminalQueries (per-terminal live queries)
     setMeta: store.setMeta,
     pushActivity,
   };

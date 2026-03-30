@@ -22,7 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
-import TerminalLiveData from "./TerminalLiveData";
+import TerminalQueries from "./TerminalQueries";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -364,10 +364,10 @@ const App: Component = () => {
                   onRestore={() => void handleRestoreSession()}
                 />
               </Show>
-              {/* Per-terminal live queries for metadata + activity (all terminals including subs) */}
+              {/* Per-terminal TanStack queries for metadata + activity (all terminals including subs) */}
               <For each={allTerminalIds()}>
                 {(id) => (
-                  <TerminalLiveData id={id} setMeta={setMeta} pushActivity={pushActivity} />
+                  <TerminalQueries id={id} setMeta={setMeta} pushActivity={pushActivity} />
                 )}
               </For>
               <For each={terminalIds()}>
