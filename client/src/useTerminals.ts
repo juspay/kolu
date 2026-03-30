@@ -78,10 +78,7 @@ export function useTerminals(deps: {
     handleCreateSubTerminal: lifecycle.handleCreateSubTerminal,
     handleKill: lifecycle.handleKill,
     getSubTerminalIds: store.getSubTerminalIds,
-    reorderTerminals: (ids: TerminalId[]) => {
-      store.setIdOrder(ids);
-      lifecycle.reorderTerminals(ids);
-    },
+    reorderTerminals: lifecycle.reorderTerminals,
     mruOrder: store.mruOrder,
     handleCopyTerminalText: lifecycle.handleCopyTerminalText,
     handleCloseAll: lifecycle.handleCloseAll,

@@ -39,6 +39,18 @@ export interface TerminalProcess {
 const terminals = new Map<TerminalId, TerminalProcess>();
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
+const SORT_GAP = 1000;
+
+/** Next sortOrder for a group (top-level or siblings of a parent). */
+function nextSortOrder(parentId?: string): number {
+  let max = 0;
+  for (const entry of terminals.values()) {
+    if (entry.info.meta.parentId === parentId && entry.info.meta.sortOrder > max) {
+      max = entry.info.meta.sortOrder;
+    }
+  }
+  return max + SORT_GAP;
+}
 
 /** Append a sample and trim entries older than the rolling window. */
 function pushActivitySample(entry: TerminalProcess, active: boolean): void {
@@ -75,6 +87,7 @@ export function snapshotSession(): SavedTerminal[] {
       cwd: m.cwd,
       ...(m.parentId && { parentId: m.parentId }),
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
+      sortOrder: m.sortOrder,
     };
   });
 }
@@ -127,7 +140,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     cwd,
   );
 
-  const meta = createMetadata(handle.cwd);
+  const meta = createMetadata(handle.cwd, nextSortOrder(parentId));
   if (parentId) meta.parentId = parentId;
   const entry: TerminalProcess = {
     info: {
@@ -150,7 +163,9 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 }
 
 export function listTerminals(): TerminalInfo[] {
-  const list = [...terminals.values()].map((entry) => entry.info);
+  const list = [...terminals.values()]
+    .map((entry) => entry.info)
+    .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
   log.debug({ count: list.length }, "terminal list");
   return list;
 }
@@ -174,14 +189,16 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   return entry.info;
 }
 
-/** Set or clear a terminal's parent relationship. Publishes metadata so clients see the change. */
+/** Set or clear a terminal's parent relationship. Assigns sortOrder for the new group. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
   const entry = terminals.get(id);
   if (entry) {
-    entry.info.meta.parentId = parentId ?? undefined;
+    const newParent = parentId ?? undefined;
+    entry.info.meta.parentId = newParent;
+    entry.info.meta.sortOrder = nextSortOrder(newParent);
     publishMetadata(entry, id);
   }
 }
@@ -195,19 +212,15 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
   }
 }
 
-/** Reorder terminals to match the given ID array. IDs not in the list are appended at the end. */
+/** Reorder terminals by assigning sequential sortOrder values. */
 export function reorderTerminals(ids: TerminalId[]): void {
-  const reordered = new Map<TerminalId, TerminalProcess>();
-  for (const id of ids) {
-    const entry = terminals.get(id);
-    if (entry) reordered.set(id, entry);
+  for (let i = 0; i < ids.length; i++) {
+    const entry = terminals.get(ids[i]!);
+    if (entry) {
+      entry.info.meta.sortOrder = (i + 1) * SORT_GAP;
+      publishMetadata(entry, ids[i]!);
+    }
   }
-  // Append any IDs not in the provided list (shouldn't happen, but be safe)
-  for (const [id, entry] of terminals) {
-    if (!reordered.has(id)) reordered.set(id, entry);
-  }
-  terminals.clear();
-  for (const [id, entry] of reordered) terminals.set(id, entry);
   log.debug({ count: ids.length }, "terminals reordered");
 }
 

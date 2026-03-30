@@ -20,7 +20,7 @@ interface StateSchema {
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.0.0";
+const SCHEMA_VERSION = "1.1.0";
 
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
@@ -32,8 +32,9 @@ export const store = new Conf<StateSchema>({
     session: null,
   },
   migrations: {
-    // Example for future use:
-    // "1.1.0": store => { store.set("newField", defaultValue); },
+    // sortOrder added to SavedTerminal — old sessions don't have it.
+    // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
+    "1.1.0": () => {},
   },
 });
 

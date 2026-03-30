@@ -78,6 +78,8 @@ export const TerminalMetadataSchema = z.object({
   busy: z.boolean(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
+  /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
+  sortOrder: z.number(),
 });
 
 // --- Activity ---
@@ -170,6 +172,8 @@ export const SavedTerminalSchema = z.object({
   repoName: z.string().optional(),
   /** Snapshot of branch at save time (for display only). */
   branch: z.string().optional(),
+  /** Ordering within group at save time. */
+  sortOrder: z.number().optional(),
 });
 
 export const SavedSessionSchema = z.object({
