@@ -1,19 +1,13 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import * as assert from "node:assert";
-import * as fs from "node:fs";
+import * as os from "node:os";
 
 Given(
   "a saved session with {int} terminals",
   async function (this: KoluWorld, count: number) {
-    // Create unique temp dirs that survive macOS /tmp cleanup
-    const dirs: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const dir = `/tmp/kolu-session-test-${Date.now()}-${i}`;
-      fs.mkdirSync(dir, { recursive: true });
-      dirs.push(dir);
-    }
-    // Seed the session directly on the server — no auto-save timing dependency
+    // Use paths guaranteed to exist on all platforms (no mkdir needed)
+    const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
     await this.page.request.fetch("/rpc/session/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
