@@ -49,8 +49,18 @@ export function publishSystem<C extends keyof SystemChannels>(
   void publisher.publish(channel, payload);
 }
 
-/** Subscribe to a per-terminal channel. Runs until signal aborts. Logs unexpected errors.
- *  Used by providers for fire-and-forget event consumption. */
+/** Subscribe to a per-terminal channel, returning an AsyncIterable.
+ *  Primitive — used by router handlers (yield) and subscribeForTerminal (callback). */
+export function subscribeForTerminal_<C extends keyof TerminalChannels>(
+  channel: C,
+  terminalId: string,
+  signal: AbortSignal | undefined,
+): AsyncIterable<TerminalChannels[C]> {
+  return publisher.subscribe(`${String(channel)}:${terminalId}`, { signal }) as AsyncIterable<TerminalChannels[C]>;
+}
+
+/** Subscribe to a per-terminal channel with a callback. Fire-and-forget convenience
+ *  wrapper around subscribeForTerminal_ — logs unexpected errors. Used by providers. */
 export function subscribeForTerminal<C extends keyof TerminalChannels>(
   channel: C,
   terminalId: string,
@@ -59,21 +69,11 @@ export function subscribeForTerminal<C extends keyof TerminalChannels>(
 ): void {
   void (async () => {
     try {
-      for await (const event of publisher.subscribe(`${String(channel)}:${terminalId}`, { signal })) {
-        onEvent(event as TerminalChannels[C]);
+      for await (const event of subscribeForTerminal_(channel, terminalId, signal)) {
+        onEvent(event);
       }
     } catch (err) {
       if (!signal.aborted) log.error({ err, terminal: terminalId, channel }, "publisher subscription failed");
     }
   })();
-}
-
-/** Subscribe to a per-terminal channel, returning an AsyncIterable.
- *  Used by router handlers that need to yield from the subscription. */
-export function subscribeChannel<C extends keyof TerminalChannels>(
-  channel: C,
-  terminalId: string,
-  signal: AbortSignal | undefined,
-): AsyncIterable<TerminalChannels[C]> {
-  return publisher.subscribe(`${String(channel)}:${terminalId}`, { signal }) as AsyncIterable<TerminalChannels[C]>;
 }

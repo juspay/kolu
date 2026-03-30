@@ -20,7 +20,7 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeChannel } from "./publisher.ts";
+import { subscribeForTerminal_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -77,7 +77,7 @@ export const appRouter = t.router({
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the publisher, not lost.
-      const live = subscribeChannel("data", input.id, signal);
+      const live = subscribeForTerminal_("data", input.id, signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
@@ -126,7 +126,7 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
       yield { ...entry.metadata };
-      for await (const event of subscribeChannel("metadata", input.id, signal)) {
+      for await (const event of subscribeForTerminal_("metadata", input.id, signal)) {
         yield event.metadata;
       }
     }),
@@ -137,14 +137,14 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
       yield entry.isActive;
-      for await (const event of subscribeChannel("activity", input.id, signal)) {
+      for await (const event of subscribeForTerminal_("activity", input.id, signal)) {
         yield event.isActive;
       }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      for await (const event of subscribeChannel("exit", input.id, signal)) {
+      for await (const event of subscribeForTerminal_("exit", input.id, signal)) {
         yield event.exitCode;
         return;
       }
