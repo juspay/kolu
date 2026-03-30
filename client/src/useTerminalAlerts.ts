@@ -1,7 +1,7 @@
 /** Terminal alerts — reactively detect Claude state transitions and fire notifications.
  *  Watches TanStack metadata queries for Claude state changes. */
 
-import { type Accessor, createEffect } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import {
   fireActivityAlert,
@@ -19,25 +19,21 @@ export function useTerminalAlerts(deps: {
   // Request browser notification permission eagerly when alerts are enabled
   if (deps.activityAlerts()) requestNotificationPermission();
 
-  // Track previous Claude state per terminal for transition detection.
-  const prevStates = new Map<TerminalId, string | undefined>();
-
   // Reactively watch Claude state for all terminals.
-  createEffect(() => {
-    const ids = deps.terminalIds();
-    const activeIds = new Set(ids);
-    for (const id of prevStates.keys()) {
-      if (!activeIds.has(id)) prevStates.delete(id);
-    }
-    for (const id of ids) {
-      const state = deps.getMetadata(id)?.claude?.state;
-      const prev = prevStates.get(id);
-      if (prev !== undefined) {
-        checkClaudeFinished(id, prev, state);
-      }
-      prevStates.set(id, state);
-    }
-  });
+  // SolidJS's on() tracks previous values natively — no manual Map needed.
+  createEffect(
+    on(
+      () => deps.terminalIds().map((id) => deps.getMetadata(id)?.claude?.state),
+      (states, prevStates) => {
+        const ids = deps.terminalIds();
+        for (let i = 0; i < ids.length; i++) {
+          if (prevStates && prevStates[i] !== undefined) {
+            checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
+          }
+        }
+      },
+    ),
+  );
 
   function checkClaudeFinished(
     id: TerminalId,
