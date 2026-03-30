@@ -140,8 +140,10 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           cleanupClipboardDir(entry.clipboardDir);
         }
         emitter.emit("exit", exitCode);
-        terminals.delete(id);
-        emitChanged();
+        // Only save session on natural exit (entry still in map).
+        // killAllTerminals clears the map first, so entry is gone — skip.
+        const wasNaturalExit = terminals.delete(id);
+        if (wasNaturalExit) emitChanged();
       },
       // PTY callback (OSC 7): update metadata CWD, providers react to the event
       onCwd: (newCwd) => {
