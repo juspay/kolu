@@ -26,7 +26,13 @@ export function useTerminalAlerts(deps: {
   // Reactively watch Claude state for all terminals.
   // Re-runs when terminalIds change or any terminal's Claude state changes.
   createEffect(() => {
-    for (const id of deps.terminalIds()) {
+    const ids = deps.terminalIds();
+    const activeIds = new Set(ids);
+    // Prune entries for removed terminals
+    for (const id of prevStates.keys()) {
+      if (!activeIds.has(id)) prevStates.delete(id);
+    }
+    for (const id of ids) {
       const state = deps.meta[id]?.meta?.claude?.state;
       const prev = prevStates.get(id);
       // Skip initial observation (prev not yet tracked) — only fire on transitions

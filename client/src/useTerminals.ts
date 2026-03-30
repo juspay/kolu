@@ -17,23 +17,6 @@ import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalLifecycle } from "./useTerminalLifecycle";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 
-/** Fire-and-forget stream subscription with AbortController cleanup. */
-function subscribeStream<T>(
-  startStream: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
-  onValue: (value: T) => void,
-): () => void {
-  const controller = new AbortController();
-  (async () => {
-    try {
-      const stream = await startStream(controller.signal);
-      for await (const value of stream) onValue(value);
-    } catch {
-      // Stream aborted or terminal gone — expected on cleanup
-    }
-  })();
-  return () => controller.abort();
-}
-
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
   activity: ReturnType<typeof useActivity>;
@@ -56,18 +39,22 @@ export function useTerminals(deps: {
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state). */
   function subscribeExit(id: TerminalId) {
-    return subscribeStream(
-      (signal) => client.terminal.onExit({ id }, { signal }),
-      (code) => {
-        const label = store.terminalLabel(id);
-        toast(
-          code === 0
-            ? `${label} exited`
-            : `${label} exited with code ${code}`,
-        );
-        lifecycle.removeAndAutoSwitch(id);
-      },
-    );
+    (async () => {
+      try {
+        const stream = await client.terminal.onExit({ id });
+        for await (const code of stream) {
+          const label = store.terminalLabel(id);
+          toast(
+            code === 0
+              ? `${label} exited`
+              : `${label} exited with code ${code}`,
+          );
+          lifecycle.removeAndAutoSwitch(id);
+        }
+      } catch {
+        // Stream aborted or terminal gone — expected on cleanup
+      }
+    })();
   }
 
   const lifecycle = useTerminalLifecycle({
