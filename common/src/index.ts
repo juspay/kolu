@@ -73,6 +73,7 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  themeName: z.string().optional(),
 });
 
 // --- Activity ---
@@ -86,7 +87,6 @@ export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
-  themeName: z.string().optional(),
   isActive: z.boolean(),
   meta: TerminalMetadataSchema.optional(),
   parentId: TerminalIdSchema.optional(),

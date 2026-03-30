@@ -12,7 +12,7 @@ import {
   type GitHubPrInfo,
   type TerminalMetadata,
 } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
+import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { publishMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -154,12 +154,13 @@ function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
  * Resolves PR info on branch change and polls every 30s.
  */
 export function startGitHubPrProvider(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "github-pr", terminal: terminalId });
-  let lastBranch: string | undefined = entry.metadata.git?.branch;
-  let lastRepoRoot: string | undefined = entry.metadata.git?.repoRoot;
+  const meta = entry.info.meta!;
+  let lastBranch: string | undefined = meta.git?.branch;
+  let lastRepoRoot: string | undefined = meta.git?.repoRoot;
 
   plog.info({ branch: lastBranch }, "started");
 
@@ -179,8 +180,8 @@ export function startGitHubPrProvider(
       void resolve(repoRoot, branch);
     } else {
       // No longer in a git repo
-      if (entry.metadata.pr !== null) {
-        entry.metadata.pr = null;
+      if (entry.info.meta!.pr !== null) {
+        entry.info.meta!.pr = null;
         publishMetadata(entry, terminalId);
       }
     }
@@ -188,8 +189,8 @@ export function startGitHubPrProvider(
 
   async function resolve(repoRoot: string, branch: string) {
     const pr = await resolveGitHubPr(repoRoot, branch);
-    if (prInfoEqual(pr, entry.metadata.pr)) return;
-    entry.metadata.pr = pr;
+    if (prInfoEqual(pr, entry.info.meta!.pr)) return;
+    entry.info.meta!.pr = pr;
     plog.info(
       pr
         ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }
@@ -208,7 +209,7 @@ export function startGitHubPrProvider(
   }, POLL_INTERVAL_MS);
 
   const abort = new AbortController();
-  subscribeForTerminal("metadata", terminalId, abort.signal, (e) => onMetadata(e.metadata));
+  subscribeForTerminal("metadata", terminalId, abort.signal, onMetadata);
 
   return () => {
     abort.abort();

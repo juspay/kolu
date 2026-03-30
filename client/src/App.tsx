@@ -87,7 +87,7 @@ const App: Component = () => {
     handleRandomizeTheme,
   } = useThemeManager({
     activeId,
-    getThemeName: (id) => getMeta(id)?.themeName,
+    getThemeName: (id) => getMeta(id)?.meta?.themeName,
     setThemeName,
   });
 

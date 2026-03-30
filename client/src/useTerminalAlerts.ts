@@ -9,6 +9,7 @@ import {
 } from "./useActivityAlerts";
 import type { TerminalMetaStore, SetTerminalMeta } from "./useTerminalStore";
 
+
 export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;

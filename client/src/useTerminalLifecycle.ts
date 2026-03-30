@@ -18,6 +18,7 @@ import type {
 } from "kolu-common";
 import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
 
+
 export function useTerminalLifecycle(deps: {
   store: TerminalStore;
   randomTheme: Accessor<boolean>;
@@ -71,9 +72,10 @@ export function useTerminalLifecycle(deps: {
     onError: (err: Error) => toast.error(`Failed to remove worktree: ${err.message}`),
   }));
 
-  /** Set a terminal's theme name locally and on the server. */
+  /** Set a terminal's theme name locally (optimistic) and on the server.
+   *  themeName lives in TerminalMetadata — server publishes it back via live query. */
   function setThemeName(id: TerminalId, name: string) {
-    store.setMeta(id, "themeName", name);
+    store.setMeta(id, "meta", "themeName", name);
     setThemeMut.mutate({ id, themeName: name });
   }
 
@@ -247,10 +249,7 @@ export function useTerminalLifecycle(deps: {
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    store.setMeta(info.id, {
-      ...store.infoToState(info),
-      ...(themeName && { themeName }),
-    });
+    store.setMeta(info.id, store.infoToState(info));
     store.setIdOrder((prev) => [...prev, info.id]);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);

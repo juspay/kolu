@@ -4,7 +4,6 @@
 import { cwdBasename } from "./path";
 import type {
   TerminalId,
-  TerminalInfo,
   TerminalMetadata,
   ActivitySample,
 } from "kolu-common";
@@ -29,11 +28,14 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-function terminalName(
-  meta: Omit<TerminalInfo, "id"> | undefined,
-): string | undefined {
+/** Entry with at least a meta field for display computation. */
+type MetaEntry = { meta?: TerminalMetadata };
+
+function terminalName(entry: MetaEntry | undefined): string | undefined {
   return (
-    meta?.meta?.git?.repoName || cwdBasename(meta?.meta?.cwd ?? "") || undefined
+    entry?.meta?.git?.repoName ||
+    cwdBasename(entry?.meta?.cwd ?? "") ||
+    undefined
   );
 }
 
@@ -42,7 +44,7 @@ function terminalName(
  *  and bundles activity + sub-count so consumers get one complete object. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
-  getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined,
+  getMeta: (id: TerminalId) => MetaEntry | undefined,
   getActivityHistory: (id: TerminalId) => ActivitySample[],
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {

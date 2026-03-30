@@ -22,12 +22,17 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Per-terminal metadata stored client-side. Same shape as TerminalInfo minus the id (used as key). */
-export type TerminalState = Omit<TerminalInfo, "id" | "activityHistory"> & {
+/** Per-terminal client-only state. Server-derived fields live in TanStack cache. */
+export type TerminalClientState = {
+  /** True when a background notification has fired for this terminal. */
   notified?: boolean;
+  /** Server metadata, synced from TanStack live query. */
+  meta?: TerminalMetadata;
+  isActive: boolean;
+  parentId?: string;
 };
 
-export type TerminalMetaStore = Record<TerminalId, TerminalState>;
+export type TerminalMetaStore = Record<TerminalId, TerminalClientState>;
 export type SetTerminalMeta = SetStoreFunction<TerminalMetaStore>;
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
@@ -35,9 +40,9 @@ const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 export function useTerminalStore(deps: {
   getActivityHistory: (id: TerminalId) => ActivitySample[];
 }) {
-  // Single store: all per-terminal metadata keyed by ID.
-  // Fine-grained reactivity — updating one terminal's metadata doesn't re-render others.
-  const [meta, setMeta] = createStore<Record<TerminalId, TerminalState>>({});
+  // Single store: per-terminal client state keyed by ID.
+  // Fine-grained reactivity — updating one terminal doesn't re-render others.
+  const [meta, setMeta] = createStore<TerminalMetaStore>({});
   // Explicit ordering — UUIDs don't sort chronologically, so track insertion order.
   // Only top-level terminals (no parentId) live here.
   const [idOrder, setIdOrder] = createSignal<TerminalId[]>([]);
@@ -74,8 +79,8 @@ export function useTerminalStore(deps: {
     return subOrder()[parentId] ?? [];
   }
 
-  /** Get metadata for a terminal. */
-  function getMeta(id: TerminalId): TerminalState | undefined {
+  /** Get client state for a terminal. */
+  function getMeta(id: TerminalId): TerminalClientState | undefined {
     return meta[id];
   }
 
@@ -105,12 +110,15 @@ export function useTerminalStore(deps: {
     return pos > 0 ? `Terminal ${pos}` : "Terminal";
   }
 
-  /** Convert a TerminalInfo (wire type) to store entry (strip id and activityHistory).
+  /** Convert a TerminalInfo (wire type) to client store entry.
    *  Ensures `meta` is always present so SolidJS store tracks it from creation —
    *  without this, setting `meta` later via subscription won't trigger memo re-runs. */
-  function infoToState(t: TerminalInfo): TerminalState {
-    const { id: _, activityHistory: _history, ...state } = t;
-    return { meta: undefined, ...state };
+  function infoToState(t: TerminalInfo): TerminalClientState {
+    return {
+      meta: t.meta,
+      isActive: t.isActive,
+      parentId: t.parentId,
+    };
   }
 
   /** Reset all state to defaults — used by bulk operations like close-all. */

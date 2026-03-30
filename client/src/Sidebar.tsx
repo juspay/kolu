@@ -15,13 +15,13 @@ import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId } from "kolu-common";
-import type { TerminalState } from "./useTerminalStore";
+import type { TerminalClientState } from "./useTerminalStore";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
-  meta: TerminalState | undefined;
+  meta: TerminalClientState | undefined;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
@@ -82,7 +82,7 @@ const SidebarEntry: Component<{
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => TerminalState | undefined;
+  getMeta: (id: TerminalId) => TerminalClientState | undefined;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;

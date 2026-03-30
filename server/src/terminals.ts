@@ -23,47 +23,28 @@ import { createMetadata, publishMetadata, startProviders } from "./meta/index.ts
 import { publishForTerminal, publishSystem } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
-/** Server-side terminal state. Owns a PtyHandle. */
-export interface TerminalEntry {
+/** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
+export interface TerminalProcess {
+  /** The wire-type snapshot — single source of truth for id, pid, isActive, meta, parentId, activityHistory. */
+  info: TerminalInfo;
   handle: PtyHandle;
-  themeName?: string;
-  /** Current activity state. Transitions published via publisher. */
-  isActive: boolean;
   /** Timer that flips isActive→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
-  /** If set, this terminal is a sub-terminal of the given parent. */
-  parentId?: string;
-  /** Rolling activity history: timestamped transitions for sparkline. */
-  activityHistory: ActivitySample[];
-  /** Aggregated metadata from all providers. */
-  metadata: TerminalMetadata;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
 }
 
-const terminals = new Map<TerminalId, TerminalEntry>();
-
-function toInfo(id: TerminalId, entry: TerminalEntry): TerminalInfo {
-  return {
-    id,
-    pid: entry.handle.pid,
-    themeName: entry.themeName,
-    isActive: entry.isActive,
-    parentId: entry.parentId,
-    activityHistory:
-      entry.activityHistory.length > 0 ? entry.activityHistory : undefined,
-  };
-}
+const terminals = new Map<TerminalId, TerminalProcess>();
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 
 /** Append a sample and trim entries older than the rolling window. */
-function pushActivitySample(entry: TerminalEntry, active: boolean): void {
+function pushActivitySample(entry: TerminalProcess, active: boolean): void {
   const now = Date.now();
   const cutoff = now - ACTIVITY_WINDOW_MS;
-  const h = entry.activityHistory;
+  const h = entry.info.activityHistory!;
   // Drop samples outside the window (array is chronological)
   const keep = h.findIndex(([t]) => t >= cutoff);
   if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
@@ -71,17 +52,17 @@ function pushActivitySample(entry: TerminalEntry, active: boolean): void {
 }
 
 /** Mark terminal active and reset the idle timer. */
-function touchActivity(entry: TerminalEntry, terminalId: string): void {
+function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.isActive) {
-    entry.isActive = true;
+  if (!entry.info.isActive) {
+    entry.info.isActive = true;
     pushActivitySample(entry, true);
-    publishForTerminal("activity", terminalId, { isActive: true });
+    publishForTerminal("activity", terminalId, true);
   }
   entry.idleTimer = setTimeout(() => {
-    entry.isActive = false;
+    entry.info.isActive = false;
     pushActivitySample(entry, false);
-    publishForTerminal("activity", terminalId, { isActive: false });
+    publishForTerminal("activity", terminalId, false);
   }, IDLE_MS);
 }
 
@@ -89,11 +70,11 @@ function touchActivity(entry: TerminalEntry, terminalId: string): void {
 export function snapshotSession(): SavedTerminal[] {
   return [...terminals.entries()].map(([id, entry]) => ({
     id,
-    cwd: entry.metadata.cwd,
-    ...(entry.parentId && { parentId: entry.parentId }),
-    ...(entry.metadata.git && {
-      repoName: entry.metadata.git.repoName,
-      branch: entry.metadata.git.branch,
+    cwd: entry.info.meta!.cwd,
+    ...(entry.info.parentId && { parentId: entry.info.parentId }),
+    ...(entry.info.meta!.git && {
+      repoName: entry.info.meta!.git.repoName,
+      branch: entry.info.meta!.git.branch,
     }),
   }));
 }
@@ -115,7 +96,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onData: (data) => {
         const entry = terminals.get(id);
         if (entry) touchActivity(entry, id);
-        publishForTerminal("data", id, { data });
+        publishForTerminal("data", id, data);
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -126,7 +107,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
-        publishForTerminal("exit", id, { exitCode });
+        publishForTerminal("exit", id, exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
@@ -136,7 +117,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          entry.metadata.cwd = newCwd;
+          entry.info.meta!.cwd = newCwd;
           publishMetadata(entry, id);
           emitChanged();
         }
@@ -146,16 +127,18 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     cwd,
   );
 
-  const metadata = createMetadata(handle.cwd);
-  const entry: TerminalEntry = {
+  const meta = createMetadata(handle.cwd);
+  const entry: TerminalProcess = {
+    info: {
+      id,
+      pid: handle.pid,
+      isActive: true,
+      meta,
+      parentId,
+      activityHistory: [[Date.now(), true] as ActivitySample],
+    },
     handle,
-    isActive: true,
     clipboardDir,
-    parentId,
-    // Seed initial "active" sample so the first active period appears in history
-    // (touchActivity won't record it since isActive starts true — no transition).
-    activityHistory: [[Date.now(), true] as ActivitySample],
-    metadata,
     stopProviders: () => {},
   };
   // Start providers after entry is in the map (providers may emit immediately)
@@ -164,16 +147,16 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   emitChanged();
-  return toInfo(id, entry);
+  return entry.info;
 }
 
 export function listTerminals(): TerminalInfo[] {
-  const list = [...terminals.entries()].map(([id, entry]) => toInfo(id, entry));
+  const list = [...terminals.values()].map((entry) => entry.info);
   log.debug({ count: list.length }, "terminal list");
   return list;
 }
 
-export function getTerminal(id: TerminalId): TerminalEntry | undefined {
+export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
 }
 
@@ -187,10 +170,9 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
-  const info = toInfo(id, entry);
   terminals.delete(id);
   emitChanged();
-  return info;
+  return entry.info;
 }
 
 /** Set or clear a terminal's parent relationship. */
@@ -199,18 +181,21 @@ export function setTerminalParent(
   parentId: string | null,
 ): void {
   const entry = terminals.get(id);
-  if (entry) entry.parentId = parentId ?? undefined;
+  if (entry) entry.info.parentId = parentId ?? undefined;
 }
 
-/** Set the theme name for a terminal. */
+/** Set the theme name for a terminal (stored in metadata, published to clients). */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
-  if (entry) entry.themeName = themeName;
+  if (entry) {
+    entry.info.meta!.themeName = themeName;
+    publishMetadata(entry, id);
+  }
 }
 
 /** Reorder terminals to match the given ID array. IDs not in the list are appended at the end. */
 export function reorderTerminals(ids: TerminalId[]): void {
-  const reordered = new Map<TerminalId, TerminalEntry>();
+  const reordered = new Map<TerminalId, TerminalProcess>();
   for (const id of ids) {
     const entry = terminals.get(id);
     if (entry) reordered.set(id, entry);

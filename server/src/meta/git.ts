@@ -12,7 +12,7 @@ import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { simpleGit } from "simple-git";
 import type { GitInfo, TerminalMetadata } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
+import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { publishMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -116,17 +116,18 @@ function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * Resolves git info on CWD change and HEAD change, emits only on value change.
  */
 export function startGitProvider(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
-  let lastCwd = entry.metadata.cwd;
-  let stopHeadWatch = watchGitHead(entry.metadata.cwd, handleHeadChange);
+  const meta = entry.info.meta!;
+  let lastCwd = meta.cwd;
+  let stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
 
   plog.info({ cwd: lastCwd }, "started");
 
   // Resolve immediately for initial CWD
-  void resolve(entry.metadata.cwd);
+  void resolve(meta.cwd);
 
   function onMetadata(meta: TerminalMetadata) {
     const cwdChanged = meta.cwd !== lastCwd;
@@ -137,7 +138,7 @@ export function startGitProvider(
       stopHeadWatch();
       stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
       void resolve(meta.cwd);
-    } else if (entry.metadata.git === null && hasGitDir(meta.cwd)) {
+    } else if (entry.info.meta!.git === null && hasGitDir(meta.cwd)) {
       // Re-resolve when .git appears — detects `git init` in the current dir
       // without spawning a git process on every prompt in non-git dirs
       void resolve(meta.cwd);
@@ -151,23 +152,24 @@ export function startGitProvider(
 
   async function resolve(cwd: string) {
     const git = await resolveGitInfo(cwd);
-    if (gitInfoEqual(git, entry.metadata.git)) return;
+    const m = entry.info.meta!;
+    if (gitInfoEqual(git, m.git)) return;
     // Start HEAD watcher when a repo appears (e.g. after `git init`)
-    if (entry.metadata.git === null && git !== null) {
+    if (m.git === null && git !== null) {
       stopHeadWatch();
       stopHeadWatch = watchGitHead(cwd, handleHeadChange);
     }
-    entry.metadata.git = git;
+    m.git = git;
     // Track repo in persistent recent repos list
     if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
-    entry.metadata.pr = null;
+    m.pr = null;
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
     publishMetadata(entry, terminalId);
   }
 
   const abort = new AbortController();
-  subscribeForTerminal("metadata", terminalId, abort.signal, (e) => onMetadata(e.metadata));
+  subscribeForTerminal("metadata", terminalId, abort.signal, onMetadata);
 
   return () => {
     abort.abort();

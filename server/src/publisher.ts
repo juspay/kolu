@@ -10,15 +10,15 @@ import type { TerminalMetadata } from "kolu-common";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
-export type TerminalChannels = {
+type TerminalChannels = {
   /** CWD, git, PR, Claude state — from metadata providers */
-  metadata: { metadata: TerminalMetadata };
+  metadata: TerminalMetadata;
   /** Active/sleeping transitions — from idle timer */
-  activity: { isActive: boolean };
+  activity: boolean;
   /** Raw PTY output bytes — high frequency, drives xterm.js */
-  data: { data: string };
+  data: string;
   /** Terminal process exited — fires once per terminal lifetime */
-  exit: { exitCode: number };
+  exit: number;
 };
 
 /** System-wide broadcast channels (no terminal prefix). */
