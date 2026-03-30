@@ -175,16 +175,10 @@ export function useTerminalLifecycle(deps: {
       await handleCreate(t.cwd);
       const newId = store.idOrder()[store.idOrder().length - 1]!;
       oldToNew.set(t.id, newId);
-      if (t.themeName) setThemeName(newId, t.themeName);
     }
     for (const t of subs) {
       const newParentId = oldToNew.get(t.parentId!);
-      if (!newParentId) continue;
-      await handleCreateSubTerminal(newParentId, t.cwd);
-      // Sub-terminals: get the last added sub-terminal ID
-      const subIds = store.getSubTerminalIds(newParentId);
-      const newId = subIds[subIds.length - 1]!;
-      if (t.themeName) setThemeName(newId, t.themeName);
+      if (newParentId) await handleCreateSubTerminal(newParentId, t.cwd);
     }
   }
 

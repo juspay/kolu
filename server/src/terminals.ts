@@ -104,7 +104,6 @@ export function snapshotSession(): SavedTerminal[] {
       repoName: entry.metadata.git.repoName,
       branch: entry.metadata.git.branch,
     }),
-    ...(entry.themeName && { themeName: entry.themeName }),
   }));
 }
 
@@ -142,6 +141,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         }
         emitter.emit("exit", exitCode);
         terminals.delete(id);
+        emitChanged();
       },
       // PTY callback (OSC 7): update metadata CWD, providers react to the event
       onCwd: (newCwd) => {
@@ -201,6 +201,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   const info = toInfo(id, entry);
   terminals.delete(id);
+  emitChanged();
   return info;
 }
 

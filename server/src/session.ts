@@ -7,9 +7,12 @@
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { store } from "./state.ts";
 
-/** Save a session snapshot. Only saves when terminals exist (avoids overwriting with empty). */
+/** Save a session snapshot. Clears the session when no terminals remain. */
 export function saveSession(terminals: SavedTerminal[]): void {
-  if (terminals.length === 0) return;
+  if (terminals.length === 0) {
+    store.set("session", null);
+    return;
+  }
   store.set("session", { terminals, savedAt: Date.now() });
 }
 
