@@ -78,9 +78,9 @@ pnpm monorepo, three packages:
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                       |
 | `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
-| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+| `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
 
-All communication over a single WebSocket (`/rpc/ws`) via oRPC. Terminal I/O, lifecycle, CWD tracking, and activity detection are typed RPC procedures with async generator streaming.
+All communication over a single WebSocket (`/rpc/ws`) via oRPC. Server state (queries, mutations, push-based streams) is managed by TanStack Query via `@orpc/tanstack-query`. Push-based metadata and activity streams use `experimental_liveOptions` for automatic lifecycle management.
 
 ## Development
 
