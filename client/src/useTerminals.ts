@@ -11,20 +11,15 @@ import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
 import { client } from "./rpc";
-import type { useActivity } from "./useActivity";
 import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalLifecycle } from "./useTerminalLifecycle";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 
 export function useTerminals(deps: {
   randomTheme: Accessor<boolean>;
-  activity: ReturnType<typeof useActivity>;
   activityAlerts: Accessor<boolean>;
 }) {
-  const { pushActivity, getActivityHistory, seedActivity, clearActivity } =
-    deps.activity;
-
-  const store = useTerminalStore({ getActivityHistory, pushActivity });
+  const store = useTerminalStore();
 
   const alerts = useTerminalAlerts({
     activityAlerts: deps.activityAlerts,
@@ -59,8 +54,6 @@ export function useTerminals(deps: {
     store,
     randomTheme: deps.randomTheme,
     subscribeExit,
-    seedActivity,
-    clearActivity,
   });
 
   return {
@@ -70,7 +63,7 @@ export function useTerminals(deps: {
     getMetadata: store.getMetadata,
     needsAttention: store.needsAttention,
     getDisplayInfo: store.getDisplayInfo,
-    getActivityHistory,
+    getActivityHistory: store.getActivityHistory,
     setThemeName: lifecycle.setThemeName,
     activeMeta: store.activeMeta,
     isLoading: lifecycle.isLoading,

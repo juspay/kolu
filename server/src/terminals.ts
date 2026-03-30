@@ -25,9 +25,15 @@ import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
 export interface TerminalProcess {
-  /** The wire-type snapshot — single source of truth for id, pid, meta, activityHistory. */
+  /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
+  /** Whether the terminal is currently producing output. Server-side only —
+   *  published to clients via the dedicated "activity" channel, not metadata. */
+  busy: boolean;
+  /** Rolling window of activity transitions — server-side only.
+   *  Sent as snapshot on activity subscription connect (for sparkline seed). */
+  activityHistory: ActivitySample[];
   /** Timer that flips busy→false after idle threshold. */
   idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
@@ -52,27 +58,33 @@ function nextSortOrder(parentId?: string): number {
   return max + SORT_GAP;
 }
 
-/** Append a sample and trim entries older than the rolling window. */
-function pushActivitySample(entry: TerminalProcess, active: boolean): void {
+/** Append a sample and trim entries older than the rolling window. Returns the sample. */
+function pushActivitySample(entry: TerminalProcess, active: boolean): ActivitySample {
   const now = Date.now();
   const cutoff = now - ACTIVITY_WINDOW_MS;
-  const h = entry.info.activityHistory!;
+  const h = entry.activityHistory;
   // Drop samples outside the window (array is chronological)
   const keep = h.findIndex(([t]) => t >= cutoff);
   if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
-  h.push([now, active]);
+  const sample: ActivitySample = [now, active];
+  h.push(sample);
+  return sample;
 }
 
-/** Mark terminal busy and reset the idle timer. */
+/** Mark terminal busy and reset the idle timer.
+ *  Publishes [epochMs, isActive] on the dedicated "activity" channel — avoids
+ *  serializing the full metadata object on every keystroke. */
 function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.info.meta.busy) {
-    pushActivitySample(entry, true);
-    updateMetadata(entry, terminalId, (m) => { m.busy = true; });
+  if (!entry.busy) {
+    entry.busy = true;
+    const sample = pushActivitySample(entry, true);
+    publishForTerminal("activity", terminalId, sample);
   }
   entry.idleTimer = setTimeout(() => {
-    pushActivitySample(entry, false);
-    updateMetadata(entry, terminalId, (m) => { m.busy = false; });
+    entry.busy = false;
+    const sample = pushActivitySample(entry, false);
+    publishForTerminal("activity", terminalId, sample);
   }, IDLE_MS);
 }
 
@@ -145,9 +157,10 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       id,
       pid: handle.pid,
       meta,
-      activityHistory: [[Date.now(), true] as ActivitySample],
     },
     handle,
+    busy: true,
+    activityHistory: [[Date.now(), true] as ActivitySample],
     clipboardDir,
     stopProviders: () => {},
   };

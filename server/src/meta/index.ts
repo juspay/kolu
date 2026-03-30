@@ -20,7 +20,7 @@ import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string, sortOrder: number): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null, busy: true, sortOrder };
+  return { cwd, git: null, pr: null, claude: null, sortOrder };
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.

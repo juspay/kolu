@@ -14,6 +14,8 @@ export type TerminalDisplayInfo = {
   repoColor?: string;
   branchColor?: string;
   meta: TerminalMetadata;
+  /** Whether the terminal is currently producing output. */
+  busy: boolean;
   activityHistory: ActivitySample[];
   subCount: number;
 };
@@ -28,15 +30,8 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-/** Entry with at least a meta field for display computation. */
-type MetaEntry = { meta?: TerminalMetadata };
-
-function terminalName(entry: MetaEntry | undefined): string | undefined {
-  return (
-    entry?.meta?.git?.repoName ||
-    cwdBasename(entry?.meta?.cwd ?? "") ||
-    undefined
-  );
+function terminalName(meta: TerminalMetadata): string {
+  return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
 }
 
 /** Build display info for all terminals.
@@ -44,7 +39,8 @@ function terminalName(entry: MetaEntry | undefined): string | undefined {
  *  and bundles activity + sub-count so consumers get one complete object. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
-  getMeta: (id: TerminalId) => MetaEntry | undefined,
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  isBusy: (id: TerminalId) => boolean,
   getActivityHistory: (id: TerminalId) => ActivitySample[],
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
@@ -59,15 +55,15 @@ export function buildTerminalDisplayInfos(
   }> = [];
 
   for (const id of ids) {
-    const info = getMeta(id);
-    if (!info?.meta) continue;
-    const name = terminalName(info) ?? "terminal";
+    const meta = getMeta(id);
+    if (!meta) continue;
+    const name = terminalName(meta);
     const repoKey =
-      info.meta.git?.repoName || cwdBasename(info.meta.cwd) || undefined;
-    const branchKey = info.meta.git?.branch;
+      meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
+    const branchKey = meta.git?.branch;
     if (repoKey) repoKeys.add(repoKey);
     if (branchKey) branchKeys.add(branchKey);
-    entries.push({ id, name, meta: info.meta, repoKey, branchKey });
+    entries.push({ id, name, meta, repoKey, branchKey });
   }
 
   const unified = assignColors([...repoKeys, ...branchKeys]);
@@ -76,6 +72,7 @@ export function buildTerminalDisplayInfos(
     result.set(id, {
       name,
       meta,
+      busy: isBusy(id),
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
       activityHistory: getActivityHistory(id),
