@@ -71,21 +71,11 @@ export function saveSession(terminals: SavedTerminal[]): void {
   store.set("session", { terminals, savedAt: Date.now() });
 }
 
-/** Get the saved session, or null if none exists. Filters out terminals with non-existent CWDs. */
+/** Get the saved session, or null if none exists. */
 export function getSavedSession(): SavedSession | null {
   const session = store.get("session");
   if (!session || session.terminals.length === 0) return null;
-
-  const live = session.terminals.filter((t) => existsOnDisk(t.cwd));
-  if (live.length === 0) return null;
-
-  // Drop orphaned sub-terminals whose parent was filtered out
-  const liveIds = new Set(live.map((t) => t.id));
-  const valid = live.filter((t) => !t.parentId || liveIds.has(t.parentId));
-
-  return valid.length > 0
-    ? { terminals: valid, savedAt: session.savedAt }
-    : null;
+  return session;
 }
 
 /** Clear the saved session (e.g. after successful restore). */
