@@ -19,7 +19,7 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
-import { createMetadata, publishMetadata, startProviders } from "./meta/index.ts";
+import { createMetadata, updateMetadata, startProviders } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
@@ -67,14 +67,12 @@ function pushActivitySample(entry: TerminalProcess, active: boolean): void {
 function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.info.meta.busy) {
-    entry.info.meta.busy = true;
     pushActivitySample(entry, true);
-    publishMetadata(entry, terminalId);
+    updateMetadata(entry, terminalId, (m) => { m.busy = true; });
   }
   entry.idleTimer = setTimeout(() => {
-    entry.info.meta.busy = false;
     pushActivitySample(entry, false);
-    publishMetadata(entry, terminalId);
+    updateMetadata(entry, terminalId, (m) => { m.busy = false; });
   }, IDLE_MS);
 }
 
@@ -126,12 +124,12 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) emitChanged();
       },
-      // PTY callback (OSC 7): update metadata CWD, providers react to the event
+      // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          entry.info.meta.cwd = newCwd;
-          publishMetadata(entry, id);
+          updateMetadata(entry, id, (m) => { m.cwd = newCwd; });
+          publishForTerminal("cwd", id, newCwd);
           emitChanged();
         }
       },
@@ -197,9 +195,10 @@ export function setTerminalParent(
   const entry = terminals.get(id);
   if (entry) {
     const newParent = parentId ?? undefined;
-    entry.info.meta.parentId = newParent;
-    entry.info.meta.sortOrder = nextSortOrder(newParent);
-    publishMetadata(entry, id);
+    updateMetadata(entry, id, (m) => {
+      m.parentId = newParent;
+      m.sortOrder = nextSortOrder(newParent);
+    });
   }
 }
 
@@ -207,8 +206,7 @@ export function setTerminalParent(
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) {
-    entry.info.meta.themeName = themeName;
-    publishMetadata(entry, id);
+    updateMetadata(entry, id, (m) => { m.themeName = themeName; });
   }
 }
 
@@ -217,8 +215,7 @@ export function reorderTerminals(ids: TerminalId[]): void {
   for (let i = 0; i < ids.length; i++) {
     const entry = terminals.get(ids[i]!);
     if (entry) {
-      entry.info.meta.sortOrder = (i + 1) * SORT_GAP;
-      publishMetadata(entry, ids[i]!);
+      updateMetadata(entry, ids[i]!, (m) => { m.sortOrder = (i + 1) * SORT_GAP; });
     }
   }
   log.debug({ count: ids.length }, "terminals reordered");

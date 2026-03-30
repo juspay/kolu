@@ -1,10 +1,13 @@
 /**
  * Terminal metadata aggregation — unified state from independent providers.
  *
- * Each provider runs its own async loop, writes to a shared TerminalMetadata
- * object, and calls publishMetadata() to notify subscribers. Providers chain
- * by subscribing to the publisher (e.g. GitHub PR provider watches for branch
- * changes from the git provider).
+ * Providers form a DAG:
+ *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
+ *                                                    ↓
+ *   claude provider (polling)  ──────────────→  metadata:<id>
+ *
+ * Each provider calls updateMetadata() to atomically mutate+publish.
+ * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
  */
 
 import type { TerminalMetadata } from "kolu-common";
@@ -20,8 +23,14 @@ export function createMetadata(cwd: string, sortOrder: number): TerminalMetadata
   return { cwd, git: null, pr: null, claude: null, busy: true, sortOrder };
 }
 
-/** Publish the current metadata snapshot to all subscribers. */
-export function publishMetadata(entry: TerminalProcess, terminalId: string): void {
+/** Atomically mutate metadata and publish the snapshot to all subscribers.
+ *  Single place to audit — impossible to forget the publish. */
+export function updateMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  mutate: (meta: TerminalMetadata) => void,
+): void {
+  mutate(entry.info.meta);
   const m = entry.info.meta;
   log.info(
     {

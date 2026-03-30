@@ -1,20 +1,23 @@
 /**
  * Git metadata provider — resolves repo/branch info and watches .git/HEAD.
  *
+ * Subscribes to "cwd:<id>" (not the aggregated "metadata" channel).
+ * Publishes on "git:<id>" so downstream providers (github) react without cycles.
+ *
  * Three triggers:
- * 1. CWD change (via OSC 7) → re-resolves + restarts HEAD watcher
+ * 1. CWD change (via cwd channel) → re-resolves + restarts HEAD watcher
  * 2. .git/HEAD change (via fs.watch) → re-resolves on branch switch/checkout
- * 3. Any prompt in a non-git dir → re-resolves to detect `git init`
+ * 3. CWD event in a non-git dir where .git now exists → detects `git init`
  */
 
 import path from "node:path";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { simpleGit } from "simple-git";
-import type { GitInfo, TerminalMetadata } from "kolu-common";
+import type { GitInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { subscribeForTerminal } from "../publisher.ts";
-import { publishMetadata } from "./index.ts";
+import { subscribeForTerminal, publishForTerminal } from "../publisher.ts";
+import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
 import { trackRecentRepo } from "../state.ts";
 
@@ -113,6 +116,7 @@ function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
 
 /**
  * Start the git metadata provider for a terminal entry.
+ * Subscribes to "cwd" channel, publishes on "git" channel.
  * Resolves git info on CWD change and HEAD change, emits only on value change.
  */
 export function startGitProvider(
@@ -129,20 +133,20 @@ export function startGitProvider(
   // Resolve immediately for initial CWD
   void resolve(meta.cwd);
 
-  function onMetadata(meta: TerminalMetadata) {
-    const cwdChanged = meta.cwd !== lastCwd;
-    if (cwdChanged) {
-      plog.info({ from: lastCwd, to: meta.cwd }, "cwd changed, re-resolving");
-      lastCwd = meta.cwd;
-      // Restart HEAD watcher for new directory
-      stopHeadWatch();
-      stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
-      void resolve(meta.cwd);
-    } else if (entry.info.meta.git === null && hasGitDir(meta.cwd)) {
-      // Re-resolve when .git appears — detects `git init` in the current dir
-      // without spawning a git process on every prompt in non-git dirs
-      void resolve(meta.cwd);
+  function onCwdChange(newCwd: string) {
+    if (newCwd === lastCwd) {
+      // CWD unchanged — check for `git init` in current dir
+      if (entry.info.meta.git === null && hasGitDir(newCwd)) {
+        void resolve(newCwd);
+      }
+      return;
     }
+    plog.info({ from: lastCwd, to: newCwd }, "cwd changed, re-resolving");
+    lastCwd = newCwd;
+    // Restart HEAD watcher for new directory
+    stopHeadWatch();
+    stopHeadWatch = watchGitHead(newCwd, handleHeadChange);
+    void resolve(newCwd);
   }
 
   function handleHeadChange() {
@@ -159,17 +163,20 @@ export function startGitProvider(
       stopHeadWatch();
       stopHeadWatch = watchGitHead(cwd, handleHeadChange);
     }
-    m.git = git;
     // Track repo in persistent recent repos list
     if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
     // Clear PR when git context changes (branch switch) — PR provider will re-resolve
-    m.pr = null;
+    updateMetadata(entry, terminalId, (m) => {
+      m.git = git;
+      m.pr = null;
+    });
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
-    publishMetadata(entry, terminalId);
+    // Notify downstream providers (github) via dedicated channel
+    publishForTerminal("git", terminalId, git);
   }
 
   const abort = new AbortController();
-  subscribeForTerminal("metadata", terminalId, abort.signal, onMetadata);
+  subscribeForTerminal("cwd", terminalId, abort.signal, onCwdChange);
 
   return () => {
     abort.abort();
