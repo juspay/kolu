@@ -3,14 +3,11 @@
  *  Client view state (activeId, attention, mruOrder) lives in local signals. */
 
 import { createSignal } from "solid-js";
-import type { TerminalId, ActivitySample } from "kolu-common";
+import type { TerminalId } from "kolu-common";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
-export function useTerminalStore(deps: {
-  getActivityHistory: (id: TerminalId) => ActivitySample[];
-  pushActivity: (id: TerminalId, active: boolean) => void;
-}) {
+export function useTerminalStore() {
   /** Unordered set of known terminal IDs — drives TanStack query subscriptions.
    *  Order is derived from metadata sortOrder, not from this array. */
   const [knownIds, setKnownIds] = createSignal<TerminalId[]>([]);
@@ -19,8 +16,6 @@ export function useTerminalStore(deps: {
   const metadata = useTerminalMetadata({
     knownIds,
     activeId: view.activeId,
-    getActivityHistory: deps.getActivityHistory,
-    pushActivity: deps.pushActivity,
   });
 
   function addKnownId(id: TerminalId) {
@@ -44,7 +39,7 @@ export function useTerminalStore(deps: {
     removeKnownId,
     // View state
     ...view,
-    // Server metadata + derived ordering
+    // Server metadata + activity + derived ordering
     ...metadata,
     // Lifecycle
     reset,

@@ -13,7 +13,6 @@ import type {
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
-  ActivitySample,
   SavedSession,
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
@@ -22,8 +21,6 @@ export function useTerminalLifecycle(deps: {
   store: TerminalStore;
   randomTheme: Accessor<boolean>;
   subscribeExit: (id: TerminalId) => void;
-  seedActivity: (id: TerminalId, history: ActivitySample[]) => void;
-  clearActivity: (id: TerminalId) => void;
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
@@ -125,7 +122,6 @@ export function useTerminalLifecycle(deps: {
     const idx = ids.indexOf(id);
     store.removeKnownId(id);
     subPanel.removePanel(id);
-    deps.clearActivity(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -189,13 +185,6 @@ export function useTerminalLifecycle(deps: {
     store.setMruOrder(
       active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
     );
-
-    // Seed activity history from server (late-joining clients get full sparkline)
-    for (const t of existing) {
-      if (t.activityHistory?.length) {
-        deps.seedActivity(t.id, t.activityHistory);
-      }
-    }
 
     // Subscribe to exit events for all terminals
     for (const t of existing) deps.subscribeExit(t.id);

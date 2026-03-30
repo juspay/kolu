@@ -74,8 +74,6 @@ export const TerminalMetadataSchema = z.object({
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
   themeName: z.string().optional(),
-  /** True when the PTY process recently produced output (vs idle/sleeping). */
-  busy: z.boolean(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
   /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
@@ -94,8 +92,6 @@ export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
   meta: TerminalMetadataSchema,
-  /** Server-side activity history for sparkline rendering. */
-  activityHistory: z.array(ActivitySampleSchema).optional(),
 });
 
 export const TerminalResizeInputSchema = z.object({

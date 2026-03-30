@@ -27,7 +27,6 @@ import { createCommands } from "./commands";
 import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
-import { useActivity } from "./useActivity";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -69,7 +68,7 @@ const App: Component = () => {
     savedSession,
     handleRestoreSession,
     simulateAlert,
-  } = useTerminals({ randomTheme, activity: useActivity(), activityAlerts });
+  } = useTerminals({ randomTheme, activityAlerts });
 
   // Expose for e2e test access
   (window as any).__koluSimulateAlert = simulateAlert;

@@ -48,7 +48,7 @@ const SidebarEntry: Component<{
         {...sortable.dragActivators}
         data-terminal-id={props.id}
         data-active={props.isActive ? "" : undefined}
-        data-activity={props.metadata?.busy ? "active" : "sleeping"}
+        data-activity={props.displayInfo?.busy ? "active" : "sleeping"}
         data-notified={props.notified ? "" : undefined}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
