@@ -1,7 +1,7 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers use the publisher for push-based events over WebSocket.
+ * Streaming handlers subscribe to per-terminal publisher channels over WebSocket.
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
@@ -20,7 +20,7 @@ import {
   type TerminalEntry,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { publisher } from "./publisher.ts";
+import { subscribeChannel } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -77,14 +77,12 @@ export const appRouter = t.router({
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the publisher, not lost.
-      const live = publisher.subscribe("data", { signal });
+      const live = subscribeChannel("data", input.id, signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      for await (const event of live) {
-        if (event.terminalId === input.id) yield event.data;
-      }
+      for await (const event of live) yield event.data;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -127,13 +125,9 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-
-      // Yield current metadata immediately
       yield { ...entry.metadata };
-
-      // Then stream changes via publisher (typed, no manual queue plumbing)
-      for await (const event of publisher.subscribe("metadata", { signal })) {
-        if (event.terminalId === input.id) yield event.metadata;
+      for await (const event of subscribeChannel("metadata", input.id, signal)) {
+        yield event.metadata;
       }
     }),
 
@@ -142,24 +136,17 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-
-      // Yield current state immediately
       yield entry.isActive;
-
-      // Then stream changes via publisher
-      for await (const event of publisher.subscribe("activity", { signal })) {
-        if (event.terminalId === input.id) yield event.isActive;
+      for await (const event of subscribeChannel("activity", input.id, signal)) {
+        yield event.isActive;
       }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-
-      for await (const event of publisher.subscribe("exit", { signal })) {
-        if (event.terminalId === input.id) {
-          yield event.exitCode;
-          return;
-        }
+      for await (const event of subscribeChannel("exit", input.id, signal)) {
+        yield event.exitCode;
+        return;
       }
     }),
   },

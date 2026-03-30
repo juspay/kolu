@@ -1,38 +1,79 @@
-/** Typed in-memory publisher for all terminal events.
- *  Single pub/sub mechanism — replaces per-terminal EventEmitter entirely. */
+/** Typed in-memory publisher for all terminal and system events.
+ *
+ *  Terminal events use per-terminal channel names ("metadata:<id>", "data:<id>", etc.)
+ *  so EventPublisher's Map dispatches directly to the right subscriber — no broadcast+filter.
+ *
+ *  System events ("session:changed") are broadcast channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { TerminalMetadata } from "kolu-common";
 import { log } from "./log.ts";
 
-export type PublisherChannels = {
+/** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
+export type TerminalChannels = {
   /** CWD, git, PR, Claude state — from metadata providers */
-  metadata: { terminalId: string; metadata: TerminalMetadata };
+  metadata: { metadata: TerminalMetadata };
   /** Active/sleeping transitions — from idle timer */
-  activity: { terminalId: string; isActive: boolean };
+  activity: { isActive: boolean };
   /** Raw PTY output bytes — high frequency, drives xterm.js */
-  data: { terminalId: string; data: string };
+  data: { data: string };
   /** Terminal process exited — fires once per terminal lifetime */
-  exit: { terminalId: string; exitCode: number };
+  exit: { exitCode: number };
 };
 
-export const publisher = new MemoryPublisher<PublisherChannels>();
+/** System-wide broadcast channels (no terminal prefix). */
+type SystemChannels = {
+  /** Terminal state changed — triggers debounced session auto-save */
+  "session:changed": Record<string, never>;
+};
 
-/** Subscribe to a publisher channel, filtered to a specific terminal.
- *  Runs until the signal aborts. Logs unexpected errors. */
-export function subscribeForTerminal<C extends keyof PublisherChannels>(
+// The publisher accepts any string channel at runtime.
+// Terminal channels are namespaced as "channel:terminalId"; system channels are used as-is.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const publisher = new MemoryPublisher<Record<string, any>>();
+
+/** Publish an event on a per-terminal channel ("channel:terminalId"). */
+export function publishForTerminal<C extends keyof TerminalChannels>(
+  channel: C,
+  terminalId: string,
+  payload: TerminalChannels[C],
+): void {
+  void publisher.publish(`${String(channel)}:${terminalId}`, payload);
+}
+
+/** Publish an event on a system-wide broadcast channel. */
+export function publishSystem<C extends keyof SystemChannels>(
+  channel: C,
+  payload: SystemChannels[C],
+): void {
+  void publisher.publish(channel, payload);
+}
+
+/** Subscribe to a per-terminal channel. Runs until signal aborts. Logs unexpected errors.
+ *  Used by providers for fire-and-forget event consumption. */
+export function subscribeForTerminal<C extends keyof TerminalChannels>(
   channel: C,
   terminalId: string,
   signal: AbortSignal,
-  onEvent: (payload: PublisherChannels[C]) => void,
+  onEvent: (payload: TerminalChannels[C]) => void,
 ): void {
   void (async () => {
     try {
-      for await (const event of publisher.subscribe(channel, { signal })) {
-        if (event.terminalId === terminalId) onEvent(event);
+      for await (const event of publisher.subscribe(`${String(channel)}:${terminalId}`, { signal })) {
+        onEvent(event as TerminalChannels[C]);
       }
     } catch (err) {
       if (!signal.aborted) log.error({ err, terminal: terminalId, channel }, "publisher subscription failed");
     }
   })();
+}
+
+/** Subscribe to a per-terminal channel, returning an AsyncIterable.
+ *  Used by router handlers that need to yield from the subscription. */
+export function subscribeChannel<C extends keyof TerminalChannels>(
+  channel: C,
+  terminalId: string,
+  signal: AbortSignal | undefined,
+): AsyncIterable<TerminalChannels[C]> {
+  return publisher.subscribe(`${String(channel)}:${terminalId}`, { signal }) as AsyncIterable<TerminalChannels[C]>;
 }

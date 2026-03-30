@@ -6,6 +6,8 @@
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { store } from "./state.ts";
+import { publisher } from "./publisher.ts";
+import { log } from "./log.ts";
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
 export function saveSession(terminals: SavedTerminal[]): void {
@@ -33,17 +35,22 @@ export function setSavedSession(session: SavedSession): void {
   store.set("session", session);
 }
 
-// --- Auto-save: terminal lifecycle → session persistence (decoupled via event) ---
+// --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Wire up debounced session save from terminal change events. Called once at startup. */
 export function initSessionAutoSave(
-  onChange: { on: (event: "changed", fn: () => void) => void },
   snapshot: () => SavedTerminal[],
 ): void {
-  onChange.on("changed", () => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveSession(snapshot()), 500);
-  });
+  void (async () => {
+    try {
+      for await (const _ of publisher.subscribe("session:changed")) {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => saveSession(snapshot()), 500);
+      }
+    } catch (err) {
+      log.error({ err }, "session auto-save subscription failed");
+    }
+  })();
 }
