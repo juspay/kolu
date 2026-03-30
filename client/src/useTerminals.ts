@@ -1,11 +1,11 @@
 /** Terminal session state — thin composition shell.
  *
- *  ARCHITECTURE: This file wires together four focused modules via deps objects.
- *  Do NOT add behavior here — each concern has its own module:
+ *  ARCHITECTURE: This file wires together focused modules:
  *    - useTerminalStore.ts  — store, signals, accessors (pure state)
- *    - useTerminalStreams.ts — server event subscriptions (write to store)
+ *    - useTerminalStreams.ts — exit event subscription
  *    - useTerminalLifecycle.ts — CRUD, restore-on-load, worktree ops
  *    - useTerminalAlerts.ts — Claude state detection (watches store reactively)
+ *    - TerminalLiveData.tsx — per-terminal live queries (metadata + activity via TanStack)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221. */
 
@@ -39,8 +39,6 @@ export function useTerminals(deps: {
   });
 
   const streams = useTerminalStreams({
-    setMeta: store.setMeta,
-    pushActivity,
     onExit: (id, code) => {
       const label = store.terminalLabel(id);
       toast(
@@ -53,7 +51,7 @@ export function useTerminals(deps: {
   const lifecycle = useTerminalLifecycle({
     store,
     randomTheme: deps.randomTheme,
-    subscribeAll: streams.subscribeAll,
+    subscribeExit: streams.subscribeExit,
     seedActivity,
     clearActivity,
   });
@@ -84,5 +82,8 @@ export function useTerminals(deps: {
     savedSession: lifecycle.savedSession,
     handleRestoreSession: lifecycle.handleRestoreSession,
     simulateAlert: alerts.simulateAlert,
+    // Exposed for TerminalLiveData (per-terminal live queries)
+    setMeta: store.setMeta,
+    pushActivity,
   };
 }
