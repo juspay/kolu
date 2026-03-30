@@ -20,7 +20,8 @@ import {
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_, mergeIterables } from "./publisher.ts";
+import { subscribeForTerminal_ } from "./publisher.ts";
+import { mergeIterables } from "./utils/merge.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
