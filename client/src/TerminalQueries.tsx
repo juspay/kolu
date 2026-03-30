@@ -6,7 +6,7 @@ import { orpc } from "./orpc";
 import type { TerminalId } from "kolu-common";
 import type { SetTerminalMeta } from "./useTerminalStore";
 
-export default function TerminalLiveData(props: {
+export default function TerminalQueries(props: {
   id: TerminalId;
   setMeta: SetTerminalMeta;
   pushActivity: (id: TerminalId, active: boolean) => void;
