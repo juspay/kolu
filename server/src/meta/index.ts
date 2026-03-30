@@ -16,8 +16,8 @@ import { startClaudeCodeProvider } from "./claude.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
-export function createMetadata(cwd: string): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null, busy: true };
+export function createMetadata(cwd: string, sortOrder: number): TerminalMetadata {
+  return { cwd, git: null, pr: null, claude: null, busy: true, sortOrder };
 }
 
 /** Publish the current metadata snapshot to all subscribers. */
