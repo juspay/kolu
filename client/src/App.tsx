@@ -141,6 +141,13 @@ const App: Component = () => {
   // Initialize live-streaming recent repos (auto-updates, no manual refetch needed)
   useRecentRepos();
 
+  // Refetch recent repos whenever the palette opens, regardless of how (Ctrl+K, header click, etc.)
+  createEffect(
+    on(paletteOpen, (open) => {
+      if (open) refetchRecentRepos();
+    }),
+  );
+
   function openPalette() {
     setPaletteInitialGroup(undefined);
     setPaletteOpen(true);
