@@ -13,7 +13,6 @@ import {
   ACTIVITY_IDLE_THRESHOLD_S,
   ACTIVITY_WINDOW_MS,
 } from "kolu-common/config";
-import { EventEmitter } from "node:events"; // Only for terminalChanges (session persistence)
 import { log } from "./log.ts";
 import {
   CLIPBOARD_SHIM_DIR,
@@ -21,7 +20,7 @@ import {
   cleanupClipboardDir,
 } from "./clipboard.ts";
 import { createMetadata, publishMetadata, startProviders } from "./meta/index.ts";
-import { publisher } from "./publisher.ts";
+import { publishForTerminal, publishSystem } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle. */
@@ -77,12 +76,12 @@ function touchActivity(entry: TerminalEntry, terminalId: string): void {
   if (!entry.isActive) {
     entry.isActive = true;
     pushActivitySample(entry, true);
-    void publisher.publish("activity", { terminalId, isActive: true });
+    publishForTerminal("activity", terminalId, { isActive: true });
   }
   entry.idleTimer = setTimeout(() => {
     entry.isActive = false;
     pushActivitySample(entry, false);
-    void publisher.publish("activity", { terminalId, isActive: false });
+    publishForTerminal("activity", terminalId, { isActive: false });
   }, IDLE_MS);
 }
 
@@ -99,12 +98,9 @@ export function snapshotSession(): SavedTerminal[] {
   }));
 }
 
-/** Event emitter for session-relevant changes. Listeners handle persistence. */
-export const terminalChanges = new (EventEmitter<{ changed: [] }>)();
-
-/** Notify listeners that terminal state changed (debounced by consumer). */
+/** Notify that terminal state changed (triggers debounced session auto-save). */
 function emitChanged(): void {
-  terminalChanges.emit("changed");
+  publishSystem("session:changed", {});
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
@@ -119,7 +115,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onData: (data) => {
         const entry = terminals.get(id);
         if (entry) touchActivity(entry, id);
-        void publisher.publish("data", { terminalId: id, data });
+        publishForTerminal("data", id, { data });
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -130,7 +126,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
-        void publisher.publish("exit", { terminalId: id, exitCode });
+        publishForTerminal("exit", id, { exitCode });
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
