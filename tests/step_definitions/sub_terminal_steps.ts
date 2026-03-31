@@ -8,22 +8,20 @@ const PALETTE = '[data-testid="command-palette"]';
 
 /**
  * Open command palette, fill a query, click the first result, wait for close.
- * Uses page.evaluate to bypass Corvu's CSS animation visibility issues that
- * make standard Playwright fill/click unreliable during dialog transitions.
+ * Uses evaluate to fill/click because Corvu's dialog content stays hidden
+ * (not animation — state-based visibility) until the open transition completes,
+ * making Playwright's actionability checks unreliable for the li items.
  */
 async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
   const terminal = world.page.locator("[data-visible] .xterm-screen");
   if ((await terminal.count()) > 0) await terminal.first().click();
   await world.page.keyboard.press(`${MOD_KEY}+k`);
-  // Wait for dialog to open
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) !== null,
     PALETTE,
     { timeout: 5000 },
   );
-  // Fill input via native setter + click first result in browser context.
-  // Uses evaluate to bypass Corvu's CSS animation visibility issues.
   await world.page.evaluate(
     ({ sel, q }) => {
       const input = document.querySelector(
@@ -39,7 +37,6 @@ async function paletteCommand(world: KoluWorld, query: string) {
     },
     { sel: PALETTE, q: query },
   );
-  // Wait for a result with layout, then click it
   await world.page.waitForFunction(
     (sel) => {
       const item = document.querySelector(`${sel} li`) as HTMLElement | null;
@@ -50,7 +47,6 @@ async function paletteCommand(world: KoluWorld, query: string) {
     PALETTE,
     { timeout: 5000 },
   );
-  // Wait for palette to fully close
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) === null,
     PALETTE,

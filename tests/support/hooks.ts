@@ -128,6 +128,17 @@ Before(async function (this: KoluWorld) {
     permissions: ["clipboard-write"],
   });
   this.page = await this.context.newPage();
+  // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
+  // prefers-reduced-motion tells well-behaved libraries to skip animations.
+  // The style override catches anything that doesn't respect the media query.
+  await this.page.emulateMedia({ reducedMotion: "reduce" });
+  await this.page.addInitScript(`
+    document.addEventListener("DOMContentLoaded", function() {
+      var style = document.createElement("style");
+      style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+      document.head.appendChild(style);
+    });
+  `);
   // Disable random theme so tests get deterministic default theme
   await this.page.addInitScript(() =>
     localStorage.setItem("kolu-random-theme", "false"),
