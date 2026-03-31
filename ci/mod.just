@@ -16,7 +16,7 @@ default: _run-all
 _run-all: _linux _darwin
 
 _linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e ci::pc || true
+    CI_SYSTEM=x86_64-linux just ci::pc ci::nix ci::home-manager ci::typecheck ci::e2e || true
 
 _darwin: _preflight
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
