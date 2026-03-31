@@ -126,8 +126,6 @@ Then(
 );
 
 Then("the sidebar should not show PR info", async function (this: KoluWorld) {
-  // Wait a beat for any async PR resolution to settle
-  await this.page.waitForTimeout(2000);
   const count = await this.page
     .locator('[data-testid="terminal-meta-pr"]')
     .count();

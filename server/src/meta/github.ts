@@ -99,10 +99,7 @@ interface GhPrListEntry {
   updatedAt: string;
 }
 
-/**
- * Check if `branch` is the repo's default branch (e.g. main, master).
- * Returns false on any error (missing remote, etc.) — caller falls through.
- */
+/** Check if `branch` is the repo's default branch (main/master). */
 async function isDefaultBranch(
   repoRoot: string,
   branch: string,
@@ -125,11 +122,10 @@ async function resolveGitHubPr(
   repoRoot: string,
   branch: string,
 ): Promise<GitHubPrInfo | null> {
-  try {
-    // Skip PR lookup on the default branch — `gh pr list --head <default>`
-    // matches PRs from forks, not PRs for the current branch.
-    if (await isDefaultBranch(repoRoot, branch)) return null;
+  // Skip default branch — `gh pr list --head <default>` matches fork PRs, not ours.
+  if (await isDefaultBranch(repoRoot, branch)) return null;
 
+  try {
     const { stdout } = await execFileAsync(
       "gh",
       [
