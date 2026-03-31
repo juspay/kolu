@@ -421,7 +421,7 @@ const App: Component = () => {
               <Resizable.Handle class="w-1 bg-edge hover:bg-accent-bright cursor-col-resize shrink-0" />
               <Resizable.Panel
                 as="div"
-                class="min-w-0 overflow-hidden"
+                class="min-w-0 h-full overflow-hidden"
                 minSize={0.15}
                 initialSize={0.35}
               >

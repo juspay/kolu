@@ -42,11 +42,9 @@ export function addPlanFeedback(
   const content = fs.readFileSync(resolved, "utf8");
   const lines = content.split("\n");
 
-  if (afterLine < 1 || afterLine > lines.length) {
-    throw new Error(
-      `Line ${afterLine} is out of range (file has ${lines.length} lines)`,
-    );
-  }
+  // Clamp to valid range — line numbers from the client may be stale
+  // if the plan was modified between read and feedback submission
+  afterLine = Math.max(1, Math.min(afterLine, lines.length));
 
   // Format feedback as blockquote lines
   const feedbackLines = text
