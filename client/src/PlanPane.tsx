@@ -17,57 +17,25 @@ import type { PlanContent } from "kolu-common";
 // Configure marked for safe rendering (plan files are trusted local content)
 marked.setOptions({ breaks: true, gfm: true });
 
-/** Render markdown content including feedback blockquotes inline.
- *  Feedback lines `> [FEEDBACK]: ...` are rendered as styled callouts
- *  by converting them to HTML before marked processes them. */
+/** Render markdown and style feedback blockquotes as inline callouts.
+ *  Strategy: let marked render everything (including `> [FEEDBACK]:` lines as
+ *  regular blockquotes), then post-process the HTML to restyle any blockquote
+ *  whose text starts with "[FEEDBACK]:" into a styled callout div. */
 function renderPlanMarkdown(content: string): string {
-  // Convert feedback blockquotes to styled HTML before markdown parsing.
-  // This renders them inline within the document flow.
-  const lines = content.split("\n");
-  const result: string[] = [];
-  let feedbackLines: string[] = [];
-  let inFeedback = false;
-
-  function flushFeedback() {
-    if (feedbackLines.length === 0) return;
-    const text = feedbackLines.join(" ");
-    // Parse "Re: «selected text» — comment" format
-    const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
-    if (reMatch) {
-      result.push(
-        `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${escapeHtml(reMatch[1]!)}»</span> ${escapeHtml(reMatch[2]!.trim())}</div>`,
-      );
-    } else {
-      result.push(`<div class="plan-feedback">${escapeHtml(text)}</div>`);
-    }
-    feedbackLines = [];
-  }
-
-  for (const line of lines) {
-    if (line.startsWith("> [FEEDBACK]:")) {
-      inFeedback = true;
-      feedbackLines.push(line.replace(/^> \[FEEDBACK\]:\s*/, ""));
-    } else if (inFeedback && line.startsWith("> ")) {
-      feedbackLines.push(line.replace(/^> /, ""));
-    } else {
-      if (inFeedback) {
-        flushFeedback();
-        inFeedback = false;
+  const html = marked.parse(content) as string;
+  // Marked renders `> [FEEDBACK]: text` as <blockquote><p>[FEEDBACK]: text</p></blockquote>.
+  // Replace these with styled feedback callouts.
+  return html.replace(
+    /<blockquote>\s*<p>\[FEEDBACK\]:\s*([\s\S]*?)<\/p>\s*<\/blockquote>/g,
+    (_match, text: string) => {
+      // Parse "Re: «selected text» — comment" format
+      const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
+      if (reMatch) {
+        return `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2].trim()}</div>`;
       }
-      result.push(line);
-    }
-  }
-  flushFeedback();
-
-  return marked.parse(result.join("\n")) as string;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+      return `<div class="plan-feedback">${text}</div>`;
+    },
+  );
 }
 
 /** Find the line number in the original content where the selected text appears. */
