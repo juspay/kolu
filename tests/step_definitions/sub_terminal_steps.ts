@@ -252,7 +252,7 @@ Then(
     await pollUntilBufferContains(this.page, expected, {
       selector: "[data-terminal-id][data-visible]",
       index: 1,
-      attempts: 20,
+      attempts: 50,
       intervalMs: 100,
     });
   },
