@@ -104,25 +104,30 @@ _run name +cmd:
     just ci::_signoff "{{ name }}@{{ system }}" success "${user} · ${elapsed}s · ${logrel}"
 
 # Auto-extract step@system contexts from justfile structure.
-# Parses recipe bodies which contain "CI_SYSTEM=<sys> just ci::<step> ..."
-# Handles both literal systems and {{ variable }} interpolations.
+# Auto-extract CI contexts from justfile structure.
+# Multi-system steps: parsed from "CI_SYSTEM=<sys> just ci::<step> ..." lines → step@system
+# Local-only steps: parsed from "just ci::<step>" lines (no CI_SYSTEM) → step (no @system suffix)
 _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
-    just --dump --dump-format json | jq -r --arg local "{{ local_system }}" '
+    just --dump --dump-format json | jq -r '
       .modules.ci.recipes
       | to_entries[]
-      | select(.value.body[0][0] // "" | test("^CI_SYSTEM="))
-      | .value.body[0] as $parts
-      # Reconstruct the line: strings pass through, variables resolve
-      | [ $parts[] | if type == "string" then .
-          elif type == "array" and .[0][0] == "variable" then
-            (if .[0][1] == "local_system" then $local else .[0][1] end)
-          else "" end ] | join("")
-      | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
-      | .system as $sys
-      | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
-      | . + "@" + $sys'
+      | select(.key | startswith("_"))
+      | .value.body[0][0] // "" as $first
+      # Multi-system: CI_SYSTEM=<sys> just ci::<step> ...
+      | if ($first | test("^CI_SYSTEM=")) then
+          .value.body[0][0]
+          | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
+          | .system as $sys
+          | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
+          | . + "@" + $sys
+        # Local-only: just ci::<step> ... (exclude internal _helpers)
+        elif ($first | test("^just ci::[a-z]")) then
+          $first
+          | capture("just (?<steps>.+?)( \\|\\| true)?$")
+          | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
+        else empty end'
 
 # Print summary table of all CI statuses for the current sha
 _summary:

@@ -14,7 +14,7 @@ default: _preflight _pc _run-all
 
 # Formatting check — always local, runs before expensive builds
 _pc:
-    CI_SYSTEM={{ local_system }} just ci::pc || true
+    just ci::pc || true
 
 [parallel]
 _run-all: _linux _darwin
