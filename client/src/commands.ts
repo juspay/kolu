@@ -9,6 +9,7 @@ import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { useRecentRepos } from "./useRecentRepos";
 import { client } from "./rpc";
+import { toast } from "solid-sonner";
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -77,6 +78,21 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+    {
+      name: "Set worktree autolaunch\u2026",
+      description: "Command to run in new worktree terminals",
+      onSelect: async () => {
+        const current = await client.settings.getAutolaunch();
+        const input = window.prompt(
+          "Command to run after creating a worktree terminal (empty to disable):",
+          current ?? "",
+        );
+        if (input === null) return; // cancelled
+        const command = input.trim() || null;
+        await client.settings.setAutolaunch({ command });
+        toast(command ? `Autolaunch set: ${command}` : "Autolaunch disabled");
+      },
+    },
     ...(deps.activeId() !== null
       ? [
           {

@@ -75,6 +75,12 @@ export const contract = oc.router({
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
     recentRepos: oc.output(z.array(RecentRepoSchema)),
   },
+  settings: {
+    getAutolaunch: oc.output(z.string().nullable()),
+    setAutolaunch: oc
+      .input(z.object({ command: z.string().nullable() }))
+      .output(z.void()),
+  },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),
     // Clear saved session (test-only: reset state between scenarios)

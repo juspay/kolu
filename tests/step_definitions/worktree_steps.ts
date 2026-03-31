@@ -1,6 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
 import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import { readBufferText } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 When(
@@ -23,6 +24,31 @@ When(
     // Set up a fake origin so `git fetch origin` works
     execFileSync("git", ["-C", repoPath, "remote", "add", "origin", repoPath]);
     execFileSync("git", ["-C", repoPath, "fetch", "origin"]);
+  },
+);
+
+When(
+  "I set the autolaunch command to {string}",
+  async function (this: KoluWorld, command: string) {
+    // Use the oRPC HTTP endpoint directly to set autolaunch
+    await this.page.request.fetch("/rpc/settings/setAutolaunch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ json: { command: command || null } }),
+    });
+  },
+);
+
+Then(
+  "the screen state should not contain {string}",
+  async function (this: KoluWorld, unexpected: string) {
+    // Wait a bit for any potential autolaunch to execute
+    await this.page.waitForTimeout(1000);
+    const content = await readBufferText(this.page);
+    assert.ok(
+      !content.includes(unexpected),
+      `Buffer unexpectedly contains "${unexpected}"`,
+    );
   },
 );
 

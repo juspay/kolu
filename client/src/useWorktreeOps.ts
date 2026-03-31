@@ -3,6 +3,7 @@
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { orpc } from "./orpc";
+import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -32,6 +33,17 @@ export function useWorktreeOps(deps: {
     const result = await worktreeCreateMut.mutateAsync({ repoPath });
     toast(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
+    // Run autolaunch command in the newly created terminal
+    const terminalId = store.activeId();
+    if (terminalId) {
+      const autolaunch = await client.settings.getAutolaunch();
+      if (autolaunch) {
+        await client.terminal.sendInput({
+          id: terminalId,
+          data: autolaunch + "\n",
+        });
+      }
+    }
     invalidateRepos();
   }
 

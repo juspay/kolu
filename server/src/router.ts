@@ -23,7 +23,11 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos } from "./state.ts";
+import {
+  getRecentRepos,
+  getWorktreeAutolaunch,
+  setWorktreeAutolaunch,
+} from "./state.ts";
 import {
   getSavedSession,
   clearSavedSession,
@@ -172,6 +176,14 @@ export const appRouter = t.router({
       await worktreeRemove(input.worktreePath);
     }),
     recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
+  },
+  settings: {
+    getAutolaunch: t.settings.getAutolaunch.handler(async () =>
+      getWorktreeAutolaunch(),
+    ),
+    setAutolaunch: t.settings.setAutolaunch.handler(async ({ input }) => {
+      setWorktreeAutolaunch(input.command);
+    }),
   },
   session: {
     get: t.session.get.handler(async () => getSavedSession()),

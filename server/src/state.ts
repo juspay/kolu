@@ -13,6 +13,7 @@ import type { RecentRepo, SavedSession } from "kolu-common";
 interface StateSchema {
   recentRepos: RecentRepo[];
   session: SavedSession | null;
+  worktreeAutolaunch: string | null;
 }
 
 /**
@@ -20,7 +21,7 @@ interface StateSchema {
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.1.0";
+const SCHEMA_VERSION = "1.2.0";
 
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
@@ -30,11 +31,16 @@ export const store = new Conf<StateSchema>({
   defaults: {
     recentRepos: [],
     session: null,
+    worktreeAutolaunch: "pwd && git log --oneline -5",
   },
   migrations: {
     // sortOrder added to SavedTerminal — old sessions don't have it.
     // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
     "1.1.0": () => {},
+    // worktreeAutolaunch added — set default for existing users.
+    "1.2.0": (s: Conf<StateSchema>) => {
+      s.set("worktreeAutolaunch", "pwd && git log --oneline -5");
+    },
   },
 });
 
@@ -74,4 +80,14 @@ export function getRecentRepos(): RecentRepo[] {
   const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
+}
+
+// --- Worktree autolaunch ---
+
+export function getWorktreeAutolaunch(): string | null {
+  return store.get("worktreeAutolaunch");
+}
+
+export function setWorktreeAutolaunch(command: string | null): void {
+  store.set("worktreeAutolaunch", command);
 }
