@@ -73,3 +73,179 @@
     background-color: oklch(from var(--color-accent) l c h / 0.25);
   }
 }
+
+/* Markdown prose styling for the plan pane.
+ * Tailwind strips default element styles — these restore readable typography
+ * for rendered markdown content (headings, lists, code, blockquotes). */
+/* Smaller base font for the plan pane — dense, readable at a glance */
+.plan-markdown {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.plan-markdown h1 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: var(--color-fg);
+}
+.plan-markdown h2 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: var(--color-fg);
+}
+.plan-markdown h3,
+.plan-markdown h4,
+.plan-markdown h5,
+.plan-markdown h6 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+  margin-bottom: 0.2rem;
+  color: var(--color-fg);
+}
+.plan-markdown p {
+  margin-bottom: 0.4rem;
+  color: var(--color-fg-2);
+}
+.plan-markdown ul,
+.plan-markdown ol {
+  margin-left: 1.1rem;
+  margin-bottom: 0.4rem;
+  color: var(--color-fg-2);
+}
+.plan-markdown ul {
+  list-style-type: disc;
+}
+.plan-markdown ol {
+  list-style-type: decimal;
+}
+.plan-markdown li {
+  margin-bottom: 0.15rem;
+}
+.plan-markdown code {
+  font-family: "FiraCode Nerd Font", monospace;
+  font-size: 0.85em;
+  background: var(--color-surface-2);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+.plan-markdown pre {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-edge);
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.75rem;
+}
+.plan-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.plan-markdown blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 0.6rem;
+  margin-left: 0;
+  margin-bottom: 0.4rem;
+  color: var(--color-fg-3);
+  font-style: italic;
+}
+.plan-markdown a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.plan-markdown strong {
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.plan-markdown em {
+  font-style: italic;
+}
+.plan-markdown hr {
+  border: none;
+  border-top: 1px solid var(--color-edge);
+  margin: 0.75rem 0;
+}
+/* Tables fill their container. overflow-x on the content div handles scrolling. */
+.plan-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.5rem;
+  table-layout: fixed;
+  font-size: 0.7rem;
+}
+.plan-markdown th,
+.plan-markdown td {
+  border: 1px solid var(--color-edge);
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+  overflow-wrap: break-word;
+}
+.plan-markdown th {
+  background: var(--color-surface-2);
+  font-weight: 600;
+}
+
+/* Inline feedback callouts — inverted contrast so they stand out.
+ * Dark mode: light background + dark text. Light mode: dark background + light text. */
+.plan-feedback {
+  margin: 0.35rem 0;
+  padding: 0.3rem 0.5rem;
+  border-left: 2px solid var(--color-accent);
+  background: #f0f0f4;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.75rem;
+  color: #1a1a1e;
+}
+:root:not(.dark) .plan-feedback {
+  background: #1e1e24;
+  color: #e4e4e8;
+}
+.plan-feedback-ref {
+  opacity: 0.6;
+  font-style: italic;
+  font-size: 0.7rem;
+}
+.plan-feedback-actions {
+  float: right;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.plan-feedback:hover .plan-feedback-actions {
+  opacity: 1;
+}
+.plan-feedback-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 0.2rem;
+  opacity: 0.5;
+  color: inherit;
+}
+.plan-feedback-btn:hover {
+  opacity: 1;
+}
+
+/* Highlight animation for plan sections updated by Claude */
+.plan-changed {
+  animation: plan-change-flash 2s ease-out;
+}
+@keyframes plan-change-flash {
+  0% {
+    background-color: oklch(from var(--color-accent) l c h / 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Selection highlight in plan pane */
+.plan-markdown ::selection {
+  background: oklch(from var(--color-accent) l c h / 0.3);
+}

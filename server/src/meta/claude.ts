@@ -131,10 +131,26 @@ function tailJsonlLines(filePath: string, bytes: number): string[] {
   }
 }
 
-/** Derive Claude Code state from the last relevant JSONL message. */
-function deriveState(
-  lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+/** Derive Claude Code state and slug from the last relevant JSONL message. */
+function deriveState(lines: string[]): {
+  state: ClaudeCodeInfo["state"];
+  model: string | null;
+  slug: string | null;
+} | null {
+  // Extract slug from the last line that has one (every JSONL entry has it)
+  let slug: string | null = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const entry = JSON.parse(lines[i]!);
+      if (typeof entry.slug === "string") {
+        slug = entry.slug;
+        break;
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -145,18 +161,18 @@ function deriveState(
         const stopReason: string | null = entry.message?.stop_reason ?? null;
         const model: string | null = entry.message?.model ?? null;
         if (stopReason === "end_turn") {
-          return { state: "waiting", model };
+          return { state: "waiting", model, slug };
         }
         if (stopReason === "tool_use") {
-          return { state: "tool_use", model };
+          return { state: "tool_use", model, slug };
         }
         // null or other → still thinking
-        return { state: "thinking", model };
+        return { state: "thinking", model, slug };
       }
 
       if (type === "user") {
         // User sent a message or tool result — Claude is about to think
-        return { state: "thinking", model: null };
+        return { state: "thinking", model: null, slug };
       }
     } catch {
       // Skip malformed lines
@@ -173,8 +189,32 @@ function infoEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return (
-    a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
+    a.state === b.state &&
+    a.sessionId === b.sessionId &&
+    a.model === b.model &&
+    a.latestPlanPath === b.latestPlanPath &&
+    a.planModifiedAt === b.planModifiedAt
   );
+}
+
+const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
+
+/**
+ * Check if a plan file exists for this session's slug.
+ * Claude Code names plan files after the session slug: ~/.claude/plans/{slug}.md
+ * Returns path + mtime so metadata changes propagate content updates to clients.
+ */
+function findPlanForSlug(
+  slug: string | null,
+): { path: string; modifiedAt: number } | null {
+  if (!slug) return null;
+  const planPath = path.join(PLANS_DIR, `${slug}.md`);
+  try {
+    const stat = fs.statSync(planPath);
+    return { path: planPath, modifiedAt: stat.mtimeMs };
+  } catch {
+    return null;
+  }
 }
 
 /** Scan sessions dir and return all live sessions. */
@@ -214,6 +254,7 @@ export function startClaudeCodeProvider(
   let matchedSession: SessionFile | null = null;
   let transcriptPath: string | null = null;
   let watcher: fs.FSWatcher | null = null;
+  let planWatcher: fs.FSWatcher | null = null;
 
   plog.info("started");
 
@@ -257,10 +298,13 @@ export function startClaudeCodeProvider(
     }
     if (!matchedSession) return;
 
+    const plan = findPlanForSlug(derived.slug);
     const info: ClaudeCodeInfo = {
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
+      latestPlanPath: plan?.path ?? null,
+      planModifiedAt: plan?.modifiedAt ?? null,
     };
 
     if (infoEqual(info, entry.info.meta.claude)) return;
@@ -292,6 +336,24 @@ export function startClaudeCodeProvider(
     transcriptPath = null;
   }
 
+  /** Watch ~/.claude/plans/ so new/modified plan files trigger a metadata update. */
+  function startPlanWatching() {
+    stopPlanWatching();
+    if (!fs.existsSync(PLANS_DIR)) return;
+    try {
+      planWatcher = fs.watch(PLANS_DIR, () => updateState());
+    } catch {
+      plog.debug({ dir: PLANS_DIR }, "cannot watch plans directory");
+    }
+  }
+
+  function stopPlanWatching() {
+    if (planWatcher) {
+      planWatcher.close();
+      planWatcher = null;
+    }
+  }
+
   /** Poll for session match and start/stop watching as needed. */
   function poll() {
     const session = matchSession();
@@ -302,6 +364,7 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
+        stopPlanWatching();
         if (entry.info.meta.claude !== null) {
           updateMetadata(entry, terminalId, (m) => {
             m.claude = null;
@@ -318,6 +381,8 @@ export function startClaudeCodeProvider(
         "claude code session matched",
       );
       matchedSession = session;
+      // Watch ~/.claude/plans/ for plan files matching this session's slug
+      startPlanWatching();
     }
 
     // Retry transcript lookup on each poll — JSONL is created lazily
@@ -344,6 +409,7 @@ export function startClaudeCodeProvider(
   return () => {
     clearInterval(pollTimer);
     stopWatching();
+    stopPlanWatching();
     plog.info("stopped");
   };
 }

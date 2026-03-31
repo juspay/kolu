@@ -64,6 +64,27 @@ export const ClaudeCodeInfoSchema = z.object({
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
+  /** Absolute path to the plan file for this session (derived from JSONL slug), if any. */
+  latestPlanPath: z.string().nullable(),
+  /** Plan file modification time (epoch ms) — changes trigger client content refetch via query key. */
+  planModifiedAt: z.number().nullable(),
+});
+
+// --- Plans ---
+
+export const PlanContentSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  modifiedAt: z.number(),
+});
+
+export const PlanFeedbackInputSchema = z.object({
+  /** Absolute path to the plan file. */
+  path: z.string(),
+  /** Line number after which to insert feedback (1-based). */
+  afterLine: z.number(),
+  /** Feedback text (will be wrapped in blockquote format). */
+  text: z.string(),
 });
 
 // --- Terminal metadata (unified, provider-aggregated) ---
@@ -189,3 +210,4 @@ export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type PlanContent = z.infer<typeof PlanContentSchema>;
