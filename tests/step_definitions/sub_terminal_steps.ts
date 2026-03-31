@@ -28,10 +28,11 @@ async function paletteCommand(world: KoluWorld, query: string) {
         "value",
       )!.set!;
       nativeSet.call(input, q);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: q }));
     },
     { sel: PALETTE, q: query },
   );
+  await world.waitForFrame();
   // Wait for a result with layout, then click it
   await world.page.waitForFunction(
     (sel) => {
