@@ -12,7 +12,9 @@
       "node-pty"
     ],
     "overrides": {
-      "serialize-javascript": "^7.0.3"
+      "serialize-javascript": "^7.0.3",
+      "picomatch": "^4.0.4",
+      "yaml": "^2.8.3"
     }
   }
 }
