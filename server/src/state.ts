@@ -16,7 +16,7 @@ interface StateSchema {
   worktreeAutolaunch: string | null;
 }
 
-const DEFAULT_AUTOLAUNCH = "pwd && git log --oneline -5";
+const DEFAULT_AUTOLAUNCH = "pwd; git log --oneline -5";
 
 /**
  * Schema version — bump this when adding migrations.

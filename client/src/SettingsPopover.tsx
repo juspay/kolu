@@ -1,9 +1,16 @@
 /** Settings popover — toggleable settings anchored to a trigger button. */
 
-import { type Component, Show, For, createSignal } from "solid-js";
+import {
+  type Component,
+  Show,
+  For,
+  createSignal,
+  createEffect,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Toggle from "./Toggle";
+import { client } from "./rpc";
 import type { ColorScheme } from "./useColorScheme";
 
 const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
@@ -29,6 +36,14 @@ const SettingsPopover: Component<{
 }> = (props) => {
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, right: 0 });
+  const [autolaunch, setAutolaunch] = createSignal("");
+
+  // Fetch autolaunch value when popover opens
+  createEffect(() => {
+    if (props.open) {
+      void client.settings.getAutolaunch().then((v) => setAutolaunch(v ?? ""));
+    }
+  });
 
   // Recompute position each time popover opens
   const updatePos = () => {
@@ -130,6 +145,32 @@ const SettingsPopover: Component<{
               onChange={props.onStartupTipsChange}
             />
           </label>
+          {/* Worktree autolaunch */}
+          <div class="space-y-1">
+            <label for="autolaunch-input" class="text-sm text-fg-2 block">
+              Worktree autolaunch
+            </label>
+            <input
+              id="autolaunch-input"
+              data-testid="autolaunch-input"
+              type="text"
+              class="w-full px-2 py-1 text-xs text-fg bg-surface-2 border border-edge rounded focus:outline-none focus:ring-1 focus:ring-accent/50 font-mono"
+              placeholder="Command to run (empty to disable)"
+              value={autolaunch()}
+              onInput={(e) => setAutolaunch(e.currentTarget.value)}
+              onBlur={() => {
+                const cmd = autolaunch().trim() || null;
+                void client.settings.setAutolaunch({ command: cmd });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Escape") {
+                  e.currentTarget.blur();
+                  props.onOpenChange(false);
+                }
+              }}
+            />
+          </div>
         </div>
       </Portal>
     </Show>
