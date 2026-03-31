@@ -9,6 +9,8 @@ import {
   Show,
   createSignal,
   createMemo,
+  createEffect,
+  on,
   onCleanup,
 } from "solid-js";
 import { marked } from "marked";
@@ -226,6 +228,47 @@ const PlanPane: Component<{
     if (!props.content) return "";
     return renderPlanMarkdown(props.content.content);
   });
+
+  /** Track previous content to highlight changes when Claude updates the plan. */
+  let prevLines: string[] = [];
+  createEffect(
+    on(
+      () => props.content?.content,
+      (raw) => {
+        if (!raw || !contentRef) return;
+        const newLines = raw.split("\n");
+        if (prevLines.length === 0) {
+          prevLines = newLines;
+          return;
+        }
+
+        // Find which source lines changed or were added
+        const changedLines = new Set<number>();
+        const maxLen = Math.max(prevLines.length, newLines.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (prevLines[i] !== newLines[i]) changedLines.add(i + 1); // 1-based
+        }
+        prevLines = newLines;
+
+        if (changedLines.size === 0) return;
+
+        // After DOM update, highlight elements whose data-line is in the changed set
+        requestAnimationFrame(() => {
+          if (!contentRef) return;
+          const els = contentRef.querySelectorAll("[data-line]");
+          for (const el of els) {
+            const line = parseInt((el as HTMLElement).dataset.line ?? "0", 10);
+            if (changedLines.has(line)) {
+              el.classList.add("plan-changed");
+              // Remove after animation completes
+              setTimeout(() => el.classList.remove("plan-changed"), 2000);
+            }
+          }
+        });
+      },
+      { defer: true },
+    ),
+  );
 
   /** Whether the plan file contains any feedback blockquotes. */
   const hasFeedback = createMemo(

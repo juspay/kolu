@@ -230,6 +230,19 @@
   opacity: 1;
 }
 
+/* Highlight animation for plan sections updated by Claude */
+.plan-changed {
+  animation: plan-change-flash 2s ease-out;
+}
+@keyframes plan-change-flash {
+  0% {
+    background-color: oklch(from var(--color-accent) l c h / 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
 /* Selection highlight in plan pane */
 .plan-markdown ::selection {
   background: oklch(from var(--color-accent) l c h / 0.3);
