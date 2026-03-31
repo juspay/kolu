@@ -15,7 +15,9 @@ default: _preflight _run-all
 [parallel]
 _run-all: _local _linux _darwin
 
-# System-independent checks — always local
+# Each lane swallows failures (|| true) so all steps run and post
+# their own GitHub status — _summary reads those statuses to decide
+# the final pass/fail.
 _local:
     just ci::pc ci::typecheck || true
 
