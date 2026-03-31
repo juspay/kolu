@@ -1,8 +1,10 @@
 /**
- * Plan file operations — read content and insert inline feedback.
+ * Plan file operations — read content and insert/remove inline feedback.
  *
- * Pure file operations, no state. The metadata provider (meta/plans.ts) handles
- * directory watching and discovery; this module handles content access.
+ * All mutations use optimistic locking via file mtime: read the mtime before
+ * modifying, verify it hasn't changed before writing. If Claude (or anything
+ * else) modified the file between our read and write, we abort with an error
+ * and the client retries against fresh content.
  */
 
 import fs from "node:fs";
@@ -25,13 +27,30 @@ export function getPlanContent(filePath: string): PlanContent {
   };
 }
 
+/** Read file content + mtime atomically for optimistic locking. */
+function readWithMtime(resolved: string): { lines: string[]; mtime: number } {
+  const content = fs.readFileSync(resolved, "utf8");
+  const stat = fs.statSync(resolved);
+  return { lines: content.split("\n"), mtime: stat.mtimeMs };
+}
+
+/** Write file only if mtime hasn't changed since we read it.
+ *  Throws if the file was modified concurrently (e.g. by Claude). */
+function writeIfUnchanged(
+  resolved: string,
+  lines: string[],
+  expectedMtime: number,
+): void {
+  const currentMtime = fs.statSync(resolved).mtimeMs;
+  if (currentMtime !== expectedMtime) {
+    throw new Error("Plan file was modified concurrently — refresh and retry");
+  }
+  fs.writeFileSync(resolved, lines.join("\n"), "utf8");
+}
+
 /**
  * Insert inline feedback into a plan file after a specific line.
- *
- * Feedback is formatted as a blockquote:
- *   > [FEEDBACK]: <text>
- *
- * Inserts a blank line before and after the blockquote for readability.
+ * Uses optimistic locking to avoid overwriting concurrent edits.
  */
 export function addPlanFeedback(
   filePath: string,
@@ -39,54 +58,45 @@ export function addPlanFeedback(
   text: string,
 ): void {
   const resolved = path.resolve(filePath);
-  const content = fs.readFileSync(resolved, "utf8");
-  const lines = content.split("\n");
+  const { lines, mtime } = readWithMtime(resolved);
 
-  // Clamp to valid range — line numbers from the client may be stale
-  // if the plan was modified between read and feedback submission
   afterLine = Math.max(1, Math.min(afterLine, lines.length));
 
-  // Format feedback as blockquote lines
   const feedbackLines = text
     .split("\n")
     .map((line, i) => (i === 0 ? `> [FEEDBACK]: ${line}` : `> ${line}`));
 
-  // Insert after the specified line with surrounding blank lines
-  const insertion = ["", ...feedbackLines, ""];
-  lines.splice(afterLine, 0, ...insertion);
+  lines.splice(afterLine, 0, "", ...feedbackLines, "");
 
-  fs.writeFileSync(resolved, lines.join("\n"), "utf8");
+  writeIfUnchanged(resolved, lines, mtime);
 }
 
 /**
  * Remove a feedback block from a plan file.
- * Deletes the `> [FEEDBACK]: ...` line and any continuation `> ` lines,
- * plus surrounding blank lines added during insertion.
+ * Uses optimistic locking to avoid overwriting concurrent edits.
  */
 export function removePlanFeedback(
   filePath: string,
   feedbackLine: number,
 ): void {
   const resolved = path.resolve(filePath);
-  const content = fs.readFileSync(resolved, "utf8");
-  const lines = content.split("\n");
+  const { lines, mtime } = readWithMtime(resolved);
 
   feedbackLine = Math.max(1, Math.min(feedbackLine, lines.length));
-  const idx = feedbackLine - 1; // 0-based
+  const idx = feedbackLine - 1;
 
   if (!lines[idx]?.startsWith("> [FEEDBACK]:")) return;
 
-  // Find the extent of the feedback block (> [FEEDBACK]: + continuation > lines)
   let end = idx + 1;
   while (end < lines.length && lines[end]!.startsWith("> ")) {
     end++;
   }
 
-  // Also remove surrounding blank lines added during insertion
   let start = idx;
   if (start > 0 && lines[start - 1]!.trim() === "") start--;
   if (end < lines.length && lines[end]!.trim() === "") end++;
 
   lines.splice(start, end - start);
-  fs.writeFileSync(resolved, lines.join("\n"), "utf8");
+
+  writeIfUnchanged(resolved, lines, mtime);
 }
