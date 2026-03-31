@@ -8,9 +8,10 @@ const PALETTE = '[data-testid="command-palette"]';
 
 /**
  * Open command palette, fill a query, click the first result, wait for close.
- * Uses evaluate to fill/click because Corvu's dialog content stays hidden
- * (not animation — state-based visibility) until the open transition completes,
- * making Playwright's actionability checks unreliable for the li items.
+ * Uses evaluate to fill the input and click the result because Corvu's dialog
+ * content visibility is state-based — Playwright's actionability checks see
+ * elements as "hidden" during the open transition even with CSS animations
+ * disabled. The evaluate approach bypasses these checks entirely.
  */
 async function paletteCommand(world: KoluWorld, query: string) {
   // Ensure focus is in the app (previous palette close may leave focus nowhere)
