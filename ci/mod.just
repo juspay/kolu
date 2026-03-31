@@ -9,15 +9,15 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
-default: _preflight _local _run-all
+default: _preflight _run-all
     just ci::_summary
 
-# System-independent checks — always local, run before expensive builds
+[parallel]
+_run-all: _local _linux _darwin
+
+# System-independent checks — always local
 _local:
     just ci::pc ci::typecheck || true
-
-[parallel]
-_run-all: _linux _darwin
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
