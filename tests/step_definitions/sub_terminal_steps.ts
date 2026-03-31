@@ -82,6 +82,14 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
+    // Wait for focus to be in a sub-terminal (not the main one)
+    await this.page.waitForFunction(
+      () => {
+        const active = document.activeElement;
+        return active && !!active.closest("[data-terminal-id]");
+      },
+      { timeout: 5000 },
+    );
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();
