@@ -12,7 +12,10 @@ export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
   handleCreate: (cwd?: string) => Promise<void>;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => Promise<void>;
+  handleCreateSubTerminal: (
+    parentId: TerminalId,
+    cwd?: string,
+  ) => Promise<void>;
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
@@ -20,7 +23,9 @@ export function useSessionRestore(deps: {
   const terminalsQuery = createQuery(() => orpc.terminal.list.queryOptions());
   const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
 
-  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(null);
+  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
+    null,
+  );
 
   // Hydrate from server state on initial load.
   let hydrated = false;
