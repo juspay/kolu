@@ -16,6 +16,8 @@ interface StateSchema {
   worktreeAutolaunch: string | null;
 }
 
+const DEFAULT_AUTOLAUNCH = "pwd && git log --oneline -5";
+
 /**
  * Schema version — bump this when adding migrations.
  * Must be valid semver. `conf` runs all migration handlers
@@ -31,7 +33,7 @@ export const store = new Conf<StateSchema>({
   defaults: {
     recentRepos: [],
     session: null,
-    worktreeAutolaunch: "pwd && git log --oneline -5",
+    worktreeAutolaunch: DEFAULT_AUTOLAUNCH,
   },
   migrations: {
     // sortOrder added to SavedTerminal — old sessions don't have it.
@@ -39,7 +41,7 @@ export const store = new Conf<StateSchema>({
     "1.1.0": () => {},
     // worktreeAutolaunch added — set default for existing users.
     "1.2.0": (s: Conf<StateSchema>) => {
-      s.set("worktreeAutolaunch", "pwd && git log --oneline -5");
+      s.set("worktreeAutolaunch", DEFAULT_AUTOLAUNCH);
     },
   },
 });

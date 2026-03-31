@@ -42,7 +42,8 @@ When(
 Then(
   "the screen state should not contain {string}",
   async function (this: KoluWorld, unexpected: string) {
-    // Wait a bit for any potential autolaunch to execute
+    // Negative assertion — give autolaunch time to execute (if it were going to)
+    // before checking the buffer. Can't poll for absence, so a fixed delay is the best option.
     await this.page.waitForTimeout(1000);
     const content = await readBufferText(this.page);
     assert.ok(
