@@ -161,7 +161,7 @@ export function startGitHubPrProvider(
 
   // Resolve immediately if we have git context
   if (lastBranch && lastRepoRoot) {
-    void resolve(lastRepoRoot, lastBranch);
+    void resolve(lastRepoRoot);
   }
 
   function onGitChange(git: GitInfo | null) {
@@ -172,7 +172,7 @@ export function startGitHubPrProvider(
     lastBranch = branch;
     lastRepoRoot = repoRoot;
     if (branch && repoRoot) {
-      void resolve(repoRoot, branch);
+      void resolve(repoRoot);
     } else {
       // No longer in a git repo
       if (entry.info.meta.pr !== null) {
@@ -183,7 +183,7 @@ export function startGitHubPrProvider(
     }
   }
 
-  async function resolve(repoRoot: string, branch: string) {
+  async function resolve(repoRoot: string) {
     const pr = await resolveGitHubPr(repoRoot);
     if (prInfoEqual(pr, entry.info.meta.pr)) return;
     plog.info(
@@ -201,7 +201,7 @@ export function startGitHubPrProvider(
   const pollTimer = setInterval(() => {
     if (lastBranch && lastRepoRoot) {
       plog.debug("poll tick");
-      void resolve(lastRepoRoot, lastBranch);
+      void resolve(lastRepoRoot);
     }
   }, POLL_INTERVAL_MS);
 
