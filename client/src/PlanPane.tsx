@@ -14,45 +14,105 @@ import {
 import { marked } from "marked";
 import type { PlanContent } from "kolu-common";
 
-// Configure marked for safe rendering (plan files are trusted local content)
 marked.setOptions({ breaks: true, gfm: true });
 
+/** Build a map from raw-text snippets to their source line numbers.
+ *  Used to stamp rendered HTML elements with data-line attributes. */
+function buildLineMap(content: string): Map<string, number> {
+  const map = new Map<string, number>();
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i]!.trim();
+    // Only map non-empty, non-markup lines (skip blank lines, pure markdown syntax)
+    if (text && !map.has(text)) {
+      map.set(text, i + 1); // 1-based
+    }
+  }
+  return map;
+}
+
 /** Render markdown and style feedback blockquotes as inline callouts.
- *  Strategy: let marked render everything (including `> [FEEDBACK]:` lines as
- *  regular blockquotes), then post-process the HTML to restyle any blockquote
- *  whose text starts with "[FEEDBACK]:" into a styled callout div. */
+ *  Also stamps block elements with data-line for accurate feedback placement. */
 function renderPlanMarkdown(content: string): string {
-  const html = marked.parse(content) as string;
-  // Marked renders `> [FEEDBACK]: text` as <blockquote><p>[FEEDBACK]: text</p></blockquote>.
-  // Replace these with styled feedback callouts.
-  return html.replace(
+  const lineMap = buildLineMap(content);
+  let html = marked.parse(content) as string;
+
+  // Stamp headings with data-line by matching heading text back to source lines
+  html = html.replace(/<(h[1-6])>(.*?)<\/\1>/g, (_m, tag, text) => {
+    const clean = text.replace(/<[^>]+>/g, "").trim();
+    const line =
+      lineMap.get(clean) ??
+      lineMap.get(`# ${clean}`) ??
+      lineMap.get(`## ${clean}`) ??
+      lineMap.get(`### ${clean}`);
+    return `<${tag}${line ? ` data-line="${line}"` : ""}>${text}</${tag}>`;
+  });
+
+  // Stamp paragraphs with data-line
+  html = html.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner) => {
+    // Use first line of paragraph text to find source line
+    const firstLine = inner
+      .replace(/<[^>]+>/g, "")
+      .trim()
+      .split("\n")[0]
+      ?.trim();
+    if (firstLine) {
+      const line = lineMap.get(firstLine);
+      if (line) return `<p data-line="${line}">${inner}</p>`;
+    }
+    return `<p>${inner}</p>`;
+  });
+
+  // Stamp list items with data-line
+  html = html.replace(/<li>([\s\S]*?)<\/li>/g, (_m, inner) => {
+    const text = inner
+      .replace(/<[^>]+>/g, "")
+      .trim()
+      .split("\n")[0]
+      ?.trim();
+    if (text) {
+      // List items in markdown have prefix (- or *), try without
+      const line =
+        lineMap.get(text) ??
+        lineMap.get(`- ${text}`) ??
+        lineMap.get(`* ${text}`);
+      if (line) return `<li data-line="${line}">${inner}</li>`;
+    }
+    return `<li>${inner}</li>`;
+  });
+
+  // Restyle feedback blockquotes as callouts
+  html = html.replace(
     /<blockquote>\s*<p>\[FEEDBACK\]:\s*([\s\S]*?)<\/p>\s*<\/blockquote>/g,
     (_match, text: string) => {
-      // Parse "Re: «selected text» — comment" format
       const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
       if (reMatch) {
-        return `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2].trim()}</div>`;
+        return `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2]!.trim()}</div>`;
       }
       return `<div class="plan-feedback">${text}</div>`;
     },
   );
+
+  return html;
 }
 
-/** Find the line number in the original content where the selected text appears. */
-function findLineForText(content: string, selectedText: string): number {
-  const lines = content.split("\n");
-  const searchText = selectedText.split("\n")[0]!.trim();
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.includes(searchText)) {
-      return i + 1;
+/** Walk up the DOM from a node to find the nearest element with a data-line attribute. */
+function findLineFromNode(node: Node): number | null {
+  let el: Node | null = node;
+  while (el) {
+    if (el instanceof HTMLElement && el.dataset.line) {
+      return parseInt(el.dataset.line, 10);
     }
+    el = el.parentElement;
   }
-  return lines.length;
+  return null;
 }
 
 /** Selection popover state. */
 interface SelectionState {
   text: string;
+  /** Source line number from the markdown file (via data-line attribute). */
+  sourceLine: number;
   top: number;
   left: number;
 }
@@ -60,7 +120,7 @@ interface SelectionState {
 /** Floating popover that appears on text selection. */
 const SelectionPopover: Component<{
   selection: SelectionState;
-  onSubmit: (selectedText: string, comment: string) => void;
+  onSubmit: (selectedText: string, sourceLine: number, comment: string) => void;
   onDismiss: () => void;
 }> = (props) => {
   const [comment, setComment] = createSignal("");
@@ -68,7 +128,7 @@ const SelectionPopover: Component<{
   function handleSubmit() {
     const text = comment().trim();
     if (!text) return;
-    props.onSubmit(props.selection.text, text);
+    props.onSubmit(props.selection.text, props.selection.sourceLine, text);
     setComment("");
   }
 
@@ -171,11 +231,17 @@ const PlanPane: Component<{
     const text = sel.toString().trim();
     if (text.length < 3) return;
 
+    // Find the source line from the nearest data-line-annotated element
+    const sourceLine =
+      findLineFromNode(range.startContainer) ??
+      findLineFromNode(range.endContainer);
+    if (!sourceLine) return;
+
     const rect = range.getBoundingClientRect();
     const top = Math.min(rect.bottom + 8, window.innerHeight - 200);
     const left = Math.min(rect.left, window.innerWidth - 300);
 
-    setSelection({ text, top, left });
+    setSelection({ text, sourceLine, top, left });
   }
 
   function handleClickOutside(e: MouseEvent) {
@@ -192,11 +258,14 @@ const PlanPane: Component<{
     document.removeEventListener("mousedown", handleClickOutside);
   });
 
-  function handleFeedbackSubmit(selectedText: string, comment: string) {
+  function handleFeedbackSubmit(
+    selectedText: string,
+    sourceLine: number,
+    comment: string,
+  ) {
     if (!props.content) return;
-    const line = findLineForText(props.content.content, selectedText);
     const feedbackText = `Re: «${selectedText.replace(/\n/g, " ")}» — ${comment}`;
-    props.onAddFeedback(props.content.path, line, feedbackText);
+    props.onAddFeedback(props.content.path, sourceLine, feedbackText);
     setSelection(null);
     window.getSelection()?.removeAllRanges();
   }
