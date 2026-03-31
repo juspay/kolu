@@ -2,128 +2,23 @@
  *
  *  Select any text in the rendered plan to leave inline feedback. Feedback is
  *  written back to the plan file as blockquotes referencing the selected text,
- *  and rendered inline within the markdown (not in a separate section). */
+ *  and rendered inline within the markdown (not in a separate section).
+ *
+ *  Composed from independent modules:
+ *  - planMarkdown.ts — markdown rendering + line annotation + feedback restyling
+ *  - usePlanChangeHighlight.ts — change detection + DOM highlight animation */
 
 import {
   type Component,
   Show,
   createSignal,
   createMemo,
-  createEffect,
-  on,
   onCleanup,
 } from "solid-js";
-import { marked } from "marked";
 import { toast } from "solid-sonner";
 import type { PlanContent } from "kolu-common";
-
-marked.setOptions({ breaks: true, gfm: true });
-
-/** Build a map from raw-text snippets to their source line numbers.
- *  Used to stamp rendered HTML elements with data-line attributes. */
-function buildLineMap(content: string): Map<string, number> {
-  const map = new Map<string, number>();
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const text = lines[i]!.trim();
-    // Only map non-empty, non-markup lines (skip blank lines, pure markdown syntax)
-    if (text && !map.has(text)) {
-      map.set(text, i + 1); // 1-based
-    }
-  }
-  return map;
-}
-
-/** Render markdown and style feedback blockquotes as inline callouts.
- *  Also stamps block elements with data-line for accurate feedback placement. */
-function renderPlanMarkdown(content: string): string {
-  const lineMap = buildLineMap(content);
-  let html = marked.parse(content) as string;
-
-  // Stamp headings with data-line by matching heading text back to source lines
-  html = html.replace(/<(h[1-6])>(.*?)<\/\1>/g, (_m, tag, text) => {
-    const clean = text.replace(/<[^>]+>/g, "").trim();
-    const line =
-      lineMap.get(clean) ??
-      lineMap.get(`# ${clean}`) ??
-      lineMap.get(`## ${clean}`) ??
-      lineMap.get(`### ${clean}`);
-    return `<${tag}${line ? ` data-line="${line}"` : ""}>${text}</${tag}>`;
-  });
-
-  // Stamp paragraphs with data-line
-  html = html.replace(/<p>([\s\S]*?)<\/p>/g, (_m, inner) => {
-    // Use first line of paragraph text to find source line
-    const firstLine = inner
-      .replace(/<[^>]+>/g, "")
-      .trim()
-      .split("\n")[0]
-      ?.trim();
-    if (firstLine) {
-      const line = lineMap.get(firstLine);
-      if (line) return `<p data-line="${line}">${inner}</p>`;
-    }
-    return `<p>${inner}</p>`;
-  });
-
-  // Stamp list items with data-line
-  html = html.replace(/<li>([\s\S]*?)<\/li>/g, (_m, inner) => {
-    const text = inner
-      .replace(/<[^>]+>/g, "")
-      .trim()
-      .split("\n")[0]
-      ?.trim();
-    if (text) {
-      // List items in markdown have prefix (- or *), try without
-      const line =
-        lineMap.get(text) ??
-        lineMap.get(`- ${text}`) ??
-        lineMap.get(`* ${text}`);
-      if (line) return `<li data-line="${line}">${inner}</li>`;
-    }
-    return `<li>${inner}</li>`;
-  });
-
-  // Build a queue of feedback source line numbers (1-based) for matching
-  const feedbackLineNums: number[] = [];
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.startsWith("> [FEEDBACK]:")) feedbackLineNums.push(i + 1);
-  }
-  let feedbackIdx = 0;
-
-  // Restyle feedback blockquotes as callouts with remove/edit actions
-  html = html.replace(
-    /<blockquote>\s*<p>\[FEEDBACK\]:\s*([\s\S]*?)<\/p>\s*<\/blockquote>/g,
-    (_match, text: string) => {
-      const srcLine = feedbackLineNums[feedbackIdx++] ?? 0;
-      const actions =
-        `<span class="plan-feedback-actions">` +
-        `<button data-feedback-edit="${srcLine}" class="plan-feedback-btn" title="Edit">✎</button>` +
-        `<button data-feedback-remove="${srcLine}" class="plan-feedback-btn" title="Remove">×</button>` +
-        `</span>`;
-      const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
-      if (reMatch) {
-        return `<div class="plan-feedback" data-feedback-line="${srcLine}"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2]!.trim()}${actions}</div>`;
-      }
-      return `<div class="plan-feedback" data-feedback-line="${srcLine}">${text}${actions}</div>`;
-    },
-  );
-
-  return html;
-}
-
-/** Walk up the DOM from a node to find the nearest element with a data-line attribute. */
-function findLineFromNode(node: Node): number | null {
-  let el: Node | null = node;
-  while (el) {
-    if (el instanceof HTMLElement && el.dataset.line) {
-      return parseInt(el.dataset.line, 10);
-    }
-    el = el.parentElement;
-  }
-  return null;
-}
+import { renderPlanMarkdown, findLineFromNode } from "./planMarkdown";
+import { usePlanChangeHighlight } from "./usePlanChangeHighlight";
 
 /** Selection popover state. */
 interface SelectionState {
@@ -223,54 +118,17 @@ const PlanPane: Component<{
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   let contentRef: HTMLDivElement | undefined;
 
-  /** Rendered HTML from markdown with feedback rendered inline. */
   const renderedHtml = createMemo(() => {
     if (!props.content) return "";
     return renderPlanMarkdown(props.content.content);
   });
 
-  /** Track previous content to highlight changes when Claude updates the plan. */
-  let prevLines: string[] = [];
-  createEffect(
-    on(
-      () => props.content?.content,
-      (raw) => {
-        if (!raw || !contentRef) return;
-        const newLines = raw.split("\n");
-        if (prevLines.length === 0) {
-          prevLines = newLines;
-          return;
-        }
-
-        // Find which source lines changed or were added
-        const changedLines = new Set<number>();
-        const maxLen = Math.max(prevLines.length, newLines.length);
-        for (let i = 0; i < maxLen; i++) {
-          if (prevLines[i] !== newLines[i]) changedLines.add(i + 1); // 1-based
-        }
-        prevLines = newLines;
-
-        if (changedLines.size === 0) return;
-
-        // After DOM update, highlight elements whose data-line is in the changed set
-        requestAnimationFrame(() => {
-          if (!contentRef) return;
-          const els = contentRef.querySelectorAll("[data-line]");
-          for (const el of els) {
-            const line = parseInt((el as HTMLElement).dataset.line ?? "0", 10);
-            if (changedLines.has(line)) {
-              el.classList.add("plan-changed");
-              // Remove after animation completes
-              setTimeout(() => el.classList.remove("plan-changed"), 2000);
-            }
-          }
-        });
-      },
-      { defer: true },
-    ),
+  // Change highlighting — separate concern, own module
+  usePlanChangeHighlight(
+    () => props.content?.content,
+    () => contentRef,
   );
 
-  /** Count of feedback entries in the plan file. */
   const feedbackCount = createMemo(() => {
     if (!props.content) return 0;
     return (props.content.content.match(/^> \[FEEDBACK\]:/gm) ?? []).length;
@@ -278,40 +136,35 @@ const PlanPane: Component<{
 
   const hasFeedback = () => feedbackCount() > 0;
 
-  /** Handle text selection — show popover near the selection. */
+  // --- Text selection → comment popover ---
+
   function handleMouseUp() {
     const sel = window.getSelection();
-    if (!sel || !sel.toString().trim() || !sel.rangeCount) {
-      return;
-    }
+    if (!sel || !sel.toString().trim() || !sel.rangeCount) return;
 
     const range = sel.getRangeAt(0);
-    if (!contentRef?.contains(range.commonAncestorContainer)) {
-      return;
-    }
+    if (!contentRef?.contains(range.commonAncestorContainer)) return;
 
     const text = sel.toString().trim();
     if (text.length < 3) return;
 
-    // Find the source line from the nearest data-line-annotated element.
-    // Fall back to end-of-file if no annotated ancestor (e.g. table cells).
     const sourceLine =
       findLineFromNode(range.startContainer) ??
       findLineFromNode(range.endContainer) ??
       (props.content ? props.content.content.split("\n").length : 1);
 
     const rect = range.getBoundingClientRect();
-    const top = Math.min(rect.bottom + 8, window.innerHeight - 200);
-    const left = Math.min(rect.left, window.innerWidth - 300);
-
-    setSelection({ text, sourceLine, top, left });
+    setSelection({
+      text,
+      sourceLine,
+      top: Math.min(rect.bottom + 8, window.innerHeight - 200),
+      left: Math.min(rect.left, window.innerWidth - 300),
+    });
   }
 
   function handleClickOutside(e: MouseEvent) {
     const popover = document.querySelector('[data-testid="selection-popover"]');
-    if (popover && !popover.contains(e.target as Node)) {
-      setSelection(null);
-    }
+    if (popover && !popover.contains(e.target as Node)) setSelection(null);
   }
 
   document.addEventListener("mouseup", handleMouseUp);
@@ -321,31 +174,26 @@ const PlanPane: Component<{
     document.removeEventListener("mousedown", handleClickOutside);
   });
 
-  /** Handle clicks on feedback remove/edit buttons (event delegation on innerHTML). */
+  // --- Feedback CRUD via event delegation on innerHTML ---
+
   function handleContentClick(e: MouseEvent) {
     const target = e.target as HTMLElement;
 
-    // Remove feedback
     const removeLine = target.dataset.feedbackRemove;
     if (removeLine && props.content) {
       props.onRemoveFeedback(props.content.path, parseInt(removeLine, 10));
       return;
     }
 
-    // Edit feedback — remove the old one and open selection popover to re-enter
     const editLine = target.dataset.feedbackEdit;
     if (editLine && props.content) {
-      // Find the feedback text from the parent .plan-feedback div
-      const feedbackDiv = target.closest(".plan-feedback");
-      const refEl = feedbackDiv?.querySelector(".plan-feedback-ref");
-      const refText = refEl?.textContent ?? "";
-      // Remove old feedback, then user can re-add with text selection
+      const refText =
+        target.closest(".plan-feedback")?.querySelector(".plan-feedback-ref")
+          ?.textContent ?? "";
       props.onRemoveFeedback(props.content.path, parseInt(editLine, 10));
-      // Show a toast hinting to re-select and comment
       toast(`Feedback removed: ${refText}. Select text to re-add.`, {
         duration: 4_000,
       });
-      return;
     }
   }
 
@@ -388,7 +236,7 @@ const PlanPane: Component<{
         </Show>
       </div>
 
-      {/* Content — overflow-x-hidden prevents wide tables from expanding the pane */}
+      {/* Content */}
       <div class="flex-1 overflow-y-auto overflow-x-hidden">
         <Show
           when={!props.loading}
@@ -406,7 +254,6 @@ const PlanPane: Component<{
               </div>
             }
           >
-            {/* Rendered markdown with inline feedback — innerHTML safe: local plan files */}
             <div
               ref={contentRef}
               class="px-3 py-2 plan-markdown"
@@ -418,7 +265,7 @@ const PlanPane: Component<{
         </Show>
       </div>
 
-      {/* Action bar — Review (sends feedback notification) and Proceed */}
+      {/* Action bar */}
       <div class="px-3 py-2 bg-surface-1 border-t border-edge shrink-0 flex gap-2 justify-end">
         <button
           class="text-xs px-3 py-1.5 rounded font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
