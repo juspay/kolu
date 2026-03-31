@@ -434,9 +434,10 @@ const App: Component = () => {
                   onSendToTerminal={(text) => {
                     const id = store.activeId();
                     if (id) {
+                      // \r = Enter in PTY (carriage return, not newline)
                       void client.terminal.sendInput({
                         id,
-                        data: text + "\n",
+                        data: text + "\r",
                       });
                     }
                   }}
