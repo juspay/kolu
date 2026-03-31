@@ -32,8 +32,11 @@ export function usePlans(deps: {
     return {
       ...orpc.plans.get.queryOptions({ input: { path: p! } }),
       enabled: !!p,
-      // Refetch frequently since plan files change while Claude generates
+      // Poll for content changes — the file may be updated by Claude mid-session.
+      // staleTime prevents redundant fetches; refetchInterval ensures we pick up
+      // file changes even when the plan path hasn't changed in metadata.
       staleTime: 2_000,
+      refetchInterval: 3_000,
     };
   });
 
