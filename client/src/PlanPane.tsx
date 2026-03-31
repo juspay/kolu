@@ -171,6 +171,8 @@ const PlanPane: Component<{
   planName: string;
   planPath: string | null;
   onAddFeedback: (path: string, afterLine: number, text: string) => void;
+  /** Send text + Enter to the active terminal (where Claude is running). */
+  onSendToTerminal: (text: string) => void;
 }> = (props) => {
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   let contentRef: HTMLDivElement | undefined;
@@ -180,6 +182,11 @@ const PlanPane: Component<{
     if (!props.content) return "";
     return renderPlanMarkdown(props.content.content);
   });
+
+  /** Whether the plan file contains any feedback blockquotes. */
+  const hasFeedback = createMemo(
+    () => !!props.content?.content.includes("> [FEEDBACK]:"),
+  );
 
   /** Handle text selection — show popover near the selection. */
   function handleMouseUp() {
@@ -270,6 +277,32 @@ const PlanPane: Component<{
             />
           </Show>
         </Show>
+      </div>
+
+      {/* Action bar — Review (sends feedback notification) and Proceed */}
+      <div class="px-3 py-2 bg-surface-1 border-t border-edge shrink-0 flex gap-2 justify-end">
+        <button
+          class="text-xs px-3 py-1.5 rounded font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          classList={{
+            "bg-accent/20 text-accent hover:bg-accent/30": hasFeedback(),
+          }}
+          disabled={!hasFeedback()}
+          onClick={() =>
+            props.onSendToTerminal("I updated the plan with feedback")
+          }
+          title="Tell Claude you've added feedback to the plan"
+          data-testid="plan-review-btn"
+        >
+          Review
+        </button>
+        <button
+          class="text-xs text-surface-0 bg-accent hover:bg-accent-bright px-3 py-1.5 rounded font-medium"
+          onClick={() => props.onSendToTerminal("Proceed with the plan")}
+          title="Tell Claude to proceed with the plan"
+          data-testid="plan-proceed-btn"
+        >
+          Proceed
+        </button>
       </div>
 
       {/* Selection popover */}

@@ -26,7 +26,7 @@ import PlanPane from "./PlanPane";
 import Resizable from "@corvu/resizable";
 import { createCommands } from "./commands";
 
-import { wsStatus, serverRestarted } from "./rpc";
+import { client, wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
 import { useThemeManager } from "./useThemeManager";
@@ -431,6 +431,15 @@ const App: Component = () => {
                   planName={planName()}
                   planPath={activePlanPath()}
                   onAddFeedback={addFeedback}
+                  onSendToTerminal={(text) => {
+                    const id = store.activeId();
+                    if (id) {
+                      void client.terminal.sendInput({
+                        id,
+                        data: text + "\n",
+                      });
+                    }
+                  }}
                 />
               </Resizable.Panel>
             </Resizable>
