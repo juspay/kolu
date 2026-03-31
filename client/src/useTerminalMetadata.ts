@@ -72,16 +72,6 @@ export function useTerminalMetadata(deps: {
     return idx >= 0 ? (activityQueries[idx]?.data ?? []) : [];
   }
 
-  /** Is the terminal currently producing output? Derived from last sample
-   *  in the windowed activity history. */
-  function isBusy(id: TerminalId): boolean {
-    const idx = deps.knownIds().indexOf(id);
-    if (idx < 0) return false;
-    const samples = activityQueries[idx]?.data;
-    if (!samples || samples.length === 0) return false;
-    return samples[samples.length - 1]![1];
-  }
-
   // --- Order derived from metadata sortOrder ---
 
   /** Top-level terminal IDs sorted by sortOrder.
@@ -110,7 +100,6 @@ export function useTerminalMetadata(deps: {
     buildTerminalDisplayInfos(
       terminalIds(),
       getMetadata,
-      isBusy,
       getActivityHistory,
       getSubTerminalIds,
     ),
@@ -128,7 +117,6 @@ export function useTerminalMetadata(deps: {
 
   return {
     getMetadata,
-    isBusy,
     getActivityHistory,
     terminalIds,
     getSubTerminalIds,

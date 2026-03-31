@@ -14,8 +14,6 @@ export type TerminalDisplayInfo = {
   repoColor?: string;
   branchColor?: string;
   meta: TerminalMetadata;
-  /** Whether the terminal is currently producing output. */
-  busy: boolean;
   activityHistory: ActivitySample[];
   subCount: number;
 };
@@ -40,7 +38,6 @@ function terminalName(meta: TerminalMetadata): string {
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  isBusy: (id: TerminalId) => boolean,
   getActivityHistory: (id: TerminalId) => ActivitySample[],
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
@@ -72,7 +69,6 @@ export function buildTerminalDisplayInfos(
     result.set(id, {
       name,
       meta,
-      busy: isBusy(id),
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
       activityHistory: getActivityHistory(id),
