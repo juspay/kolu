@@ -13,9 +13,13 @@ import type { PlanContent, TerminalMetadata } from "kolu-common";
 export function usePlans(deps: {
   activeMeta: Accessor<TerminalMetadata | null>;
 }) {
-  /** Path to the latest plan from the active terminal's Claude session. */
+  /** Plan info from the active terminal's Claude session. */
   const activePlanPath = createMemo(
     () => deps.activeMeta()?.claude?.latestPlanPath ?? null,
+  );
+  /** Plan file mtime — pushed by server on fs change, used in query key to trigger refetch. */
+  const planModifiedAt = createMemo(
+    () => deps.activeMeta()?.claude?.planModifiedAt ?? null,
   );
 
   /** Plan display name derived from file path. */
@@ -26,17 +30,20 @@ export function usePlans(deps: {
     return filename.replace(/\.md$/, "");
   });
 
-  /** Fetch content of the active plan. */
+  /** Fetch content of the active plan.
+   *  The query key includes planModifiedAt so TanStack auto-refetches when the
+   *  server pushes a new mtime via the metadata stream (no polling needed). */
   const planContent = createQuery(() => {
     const p = activePlanPath();
+    const mtime = planModifiedAt();
+    const opts = orpc.plans.get.queryOptions({ input: { path: p! } });
     return {
-      ...orpc.plans.get.queryOptions({ input: { path: p! } }),
+      ...opts,
+      // Append mtime to the query key — when the server's fs watcher detects
+      // a plan file change, it publishes updated metadata with a new mtime,
+      // which changes this key, triggering a fresh fetch.
+      queryKey: [...opts.queryKey, mtime],
       enabled: !!p,
-      // Poll for content changes — the file may be updated by Claude mid-session.
-      // staleTime prevents redundant fetches; refetchInterval ensures we pick up
-      // file changes even when the plan path hasn't changed in metadata.
-      staleTime: 2_000,
-      refetchInterval: 3_000,
     };
   });
 

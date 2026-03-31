@@ -192,7 +192,8 @@ function infoEqual(
     a.state === b.state &&
     a.sessionId === b.sessionId &&
     a.model === b.model &&
-    a.latestPlanPath === b.latestPlanPath
+    a.latestPlanPath === b.latestPlanPath &&
+    a.planModifiedAt === b.planModifiedAt
   );
 }
 
@@ -201,13 +202,16 @@ const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
 /**
  * Check if a plan file exists for this session's slug.
  * Claude Code names plan files after the session slug: ~/.claude/plans/{slug}.md
+ * Returns path + mtime so metadata changes propagate content updates to clients.
  */
-function findPlanForSlug(slug: string | null): string | null {
+function findPlanForSlug(
+  slug: string | null,
+): { path: string; modifiedAt: number } | null {
   if (!slug) return null;
   const planPath = path.join(PLANS_DIR, `${slug}.md`);
   try {
-    fs.accessSync(planPath);
-    return planPath;
+    const stat = fs.statSync(planPath);
+    return { path: planPath, modifiedAt: stat.mtimeMs };
   } catch {
     return null;
   }
@@ -294,11 +298,13 @@ export function startClaudeCodeProvider(
     }
     if (!matchedSession) return;
 
+    const plan = findPlanForSlug(derived.slug);
     const info: ClaudeCodeInfo = {
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
-      latestPlanPath: findPlanForSlug(derived.slug),
+      latestPlanPath: plan?.path ?? null,
+      planModifiedAt: plan?.modifiedAt ?? null,
     };
 
     if (infoEqual(info, entry.info.meta.claude)) return;

@@ -64,8 +64,10 @@ export const ClaudeCodeInfoSchema = z.object({
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
-  /** Absolute path to the most recently modified plan file for this session's project, if any. */
+  /** Absolute path to the plan file for this session (derived from JSONL slug), if any. */
   latestPlanPath: z.string().nullable(),
+  /** Plan file modification time (epoch ms) — changes trigger client content refetch via query key. */
+  planModifiedAt: z.number().nullable(),
 });
 
 // --- Plans ---
