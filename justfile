@@ -79,13 +79,14 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
-# Run pre-commit hooks on all files
+# Format all files in-place
 pc:
-    {{ nix_shell }} pre-commit run -a
+    {{ nix_shell }} prettier --write --ignore-unknown .
+    {{ nix_shell }} nixpkgs-fmt *.nix nix/**/*.nix
 
 # Check formatting without modifying files (used by CI)
 pc-check:
-    {{ nix_shell }} prettier --check --ignore-unknown . '!pnpm-lock.yaml'
+    {{ nix_shell }} prettier --check --ignore-unknown .
     {{ nix_shell }} nixpkgs-fmt --check *.nix nix/**/*.nix
 
 # Nix build (server + client)
