@@ -41,6 +41,9 @@ export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
 export { renderer };
 
+/** Per-terminal WebGL addon ref for texture atlas management. */
+const webglAddons = new Map<TerminalId, WebglAddon>();
+
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
@@ -95,6 +98,11 @@ const Terminal: Component<{
 
   let streamAbort: AbortController | null = null;
 
+  /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
+  function clearTextureAtlas() {
+    webglAddons.get(props.terminalId)?.clearTextureAtlas();
+  }
+
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -105,6 +113,7 @@ const Terminal: Component<{
         if (!visible || !terminal) return;
         scrollLock.reset();
         debouncedFit();
+        clearTextureAtlas();
         if (props.focused !== false) terminal.focus();
       },
       { defer: true },
@@ -142,6 +151,7 @@ const Terminal: Component<{
       (theme) => {
         if (!terminal) return;
         terminal.options.theme = theme;
+        clearTextureAtlas();
       },
       { defer: true },
     ),
@@ -168,6 +178,7 @@ const Terminal: Component<{
         if (!terminal) return;
         terminal.options.fontSize = size;
         debouncedFit();
+        clearTextureAtlas();
       },
       { defer: true },
     ),
@@ -213,9 +224,11 @@ const Terminal: Component<{
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => {
         webgl.dispose();
+        webglAddons.delete(props.terminalId);
         setRenderer("canvas");
       });
       term.loadAddon(webgl);
+      webglAddons.set(props.terminalId, webgl);
       setRenderer("webgl");
     } catch {
       // WebGL unavailable — canvas renderer is the default
@@ -286,7 +299,13 @@ const Terminal: Component<{
       },
     );
 
-    refitOnTabVisible(debouncedFit, () => props.visible);
+    refitOnTabVisible(
+      () => {
+        debouncedFit();
+        clearTextureAtlas();
+      },
+      () => props.visible,
+    );
     // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),
@@ -338,6 +357,7 @@ const Terminal: Component<{
 
     onCleanup(() => {
       streamAbort?.abort();
+      webglAddons.delete(props.terminalId);
       terminal?.dispose();
     });
   });
