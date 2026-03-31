@@ -106,9 +106,7 @@ interface GhPrViewResult {
  * --head <name>` which matches by branch name alone and picks up unrelated
  * fork PRs.
  */
-async function resolveGitHubPr(
-  repoRoot: string,
-): Promise<GitHubPrInfo | null> {
+async function resolveGitHubPr(repoRoot: string): Promise<GitHubPrInfo | null> {
   try {
     const { stdout } = await execFileAsync(
       "gh",
