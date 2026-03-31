@@ -21,7 +21,7 @@ const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
-  notified: boolean;
+  alerting: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
@@ -49,22 +49,22 @@ const SidebarEntry: Component<{
         data-terminal-id={props.id}
         data-active={props.isActive ? "" : undefined}
         data-activity={props.displayInfo?.busy ? "active" : "sleeping"}
-        data-notified={props.notified ? "" : undefined}
+        data-alerting={props.alerting ? "" : undefined}
         class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-4 bg-accent/10 text-fg": props.isActive,
           "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
-          "text-fg": !props.isActive && !!props.notified,
-          "text-fg-3 hover:text-fg-2": !props.isActive && !props.notified,
+          "text-fg": !props.isActive && !!props.alerting,
+          "text-fg-3 hover:text-fg-2": !props.isActive && !props.alerting,
           "opacity-25": sortable.isActiveDraggable,
         }}
         style={{
-          "border-left-color": props.notified
+          "border-left-color": props.alerting
             ? "var(--color-accent)"
             : (props.displayInfo?.repoColor ??
               (props.isActive ? "var(--accent)" : "transparent")),
-          ...(props.notified
-            ? { animation: "notified-glow 1.5s ease-in-out infinite" }
+          ...(props.alerting
+            ? { animation: "alerting-glow 1.5s ease-in-out infinite" }
             : {}),
         }}
         onClick={() => props.onSelect(props.id)}
@@ -178,7 +178,7 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
-                      notified={props.needsAttention(id)}
+                      alerting={props.needsAttention(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       dropEdge={edge()}
