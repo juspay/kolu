@@ -53,7 +53,8 @@ _host:
 
 # Run command with GitHub status lifecycle (pending → success/failure)
 # Routes to local exec or remote (git bundle + ssh) based on system.
-# Captures raw output to .logs/<short-sha>/<step>@<system>.log
+# If CI_SYSTEM is set, context = name@system (multi-system step).
+# If CI_SYSTEM is unset, context = name (local-only step).
 _run name +cmd:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -64,11 +65,17 @@ _run name +cmd:
     short_sha="${full_sha:0:7}"
     logdir="{{ root }}/.logs/${short_sha}"
     mkdir -p "$logdir"
-    logfile="$logdir/{{ name }}@{{ system }}.log"
-    logrel=".logs/${short_sha}/{{ name }}@{{ system }}.log"
+    # Local-only steps (no CI_SYSTEM) get bare context; multi-system steps get @system
+    if [[ -n "${CI_SYSTEM:-}" ]]; then
+        context="{{ name }}@{{ system }}"
+    else
+        context="{{ name }}"
+    fi
+    logfile="$logdir/${context}.log"
+    logrel=".logs/${short_sha}/${context}.log"
     start=$SECONDS
-    trap 'elapsed=$(( SECONDS - start )); just ci::_signoff "{{ name }}@{{ system }}" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
-    just ci::_signoff "{{ name }}@{{ system }}" pending "${user} · running"
+    trap 'elapsed=$(( SECONDS - start )); just ci::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
+    just ci::_signoff "$context" pending "${user} · running"
     esc=$'\033'
     name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
     sys_color=$((31 + $(printf '%s' '{{ system }}' | cksum | cut -d' ' -f1) % 6))
@@ -94,14 +101,14 @@ _run name +cmd:
         host=$(just ci::_host)
         echo "▶ ${colored} ($host)"
         tmp=$(ssh "$host" mktemp -d)
-        trap 'ssh "$host" "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "{{ name }}@{{ system }}" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
+        trap 'ssh "$host" "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
         ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
         ssh "$host" "rm -rf $tmp"
     fi
     elapsed=$(( SECONDS - start ))
-    just ci::_signoff "{{ name }}@{{ system }}" success "${user} · ${elapsed}s · ${logrel}"
+    just ci::_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
 
 # Auto-extract step@system contexts from justfile structure.
 # Auto-extract CI contexts from justfile structure.
