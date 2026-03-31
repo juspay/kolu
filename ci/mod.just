@@ -9,16 +9,22 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
-default: _run-all
+default: _preflight _run-all
     just ci::_summary
 
 [parallel]
-_run-all: _linux _darwin
+_run-all: _local _linux _darwin
 
-_linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e || true
+# Each lane swallows failures (|| true) so all steps run and post
+# their own GitHub status — _summary reads those statuses to decide
+# the final pass/fail.
+_local:
+    just ci::fmt ci::typecheck || true
 
-_darwin: _preflight
+_linux:
+    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
+
+_darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
 
 nix:
@@ -32,3 +38,6 @@ typecheck:
 
 e2e: nix
     just ci::_run e2e just test
+
+fmt:
+    just ci::_run fmt just fmt-check
