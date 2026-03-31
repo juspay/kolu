@@ -108,7 +108,6 @@ interface GhPrViewResult {
  */
 async function resolveGitHubPr(
   repoRoot: string,
-  _branch: string,
 ): Promise<GitHubPrInfo | null> {
   try {
     const { stdout } = await execFileAsync(
@@ -185,7 +184,7 @@ export function startGitHubPrProvider(
   }
 
   async function resolve(repoRoot: string, branch: string) {
-    const pr = await resolveGitHubPr(repoRoot, branch);
+    const pr = await resolveGitHubPr(repoRoot);
     if (prInfoEqual(pr, entry.info.meta.pr)) return;
     plog.info(
       pr
