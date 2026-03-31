@@ -7,7 +7,8 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "KOLU_STATE_SUFFIX=dev node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.0",
@@ -36,6 +37,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.2"
   }
 }

@@ -104,7 +104,7 @@ function watchGitHead(cwd: string, onChange: () => void): () => void {
 }
 
 /** Compare two GitInfo values for equality. */
-function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
+export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (

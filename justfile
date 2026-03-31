@@ -37,6 +37,10 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
+# Run unit tests (vitest) across server and client packages
+test-unit: install
+    {{ nix_shell }} pnpm test:unit
+
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
     #!/usr/bin/env bash
