@@ -82,6 +82,10 @@ export const contract = oc.router({
     get: oc.input(z.object({ path: z.string() })).output(PlanContentSchema),
     // Insert inline feedback into a plan file
     addFeedback: oc.input(PlanFeedbackInputSchema).output(z.void()),
+    // Remove a feedback block starting at a given line
+    removeFeedback: oc
+      .input(z.object({ path: z.string(), feedbackLine: z.number() }))
+      .output(z.void()),
   },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),

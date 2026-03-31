@@ -107,6 +107,7 @@ const App: Component = () => {
     planContent,
     isPlanContentLoading,
     addFeedback,
+    removeFeedback,
   } = usePlans({ activeMeta: store.activeMeta });
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
@@ -431,6 +432,7 @@ const App: Component = () => {
                   planName={planName()}
                   planPath={activePlanPath()}
                   onAddFeedback={addFeedback}
+                  onRemoveFeedback={removeFeedback}
                   onSendToTerminal={(text) => {
                     const id = store.activeId();
                     if (id) {

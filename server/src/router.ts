@@ -29,7 +29,11 @@ import {
   clearSavedSession,
   setSavedSession,
 } from "./session.ts";
-import { getPlanContent, addPlanFeedback } from "./plans.ts";
+import {
+  getPlanContent,
+  addPlanFeedback,
+  removePlanFeedback,
+} from "./plans.ts";
 
 const t = implement(contract);
 
@@ -178,6 +182,9 @@ export const appRouter = t.router({
     get: t.plans.get.handler(async ({ input }) => getPlanContent(input.path)),
     addFeedback: t.plans.addFeedback.handler(async ({ input }) => {
       addPlanFeedback(input.path, input.afterLine, input.text);
+    }),
+    removeFeedback: t.plans.removeFeedback.handler(async ({ input }) => {
+      removePlanFeedback(input.path, input.feedbackLine);
     }),
   },
   session: {

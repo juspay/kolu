@@ -209,6 +209,26 @@
   font-style: italic;
   font-size: 0.7rem;
 }
+.plan-feedback-actions {
+  float: right;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.plan-feedback:hover .plan-feedback-actions {
+  opacity: 1;
+}
+.plan-feedback-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0 0.2rem;
+  opacity: 0.5;
+  color: inherit;
+}
+.plan-feedback-btn:hover {
+  opacity: 1;
+}
 
 /* Selection highlight in plan pane */
 .plan-markdown ::selection {

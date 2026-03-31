@@ -12,6 +12,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { marked } from "marked";
+import { toast } from "solid-sonner";
 import type { PlanContent } from "kolu-common";
 
 marked.setOptions({ breaks: true, gfm: true });
@@ -81,15 +82,29 @@ function renderPlanMarkdown(content: string): string {
     return `<li>${inner}</li>`;
   });
 
-  // Restyle feedback blockquotes as callouts
+  // Build a queue of feedback source line numbers (1-based) for matching
+  const feedbackLineNums: number[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i]!.startsWith("> [FEEDBACK]:")) feedbackLineNums.push(i + 1);
+  }
+  let feedbackIdx = 0;
+
+  // Restyle feedback blockquotes as callouts with remove/edit actions
   html = html.replace(
     /<blockquote>\s*<p>\[FEEDBACK\]:\s*([\s\S]*?)<\/p>\s*<\/blockquote>/g,
     (_match, text: string) => {
+      const srcLine = feedbackLineNums[feedbackIdx++] ?? 0;
+      const actions =
+        `<span class="plan-feedback-actions">` +
+        `<button data-feedback-edit="${srcLine}" class="plan-feedback-btn" title="Edit">✎</button>` +
+        `<button data-feedback-remove="${srcLine}" class="plan-feedback-btn" title="Remove">×</button>` +
+        `</span>`;
       const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
       if (reMatch) {
-        return `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2]!.trim()}</div>`;
+        return `<div class="plan-feedback" data-feedback-line="${srcLine}"><span class="plan-feedback-ref">Re: «${reMatch[1]}»</span> ${reMatch[2]!.trim()}${actions}</div>`;
       }
-      return `<div class="plan-feedback">${text}</div>`;
+      return `<div class="plan-feedback" data-feedback-line="${srcLine}">${text}${actions}</div>`;
     },
   );
 
@@ -199,6 +214,7 @@ const PlanPane: Component<{
   planName: string;
   planPath: string | null;
   onAddFeedback: (path: string, afterLine: number, text: string) => void;
+  onRemoveFeedback: (path: string, feedbackLine: number) => void;
   /** Send text + Enter to the active terminal (where Claude is running). */
   onSendToTerminal: (text: string) => void;
 }> = (props) => {
@@ -259,6 +275,34 @@ const PlanPane: Component<{
     document.removeEventListener("mousedown", handleClickOutside);
   });
 
+  /** Handle clicks on feedback remove/edit buttons (event delegation on innerHTML). */
+  function handleContentClick(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+
+    // Remove feedback
+    const removeLine = target.dataset.feedbackRemove;
+    if (removeLine && props.content) {
+      props.onRemoveFeedback(props.content.path, parseInt(removeLine, 10));
+      return;
+    }
+
+    // Edit feedback — remove the old one and open selection popover to re-enter
+    const editLine = target.dataset.feedbackEdit;
+    if (editLine && props.content) {
+      // Find the feedback text from the parent .plan-feedback div
+      const feedbackDiv = target.closest(".plan-feedback");
+      const refEl = feedbackDiv?.querySelector(".plan-feedback-ref");
+      const refText = refEl?.textContent ?? "";
+      // Remove old feedback, then user can re-add with text selection
+      props.onRemoveFeedback(props.content.path, parseInt(editLine, 10));
+      // Show a toast hinting to re-select and comment
+      toast(`Feedback removed: ${refText}. Select text to re-add.`, {
+        duration: 4_000,
+      });
+      return;
+    }
+  }
+
   function handleFeedbackSubmit(
     selectedText: string,
     sourceLine: number,
@@ -315,6 +359,7 @@ const PlanPane: Component<{
               class="px-3 py-2 plan-markdown"
               data-testid="plan-content"
               innerHTML={renderedHtml()}
+              onClick={handleContentClick}
             />
           </Show>
         </Show>

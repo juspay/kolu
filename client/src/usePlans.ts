@@ -65,8 +65,27 @@ export function usePlans(deps: {
       toast.error(`Failed to add feedback: ${err.message}`),
   }));
 
+  const removeFeedbackMut = createMutation(() => ({
+    ...orpc.plans.removeFeedback.mutationOptions(),
+    onSuccess: () => {
+      const p = activePlanPath();
+      if (p) {
+        void qc.invalidateQueries({
+          queryKey: orpc.plans.get.queryOptions({ input: { path: p } })
+            .queryKey,
+        });
+      }
+    },
+    onError: (err: Error) =>
+      toast.error(`Failed to remove feedback: ${err.message}`),
+  }));
+
   function addFeedback(path: string, afterLine: number, text: string) {
     addFeedbackMut.mutate({ path, afterLine, text });
+  }
+
+  function removeFeedback(path: string, feedbackLine: number) {
+    removeFeedbackMut.mutate({ path, feedbackLine });
   }
 
   return {
@@ -75,5 +94,6 @@ export function usePlans(deps: {
     planContent: () => planContent.data as PlanContent | undefined,
     isPlanContentLoading: () => planContent.isLoading,
     addFeedback,
+    removeFeedback,
   };
 }
