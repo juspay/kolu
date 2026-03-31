@@ -25,9 +25,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
   );
   await world.page.evaluate(
     ({ sel, q }) => {
-      const input = document.querySelector(
-        `${sel} input`,
-      ) as HTMLInputElement;
+      const input = document.querySelector(`${sel} input`) as HTMLInputElement;
       if (!input) throw new Error("Palette input not found");
       const nativeSet = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,

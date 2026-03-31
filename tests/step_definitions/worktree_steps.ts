@@ -8,7 +8,10 @@ When(
   async function (this: KoluWorld, repoPath: string) {
     // Clean slate — remove then reinit. The worktree scenario creates
     // subdirs like .worktrees/ that git init --force wouldn't clean.
-    execFileSync("bash", ["-c", `rm -rf "${repoPath}" && git init "${repoPath}"`]);
+    execFileSync("bash", [
+      "-c",
+      `rm -rf "${repoPath}" && git init "${repoPath}"`,
+    ]);
     execFileSync("git", [
       "-C",
       repoPath,
