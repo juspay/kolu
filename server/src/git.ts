@@ -85,7 +85,7 @@ export async function worktreeCreate(
   throw new Error("Failed to generate unique worktree name after 5 attempts");
 }
 
-/** Remove a git worktree by path and delete its branch (-d, safe delete). */
+/** Remove a git worktree by path and force-delete its branch. */
 export async function worktreeRemove(worktreePath: string): Promise<void> {
   const mainRoot = await resolveMainRepoRoot(worktreePath);
   const git = simpleGit(mainRoot);
@@ -103,13 +103,13 @@ export async function worktreeRemove(worktreePath: string): Promise<void> {
   log.info({ worktreePath, branch }, "removing worktree");
   await git.raw(["worktree", "remove", worktreePath, "--force"]);
 
-  // Clean up the branch (safe delete — fails if not fully merged, which is fine)
+  // Clean up the branch (force delete — these are ephemeral Kolu-created branches)
   if (branch && branch !== "HEAD") {
     try {
-      await git.raw(["branch", "-d", branch]);
+      await git.raw(["branch", "-D", branch]);
       log.info({ branch }, "deleted worktree branch");
     } catch (err) {
-      log.warn({ branch, err }, "could not delete branch (may not be fully merged)");
+      log.warn({ branch, err }, "could not delete branch");
     }
   }
 }

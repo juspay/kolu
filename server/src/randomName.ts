@@ -14,26 +14,26 @@ function readLines(filePath: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-let adjectives: string[] | null = null;
-let nouns: string[] | null = null;
+let cached: { adjectives: string[]; nouns: string[] } | null = null;
 
 function loadWordLists(): { adjectives: string[]; nouns: string[] } {
-  if (adjectives && nouns) return { adjectives, nouns };
+  if (cached) return cached;
 
   const dir = process.env.KOLU_RANDOM_WORDS;
-  if (dir && fs.existsSync(path.join(dir, "adjectives.txt"))) {
-    adjectives = readLines(path.join(dir, "adjectives.txt"));
-    nouns = readLines(path.join(dir, "nouns.txt"));
-    log.info(
-      { adjectives: adjectives.length, nouns: nouns.length },
-      "loaded word lists",
-    );
-  } else {
-    adjectives = ["calm", "bold", "warm", "keen", "swift"];
-    nouns = ["brook", "ridge", "vale", "peak", "cove"];
-    log.warn("KOLU_RANDOM_WORDS not set, using fallback word lists");
+  if (!dir) {
+    throw new Error("KOLU_RANDOM_WORDS env var is not set");
   }
-  return { adjectives, nouns };
+  const adjPath = path.join(dir, "adjectives.txt");
+  const nounPath = path.join(dir, "nouns.txt");
+  if (!fs.existsSync(adjPath) || !fs.existsSync(nounPath)) {
+    throw new Error(`Word list files not found in ${dir}`);
+  }
+  cached = { adjectives: readLines(adjPath), nouns: readLines(nounPath) };
+  log.info(
+    { adjectives: cached.adjectives.length, nouns: cached.nouns.length },
+    "loaded word lists",
+  );
+  return cached;
 }
 
 function pick(list: string[]): string {
