@@ -74,10 +74,10 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 pnpm monorepo, three packages:
 
-| Package   | Stack                                                                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                       |
-| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| Package   | Stack                                                                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                                          |
+| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
 | `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
 
 All communication over a single WebSocket (`/rpc/ws`) via oRPC. Server state (queries, mutations, push-based streams) is managed by TanStack Query via `@orpc/tanstack-query`. Metadata uses `experimental_liveOptions` (each event replaces the previous — only current state matters). Activity uses `experimental_streamedOptions` (events accumulate for sparkline rendering, capped by `maxChunks`).
