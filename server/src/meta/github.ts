@@ -89,62 +89,34 @@ function deriveCheckStatus(
   return "pass";
 }
 
-/** Shape of a single entry returned by `gh pr list --json ...`. */
-interface GhPrListEntry {
+/** Shape returned by `gh pr view --json ...`. */
+interface GhPrViewResult {
   number: number;
   title: string;
   url: string;
   state: string;
   statusCheckRollup?: Parameters<typeof deriveCheckStatus>[0];
-  updatedAt: string;
 }
 
-/** Check if `branch` is the repo's default branch (main/master). */
-async function isDefaultBranch(
-  repoRoot: string,
-  branch: string,
-): Promise<boolean> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["symbolic-ref", "refs/remotes/origin/HEAD"],
-      { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
-    );
-    return branch === stdout.trim().replace("refs/remotes/origin/", "");
-  } catch {
-    // Fallback: no remote HEAD configured — check common names
-    return branch === "main" || branch === "master";
-  }
-}
-
-/** Look up the GitHub PR for the current branch. Returns null if none found. */
+/**
+ * Look up the GitHub PR for the current branch.
+ *
+ * Uses `gh pr view` which resolves via git remote tracking — it finds the PR
+ * opened from this repo (or fork) for the current branch, unlike `gh pr list
+ * --head <name>` which matches by branch name alone and picks up unrelated
+ * fork PRs.
+ */
 async function resolveGitHubPr(
   repoRoot: string,
-  branch: string,
+  _branch: string,
 ): Promise<GitHubPrInfo | null> {
-  // Skip default branch — `gh pr list --head <default>` matches fork PRs, not ours.
-  if (await isDefaultBranch(repoRoot, branch)) return null;
-
   try {
     const { stdout } = await execFileAsync(
       "gh",
-      [
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "all",
-        "--json",
-        "number,title,url,state,statusCheckRollup,updatedAt",
-      ],
+      ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const results = JSON.parse(stdout) as GhPrListEntry[];
-    if (results.length === 0) return null;
-    // Pick the most recently updated PR regardless of state
-    results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const data = results[0]!;
+    const data = JSON.parse(stdout) as GhPrViewResult;
     return {
       number: data.number,
       title: data.title,
@@ -153,7 +125,9 @@ async function resolveGitHubPr(
       checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
-    log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
+    // gh pr view exits non-zero when no PR exists for the branch — expected.
+    // Also catches gh-not-installed / auth failures; debug-log so they're discoverable.
+    log.debug({ err: String(err) }, "no PR for current branch");
     return null;
   }
 }
