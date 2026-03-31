@@ -281,9 +281,11 @@ When(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({
-        path: mockPlanFile,
-        afterLine: 1,
-        text: `Re: «test selection» — ${feedbackText}`,
+        json: {
+          path: mockPlanFile,
+          afterLine: 1,
+          text: `Re: «test selection» — ${feedbackText}`,
+        },
       }),
     });
     assert.ok(resp.ok(), `addFeedback RPC failed: ${resp.status()}`);

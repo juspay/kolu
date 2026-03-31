@@ -77,39 +77,43 @@
 /* Markdown prose styling for the plan pane.
  * Tailwind strips default element styles — these restore readable typography
  * for rendered markdown content (headings, lists, code, blockquotes). */
+/* Smaller base font for the plan pane — dense, readable at a glance */
+.plan-markdown {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
 .plan-markdown h1 {
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 700;
-  margin-top: 1rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
   color: var(--color-fg);
 }
 .plan-markdown h2 {
-  font-size: 1.1rem;
+  font-size: 0.9rem;
   font-weight: 600;
-  margin-top: 1rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.35rem;
   color: var(--color-fg);
 }
 .plan-markdown h3,
 .plan-markdown h4,
 .plan-markdown h5,
 .plan-markdown h6 {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
-  margin-top: 0.75rem;
-  margin-bottom: 0.25rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.2rem;
   color: var(--color-fg);
 }
 .plan-markdown p {
-  margin-bottom: 0.5rem;
-  line-height: 1.6;
+  margin-bottom: 0.4rem;
   color: var(--color-fg-2);
 }
 .plan-markdown ul,
 .plan-markdown ol {
-  margin-left: 1.25rem;
-  margin-bottom: 0.5rem;
+  margin-left: 1.1rem;
+  margin-bottom: 0.4rem;
   color: var(--color-fg-2);
 }
 .plan-markdown ul {
@@ -119,23 +123,23 @@
   list-style-type: decimal;
 }
 .plan-markdown li {
-  margin-bottom: 0.25rem;
-  line-height: 1.5;
+  margin-bottom: 0.15rem;
 }
 .plan-markdown code {
   font-family: "FiraCode Nerd Font", monospace;
   font-size: 0.85em;
   background: var(--color-surface-2);
-  padding: 0.15em 0.35em;
+  padding: 0.1em 0.3em;
   border-radius: 3px;
 }
 .plan-markdown pre {
   background: var(--color-surface-2);
   border: 1px solid var(--color-edge);
-  border-radius: 6px;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
   overflow-x: auto;
+  font-size: 0.75rem;
 }
 .plan-markdown pre code {
   background: none;
@@ -143,9 +147,9 @@
 }
 .plan-markdown blockquote {
   border-left: 3px solid var(--color-accent);
-  padding-left: 0.75rem;
+  padding-left: 0.6rem;
   margin-left: 0;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
   color: var(--color-fg-3);
   font-style: italic;
 }
@@ -163,23 +167,38 @@
 .plan-markdown hr {
   border: none;
   border-top: 1px solid var(--color-edge);
-  margin: 1rem 0;
+  margin: 0.75rem 0;
 }
 .plan-markdown table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 0.75rem;
-  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
 }
 .plan-markdown th,
 .plan-markdown td {
   border: 1px solid var(--color-edge);
-  padding: 0.35rem 0.5rem;
+  padding: 0.25rem 0.4rem;
   text-align: left;
 }
 .plan-markdown th {
   background: var(--color-surface-2);
   font-weight: 600;
+}
+
+/* Inline feedback callouts rendered within the markdown flow */
+.plan-feedback {
+  margin: 0.35rem 0;
+  padding: 0.3rem 0.5rem;
+  border-left: 2px solid var(--color-accent);
+  background: oklch(from var(--color-accent) l c h / 0.06);
+  border-radius: 0 4px 4px 0;
+  font-size: 0.75rem;
+  color: var(--color-fg-2);
+}
+.plan-feedback-ref {
+  color: var(--color-fg-3);
+  font-style: italic;
+  font-size: 0.7rem;
 }
 
 /* Selection highlight in plan pane */

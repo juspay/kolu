@@ -1,12 +1,12 @@
 /** PlanPane — renders a plan file as full markdown with text-selection commenting.
  *
  *  Select any text in the rendered plan to leave inline feedback. Feedback is
- *  written back to the plan file as blockquotes referencing the selected text. */
+ *  written back to the plan file as blockquotes referencing the selected text,
+ *  and rendered inline within the markdown (not in a separate section). */
 
 import {
   type Component,
   Show,
-  For,
   createSignal,
   createMemo,
   onCleanup,
@@ -17,94 +17,68 @@ import type { PlanContent } from "kolu-common";
 // Configure marked for safe rendering (plan files are trusted local content)
 marked.setOptions({ breaks: true, gfm: true });
 
-/** Strip feedback blockquotes from markdown content before rendering.
- *  Removes lines starting with `> [FEEDBACK]:` and their continuation `> ` lines.
- *  Normal blockquotes are preserved. */
-function stripFeedback(content: string): string {
+/** Render markdown content including feedback blockquotes inline.
+ *  Feedback lines `> [FEEDBACK]: ...` are rendered as styled callouts
+ *  by converting them to HTML before marked processes them. */
+function renderPlanMarkdown(content: string): string {
+  // Convert feedback blockquotes to styled HTML before markdown parsing.
+  // This renders them inline within the document flow.
   const lines = content.split("\n");
   const result: string[] = [];
+  let feedbackLines: string[] = [];
   let inFeedback = false;
+
+  function flushFeedback() {
+    if (feedbackLines.length === 0) return;
+    const text = feedbackLines.join(" ");
+    // Parse "Re: «selected text» — comment" format
+    const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
+    if (reMatch) {
+      result.push(
+        `<div class="plan-feedback"><span class="plan-feedback-ref">Re: «${escapeHtml(reMatch[1]!)}»</span> ${escapeHtml(reMatch[2]!.trim())}</div>`,
+      );
+    } else {
+      result.push(`<div class="plan-feedback">${escapeHtml(text)}</div>`);
+    }
+    feedbackLines = [];
+  }
 
   for (const line of lines) {
     if (line.startsWith("> [FEEDBACK]:")) {
       inFeedback = true;
+      feedbackLines.push(line.replace(/^> \[FEEDBACK\]:\s*/, ""));
     } else if (inFeedback && line.startsWith("> ")) {
-      // Continuation of feedback block — skip
+      feedbackLines.push(line.replace(/^> /, ""));
     } else {
-      inFeedback = false;
+      if (inFeedback) {
+        flushFeedback();
+        inFeedback = false;
+      }
       result.push(line);
     }
   }
+  flushFeedback();
 
-  return result
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return marked.parse(result.join("\n")) as string;
 }
 
-/** Extract existing feedback entries from the raw plan content. */
-interface FeedbackEntry {
-  selectedText: string | null;
-  comment: string;
-}
-
-function extractFeedbacks(content: string): FeedbackEntry[] {
-  const lines = content.split("\n");
-  const feedbacks: FeedbackEntry[] = [];
-  let currentLines: string[] = [];
-  let inFeedback = false;
-
-  for (const line of lines) {
-    if (line.startsWith("> [FEEDBACK]:")) {
-      inFeedback = true;
-      currentLines.push(line.replace(/^> \[FEEDBACK\]:\s*/, ""));
-    } else if (inFeedback && line.startsWith("> ")) {
-      currentLines.push(line.replace(/^> /, ""));
-    } else {
-      if (inFeedback && currentLines.length > 0) {
-        const text = currentLines.join("\n");
-        // Parse "Re: «selected text» — comment" format
-        const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
-        if (reMatch) {
-          feedbacks.push({
-            selectedText: reMatch[1]!,
-            comment: reMatch[2]!.trim(),
-          });
-        } else {
-          feedbacks.push({ selectedText: null, comment: text });
-        }
-        currentLines = [];
-      }
-      inFeedback = false;
-    }
-  }
-  if (currentLines.length > 0) {
-    const text = currentLines.join("\n");
-    const reMatch = text.match(/^Re: «(.+?)»\s*[—–-]\s*([\s\S]*)$/);
-    if (reMatch) {
-      feedbacks.push({
-        selectedText: reMatch[1]!,
-        comment: reMatch[2]!.trim(),
-      });
-    } else {
-      feedbacks.push({ selectedText: null, comment: text });
-    }
-  }
-
-  return feedbacks;
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** Find the line number in the original content where the selected text appears. */
 function findLineForText(content: string, selectedText: string): number {
   const lines = content.split("\n");
-  // Search for a line containing the start of the selected text
   const searchText = selectedText.split("\n")[0]!.trim();
   for (let i = 0; i < lines.length; i++) {
     if (lines[i]!.includes(searchText)) {
-      return i + 1; // 1-based
+      return i + 1;
     }
   }
-  // Fallback: insert after the last line
   return lines.length;
 }
 
@@ -157,7 +131,7 @@ const SelectionPopover: Component<{
         {props.selection.text.length > 60 ? "…" : ""}»
       </div>
       <textarea
-        class="w-full bg-surface-0 border border-edge rounded px-2 py-1.5 text-sm text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1 focus:ring-accent resize-y"
+        class="w-full bg-surface-0 border border-edge rounded px-2 py-1.5 text-xs text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1 focus:ring-accent resize-y"
         placeholder="Add your feedback..."
         rows={2}
         value={comment()}
@@ -195,22 +169,16 @@ const PlanPane: Component<{
   content: PlanContent | undefined;
   loading: boolean;
   planName: string;
+  planPath: string | null;
   onAddFeedback: (path: string, afterLine: number, text: string) => void;
 }> = (props) => {
   const [selection, setSelection] = createSignal<SelectionState | null>(null);
   let contentRef: HTMLDivElement | undefined;
 
-  /** Rendered HTML from markdown with feedback blockquotes stripped. */
+  /** Rendered HTML from markdown with feedback rendered inline. */
   const renderedHtml = createMemo(() => {
     if (!props.content) return "";
-    const md = stripFeedback(props.content.content);
-    return marked.parse(md) as string;
-  });
-
-  /** Existing feedback entries from the raw content. */
-  const feedbacks = createMemo(() => {
-    if (!props.content) return [];
-    return extractFeedbacks(props.content.content);
+    return renderPlanMarkdown(props.content.content);
   });
 
   /** Handle text selection — show popover near the selection. */
@@ -220,24 +188,21 @@ const PlanPane: Component<{
       return;
     }
 
-    // Only handle selections within the content area
     const range = sel.getRangeAt(0);
     if (!contentRef?.contains(range.commonAncestorContainer)) {
       return;
     }
 
     const text = sel.toString().trim();
-    if (text.length < 3) return; // Ignore tiny selections
+    if (text.length < 3) return;
 
     const rect = range.getBoundingClientRect();
-    // Position popover below the selection, clamped to viewport
     const top = Math.min(rect.bottom + 8, window.innerHeight - 200);
     const left = Math.min(rect.left, window.innerWidth - 300);
 
     setSelection({ text, top, left });
   }
 
-  /** Dismiss popover on click outside or Escape. */
   function handleClickOutside(e: MouseEvent) {
     const popover = document.querySelector('[data-testid="selection-popover"]');
     if (popover && !popover.contains(e.target as Node)) {
@@ -245,7 +210,6 @@ const PlanPane: Component<{
     }
   }
 
-  // Global listeners for selection and click-outside
   document.addEventListener("mouseup", handleMouseUp);
   document.addEventListener("mousedown", handleClickOutside);
   onCleanup(() => {
@@ -256,7 +220,6 @@ const PlanPane: Component<{
   function handleFeedbackSubmit(selectedText: string, comment: string) {
     if (!props.content) return;
     const line = findLineForText(props.content.content, selectedText);
-    // Format: Re: «selected text» — comment
     const feedbackText = `Re: «${selectedText.replace(/\n/g, " ")}» — ${comment}`;
     props.onAddFeedback(props.content.path, line, feedbackText);
     setSelection(null);
@@ -265,14 +228,19 @@ const PlanPane: Component<{
 
   return (
     <div class="flex flex-col h-full bg-surface-0" data-testid="plan-pane">
-      {/* Header */}
-      <div class="px-3 py-2 bg-surface-1 border-b border-edge shrink-0">
-        <span
-          class="text-sm font-medium text-fg truncate block"
-          title={props.planName}
-        >
+      {/* Header — plan name + file path */}
+      <div class="px-3 py-1.5 bg-surface-1 border-b border-edge shrink-0">
+        <span class="text-xs font-medium text-fg truncate block">
           {props.planName}
         </span>
+        <Show when={props.planPath}>
+          <span
+            class="text-[10px] text-fg-3 truncate block"
+            title={props.planPath!}
+          >
+            {props.planPath}
+          </span>
+        </Show>
       </div>
 
       {/* Content */}
@@ -280,7 +248,7 @@ const PlanPane: Component<{
         <Show
           when={!props.loading}
           fallback={
-            <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+            <div class="flex items-center justify-center h-full text-fg-3 text-xs">
               Loading plan...
             </div>
           }
@@ -288,42 +256,18 @@ const PlanPane: Component<{
           <Show
             when={renderedHtml()}
             fallback={
-              <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+              <div class="flex items-center justify-center h-full text-fg-3 text-xs">
                 Empty plan
               </div>
             }
           >
-            {/* Rendered markdown — innerHTML is safe here: content is from local plan files */}
+            {/* Rendered markdown with inline feedback — innerHTML safe: local plan files */}
             <div
               ref={contentRef}
-              class="px-4 py-3 plan-markdown"
+              class="px-3 py-2 plan-markdown"
               data-testid="plan-content"
               innerHTML={renderedHtml()}
             />
-
-            {/* Existing feedback entries */}
-            <Show when={feedbacks().length > 0}>
-              <div class="border-t border-edge px-4 py-3">
-                <div class="text-xs font-medium text-fg-3 uppercase tracking-wider mb-2">
-                  Feedback
-                </div>
-                <For each={feedbacks()}>
-                  {(fb) => (
-                    <div
-                      class="mb-2 px-3 py-2 border-l-2 border-accent/60 bg-accent/5 rounded-r text-sm"
-                      data-testid="feedback-entry"
-                    >
-                      <Show when={fb.selectedText}>
-                        <div class="text-xs text-fg-3 mb-1 italic">
-                          Re: «{fb.selectedText}»
-                        </div>
-                      </Show>
-                      <div class="text-accent-bright">{fb.comment}</div>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
           </Show>
         </Show>
       </div>

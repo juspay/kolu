@@ -23,6 +23,7 @@ import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import PlanPane from "./PlanPane";
+import Resizable from "@corvu/resizable";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -333,62 +334,106 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 flex">
-          {/* Terminal area — always rendered, flex-grows into available space */}
-          <div
-            class="h-full overflow-hidden min-w-0"
-            classList={{
-              "flex-1": !activePlanPath(),
-              // When plan pane is open, terminal takes ~65% via CSS basis
-              "basis-[65%] shrink-0": !!activePlanPath(),
-            }}
-            style={{ "background-color": activeTheme().background }}
+        <div class="flex-1 min-h-0 min-w-0">
+          <Show
+            when={activePlanPath()}
+            fallback={
+              <div
+                class="h-full overflow-hidden"
+                style={{ "background-color": activeTheme().background }}
+              >
+                <Show
+                  when={!session.isLoading()}
+                  fallback={
+                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                      Connecting...
+                    </div>
+                  }
+                >
+                  <Show when={store.terminalIds().length === 0}>
+                    <EmptyState
+                      savedSession={session.savedSession() ?? undefined}
+                      onRestore={() => void session.handleRestoreSession()}
+                    />
+                  </Show>
+                  <For each={store.terminalIds()}>
+                    {(id) => (
+                      <TerminalPane
+                        terminalId={id}
+                        visible={store.activeId() === id}
+                        theme={getTerminalTheme(id)}
+                        searchOpen={searchOpen()}
+                        onSearchOpenChange={setSearchOpen}
+                        subTerminalIds={store.getSubTerminalIds(id)}
+                        getMetadata={store.getMetadata}
+                        onCreateSubTerminal={(parentId, cwd) =>
+                          void crud.handleCreateSubTerminal(parentId, cwd)
+                        }
+                        activeMeta={store.activeMeta()}
+                        scrollLockEnabled={scrollLock()}
+                      />
+                    )}
+                  </For>
+                </Show>
+              </div>
+            }
           >
-            <Show
-              when={!session.isLoading()}
-              fallback={
-                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                  Connecting...
-                </div>
-              }
-            >
-              <Show when={store.terminalIds().length === 0}>
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
-                />
-              </Show>
-              <For each={store.terminalIds()}>
-                {(id) => (
-                  <TerminalPane
-                    terminalId={id}
-                    visible={store.activeId() === id}
-                    theme={getTerminalTheme(id)}
-                    searchOpen={searchOpen()}
-                    onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={store.getSubTerminalIds(id)}
-                    getMetadata={store.getMetadata}
-                    onCreateSubTerminal={(parentId, cwd) =>
-                      void crud.handleCreateSubTerminal(parentId, cwd)
+            {/* Plan pane open — resizable horizontal split: terminal left, plan right */}
+            <Resizable orientation="horizontal" class="h-full">
+              <Resizable.Panel
+                as="div"
+                class="min-w-0 overflow-hidden"
+                minSize={0.3}
+              >
+                <div
+                  class="h-full overflow-hidden"
+                  style={{ "background-color": activeTheme().background }}
+                >
+                  <Show
+                    when={!session.isLoading()}
+                    fallback={
+                      <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                        Connecting...
+                      </div>
                     }
-                    activeMeta={store.activeMeta()}
-                    scrollLockEnabled={scrollLock()}
-                  />
-                )}
-              </For>
-            </Show>
-          </div>
-          {/* Plan pane — auto-shown when the active terminal's Claude session has a plan */}
-          <Show when={activePlanPath()}>
-            <div class="w-px bg-edge shrink-0" />
-            <div class="flex-1 min-w-0 min-h-0">
-              <PlanPane
-                content={planContent()}
-                loading={isPlanContentLoading()}
-                planName={planName()}
-                onAddFeedback={addFeedback}
-              />
-            </div>
+                  >
+                    <For each={store.terminalIds()}>
+                      {(id) => (
+                        <TerminalPane
+                          terminalId={id}
+                          visible={store.activeId() === id}
+                          theme={getTerminalTheme(id)}
+                          searchOpen={searchOpen()}
+                          onSearchOpenChange={setSearchOpen}
+                          subTerminalIds={store.getSubTerminalIds(id)}
+                          getMetadata={store.getMetadata}
+                          onCreateSubTerminal={(parentId, cwd) =>
+                            void crud.handleCreateSubTerminal(parentId, cwd)
+                          }
+                          activeMeta={store.activeMeta()}
+                          scrollLockEnabled={scrollLock()}
+                        />
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </Resizable.Panel>
+              <Resizable.Handle class="w-1 bg-edge hover:bg-accent-bright cursor-col-resize shrink-0" />
+              <Resizable.Panel
+                as="div"
+                class="min-w-0 overflow-hidden"
+                minSize={0.15}
+                initialSize={0.35}
+              >
+                <PlanPane
+                  content={planContent()}
+                  loading={isPlanContentLoading()}
+                  planName={planName()}
+                  planPath={activePlanPath()}
+                  onAddFeedback={addFeedback}
+                />
+              </Resizable.Panel>
+            </Resizable>
           </Show>
         </div>
       </div>
