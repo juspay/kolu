@@ -1,5 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { readBufferText } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 const MC_SELECTOR = '[data-testid="mission-control"]';
@@ -136,6 +137,25 @@ Then(
       focusedId,
       id,
       `Expected last card to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
+    );
+  },
+);
+
+When(
+  "I type {string} in Mission Control",
+  async function (this: KoluWorld, text: string) {
+    await this.page.keyboard.type(text);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the active terminal should not show {string}",
+  async function (this: KoluWorld, forbidden: string) {
+    const content = await readBufferText(this.page);
+    assert.ok(
+      !content.includes(forbidden),
+      `Terminal buffer unexpectedly contains "${forbidden}".\nBuffer (partial): ${content.slice(0, 500)}`,
     );
   },
 );
