@@ -83,6 +83,11 @@ test-quick *args: install
 pc:
     {{ nix_shell }} pre-commit run -a
 
+# Check formatting without modifying files (used by CI)
+pc-check:
+    {{ nix_shell }} prettier --check --ignore-unknown . '!pnpm-lock.yaml'
+    {{ nix_shell }} nixpkgs-fmt --check *.nix nix/**/*.nix
+
 # Nix build (server + client)
 build:
     nix build
