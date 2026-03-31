@@ -189,18 +189,23 @@
   font-weight: 600;
 }
 
-/* Inline feedback callouts rendered within the markdown flow */
+/* Inline feedback callouts — inverted contrast so they stand out.
+ * Dark mode: light background + dark text. Light mode: dark background + light text. */
 .plan-feedback {
   margin: 0.35rem 0;
   padding: 0.3rem 0.5rem;
   border-left: 2px solid var(--color-accent);
-  background: oklch(from var(--color-accent) l c h / 0.06);
+  background: #f0f0f4;
   border-radius: 0 4px 4px 0;
   font-size: 0.75rem;
-  color: var(--color-fg-2);
+  color: #1a1a1e;
+}
+:root:not(.dark) .plan-feedback {
+  background: #1e1e24;
+  color: #e4e4e8;
 }
 .plan-feedback-ref {
-  color: var(--color-fg-3);
+  opacity: 0.6;
   font-style: italic;
   font-size: 0.7rem;
 }
