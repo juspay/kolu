@@ -45,33 +45,13 @@ const App: Component = () => {
     setActivityAlerts,
   } = usePreferences();
 
-  const {
-    terminalIds,
-    activeId,
-    setActiveId,
-    getMetadata,
-    needsAttention,
-    getDisplayInfo,
-    setThemeName,
-    activeMeta,
-    isLoading,
-    handleCreate,
-    handleCreateSubTerminal,
-    handleKill,
-    getSubTerminalIds,
-    reorderTerminals,
-    mruOrder,
-    handleCopyTerminalText,
-    handleCreateWorktree,
-    handleKillWorktree,
-    handleCloseAll,
-    savedSession,
-    handleRestoreSession,
-    simulateAlert,
-  } = useTerminals({ randomTheme, activityAlerts });
+  const { store, crud, session, worktree, alerts } = useTerminals({
+    randomTheme,
+    activityAlerts,
+  });
 
   // Expose for e2e test access
-  (window as any).__koluSimulateAlert = simulateAlert;
+  (window as any).__koluSimulateAlert = alerts.simulateAlert;
 
   const {
     committedThemeName,
@@ -83,9 +63,9 @@ const App: Component = () => {
     handleSetTheme,
     handleRandomizeTheme,
   } = useThemeManager({
-    activeId,
-    getThemeName: (id) => getMetadata(id)?.themeName,
-    setThemeName,
+    activeId: store.activeId,
+    getThemeName: (id) => store.getMetadata(id)?.themeName,
+    setThemeName: crud.setThemeName,
   });
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
@@ -116,30 +96,30 @@ const App: Component = () => {
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
-  createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+  createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
-  initTipTriggers({ terminalIds });
+  initTipTriggers({ terminalIds: store.terminalIds });
 
   useShortcuts({
-    terminalIds,
-    activeId,
-    setActiveId,
-    handleCreate: (cwd?: string) => void handleCreate(cwd),
+    terminalIds: store.terminalIds,
+    activeId: store.activeId,
+    setActiveId: store.setActiveId,
+    handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
-      void handleCreateSubTerminal(parentId, cwd),
-    activeMeta,
+      void crud.handleCreateSubTerminal(parentId, cwd),
+    activeMeta: store.activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
     mcMode,
     setMcMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
-    getSubTerminalIds,
+    getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(parentId, getSubTerminalIds(parentId), direction),
+      subPanel.cycleSubTab(parentId, store.getSubTerminalIds(parentId), direction),
     handleRandomizeTheme,
-    handleCopyTerminalText: () => void handleCopyTerminalText(),
+    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
 
   const { refetch: refetchRecentRepos } = useRecentRepos();
@@ -170,16 +150,16 @@ const App: Component = () => {
   }
 
   const commands = createCommands({
-    terminalIds,
-    activeId,
-    setActiveId,
-    activeMeta,
-    handleCreate: (cwd) => void handleCreate(cwd),
+    terminalIds: store.terminalIds,
+    activeId: store.activeId,
+    setActiveId: store.setActiveId,
+    activeMeta: store.activeMeta,
+    handleCreate: (cwd) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
-      void handleCreateSubTerminal(parentId, cwd),
-    handleKill: (id) => void handleKill(id),
-    handleCopyTerminalText: () => void handleCopyTerminalText(),
-    getSubTerminalIds,
+      void crud.handleCreateSubTerminal(parentId, cwd),
+    handleKill: (id) => void crud.handleKill(id),
+    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     committedThemeName,
     setPreviewThemeName,
@@ -188,10 +168,10 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) => void handleCreateWorktree(repoPath),
-    handleKillWorktree: () => void handleKillWorktree(),
-    handleCloseAll: () => void handleCloseAll(),
-    simulateAlert,
+    handleCreateWorktree: (repoPath) => void worktree.handleCreateWorktree(repoPath),
+    handleKillWorktree: () => void worktree.handleKillWorktree(),
+    handleCloseAll: () => void crud.handleCloseAll(),
+    simulateAlert: alerts.simulateAlert,
   });
 
   // Reset state on close and return focus to terminal
@@ -259,13 +239,13 @@ const App: Component = () => {
           setMcMode(mode);
           if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
         }}
-        terminalIds={terminalIds()}
-        mruOrder={mruOrder()}
-        activeId={activeId()}
-        getMetadata={getMetadata}
-        getDisplayInfo={getDisplayInfo}
+        terminalIds={store.terminalIds()}
+        mruOrder={store.mruOrder()}
+        activeId={store.activeId()}
+        getMetadata={store.getMetadata}
+        getDisplayInfo={store.getDisplayInfo}
         getTerminalTheme={getTerminalTheme}
-        onSelect={setActiveId}
+        onSelect={store.setActiveId}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
@@ -308,7 +288,7 @@ const App: Component = () => {
         onThemeClick={() => openPaletteGroup("Theme")}
         onMissionControl={() => setMcMode({ mode: "browse" })}
         themeName={activeThemeName()}
-        meta={activeMeta()}
+        meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
@@ -326,14 +306,14 @@ const App: Component = () => {
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Sidebar
-          terminalIds={terminalIds()}
-          activeId={activeId()}
-          getMetadata={getMetadata}
-          needsAttention={needsAttention}
-          getDisplayInfo={getDisplayInfo}
-          onSelect={setActiveId}
-          onCreate={() => handleCreate()}
-          onReorder={reorderTerminals}
+          terminalIds={store.terminalIds()}
+          activeId={store.activeId()}
+          getMetadata={store.getMetadata}
+          needsAttention={store.needsAttention}
+          getDisplayInfo={store.getDisplayInfo}
+          onSelect={store.setActiveId}
+          onCreate={() => crud.handleCreate()}
+          onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
@@ -344,33 +324,33 @@ const App: Component = () => {
             style={{ "background-color": activeTheme().background }}
           >
             <Show
-              when={!isLoading()}
+              when={!session.isLoading()}
               fallback={
                 <div class="flex items-center justify-center h-full text-fg-3 text-sm">
                   Connecting...
                 </div>
               }
             >
-              <Show when={terminalIds().length === 0}>
+              <Show when={store.terminalIds().length === 0}>
                 <EmptyState
-                  savedSession={savedSession() ?? undefined}
-                  onRestore={() => void handleRestoreSession()}
+                  savedSession={session.savedSession() ?? undefined}
+                  onRestore={() => void session.handleRestoreSession()}
                 />
               </Show>
-              <For each={terminalIds()}>
+              <For each={store.terminalIds()}>
                 {(id) => (
                   <TerminalPane
                     terminalId={id}
-                    visible={activeId() === id}
+                    visible={store.activeId() === id}
                     theme={getTerminalTheme(id)}
                     searchOpen={searchOpen()}
                     onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={getSubTerminalIds(id)}
-                    getMetadata={getMetadata}
+                    subTerminalIds={store.getSubTerminalIds(id)}
+                    getMetadata={store.getMetadata}
                     onCreateSubTerminal={(parentId, cwd) =>
-                      void handleCreateSubTerminal(parentId, cwd)
+                      void crud.handleCreateSubTerminal(parentId, cwd)
                     }
-                    activeMeta={activeMeta()}
+                    activeMeta={store.activeMeta()}
                     scrollLockEnabled={scrollLock()}
                   />
                 )}

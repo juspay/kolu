@@ -77,27 +77,16 @@ export function useTerminalMetadata(deps: {
   /** Top-level terminal IDs sorted by sortOrder.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
-    deps
-      .knownIds()
-      .filter((id) => {
-        const m = getMetadata(id);
-        return m && !m.parentId;
-      })
-      .sort(
-        (a, b) =>
-          (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0),
-      ),
+    deps.knownIds()
+      .filter((id) => { const m = getMetadata(id); return m && !m.parentId; })
+      .sort((a, b) => (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0)),
   );
 
   /** Sub-terminal IDs for a parent, sorted by sortOrder. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return deps
-      .knownIds()
+    return deps.knownIds()
       .filter((id) => getMetadata(id)?.parentId === parentId)
-      .sort(
-        (a, b) =>
-          (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0),
-      );
+      .sort((a, b) => (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0));
   }
 
   // --- Derived accessors ---

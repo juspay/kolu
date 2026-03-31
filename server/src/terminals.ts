@@ -19,11 +19,7 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
-import {
-  createMetadata,
-  updateMetadata,
-  startProviders,
-} from "./meta/index.ts";
+import { createMetadata, updateMetadata, startProviders } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
 import type { SavedTerminal } from "kolu-common";
 
@@ -55,10 +51,7 @@ const SORT_GAP = 1000;
 function nextSortOrder(parentId?: string): number {
   let max = 0;
   for (const entry of terminals.values()) {
-    if (
-      entry.info.meta.parentId === parentId &&
-      entry.info.meta.sortOrder > max
-    ) {
+    if (entry.info.meta.parentId === parentId && entry.info.meta.sortOrder > max) {
       max = entry.info.meta.sortOrder;
     }
   }
@@ -66,10 +59,7 @@ function nextSortOrder(parentId?: string): number {
 }
 
 /** Append a sample and trim entries older than the rolling window. Returns the sample. */
-function pushActivitySample(
-  entry: TerminalProcess,
-  active: boolean,
-): ActivitySample {
+function pushActivitySample(entry: TerminalProcess, active: boolean): ActivitySample {
   const now = Date.now();
   const cutoff = now - ACTIVITY_WINDOW_MS;
   const h = entry.activityHistory;
@@ -150,9 +140,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          updateMetadata(entry, id, (m) => {
-            m.cwd = newCwd;
-          });
+          updateMetadata(entry, id, (m) => { m.cwd = newCwd; });
           publishForTerminal("cwd", id, newCwd);
           emitChanged();
         }
@@ -231,9 +219,7 @@ export function setTerminalParent(
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) {
-    updateMetadata(entry, id, (m) => {
-      m.themeName = themeName;
-    });
+    updateMetadata(entry, id, (m) => { m.themeName = themeName; });
   }
 }
 
@@ -242,9 +228,7 @@ export function reorderTerminals(ids: TerminalId[]): void {
   for (let i = 0; i < ids.length; i++) {
     const entry = terminals.get(ids[i]!);
     if (entry) {
-      updateMetadata(entry, ids[i]!, (m) => {
-        m.sortOrder = (i + 1) * SORT_GAP;
-      });
+      updateMetadata(entry, ids[i]!, (m) => { m.sortOrder = (i + 1) * SORT_GAP; });
     }
   }
   log.debug({ count: ids.length }, "terminals reordered");

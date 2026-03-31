@@ -268,9 +268,7 @@ export function startClaudeCodeProvider(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
     );
-    updateMetadata(entry, terminalId, (m) => {
-      m.claude = info;
-    });
+    updateMetadata(entry, terminalId, (m) => { m.claude = info; });
   }
 
   /** Start watching the transcript file for changes. */
@@ -303,9 +301,7 @@ export function startClaudeCodeProvider(
         matchedSession = null;
         stopWatching();
         if (entry.info.meta.claude !== null) {
-          updateMetadata(entry, terminalId, (m) => {
-            m.claude = null;
-          });
+          updateMetadata(entry, terminalId, (m) => { m.claude = null; });
         }
       }
       return;

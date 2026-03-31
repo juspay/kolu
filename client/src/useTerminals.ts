@@ -73,29 +73,5 @@ export function useTerminals(deps: {
     handleKill: crud.handleKill,
   });
 
-  return {
-    terminalIds: store.terminalIds,
-    activeId: store.activeId,
-    setActiveId: store.setActiveId,
-    getMetadata: store.getMetadata,
-    needsAttention: store.needsAttention,
-    getDisplayInfo: store.getDisplayInfo,
-    getActivityHistory: store.getActivityHistory,
-    setThemeName: crud.setThemeName,
-    activeMeta: store.activeMeta,
-    isLoading: session.isLoading,
-    handleCreate: crud.handleCreate,
-    handleCreateSubTerminal: crud.handleCreateSubTerminal,
-    handleKill: crud.handleKill,
-    getSubTerminalIds: store.getSubTerminalIds,
-    reorderTerminals: crud.reorderTerminals,
-    mruOrder: store.mruOrder,
-    handleCopyTerminalText: crud.handleCopyTerminalText,
-    handleCloseAll: crud.handleCloseAll,
-    handleCreateWorktree: worktree.handleCreateWorktree,
-    handleKillWorktree: worktree.handleKillWorktree,
-    savedSession: session.savedSession,
-    handleRestoreSession: session.handleRestoreSession,
-    simulateAlert: alerts.simulateAlert,
-  };
+  return { store, crud, session, worktree, alerts };
 }

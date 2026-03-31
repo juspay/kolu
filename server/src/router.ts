@@ -126,11 +126,7 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
       yield { ...entry.info.meta };
-      for await (const meta of subscribeForTerminal_(
-        "metadata",
-        input.id,
-        signal,
-      )) {
+      for await (const meta of subscribeForTerminal_("metadata", input.id, signal)) {
         yield meta;
       }
     }),
@@ -143,22 +139,14 @@ export const appRouter = t.router({
       // Snapshot: yield full history so late-joining clients get the sparkline
       for (const sample of entry.activityHistory) yield sample;
       // Live: yield individual transitions as they happen
-      for await (const sample of subscribeForTerminal_(
-        "activity",
-        input.id,
-        signal,
-      )) {
+      for await (const sample of subscribeForTerminal_("activity", input.id, signal)) {
         yield sample;
       }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      for await (const exitCode of subscribeForTerminal_(
-        "exit",
-        input.id,
-        signal,
-      )) {
+      for await (const exitCode of subscribeForTerminal_("exit", input.id, signal)) {
         yield exitCode;
         return;
       }

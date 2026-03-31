@@ -182,9 +182,7 @@ export function startGitHubPrProvider(
     } else {
       // No longer in a git repo
       if (entry.info.meta.pr !== null) {
-        updateMetadata(entry, terminalId, (m) => {
-          m.pr = null;
-        });
+        updateMetadata(entry, terminalId, (m) => { m.pr = null; });
       }
     }
   }
@@ -198,9 +196,7 @@ export function startGitHubPrProvider(
         : { pr: null },
       "pr info updated",
     );
-    updateMetadata(entry, terminalId, (m) => {
-      m.pr = pr;
-    });
+    updateMetadata(entry, terminalId, (m) => { m.pr = pr; });
   }
 
   // Periodic poll — PRs can be created/updated externally
