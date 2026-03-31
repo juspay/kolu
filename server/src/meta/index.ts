@@ -1,27 +1,40 @@
 /**
  * Terminal metadata aggregation — unified state from independent providers.
  *
- * Each provider runs its own async loop, writes to a shared TerminalMetadata
- * object, and calls emitMetadata() to notify subscribers. Providers chain by
- * listening to the "metadata" event for upstream changes (e.g. GitHub PR
- * provider watches for branch changes from the git provider).
+ * Providers form a DAG:
+ *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
+ *                                                    ↓
+ *   claude provider (polling)  ──────────────→  metadata:<id>
+ *
+ * Each provider calls updateMetadata() to atomically mutate+publish.
+ * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
  */
 
 import type { TerminalMetadata } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
+import type { TerminalProcess } from "../terminals.ts";
+import { publishForTerminal } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
-export function createMetadata(cwd: string): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null };
+export function createMetadata(
+  cwd: string,
+  sortOrder: number,
+): TerminalMetadata {
+  return { cwd, git: null, pr: null, claude: null, sortOrder };
 }
 
-/** Emit the current metadata snapshot to all subscribers. */
-export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
-  const m = entry.metadata;
+/** Atomically mutate metadata and publish the snapshot to all subscribers.
+ *  Single place to audit — impossible to forget the publish. */
+export function updateMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  mutate: (meta: TerminalMetadata) => void,
+): void {
+  mutate(entry.info.meta);
+  const m = entry.info.meta;
   log.info(
     {
       terminal: terminalId,
@@ -33,9 +46,9 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
       // Only include claude field when present to avoid noisy null logs
       ...(m.claude && { claude: m.claude.state }),
     },
-    "metadata emit",
+    "metadata publish",
   );
-  entry.emitter.emit("metadata", { ...m });
+  publishForTerminal("metadata", terminalId, { ...m });
 }
 
 /**
@@ -43,7 +56,7 @@ export function emitMetadata(entry: TerminalEntry, terminalId: string): void {
  * Returns a cleanup function that stops all providers.
  */
 export function startProviders(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);

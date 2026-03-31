@@ -41,7 +41,7 @@ client:
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="$(nix build path:{{ justfile_directory() }} --print-out-paths)/bin/kolu"
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
     {{ nix_shell }} pnpm install
     # Temp dirs for Claude Code status detection mock tests
@@ -74,9 +74,11 @@ test-quick *args: install
     export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     cd tests
     {{ nix_shell }} pnpm install
-    KOLU_SERVER="$wrapper" {{ nix_shell }} node --import tsx \
+    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \
+        {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --import 'step_definitions/**/*.ts' --import 'support/**/*.ts' \
+        --format pretty \
         {{ if args == "" { "--profile ui" } else { args } }}
 
 # Run pre-commit hooks on all files

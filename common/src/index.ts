@@ -73,6 +73,11 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  themeName: z.string().optional(),
+  /** If set, this terminal is a sub-terminal of the given parent. */
+  parentId: z.string().optional(),
+  /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
+  sortOrder: z.number(),
 });
 
 // --- Activity ---
@@ -86,12 +91,7 @@ export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
-  themeName: z.string().optional(),
-  isActive: z.boolean(),
-  meta: TerminalMetadataSchema.optional(),
-  parentId: TerminalIdSchema.optional(),
-  /** Server-side activity history for sparkline rendering. */
-  activityHistory: z.array(ActivitySampleSchema).optional(),
+  meta: TerminalMetadataSchema,
 });
 
 export const TerminalResizeInputSchema = z.object({
@@ -118,7 +118,6 @@ export const TerminalCreateInputSchema = z.object({
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
 export const TerminalOnExitOutputSchema = z.number();
-export const TerminalActivityOutputSchema = z.boolean();
 
 export const TerminalScreenTextInputSchema = z.object({
   id: TerminalIdSchema,
@@ -169,6 +168,8 @@ export const SavedTerminalSchema = z.object({
   repoName: z.string().optional(),
   /** Snapshot of branch at save time (for display only). */
   branch: z.string().optional(),
+  /** Ordering within group at save time. */
+  sortOrder: z.number().optional(),
 });
 
 export const SavedSessionSchema = z.object({

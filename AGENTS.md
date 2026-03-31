@@ -51,6 +51,10 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 - **Use semantic selectors**: Never match on CSS classes (`class*="bg-..."`) in test selectors — classes are styling concerns and break when visual design changes. Use `data-testid`, `data-active`, or other semantic `data-*` attributes instead.
 
+## Persistent State (conf)
+
+- State is stored via `conf` in `server/src/state.ts`. When modifying `StateSchema`, **you must add a migration** in the `migrations` object and bump `SCHEMA_VERSION`. Without a migration, existing users' state files silently lose or misinterpret data on schema changes.
+
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).

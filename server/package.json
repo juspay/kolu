@@ -12,8 +12,11 @@
   "dependencies": {
     "@hono/node-server": "^1.14.0",
     "@hono/node-ws": "^1.1.0",
-    "@orpc/experimental-pino": "^1.13.9",
-    "@orpc/server": "^1.13.9",
+    "@orpc/client": "^1.13.13",
+    "@orpc/contract": "^1.13.13",
+    "@orpc/experimental-pino": "^1.13.13",
+    "@orpc/experimental-publisher": "^1.13.13",
+    "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",

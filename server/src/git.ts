@@ -52,9 +52,18 @@ export async function worktreeCreate(
     const branch = randomName();
     const targetPath = path.join(mainRoot, ".worktrees", branch);
 
+    // Check for both directory and branch name collision — a previous worktree
+    // removal deletes the directory but leaves the branch behind.
     if (fs.existsSync(targetPath)) {
-      log.info({ branch }, "name collision, retrying");
+      log.info({ branch }, "path collision, retrying");
       continue;
+    }
+    try {
+      await git.raw(["rev-parse", "--verify", `refs/heads/${branch}`]);
+      log.info({ branch }, "branch collision, retrying");
+      continue;
+    } catch {
+      // Branch doesn't exist — good
     }
 
     log.info(
@@ -76,10 +85,34 @@ export async function worktreeCreate(
   throw new Error("Failed to generate unique worktree name after 5 attempts");
 }
 
-/** Remove a git worktree by path. */
+/** Remove a git worktree by path and delete its branch (-d, safe delete). */
 export async function worktreeRemove(worktreePath: string): Promise<void> {
   const mainRoot = await resolveMainRepoRoot(worktreePath);
   const git = simpleGit(mainRoot);
-  log.info({ worktreePath }, "removing worktree");
+
+  // Detect the branch checked out in this worktree before removing it
+  let branch: string | null = null;
+  try {
+    branch = (
+      await simpleGit(worktreePath).raw(["rev-parse", "--abbrev-ref", "HEAD"])
+    ).trim();
+  } catch {
+    // Worktree may already be partially removed
+  }
+
+  log.info({ worktreePath, branch }, "removing worktree");
   await git.raw(["worktree", "remove", worktreePath, "--force"]);
+
+  // Clean up the branch (safe delete — fails if not fully merged, which is fine)
+  if (branch && branch !== "HEAD") {
+    try {
+      await git.raw(["branch", "-d", branch]);
+      log.info({ branch }, "deleted worktree branch");
+    } catch (err) {
+      log.warn(
+        { branch, err },
+        "could not delete branch (may not be fully merged)",
+      );
+    }
+  }
 }

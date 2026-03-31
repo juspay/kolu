@@ -1,167 +1,215 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
-import { type Accessor, createResource, createSignal, createEffect } from "solid-js";
-import { produce, reconcile } from "solid-js/store";
+import { type Accessor, createSignal, createEffect } from "solid-js";
+import {
+  createQuery,
+  createMutation,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
+import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type {
   TerminalId,
   TerminalInfo,
-  ActivitySample,
+  TerminalMetadata,
   SavedSession,
 } from "kolu-common";
-import type { TerminalMetaStore, TerminalStore } from "./useTerminalStore";
+import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalLifecycle(deps: {
   store: TerminalStore;
   randomTheme: Accessor<boolean>;
-  subscribeAll: (id: TerminalId) => void;
-  seedActivity: (id: TerminalId, history: ActivitySample[]) => void;
-  clearActivity: (id: TerminalId) => void;
+  subscribeExit: (id: TerminalId) => void;
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
+  const qc = useQueryClient();
 
-  /** Set a terminal's theme name locally and on the server. */
+  // --- Mutations ---
+
+  const setThemeMut = createMutation(() => ({
+    ...orpc.terminal.setTheme.mutationOptions(),
+    onError: () => toast.error("Failed to set theme"),
+  }));
+
+  const setParentMut = createMutation(() => ({
+    ...orpc.terminal.setParent.mutationOptions(),
+    onError: () => toast.error("Failed to set parent"),
+  }));
+
+  const createMut = createMutation(() => ({
+    ...orpc.terminal.create.mutationOptions(),
+    onError: (err: Error) =>
+      toast.error(`Failed to create terminal: ${err.message}`),
+  }));
+
+  const killMut = createMutation(() => ({
+    ...orpc.terminal.kill.mutationOptions(),
+  }));
+
+  const killAllMut = createMutation(() => ({
+    ...orpc.terminal.killAll.mutationOptions(),
+    onError: () => toast.error("Failed to close all terminals"),
+  }));
+
+  const reorderMut = createMutation(() => ({
+    ...orpc.terminal.reorder.mutationOptions(),
+    onError: () => toast.error("Failed to reorder terminals"),
+  }));
+
+  const worktreeCreateMut = createMutation(() => ({
+    ...orpc.git.worktreeCreate.mutationOptions(),
+    onError: (err: Error) =>
+      toast.error(`Failed to create worktree: ${err.message}`),
+  }));
+
+  const worktreeRemoveMut = createMutation(() => ({
+    ...orpc.git.worktreeRemove.mutationOptions(),
+    onError: (err: Error) =>
+      toast.error(`Failed to remove worktree: ${err.message}`),
+  }));
+
+  /** Set a terminal's theme name locally (optimistic) and on the server.
+   *  themeName lives in TerminalMetadata — server publishes it back via live query. */
   function setThemeName(id: TerminalId, name: string) {
-    store.setMeta(id, "themeName", name);
-    void client.terminal.setTheme({ id, themeName: name });
+    // Optimistic update in TanStack cache
+    const key = orpc.terminal.onMetadataChange.key({ input: { id } });
+    qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
+      old ? { ...old, themeName: name } : old,
+    );
+    setThemeMut.mutate({ id, themeName: name });
   }
 
-  /** Remove a terminal from the store and auto-switch if it was active. */
+  /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
+  function reorderTerminals(ids: TerminalId[]) {
+    const SORT_GAP = 1000;
+    for (let i = 0; i < ids.length; i++) {
+      const key = orpc.terminal.onMetadataChange.key({
+        input: { id: ids[i]! },
+      });
+      qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
+        old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
+      );
+    }
+    reorderMut.mutate({ ids });
+  }
+
+  /** Remove a terminal and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
-    const parentId = store.meta[id]?.parentId;
+    const parentId = store.getMetadata(id)?.parentId;
 
     if (parentId) {
       // This is a sub-terminal — remove from parent's sub-order
-      store.setSubOrder((prev) => {
-        const subs = (prev[parentId] ?? []).filter((x) => x !== id);
-        const next = { ...prev };
-        if (subs.length === 0) {
-          delete next[parentId];
-          subPanel.collapsePanel(parentId);
-        } else {
-          next[parentId] = subs;
-          // If this was the active sub-tab, switch to neighbor
-          const panel = subPanel.getSubPanel(parentId);
-          if (panel.activeSubTab === id) {
-            subPanel.setActiveSubTab(parentId, subs[0] ?? null);
-          }
+      const subs = store.getSubTerminalIds(parentId).filter((x) => x !== id);
+      if (subs.length === 0) {
+        subPanel.collapsePanel(parentId);
+      } else {
+        // If this was the active sub-tab, switch to neighbor
+        const panel = subPanel.getSubPanel(parentId);
+        if (panel.activeSubTab === id) {
+          subPanel.setActiveSubTab(parentId, subs[0] ?? null);
         }
-        return next;
-      });
-      store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
+      }
+      store.removeKnownId(id);
       return;
     }
 
     // Top-level terminal — promote any sub-terminals to top-level (orphans)
     const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
-      store.setMeta(subId, "parentId", undefined);
-      void client.terminal.setParent({ id: subId, parentId: null });
+      setParentMut.mutate({ id: subId, parentId: null });
     }
 
-    const ids = store.idOrder();
+    // Insert orphans at the position of the killed parent (server handles sortOrder via setParent)
+    const ids = store.terminalIds();
     const idx = ids.indexOf(id);
-    if (idx === -1) return;
-    const remaining = ids.filter((x) => x !== id);
-    // Insert orphans at the position of the killed parent
-    remaining.splice(idx, 0, ...orphanIds);
-    store.setIdOrder(remaining);
-    store.setMeta(produce((s: TerminalMetaStore) => delete s[id]));
+    store.removeKnownId(id);
     subPanel.removePanel(id);
-    store.setSubOrder((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-    deps.clearActivity(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
+      const remaining = ids.filter((x) => x !== id);
       store.setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
     }
   }
+
+  // --- Queries ---
+
+  const terminalsQuery = createQuery(() => orpc.terminal.list.queryOptions());
+  const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
 
   // Saved session — populated when no running terminals exist, shown in EmptyState.
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
   );
 
-  // Restore existing terminals on page load (e.g. after browser refresh).
-  // Fetch session in parallel so it's ready before Suspense resolves (no flash).
-  const [existingTerminals] = createResource<TerminalInfo[]>(async () => {
-    const [existing, session] = await Promise.all([
-      client.terminal.list(),
-      client.session.get(),
-    ]);
-    if (existing.length === 0) setSavedSession(session);
-    if (existing.length > 0) {
-      // Build initial metadata store from server state (preserving server order)
-      const initial: TerminalMetaStore = {};
-      for (const t of existing) initial[t.id] = store.infoToState(t);
-      store.setMeta(reconcile(initial));
-
-      // Partition into top-level and sub-terminals
-      const topLevel: TerminalId[] = [];
-      const subs: Record<TerminalId, TerminalId[]> = {};
-      for (const t of existing) {
-        if (t.parentId) {
-          (subs[t.parentId] ??= []).push(t.id);
-        } else {
-          topLevel.push(t.id);
-        }
-      }
-      store.setIdOrder(topLevel);
-      store.setSubOrder(subs);
-
-      // Initialize sub-panel active tabs for parents that have sub-terminals
-      for (const [parentId, subIds] of Object.entries(subs)) {
-        const panel = subPanel.getSubPanel(parentId);
-        if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
-          subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
-        }
-      }
-
-      // Keep persisted active terminal if it still exists; otherwise pick first
-      const persisted = store.activeId();
-      const ids = store.idOrder();
-      if (persisted === null || !ids.includes(persisted)) {
-        store.setActiveId(ids[0] ?? null);
-      }
-
-      // Seed MRU with all top-level terminals (active first, rest in sidebar order).
-      const active = store.activeId();
-      store.setMruOrder(
-        active ? [active, ...ids.filter((x) => x !== active)] : ids,
-      );
-
-      // Seed activity history from server (late-joining clients get full sparkline)
-      for (const t of existing) {
-        if (t.activityHistory?.length) {
-          deps.seedActivity(t.id, t.activityHistory);
-        }
-      }
-
-      // Subscribe to live updates for all terminals
-      for (const t of existing) deps.subscribeAll(t.id);
+  // Hydrate from server state on initial load.
+  // Both queries must resolve before we can decide what to show.
+  let hydrated = false;
+  createEffect(() => {
+    const existing = terminalsQuery.data;
+    const session = sessionQuery.data;
+    // Wait for both queries to have fetched at least once
+    if (existing === undefined || session === undefined) return;
+    if (hydrated) return;
+    hydrated = true;
+    if (existing.length === 0) {
+      setSavedSession(session);
+      return;
     }
-    return existing;
+    hydrateFromTerminals(existing);
   });
 
+  function hydrateFromTerminals(existing: TerminalInfo[]) {
+    // Set known IDs — order is derived from metadata sortOrder by useTerminalMetadata
+    store.setKnownIds(existing.map((t) => t.id));
+
+    // Initialize sub-panel active tabs for parents that have sub-terminals
+    const subs: Record<TerminalId, TerminalId[]> = {};
+    for (const t of existing) {
+      if (t.meta.parentId) {
+        (subs[t.meta.parentId] ??= []).push(t.id);
+      }
+    }
+    for (const [parentId, subIds] of Object.entries(subs)) {
+      const panel = subPanel.getSubPanel(parentId);
+      if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
+        subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
+      }
+    }
+
+    // Keep persisted active terminal if it still exists; otherwise pick first
+    const persisted = store.activeId();
+    const topLevel = existing
+      .filter((t) => !t.meta.parentId)
+      .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+    const topIds = topLevel.map((t) => t.id);
+    if (persisted === null || !topIds.includes(persisted)) {
+      store.setActiveId(topIds[0] ?? null);
+    }
+
+    // Seed MRU with all top-level terminals (active first, rest in sidebar order).
+    const active = store.activeId();
+    store.setMruOrder(
+      active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
+    );
+
+    // Subscribe to exit events for all terminals
+    for (const t of existing) deps.subscribeExit(t.id);
+  }
+
   // Re-fetch saved session when all terminals are killed mid-session.
-  // Initial load is handled by Promise.all above (blocks Suspense).
   createEffect(() => {
-    if (store.terminalIds().length === 0 && existingTerminals.state === "ready") {
+    if (store.terminalIds().length === 0 && hydrated) {
       client.session.get().then(setSavedSession);
     }
   });
 
-  /** Restore a saved session — creates terminals with saved CWDs and parent relationships. */
   async function handleRestoreSession() {
     const session = savedSession();
     if (!session) return;
@@ -173,8 +221,8 @@ export function useTerminalLifecycle(deps: {
     const subs = session.terminals.filter((t) => t.parentId);
     for (const t of topLevel) {
       await handleCreate(t.cwd);
-      const newId = store.idOrder()[store.idOrder().length - 1]!;
-      oldToNew.set(t.id, newId);
+      const ids = store.knownIds();
+      oldToNew.set(t.id, ids[ids.length - 1]!);
     }
     for (const t of subs) {
       const newParentId = oldToNew.get(t.parentId!);
@@ -182,57 +230,46 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
-  /** Create a new terminal on the server, add it to the list, and make it active. */
+  /** Create a new terminal on the server, add to known IDs, and make it active. */
   async function handleCreate(cwd?: string) {
     // Show worktree tip when creating a terminal while in a git repo
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    const info = await client.terminal.create({ cwd });
+    const info = await createMut.mutateAsync({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    store.setMeta(info.id, {
-      ...store.infoToState(info),
-      ...(themeName && { themeName }),
-    });
-    store.setIdOrder((prev) => [...prev, info.id]);
+    store.addKnownId(info.id);
     store.setActiveId(info.id);
-    deps.subscribeAll(info.id);
+    deps.subscribeExit(info.id);
     if (themeName) setThemeName(info.id, themeName);
   }
 
-  /** Create a sub-terminal under a parent. */
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const info = await client.terminal.create({ cwd, parentId });
-    store.setMeta(info.id, store.infoToState(info));
-    store.setSubOrder((prev) => ({
-      ...prev,
-      [parentId]: [...(prev[parentId] ?? []), info.id],
-    }));
+    const info = await createMut.mutateAsync({ cwd, parentId });
+    store.addKnownId(info.id);
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
-    deps.subscribeAll(info.id);
+    deps.subscribeExit(info.id);
   }
 
-  /** Kill a terminal on the server, then remove + auto-switch locally. */
   async function handleKill(id: TerminalId) {
     try {
-      await client.terminal.kill({ id });
+      await killMut.mutateAsync({ id });
     } catch {
       // Terminal may already be gone
     }
     removeAndAutoSwitch(id);
   }
 
-  /** Create a git worktree and open a terminal in it. */
   async function handleCreateWorktree(repoPath: string) {
-    const result = await client.git.worktreeCreate({ repoPath });
+    const result = await worktreeCreateMut.mutateAsync({ repoPath });
     toast(`Created worktree at ${result.path}`);
     await handleCreate(result.path);
+    void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
   }
 
-  /** Kill the active terminal (and sub-terminals) and remove its worktree. */
   async function handleKillWorktree() {
     const id = store.activeId();
     if (!id) return;
@@ -242,12 +279,12 @@ export function useTerminalLifecycle(deps: {
     for (const subId of subs) await handleKill(subId);
     await handleKill(id);
     if (worktreePath) {
-      await client.git.worktreeRemove({ worktreePath });
+      await worktreeRemoveMut.mutateAsync({ worktreePath });
       toast(`Removed worktree at ${worktreePath}`);
+      void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
     }
   }
 
-  /** Copy the active terminal's buffer as plain text to the clipboard. */
   async function handleCopyTerminalText() {
     const id = store.activeId();
     if (id === null) return;
@@ -261,15 +298,13 @@ export function useTerminalLifecycle(deps: {
     }
   }
 
-  /** Kill all terminals (debug command). */
-  /** Close all terminals without clearing the saved session (debug command). */
   async function handleCloseAll() {
-    await client.terminal.killAll();
+    await killAllMut.mutateAsync(undefined);
     store.reset();
   }
 
   return {
-    existingTerminals,
+    isLoading: () => terminalsQuery.isLoading,
     savedSession,
     handleRestoreSession,
     setThemeName,
@@ -281,5 +316,6 @@ export function useTerminalLifecycle(deps: {
     handleKillWorktree,
     handleCopyTerminalText,
     removeAndAutoSwitch,
+    reorderTerminals,
   };
 }

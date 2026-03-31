@@ -15,13 +15,26 @@ interface StateSchema {
   session: SavedSession | null;
 }
 
+/**
+ * Schema version — bump this when adding migrations.
+ * Must be valid semver. `conf` runs all migration handlers
+ * whose keys are > the last-seen version and ≤ this value.
+ */
+const SCHEMA_VERSION = "1.1.0";
+
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
+  projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
     session: null,
+  },
+  migrations: {
+    // sortOrder added to SavedTerminal — old sessions don't have it.
+    // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
+    "1.1.0": () => {},
   },
 });
 
