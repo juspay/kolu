@@ -1,5 +1,9 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  MOD_KEY,
+} from "../support/world.ts";
 import * as assert from "node:assert";
 import { pollUntil } from "../support/poll.ts";
 
@@ -38,7 +42,7 @@ Then(
           return container ? getComputedStyle(container).backgroundColor : "";
         }),
       (bg) => bg === expectedRgb,
-      { attempts: 20 },
+      { attempts: 100 },
     );
     assert.strictEqual(
       bgColor,
@@ -48,11 +52,9 @@ Then(
   },
 );
 
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
-
 When("I press the random theme shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+j`);
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 Then(
@@ -77,7 +79,7 @@ When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page.locator('[data-testid="theme-name"]');
   await themeButton.waitFor({ state: "visible", timeout: 3000 });
   await themeButton.click();
-  await this.page.waitForTimeout(200);
+  await this.waitForFrame();
 });
 
 Then(

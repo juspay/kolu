@@ -5,7 +5,7 @@ export async function pollUntil<T>(
   page: Page,
   fn: () => Promise<T>,
   check: (val: T) => boolean,
-  { attempts = 10, intervalMs = 300 } = {},
+  { attempts = 10, intervalMs = 100 } = {},
 ): Promise<T> {
   let val = await fn();
   for (let i = 1; i < attempts && !check(val); i++) {

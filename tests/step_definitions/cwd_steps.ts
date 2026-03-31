@@ -17,7 +17,7 @@ Then(
         }
       },
       (t) => t.includes(expected),
-      { attempts: 20, intervalMs: 500 },
+      { attempts: 40, intervalMs: 200 },
     );
     assert.ok(
       text.includes(expected),

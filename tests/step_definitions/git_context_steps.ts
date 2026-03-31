@@ -21,7 +21,7 @@ async function pollTestId(
       }
     },
     predicate,
-    { attempts: 20, intervalMs: 500 },
+    { attempts: 40, intervalMs: 200 },
   );
 }
 

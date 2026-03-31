@@ -1,7 +1,5 @@
 import { When } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 
 /**
  * Simulate the full image paste flow: write a valid PNG to the browser
@@ -31,5 +29,5 @@ When("I paste an image into the terminal", async function (this: KoluWorld) {
 
   // Wait for the async upload RPC to complete (goes over WebSocket,
   // so Playwright's waitForResponse can't observe it).
-  await this.page.waitForTimeout(1500);
+  await this.page.waitForTimeout(500);
 });

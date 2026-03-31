@@ -10,11 +10,10 @@ import {
 } from "@cucumber/cucumber";
 import type { Browser, BrowserContext, Page, Locator } from "playwright";
 
-setDefaultTimeout(60_000);
+setDefaultTimeout(30_000);
 
-const REFLOW_SETTLE_MS = 2000;
-const READY_TIMEOUT = 15_000;
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+const READY_TIMEOUT = 10_000;
+export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
@@ -40,6 +39,16 @@ export class KoluWorld extends World {
   savedVisibleText?: string;
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];
+
+  /** Wait for a double-rAF — ensures SolidJS reactivity + Corvu transitions have been flushed. */
+  async waitForFrame() {
+    await this.page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  }
 
   get canvas(): Locator {
     return this.page.locator("[data-visible] .xterm-screen");
@@ -110,17 +119,19 @@ export class KoluWorld extends World {
 
   async resizeViewport(width: number, height: number) {
     await this.page.setViewportSize({ width, height });
-    await this.page.waitForTimeout(REFLOW_SETTLE_MS);
+    // Wait for layout reflow and xterm.js fit to settle
+    await this.waitForFrame();
+    await this.waitForFrame();
   }
 
   async zoomIn() {
     await this.page.keyboard.press(`${MOD_KEY}+Equal`);
-    await this.page.waitForTimeout(300);
+    await this.waitForFrame();
   }
 
   async zoomOut() {
     await this.page.keyboard.press(`${MOD_KEY}+Minus`);
-    await this.page.waitForTimeout(300);
+    await this.waitForFrame();
   }
 
   async fontSize(): Promise<number> {

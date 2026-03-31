@@ -47,7 +47,7 @@ export async function pollUntilBufferContains(
     selector = ACTIVE_TERMINAL,
     index = 0,
     attempts = 50,
-    intervalMs = 200,
+    intervalMs = 100,
   } = {},
 ): Promise<string> {
   let content = "";
