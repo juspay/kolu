@@ -32,7 +32,8 @@ Feature: Git worktree management
     And there should be no page errors
 
   Scenario: Autolaunch command runs after worktree creation
-    When I set up a git repo at "/tmp/kolu-wt-auto"
+    When I set the autolaunch command to "pwd && git log --oneline -5"
+    And I set up a git repo at "/tmp/kolu-wt-auto"
     And I run "cd /tmp/kolu-wt-auto"
     Then the header should show a branch name
     When I open the command palette
