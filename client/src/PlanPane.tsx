@@ -288,9 +288,11 @@ const PlanPane: Component<{
           }}
           disabled={!hasFeedback()}
           onClick={() =>
-            props.onSendToTerminal("I updated the plan with feedback")
+            props.onSendToTerminal(
+              "I added inline feedback to the plan file. Re-read it and revise accordingly.",
+            )
           }
-          title="Tell Claude you've added feedback to the plan"
+          title="Tell Claude to re-read the plan and incorporate your feedback"
           data-testid="plan-review-btn"
         >
           Review
