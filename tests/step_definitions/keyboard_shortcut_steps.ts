@@ -6,32 +6,28 @@ const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
 When("I press the shortcuts help shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+/`);
-  await this.page.waitForTimeout(200);
+  await this.waitForFrame();
 });
 
 When(
   "I press the switch to terminal {int} shortcut",
   async function (this: KoluWorld, n: number) {
     await this.page.keyboard.press(`${MOD_KEY}+${n}`);
-    await this.page.waitForTimeout(200);
   },
 );
 
 When("I press the next terminal shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+Shift+BracketRight`);
-  await this.page.waitForTimeout(200);
 });
 
 When("I press the prev terminal shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+Shift+BracketLeft`);
-  await this.page.waitForTimeout(200);
 });
 
 When(
   "I press the next terminal tab shortcut",
   async function (this: KoluWorld) {
     await this.page.keyboard.press("Control+Tab");
-    await this.page.waitForTimeout(200);
   },
 );
 
@@ -39,18 +35,23 @@ When(
   "I press the prev terminal tab shortcut",
   async function (this: KoluWorld) {
     await this.page.keyboard.press("Control+Shift+Tab");
-    await this.page.waitForTimeout(200);
   },
 );
 
 When("I press the create terminal shortcut", async function (this: KoluWorld) {
+  const countBefore = await this.page
+    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .count();
   await this.page.keyboard.press(`${MOD_KEY}+t`);
-  await this.page.waitForTimeout(500);
+  // Wait for a new sidebar entry to appear
+  await this.page
+    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .nth(countBefore)
+    .waitFor({ state: "visible", timeout: 5000 });
 });
 
 When("I click outside the shortcuts help", async function (this: KoluWorld) {
   await this.page.mouse.click(10, 10);
-  await this.page.waitForTimeout(200);
 });
 
 Then("the shortcuts help should be visible", async function (this: KoluWorld) {

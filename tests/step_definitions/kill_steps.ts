@@ -12,14 +12,14 @@ When(
       `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
     );
     await entry.click();
-    await this.page.waitForTimeout(200);
+    await this.waitForFrame();
     // Close via command palette (close button was removed from sidebar)
     const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${MOD_KEY}+k`);
-    await this.page.waitForTimeout(200);
     const palette = this.page.locator('[data-testid="command-palette"]');
+    await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("input").fill("Close terminal");
-    await this.page.waitForTimeout(200);
+    await palette.locator("li", { hasText: "Close terminal" }).waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("li", { hasText: "Close terminal" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
@@ -31,13 +31,12 @@ When(
   async function (this: KoluWorld) {
     const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${MOD_KEY}+k`);
-    await this.page.waitForTimeout(200);
     const palette = this.page.locator('[data-testid="command-palette"]');
+    await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("input").fill("Close terminal");
-    await this.page.waitForTimeout(200);
-    // Click the matching result
+    await palette.locator("li", { hasText: "Close terminal" }).waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("li", { hasText: "Close terminal" }).click();
-    await this.page.waitForTimeout(500);
+    await this.waitForFrame();
   },
 );
 
@@ -45,11 +44,17 @@ Then(
   "the sidebar should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    // Wait for the expected count (entries may still be animating out)
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const count = await entries.count();
-      if (count === expected) return;
-      await this.page.waitForTimeout(300);
+    // Use Playwright's built-in polling via expect-like pattern
+    if (expected === 0) {
+      await entries.first().waitFor({ state: "hidden", timeout: 10000 });
+    } else {
+      await entries.nth(expected - 1).waitFor({ state: "visible", timeout: 10000 });
+      // Verify no extra entries
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const count = await entries.count();
+        if (count === expected) return;
+        await this.waitForFrame();
+      }
     }
     const count = await entries.count();
     assert.strictEqual(
@@ -69,17 +74,12 @@ Then(
   "the sidebar should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    // Natural exit can take a moment — poll with longer timeout
-    for (let attempt = 0; attempt < 40; attempt++) {
-      const count = await entries.count();
-      if (count === expected) return;
-      await this.page.waitForTimeout(500);
-    }
-    const count = await entries.count();
-    assert.strictEqual(
-      count,
-      expected,
-      `Expected ${expected} sidebar entries eventually, got ${count}`,
+    // Natural exit can take a moment — use waitForFunction for reactive check
+    const sel = SIDEBAR_ENTRY_SELECTOR;
+    await this.page.waitForFunction(
+      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
+      { sel, exp: expected },
+      { timeout: 20000 },
     );
   },
 );

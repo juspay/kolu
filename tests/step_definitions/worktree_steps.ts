@@ -35,7 +35,7 @@ Then(
     for (let attempt = 0; attempt < 20; attempt++) {
       const count = await entries.count();
       if (count === expected) return;
-      await this.page.waitForTimeout(300);
+      await this.waitForFrame();
     }
     const count = await entries.count();
     assert.strictEqual(

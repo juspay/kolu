@@ -7,7 +7,6 @@ const MC_CARD_SELECTOR = '[data-testid="mission-control-card"]';
 
 When("I click the Mission Control icon", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="mission-control-trigger"]').click();
-  await this.page.waitForTimeout(300);
 });
 
 When(
@@ -15,7 +14,6 @@ When(
   async function (this: KoluWorld, index: number) {
     const cards = this.page.locator(MC_CARD_SELECTOR);
     await cards.nth(index - 1).click();
-    await this.page.waitForTimeout(300);
   },
 );
 
@@ -81,23 +79,22 @@ const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 When("I hold Ctrl and press Tab", async function (this: KoluWorld) {
   await this.page.keyboard.down("Control");
   await this.page.keyboard.press("Tab");
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When("I hold Ctrl and Shift and press Tab", async function (this: KoluWorld) {
   await this.page.keyboard.down("Control");
   await this.page.keyboard.press("Shift+Tab");
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When("I release Ctrl", async function (this: KoluWorld) {
   await this.page.keyboard.up("Control");
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+.`);
-  await this.page.waitForTimeout(300);
 });
 
 Then("the active card should have focus", async function (this: KoluWorld) {

@@ -31,5 +31,5 @@ When("I paste an image into the terminal", async function (this: KoluWorld) {
 
   // Wait for the async upload RPC to complete (goes over WebSocket,
   // so Playwright's waitForResponse can't observe it).
-  await this.page.waitForTimeout(1500);
+  await this.page.waitForTimeout(500);
 });

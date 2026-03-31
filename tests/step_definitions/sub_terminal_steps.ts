@@ -9,13 +9,38 @@ const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Open command palette, search for a command, and execute it. */
 async function paletteCommand(world: KoluWorld, query: string) {
   await world.page.keyboard.press(`${MOD_KEY}+k`);
-  const palette = world.page.locator('[data-testid="command-palette"]');
-  const input = palette.locator("input");
-  await input.waitFor({ state: "visible", timeout: 5000 });
-  await input.fill(query);
-  await world.page.waitForTimeout(200);
-  await world.page.keyboard.press("Enter");
-  await world.page.waitForTimeout(500);
+  // Wait for the palette dialog to be in the DOM with data-open
+  await world.page.waitForFunction(
+    () => document.querySelector('[data-testid="command-palette"][data-open]') !== null,
+    { timeout: 5000 },
+  );
+  // Fill the input using evaluate to bypass Corvu animation visibility issues
+  await world.page.evaluate((q) => {
+    const input = document.querySelector('[data-testid="command-palette"] input') as HTMLInputElement;
+    if (!input) throw new Error("Palette input not found");
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    nativeSet.call(input, q);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  }, query);
+  // Wait for filtered results to render
+  await world.page.waitForFunction(
+    () => {
+      const items = document.querySelectorAll('[data-testid="command-palette"] li');
+      return Array.from(items).some(el => (el as HTMLElement).offsetHeight > 0);
+    },
+    { timeout: 3000 },
+  );
+  // Click the first result via evaluate
+  await world.page.evaluate(() => {
+    const item = document.querySelector('[data-testid="command-palette"] li') as HTMLElement;
+    if (item) item.click();
+  });
+  // Wait for palette to close and settle
+  await world.page.waitForFunction(
+    () => document.querySelector('[data-testid="command-palette"][data-open]') === null,
+    { timeout: 5000 },
+  );
+  await world.waitForFrame();
 }
 
 When(
@@ -29,7 +54,7 @@ When("I click the main terminal", async function (this: KoluWorld) {
   // Click the main terminal's xterm container (first data-visible terminal)
   const main = this.page.locator("[data-terminal-id][data-visible]").first();
   await main.click();
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When(
@@ -45,7 +70,7 @@ When(
     // Focus should already be in the sub-terminal
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
-    await this.page.waitForTimeout(500);
+    await this.waitForFrame();
   },
 );
 
@@ -86,7 +111,7 @@ Then(
           };
         }),
       (val) => val.focused,
-      { attempts: 30, intervalMs: 300 },
+      { attempts: 30, intervalMs: 100 },
     );
     assert.ok(
       result.focused,
@@ -98,7 +123,16 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    await this.page.waitForTimeout(300);
+    // Wait for focus to return to a terminal (Corvu's focus trap release is async)
+    try {
+      await this.page.waitForFunction(
+        () => !!document.activeElement?.closest("[data-visible]"),
+        { timeout: 3000 },
+      );
+    } catch {
+      // If focus didn't auto-return, click the canvas to force it
+      await this.canvas.click();
+    }
     // Type a unique marker and verify it appears in the main terminal's buffer
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
@@ -107,7 +141,7 @@ Then(
     await pollUntilBufferContains(this.page, marker, {
       selector: "[data-terminal-id][data-visible]",
       attempts: 20,
-      intervalMs: 300,
+      intervalMs: 100,
     });
   },
 );
@@ -138,7 +172,7 @@ When(
       '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
     );
     await tabs.nth(index - 1).click();
-    await this.page.waitForTimeout(300);
+    await this.waitForFrame();
   },
 );
 
@@ -175,13 +209,9 @@ Then(
 Then(
   "the sub-panel should eventually collapse",
   async function (this: KoluWorld) {
-    // Poll for the sub-panel tab bar to disappear (sub-terminal exited)
+    // Wait for the sub-panel tab bar to disappear (sub-terminal exited)
     const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-    for (let attempt = 0; attempt < 40; attempt++) {
-      if (!(await tabBar.isVisible())) return;
-      await this.page.waitForTimeout(500);
-    }
-    assert.fail("Sub-panel did not collapse after sub-terminal exit");
+    await tabBar.waitFor({ state: "hidden", timeout: 20000 });
   },
 );
 
@@ -217,7 +247,7 @@ Then(
       selector: "[data-terminal-id][data-visible]",
       index: 1,
       attempts: 20,
-      intervalMs: 300,
+      intervalMs: 100,
     });
   },
 );

@@ -4,7 +4,7 @@ import { KoluWorld } from "../support/world.ts";
 
 When("I click the settings button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="settings-trigger"]');
-  await this.page.waitForTimeout(200);
+  await this.waitForFrame();
 });
 
 Then(
@@ -35,7 +35,7 @@ Then(
     // If before was null (off), after click it should have been set to "" (on), or vice versa
     // Since we already clicked once, just verify the toggle responds
     await this.page.click('[data-testid="random-theme-toggle"]');
-    await this.page.waitForTimeout(100);
+    await this.waitForFrame();
     const afterSecond = await toggle.getAttribute("data-enabled");
     assert.notStrictEqual(
       after,
@@ -47,14 +47,14 @@ Then(
 
 When("I click the random theme toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="random-theme-toggle"]');
-  await this.page.waitForTimeout(200);
+  await this.waitForFrame();
 });
 
 When(
   "I click the {string} color scheme button",
   async function (this: KoluWorld, scheme: string) {
     await this.page.click(`[data-testid="color-scheme-${scheme}"]`);
-    await this.page.waitForTimeout(200);
+    await this.waitForFrame();
   },
 );
 
