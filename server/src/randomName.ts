@@ -14,11 +14,10 @@ function readLines(filePath: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-let adjectives: string[] | null = null;
-let nouns: string[] | null = null;
+let cached: { adjectives: string[]; nouns: string[] } | null = null;
 
 function loadWordLists(): { adjectives: string[]; nouns: string[] } {
-  if (adjectives && nouns) return { adjectives, nouns };
+  if (cached) return cached;
 
   const dir = process.env.KOLU_RANDOM_WORDS;
   if (!dir) {
@@ -29,13 +28,12 @@ function loadWordLists(): { adjectives: string[]; nouns: string[] } {
   if (!fs.existsSync(adjPath) || !fs.existsSync(nounPath)) {
     throw new Error(`Word list files not found in ${dir}`);
   }
-  adjectives = readLines(adjPath);
-  nouns = readLines(nounPath);
+  cached = { adjectives: readLines(adjPath), nouns: readLines(nounPath) };
   log.info(
-    { adjectives: adjectives.length, nouns: nouns.length },
+    { adjectives: cached.adjectives.length, nouns: cached.nouns.length },
     "loaded word lists",
   );
-  return { adjectives, nouns };
+  return cached;
 }
 
 function pick(list: string[]): string {

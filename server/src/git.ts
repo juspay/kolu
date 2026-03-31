@@ -85,7 +85,7 @@ export async function worktreeCreate(
   throw new Error("Failed to generate unique worktree name after 5 attempts");
 }
 
-/** Remove a git worktree by path and delete its branch (-d, safe delete). */
+/** Remove a git worktree by path and force-delete its branch. */
 export async function worktreeRemove(worktreePath: string): Promise<void> {
   const mainRoot = await resolveMainRepoRoot(worktreePath);
   const git = simpleGit(mainRoot);
