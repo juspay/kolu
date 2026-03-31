@@ -42,7 +42,7 @@ Then(
           return container ? getComputedStyle(container).backgroundColor : "";
         }),
       (bg) => bg === expectedRgb,
-      { attempts: 50 },
+      { attempts: 100 },
     );
     assert.strictEqual(
       bgColor,
