@@ -13,6 +13,8 @@ export function useWorktreeOps(deps: {
 }) {
   const { store } = deps;
   const qc = useQueryClient();
+  const invalidateRepos = () =>
+    void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
 
   const worktreeCreateMut = createMutation(() => ({
     ...orpc.git.worktreeCreate.mutationOptions(),
@@ -28,7 +30,7 @@ export function useWorktreeOps(deps: {
     const result = await worktreeCreateMut.mutateAsync({ repoPath });
     toast(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
-    void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
+    invalidateRepos();
   }
 
   async function handleKillWorktree() {
@@ -42,7 +44,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       await worktreeRemoveMut.mutateAsync({ worktreePath });
       toast(`Removed worktree at ${worktreePath}`);
-      void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
+      invalidateRepos();
     }
   }
 

@@ -65,12 +65,12 @@ export function useTerminalCrud(deps: {
   /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
   function reorderTerminals(ids: TerminalId[]) {
     const SORT_GAP = 1000;
-    for (let i = 0; i < ids.length; i++) {
-      const key = orpc.terminal.onMetadataChange.key({ input: { id: ids[i]! } });
+    ids.forEach((id, i) => {
+      const key = orpc.terminal.onMetadataChange.key({ input: { id } });
       qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
         old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
       );
-    }
+    });
     reorderMut.mutate({ ids });
   }
 

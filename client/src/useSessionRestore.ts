@@ -56,7 +56,9 @@ export function useSessionRestore(deps: {
 
     // Keep persisted active terminal if it still exists; otherwise pick first
     const persisted = store.activeId();
-    const topLevel = existing.filter((t) => !t.meta.parentId).sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+    const topLevel = existing
+      .filter((t) => !t.meta.parentId)
+      .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
     const topIds = topLevel.map((t) => t.id);
     if (persisted === null || !topIds.includes(persisted)) {
       store.setActiveId(topIds[0] ?? null);
