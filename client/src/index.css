@@ -81,6 +81,8 @@
 .plan-markdown {
   font-size: 0.8rem;
   line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .plan-markdown h1 {
   font-size: 1rem;
@@ -173,6 +175,8 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 0.5rem;
+  display: block;
+  overflow-x: auto;
 }
 .plan-markdown th,
 .plan-markdown td {
