@@ -270,10 +270,13 @@ const PlanPane: Component<{
     ),
   );
 
-  /** Whether the plan file contains any feedback blockquotes. */
-  const hasFeedback = createMemo(
-    () => !!props.content?.content.includes("> [FEEDBACK]:"),
-  );
+  /** Count of feedback entries in the plan file. */
+  const feedbackCount = createMemo(() => {
+    if (!props.content) return 0;
+    return (props.content.content.match(/^> \[FEEDBACK\]:/gm) ?? []).length;
+  });
+
+  const hasFeedback = () => feedbackCount() > 0;
 
   /** Handle text selection — show popover near the selection. */
   function handleMouseUp() {
@@ -363,11 +366,18 @@ const PlanPane: Component<{
       class="flex flex-col h-full w-full overflow-hidden bg-surface-0"
       data-testid="plan-pane"
     >
-      {/* Header — plan name + file path */}
+      {/* Header — plan name, file path, feedback count */}
       <div class="px-3 py-1.5 bg-surface-1 border-b border-edge shrink-0">
-        <span class="text-xs font-medium text-fg truncate block">
-          {props.planName}
-        </span>
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-fg truncate flex-1">
+            {props.planName}
+          </span>
+          <Show when={feedbackCount() > 0}>
+            <span class="text-[10px] font-medium text-accent bg-accent/15 px-1.5 py-0.5 rounded-full shrink-0">
+              {feedbackCount()} comment{feedbackCount() !== 1 ? "s" : ""}
+            </span>
+          </Show>
+        </div>
         <Show when={props.planPath}>
           <span
             class="text-[10px] text-fg-3 truncate block"
