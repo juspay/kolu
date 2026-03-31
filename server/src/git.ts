@@ -103,13 +103,13 @@ export async function worktreeRemove(worktreePath: string): Promise<void> {
   log.info({ worktreePath, branch }, "removing worktree");
   await git.raw(["worktree", "remove", worktreePath, "--force"]);
 
-  // Clean up the branch (safe delete — fails if not fully merged, which is fine)
+  // Clean up the branch (force delete — these are ephemeral Kolu-created branches)
   if (branch && branch !== "HEAD") {
     try {
-      await git.raw(["branch", "-d", branch]);
+      await git.raw(["branch", "-D", branch]);
       log.info({ branch }, "deleted worktree branch");
     } catch (err) {
-      log.warn({ branch, err }, "could not delete branch (may not be fully merged)");
+      log.warn({ branch, err }, "could not delete branch");
     }
   }
 }

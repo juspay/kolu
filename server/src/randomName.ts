@@ -21,18 +21,20 @@ function loadWordLists(): { adjectives: string[]; nouns: string[] } {
   if (adjectives && nouns) return { adjectives, nouns };
 
   const dir = process.env.KOLU_RANDOM_WORDS;
-  if (dir && fs.existsSync(path.join(dir, "adjectives.txt"))) {
-    adjectives = readLines(path.join(dir, "adjectives.txt"));
-    nouns = readLines(path.join(dir, "nouns.txt"));
-    log.info(
-      { adjectives: adjectives.length, nouns: nouns.length },
-      "loaded word lists",
-    );
-  } else {
-    adjectives = ["calm", "bold", "warm", "keen", "swift"];
-    nouns = ["brook", "ridge", "vale", "peak", "cove"];
-    log.warn("KOLU_RANDOM_WORDS not set, using fallback word lists");
+  if (!dir) {
+    throw new Error("KOLU_RANDOM_WORDS env var is not set");
   }
+  const adjPath = path.join(dir, "adjectives.txt");
+  const nounPath = path.join(dir, "nouns.txt");
+  if (!fs.existsSync(adjPath) || !fs.existsSync(nounPath)) {
+    throw new Error(`Word list files not found in ${dir}`);
+  }
+  adjectives = readLines(adjPath);
+  nouns = readLines(nounPath);
+  log.info(
+    { adjectives: adjectives.length, nouns: nouns.length },
+    "loaded word lists",
+  );
   return { adjectives, nouns };
 }
 
