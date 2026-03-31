@@ -26,13 +26,16 @@ Then("the sidebar should be visible", async function (this: KoluWorld) {
 Then("the sidebar should not be visible", async function (this: KoluWorld) {
   const sidebar = this.page.locator('[data-testid="sidebar"]');
   // Wait for CSS transition to complete — use waitForFunction to check computed visibility
-  await this.page.waitForFunction(() => {
-    const sidebar = document.querySelector('[data-testid="sidebar"]');
-    if (!sidebar) return true;
-    const box = sidebar.getBoundingClientRect();
-    // Hidden: either display:none (no box) or translated off-screen
-    return box.width === 0 || box.x + box.width <= 0;
-  }, { timeout: 3000 });
+  await this.page.waitForFunction(
+    () => {
+      const sidebar = document.querySelector('[data-testid="sidebar"]');
+      if (!sidebar) return true;
+      const box = sidebar.getBoundingClientRect();
+      // Hidden: either display:none (no box) or translated off-screen
+      return box.width === 0 || box.x + box.width <= 0;
+    },
+    { timeout: 3000 },
+  );
 });
 
 Then(

@@ -1,5 +1,9 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR, MOD_KEY } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  MOD_KEY,
+} from "../support/world.ts";
 import * as assert from "node:assert";
 
 When(
@@ -18,7 +22,9 @@ When(
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("input").fill("Close terminal");
-    await palette.locator("li", { hasText: "Close terminal" }).waitFor({ state: "visible", timeout: 3000 });
+    await palette
+      .locator("li", { hasText: "Close terminal" })
+      .waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("li", { hasText: "Close terminal" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
@@ -32,7 +38,9 @@ When(
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("input").fill("Close terminal");
-    await palette.locator("li", { hasText: "Close terminal" }).waitFor({ state: "visible", timeout: 3000 });
+    await palette
+      .locator("li", { hasText: "Close terminal" })
+      .waitFor({ state: "visible", timeout: 3000 });
     await palette.locator("li", { hasText: "Close terminal" }).click();
     await this.waitForFrame();
   },
@@ -46,7 +54,9 @@ Then(
     if (expected === 0) {
       await entries.first().waitFor({ state: "hidden", timeout: 10000 });
     } else {
-      await entries.nth(expected - 1).waitFor({ state: "visible", timeout: 10000 });
+      await entries
+        .nth(expected - 1)
+        .waitFor({ state: "visible", timeout: 10000 });
       // Verify no extra entries
       for (let attempt = 0; attempt < 10; attempt++) {
         const count = await entries.count();
