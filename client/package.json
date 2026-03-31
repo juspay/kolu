@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@corvu/dialog": "^0.2.4",
@@ -44,6 +45,7 @@
     "typescript": "^5.8.0",
     "vite": "^6.3.0",
     "vite-plugin-pwa": "^1.2.0",
-    "vite-plugin-solid": "^2.11.0"
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.2"
   }
 }

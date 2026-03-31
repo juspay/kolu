@@ -16,7 +16,7 @@ export type TerminalDisplayInfo = {
 
 /** Assign OKLCH colors via golden-angle hue spacing.
  *  All keys share one sequence so no two get the same color. */
-function assignColors(keys: Iterable<string>): Map<string, string> {
+export function assignColors(keys: Iterable<string>): Map<string, string> {
   return new Map(
     [...new Set(keys)]
       .sort()
@@ -24,7 +24,7 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-function terminalName(meta: TerminalMetadata): string {
+export function terminalName(meta: TerminalMetadata): string {
   return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
 }
 

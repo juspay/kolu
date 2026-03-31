@@ -56,7 +56,7 @@ function getPtyForPid(pid: number): string | null {
 }
 
 /** Encode a CWD path to the Claude projects directory key (replace / and . with -). */
-function encodeProjectPath(cwd: string): string {
+export function encodeProjectPath(cwd: string): string {
   return cwd.replace(/[/.]/g, "-");
 }
 
@@ -132,7 +132,7 @@ function tailJsonlLines(filePath: string, bytes: number): string[] {
 }
 
 /** Derive Claude Code state from the last relevant JSONL message. */
-function deriveState(
+export function deriveState(
   lines: string[],
 ): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
@@ -166,7 +166,7 @@ function deriveState(
 }
 
 /** Compare two ClaudeCodeInfo values for equality. */
-function infoEqual(
+export function infoEqual(
   a: ClaudeCodeInfo | null,
   b: ClaudeCodeInfo | null,
 ): boolean {

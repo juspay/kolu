@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "pnpm -r typecheck",
+    "test:unit": "pnpm -r test:unit",
     "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "pnpm": {
