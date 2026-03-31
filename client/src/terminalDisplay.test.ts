@@ -4,7 +4,7 @@ import {
   terminalName,
   buildTerminalDisplayInfos,
 } from "./terminalDisplay";
-import type { TerminalMetadata, ActivitySample } from "kolu-common";
+import type { TerminalMetadata, GitInfo, ActivitySample } from "kolu-common";
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
@@ -17,6 +17,18 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   };
 }
 
+function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
+  return {
+    repoRoot: "/home/user/repo",
+    repoName: "repo",
+    worktreePath: "/home/user/repo",
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: "/home/user/repo",
+    ...overrides,
+  };
+}
+
 describe("assignColors", () => {
   it("returns empty map for empty input", () => {
     expect(assignColors([])).toEqual(new Map());
@@ -25,14 +37,13 @@ describe("assignColors", () => {
   it("assigns a color to each unique key", () => {
     const result = assignColors(["a", "b", "c"]);
     expect(result.size).toBe(3);
-    expect(result.get("a")).toMatch(/^oklch\(/);
-    expect(result.get("b")).toMatch(/^oklch\(/);
-    expect(result.get("c")).toMatch(/^oklch\(/);
+    for (const color of result.values()) {
+      expect(color).toMatch(/^oklch\(/);
+    }
   });
 
   it("deduplicates keys", () => {
-    const result = assignColors(["a", "a", "b"]);
-    expect(result.size).toBe(2);
+    expect(assignColors(["a", "a", "b"]).size).toBe(2);
   });
 
   it("sorts keys before assigning (deterministic)", () => {
@@ -50,23 +61,13 @@ describe("assignColors", () => {
 
 describe("terminalName", () => {
   it("returns repo name when git info is present", () => {
-    const meta = makeMeta({
-      git: {
-        repoRoot: "/home/user/repo",
-        repoName: "my-repo",
-        worktreePath: "/home/user/repo",
-        branch: "main",
-        isWorktree: false,
-        mainRepoRoot: "/home/user/repo",
-      },
-    });
-    expect(terminalName(meta)).toBe("my-repo");
+    expect(
+      terminalName(makeMeta({ git: makeGit({ repoName: "my-repo" }) })),
+    ).toBe("my-repo");
   });
 
   it("falls back to cwd basename when no git", () => {
-    expect(terminalName(makeMeta({ cwd: "/home/user/project" }))).toBe(
-      "project",
-    );
+    expect(terminalName(makeMeta())).toBe("project");
   });
 
   it("falls back to cwd basename ~ for home dir", () => {
@@ -86,16 +87,7 @@ describe("buildTerminalDisplayInfos", () => {
   });
 
   it("builds display info with colors", () => {
-    const meta = makeMeta({
-      git: {
-        repoRoot: "/r",
-        repoName: "repo",
-        worktreePath: "/r",
-        branch: "main",
-        isWorktree: false,
-        mainRepoRoot: "/r",
-      },
-    });
+    const meta = makeMeta({ git: makeGit() });
     const result = buildTerminalDisplayInfos(
       ["id-1"],
       () => meta,
@@ -111,10 +103,9 @@ describe("buildTerminalDisplayInfos", () => {
   });
 
   it("counts sub-terminals", () => {
-    const meta = makeMeta();
     const result = buildTerminalDisplayInfos(
       ["id-1"],
-      () => meta,
+      () => makeMeta(),
       () => [] as ActivitySample[],
       () => ["sub-1", "sub-2"],
     );

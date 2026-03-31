@@ -29,23 +29,20 @@ describe("gitInfoEqual", () => {
     expect(gitInfoEqual(info, { ...info })).toBe(true);
   });
 
-  it("detects different repoRoot", () => {
-    expect(gitInfoEqual(info, { ...info, repoRoot: "/other" })).toBe(false);
+  // Fields that ARE compared
+  it.each([
+    { field: "repoRoot", value: "/other" },
+    { field: "branch", value: "develop" },
+    { field: "worktreePath", value: "/other" },
+  ] as const)("detects different $field", ({ field, value }) => {
+    expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });
 
-  it("detects different branch", () => {
-    expect(gitInfoEqual(info, { ...info, branch: "develop" })).toBe(false);
-  });
-
-  it("detects different worktreePath", () => {
-    expect(gitInfoEqual(info, { ...info, worktreePath: "/other" })).toBe(false);
-  });
-
-  it("ignores repoName differences (not compared)", () => {
-    expect(gitInfoEqual(info, { ...info, repoName: "other" })).toBe(true);
-  });
-
-  it("ignores isWorktree differences (not compared)", () => {
-    expect(gitInfoEqual(info, { ...info, isWorktree: true })).toBe(true);
+  // Fields that are NOT compared (intentional — only identity-level fields matter)
+  it.each([
+    { field: "repoName", value: "other" },
+    { field: "isWorktree", value: true },
+  ] as const)("ignores $field differences", ({ field, value }) => {
+    expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(true);
   });
 });

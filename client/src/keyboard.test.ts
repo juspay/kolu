@@ -109,26 +109,14 @@ describe("matchesKeybind (non-mac)", () => {
 });
 
 describe("formatKeybind (non-mac)", () => {
-  it("formats mod key as Ctrl", () => {
-    expect(formatKeybind({ key: "t", mod: true })).toBe("Ctrl+T");
-  });
-
-  it("formats ctrl key as Ctrl", () => {
-    expect(formatKeybind({ key: "Tab", ctrl: true })).toBe("Ctrl+Tab");
-  });
-
-  it("formats shift", () => {
-    expect(formatKeybind({ key: "]", mod: true, shift: true })).toBe(
-      "Ctrl+Shift+]",
-    );
-  });
-
-  it("formats bare key", () => {
-    expect(formatKeybind({ key: "t" })).toBe("T");
-  });
-
-  it("uppercases single-char keys", () => {
-    expect(formatKeybind({ key: "k", mod: true })).toBe("Ctrl+K");
+  it.each([
+    { kb: { key: "t", mod: true }, expected: "Ctrl+T" },
+    { kb: { key: "Tab", ctrl: true }, expected: "Ctrl+Tab" },
+    { kb: { key: "]", mod: true, shift: true }, expected: "Ctrl+Shift+]" },
+    { kb: { key: "t" }, expected: "T" },
+    { kb: { key: "k", mod: true }, expected: "Ctrl+K" },
+  ] as const)("formatKeybind → $expected", ({ kb, expected }) => {
+    expect(formatKeybind(kb)).toBe(expected);
   });
 });
 

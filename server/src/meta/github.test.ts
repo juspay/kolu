@@ -11,109 +11,44 @@ describe("deriveCheckStatus", () => {
     expect(deriveCheckStatus([])).toBeNull();
   });
 
-  // StatusContext cases
-  it("returns pass for StatusContext SUCCESS", () => {
-    expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "SUCCESS" }]),
-    ).toBe("pass");
+  it.each([
+    { state: "SUCCESS", expected: "pass" },
+    { state: "FAILURE", expected: "fail" },
+    { state: "ERROR", expected: "fail" },
+    { state: "PENDING", expected: "pending" },
+    { state: "EXPECTED", expected: "pending" },
+  ])("StatusContext $state → $expected", ({ state, expected }) => {
+    expect(deriveCheckStatus([{ __typename: "StatusContext", state }])).toBe(
+      expected,
+    );
   });
 
-  it("returns fail for StatusContext FAILURE", () => {
-    expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "FAILURE" }]),
-    ).toBe("fail");
-  });
+  it.each([
+    { conclusion: "SUCCESS", expected: "pass" },
+    { conclusion: "NEUTRAL", expected: "pass" },
+    { conclusion: "SKIPPED", expected: "pass" },
+    { conclusion: "FAILURE", expected: "fail" },
+    { conclusion: "CANCELLED", expected: "fail" },
+    { conclusion: "TIMED_OUT", expected: "fail" },
+    { conclusion: "STARTUP_FAILURE", expected: "fail" },
+    { conclusion: "ACTION_REQUIRED", expected: "fail" },
+    { conclusion: "STALE", expected: "fail" },
+  ])(
+    "completed CheckRun $conclusion → $expected",
+    ({ conclusion, expected }) => {
+      expect(deriveCheckStatus([{ status: "COMPLETED", conclusion }])).toBe(
+        expected,
+      );
+    },
+  );
 
-  it("returns fail for StatusContext ERROR", () => {
-    expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "ERROR" }]),
-    ).toBe("fail");
-  });
-
-  it("returns pending for StatusContext PENDING", () => {
-    expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "PENDING" }]),
-    ).toBe("pending");
-  });
-
-  it("returns pending for StatusContext EXPECTED", () => {
-    expect(
-      deriveCheckStatus([{ __typename: "StatusContext", state: "EXPECTED" }]),
-    ).toBe("pending");
-  });
-
-  // CheckRun cases
-  it("returns pass for completed CheckRun with SUCCESS", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "SUCCESS" }]),
-    ).toBe("pass");
-  });
-
-  it("returns pass for completed CheckRun with NEUTRAL", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "NEUTRAL" }]),
-    ).toBe("pass");
-  });
-
-  it("returns pass for completed CheckRun with SKIPPED", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "SKIPPED" }]),
-    ).toBe("pass");
-  });
-
-  it("returns fail for completed CheckRun with FAILURE", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "FAILURE" }]),
-    ).toBe("fail");
-  });
-
-  it("returns fail for completed CheckRun with CANCELLED", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "CANCELLED" }]),
-    ).toBe("fail");
-  });
-
-  it("returns fail for completed CheckRun with TIMED_OUT", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "TIMED_OUT" }]),
-    ).toBe("fail");
-  });
-
-  it("returns fail for completed CheckRun with STARTUP_FAILURE", () => {
-    expect(
-      deriveCheckStatus([
-        { status: "COMPLETED", conclusion: "STARTUP_FAILURE" },
-      ]),
-    ).toBe("fail");
-  });
-
-  it("returns fail for completed CheckRun with ACTION_REQUIRED", () => {
-    expect(
-      deriveCheckStatus([
-        { status: "COMPLETED", conclusion: "ACTION_REQUIRED" },
-      ]),
-    ).toBe("fail");
-  });
-
-  it("returns fail for completed CheckRun with STALE", () => {
-    expect(
-      deriveCheckStatus([{ status: "COMPLETED", conclusion: "STALE" }]),
-    ).toBe("fail");
-  });
-
-  it("returns pending for non-terminal CheckRun statuses", () => {
-    for (const status of [
-      "QUEUED",
-      "IN_PROGRESS",
-      "WAITING",
-      "PENDING",
-      "REQUESTED",
-    ]) {
+  it.each(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"])(
+    "non-terminal CheckRun %s → pending",
+    (status) => {
       expect(deriveCheckStatus([{ status }])).toBe("pending");
-    }
-  });
+    },
+  );
 
-  // Mixed rollups
   it("failure takes priority over pending", () => {
     expect(
       deriveCheckStatus([
@@ -165,19 +100,12 @@ describe("prInfoEqual", () => {
     expect(prInfoEqual(pr, { ...pr })).toBe(true);
   });
 
-  it("detects different number", () => {
-    expect(prInfoEqual(pr, { ...pr, number: 2 })).toBe(false);
-  });
-
-  it("detects different title", () => {
-    expect(prInfoEqual(pr, { ...pr, title: "other" })).toBe(false);
-  });
-
-  it("detects different state", () => {
-    expect(prInfoEqual(pr, { ...pr, state: "merged" })).toBe(false);
-  });
-
-  it("detects different checks", () => {
-    expect(prInfoEqual(pr, { ...pr, checks: "fail" })).toBe(false);
+  it.each([
+    { field: "number", value: 2 },
+    { field: "title", value: "other" },
+    { field: "state", value: "merged" },
+    { field: "checks", value: "fail" },
+  ] as const)("detects different $field", ({ field, value }) => {
+    expect(prInfoEqual(pr, { ...pr, [field]: value })).toBe(false);
   });
 });
