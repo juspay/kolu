@@ -231,11 +231,12 @@ const PlanPane: Component<{
     const text = sel.toString().trim();
     if (text.length < 3) return;
 
-    // Find the source line from the nearest data-line-annotated element
+    // Find the source line from the nearest data-line-annotated element.
+    // Fall back to end-of-file if no annotated ancestor (e.g. table cells).
     const sourceLine =
       findLineFromNode(range.startContainer) ??
-      findLineFromNode(range.endContainer);
-    if (!sourceLine) return;
+      findLineFromNode(range.endContainer) ??
+      (props.content ? props.content.content.split("\n").length : 1);
 
     const rect = range.getBoundingClientRect();
     const top = Math.min(rect.bottom + 8, window.innerHeight - 200);
@@ -271,7 +272,10 @@ const PlanPane: Component<{
   }
 
   return (
-    <div class="flex flex-col h-full bg-surface-0" data-testid="plan-pane">
+    <div
+      class="flex flex-col h-full w-full overflow-hidden bg-surface-0"
+      data-testid="plan-pane"
+    >
       {/* Header — plan name + file path */}
       <div class="px-3 py-1.5 bg-surface-1 border-b border-edge shrink-0">
         <span class="text-xs font-medium text-fg truncate block">
@@ -287,8 +291,8 @@ const PlanPane: Component<{
         </Show>
       </div>
 
-      {/* Content */}
-      <div class="flex-1 overflow-y-auto">
+      {/* Content — overflow-x-hidden prevents wide tables from expanding the pane */}
+      <div class="flex-1 overflow-y-auto overflow-x-hidden">
         <Show
           when={!props.loading}
           fallback={
