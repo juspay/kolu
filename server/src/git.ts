@@ -109,7 +109,10 @@ export async function worktreeRemove(worktreePath: string): Promise<void> {
       await git.raw(["branch", "-d", branch]);
       log.info({ branch }, "deleted worktree branch");
     } catch (err) {
-      log.warn({ branch, err }, "could not delete branch (may not be fully merged)");
+      log.warn(
+        { branch, err },
+        "could not delete branch (may not be fully merged)",
+      );
     }
   }
 }

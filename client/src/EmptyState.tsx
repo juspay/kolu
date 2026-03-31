@@ -27,13 +27,14 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
     <div class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-xs w-full">
       <Show when={props.savedSession}>
         {(session) => {
-          const topLevel = () =>
-            session().terminals.filter((t) => !t.parentId);
+          const topLevel = () => session().terminals.filter((t) => !t.parentId);
           const subCount = () =>
-            session().terminals.filter((t) => t.parentId)
-              .length;
+            session().terminals.filter((t) => t.parentId).length;
           return (
-            <div data-testid="session-restore" class="mb-4 pb-4 border-b border-edge">
+            <div
+              data-testid="session-restore"
+              class="mb-4 pb-4 border-b border-edge"
+            >
               <p class="text-fg-2 text-sm mb-2">Restore previous session</p>
               <div class="space-y-1 mb-3">
                 <For each={topLevel()}>
