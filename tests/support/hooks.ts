@@ -51,7 +51,7 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
     } catch {
       // server not up yet
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(
     `Server did not become healthy at ${url} within ${timeoutMs}ms`,
@@ -86,15 +86,14 @@ BeforeAll(async function () {
     serverProcess.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[server:${workerId}] ${data}`);
     });
-    await waitForHealth(`${baseUrl}/api/health`, 30_000);
+    await waitForHealth(`${baseUrl}/api/health`, 10_000);
     console.log(`[worker:${workerId}] Server is healthy.`);
   }
 
-  // Launch browser
-  const isCI = !!process.env.CI;
+  // Launch browser — always use CI args for consistency and performance
   browser = await chromium.launch({
     headless: process.env.HEADLESS !== "false",
-    args: isCI ? ciArgs : [],
+    args: ciArgs,
   });
 });
 
@@ -129,6 +128,17 @@ Before(async function (this: KoluWorld) {
     permissions: ["clipboard-write"],
   });
   this.page = await this.context.newPage();
+  // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
+  // prefers-reduced-motion tells well-behaved libraries to skip animations.
+  // The style override catches anything that doesn't respect the media query.
+  await this.page.emulateMedia({ reducedMotion: "reduce" });
+  await this.page.addInitScript(`
+    document.addEventListener("DOMContentLoaded", function() {
+      var style = document.createElement("style");
+      style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+      document.head.appendChild(style);
+    });
+  `);
   // Disable random theme so tests get deterministic default theme
   await this.page.addInitScript(() =>
     localStorage.setItem("kolu-random-theme", "false"),

@@ -37,7 +37,6 @@ When(
       await this.page
         .locator('[data-testid="scroll-to-bottom"][data-active]')
         .waitFor({ state: "visible", timeout: 5000 });
-      await this.page.waitForTimeout(500);
     } else {
       await pollUntilBufferContains(this.page, `extra-line-${count}`);
     }
@@ -51,7 +50,7 @@ When("I scroll the terminal up", async function (this: KoluWorld) {
   // Move mouse to viewport center and scroll up
   await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await this.page.mouse.wheel(0, -500);
-  await this.page.waitForTimeout(500);
+  await this.waitForFrame();
 });
 
 When("I note the scroll position", async function (this: KoluWorld) {
@@ -65,9 +64,9 @@ When("I prepare a output trigger", async function (this: KoluWorld) {
   // A background cat blocks on the FIFO until the test process writes to it.
   const fifo = scrollFifo(this);
   await this.terminalRun(`mkfifo ${fifo}`);
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
   await this.terminalRun(`cat ${fifo} &`);
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When("I fire the output trigger", async function (this: KoluWorld) {
@@ -79,7 +78,6 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   await this.page
     .locator('[data-testid="scroll-to-bottom"][data-active]')
     .waitFor({ state: "visible", timeout: 5000 });
-  await this.page.waitForTimeout(500);
 });
 
 When(
@@ -91,7 +89,6 @@ When(
     await this.page
       .locator('[data-testid="scroll-to-bottom"][data-active]')
       .waitFor({ state: "visible", timeout: 5000 });
-    await this.page.waitForTimeout(500);
   },
 );
 
@@ -114,12 +111,12 @@ When("I note the visible terminal text", async function (this: KoluWorld) {
 
 When("I click the scroll-to-bottom button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="scroll-to-bottom"]');
-  await this.page.waitForTimeout(300);
+  await this.waitForFrame();
 });
 
 When("I click the scroll lock toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="scroll-lock-toggle"]');
-  await this.page.waitForTimeout(200);
+  await this.waitForFrame();
 });
 
 Then(

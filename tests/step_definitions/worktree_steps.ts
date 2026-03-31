@@ -6,9 +6,12 @@ import * as assert from "node:assert";
 When(
   "I set up a git repo at {string}",
   async function (this: KoluWorld, repoPath: string) {
-    // Create a bare-minimum repo with an initial commit and a remote
-    execFileSync("rm", ["-rf", repoPath]);
-    execFileSync("git", ["init", repoPath]);
+    // Clean slate — remove then reinit. The worktree scenario creates
+    // subdirs like .worktrees/ that git init --force wouldn't clean.
+    execFileSync("bash", [
+      "-c",
+      `rm -rf "${repoPath}" && git init "${repoPath}"`,
+    ]);
     execFileSync("git", [
       "-C",
       repoPath,
@@ -35,7 +38,7 @@ Then(
     for (let attempt = 0; attempt < 20; attempt++) {
       const count = await entries.count();
       if (count === expected) return;
-      await this.page.waitForTimeout(300);
+      await this.waitForFrame();
     }
     const count = await entries.count();
     assert.strictEqual(

@@ -25,7 +25,7 @@ Given("the terminal is ready", async function (this: KoluWorld) {
 
 When("I run {string}", async function (this: KoluWorld, command: string) {
   await this.terminalRun(command);
-  await this.page.waitForTimeout(1000);
+  await this.waitForFrame();
 });
 
 When("I refresh the page", async function (this: KoluWorld) {
@@ -74,7 +74,7 @@ When("I simulate a tab visibility change", async function (this: KoluWorld) {
     }
   });
   // Wait for rAF-debounced fit to settle
-  await this.page.waitForTimeout(500);
+  await this.waitForFrame();
 });
 
 When("I zoom in {int} time(s)", async function (this: KoluWorld, n: number) {
@@ -234,14 +234,22 @@ Then(
 Then(
   "the file {string} should contain a number greater than {int}",
   async function (this: KoluWorld, filePath: string, min: number) {
-    // Wait for the echo command to write the file
-    await this.page.waitForTimeout(1500);
+    // Poll for the file to contain the expected value
     const fs = await import("node:fs/promises");
-    const content = (await fs.readFile(filePath, "utf-8")).trim();
-    const cols = Number(content);
+    let cols = NaN;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const content = (await fs.readFile(filePath, "utf-8")).trim();
+        cols = Number(content);
+        if (!isNaN(cols) && cols > min) return;
+      } catch {
+        // File not yet written
+      }
+      await this.waitForFrame();
+    }
     assert.ok(
       !isNaN(cols) && cols > min,
-      `Expected ${filePath} to contain a number > ${min}, got: "${content}"`,
+      `Expected ${filePath} to contain a number > ${min}, got: "${cols}"`,
     );
   },
 );
