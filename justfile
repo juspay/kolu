@@ -80,12 +80,12 @@ test-quick *args: install
         --profile ui {{ args }}
 
 # Format all files in-place
-pc:
+fmt:
     {{ nix_shell }} prettier --write --ignore-unknown .
     {{ nix_shell }} nixpkgs-fmt *.nix nix/**/*.nix
 
 # Check formatting without modifying files (used by CI)
-pc-check:
+fmt-check:
     {{ nix_shell }} prettier --check --ignore-unknown .
     {{ nix_shell }} nixpkgs-fmt --check *.nix nix/**/*.nix
 

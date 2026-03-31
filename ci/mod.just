@@ -19,7 +19,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::pc ci::typecheck || true
+    just ci::fmt ci::typecheck || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
@@ -39,5 +39,5 @@ typecheck:
 e2e: nix
     just ci::_run e2e just test
 
-pc:
-    just ci::_run pc just pc-check
+fmt:
+    just ci::_run fmt just fmt-check
