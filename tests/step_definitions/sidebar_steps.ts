@@ -64,12 +64,10 @@ Then(
   async function (this: KoluWorld) {
     // Ghostty uses a hidden textarea for keyboard input.
     // Verify focus is inside the active terminal container (data-visible), not the sidebar.
-    const hasFocus = await this.page.evaluate(
+    // Poll — Corvu's focus trap release is async and can be slow under load.
+    await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
-    );
-    assert.ok(
-      hasFocus,
-      "Expected keyboard focus inside the active terminal, but focus is elsewhere",
+      { timeout: 5000 },
     );
   },
 );
