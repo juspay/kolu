@@ -21,8 +21,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import type { ClaudeCodeInfo } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import type { TerminalProcess } from "../terminals.ts";
+import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 /** Configurable via env for testing. */
@@ -205,7 +205,7 @@ function scanSessions(): SessionFile[] {
  * Polls for matching Claude Code sessions and tails their transcripts.
  */
 export function startClaudeCodeProvider(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "claude-code", terminal: terminalId });
@@ -263,13 +263,12 @@ export function startClaudeCodeProvider(
       model: derived.model,
     };
 
-    if (infoEqual(info, entry.metadata.claude)) return;
-    entry.metadata.claude = info;
+    if (infoEqual(info, entry.info.meta.claude)) return;
     plog.info(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
     );
-    emitMetadata(entry, terminalId);
+    updateMetadata(entry, terminalId, (m) => { m.claude = info; });
   }
 
   /** Start watching the transcript file for changes. */
@@ -301,9 +300,8 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
-        if (entry.metadata.claude !== null) {
-          entry.metadata.claude = null;
-          emitMetadata(entry, terminalId);
+        if (entry.info.meta.claude !== null) {
+          updateMetadata(entry, terminalId, (m) => { m.claude = null; });
         }
       }
       return;

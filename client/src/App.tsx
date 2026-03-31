@@ -4,13 +4,13 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
-  createResource,
   Show,
   For,
-  Suspense,
-  ErrorBoundary,
 } from "solid-js";
+import { createQuery } from "@tanstack/solid-query";
+import { orpc } from "./orpc";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
@@ -24,10 +24,9 @@ import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import { createCommands } from "./commands";
 
-import { client, wsStatus, serverRestarted } from "./rpc";
+import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
-import { useActivity } from "./useActivity";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -50,11 +49,12 @@ const App: Component = () => {
     terminalIds,
     activeId,
     setActiveId,
-    getMeta,
+    getMetadata,
+    needsAttention,
     getDisplayInfo,
     setThemeName,
     activeMeta,
-    existingTerminals,
+    isLoading,
     handleCreate,
     handleCreateSubTerminal,
     handleKill,
@@ -68,7 +68,7 @@ const App: Component = () => {
     savedSession,
     handleRestoreSession,
     simulateAlert,
-  } = useTerminals({ randomTheme, activity: useActivity(), activityAlerts });
+  } = useTerminals({ randomTheme, activityAlerts });
 
   // Expose for e2e test access
   (window as any).__koluSimulateAlert = simulateAlert;
@@ -84,7 +84,7 @@ const App: Component = () => {
     handleRandomizeTheme,
   } = useThemeManager({
     activeId,
-    getThemeName: (id) => getMeta(id)?.themeName,
+    getThemeName: (id) => getMetadata(id)?.themeName,
     setThemeName,
   });
 
@@ -93,9 +93,9 @@ const App: Component = () => {
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
-  const [serverInfo] = createResource(() => client.server.info());
+  const serverInfo = createQuery(() => orpc.server.info.queryOptions());
   const appTitle = () => {
-    const h = serverInfo()?.hostname;
+    const h = serverInfo.data?.hostname;
     return h ? `kolu@${h}` : "kolu";
   };
 
@@ -262,7 +262,7 @@ const App: Component = () => {
         terminalIds={terminalIds()}
         mruOrder={mruOrder()}
         activeId={activeId()}
-        getMeta={getMeta}
+        getMetadata={getMetadata}
         getDisplayInfo={getDisplayInfo}
         getTerminalTheme={getTerminalTheme}
         onSelect={setActiveId}
@@ -328,7 +328,8 @@ const App: Component = () => {
         <Sidebar
           terminalIds={terminalIds()}
           activeId={activeId()}
-          getMeta={getMeta}
+          getMetadata={getMetadata}
+          needsAttention={needsAttention}
           getDisplayInfo={getDisplayInfo}
           onSelect={setActiveId}
           onCreate={() => handleCreate()}
@@ -342,48 +343,39 @@ const App: Component = () => {
             class="h-full overflow-hidden"
             style={{ "background-color": activeTheme().background }}
           >
-            <ErrorBoundary
-              fallback={(err) => (
-                <div class="text-danger p-4">
-                  Failed to connect: {String(err)}
+            <Show
+              when={!isLoading()}
+              fallback={
+                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                  Connecting...
                 </div>
-              )}
+              }
             >
-              <Suspense
-                fallback={
-                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                    Connecting...
-                  </div>
-                }
-              >
-                {/* Read the resource to trigger Suspense while it loads */}
-                {void existingTerminals()}
-                <Show when={terminalIds().length === 0}>
-                  <EmptyState
-                    savedSession={savedSession() ?? undefined}
-                    onRestore={() => void handleRestoreSession()}
+              <Show when={terminalIds().length === 0}>
+                <EmptyState
+                  savedSession={savedSession() ?? undefined}
+                  onRestore={() => void handleRestoreSession()}
+                />
+              </Show>
+              <For each={terminalIds()}>
+                {(id) => (
+                  <TerminalPane
+                    terminalId={id}
+                    visible={activeId() === id}
+                    theme={getTerminalTheme(id)}
+                    searchOpen={searchOpen()}
+                    onSearchOpenChange={setSearchOpen}
+                    subTerminalIds={getSubTerminalIds(id)}
+                    getMetadata={getMetadata}
+                    onCreateSubTerminal={(parentId, cwd) =>
+                      void handleCreateSubTerminal(parentId, cwd)
+                    }
+                    activeMeta={activeMeta()}
+                    scrollLockEnabled={scrollLock()}
                   />
-                </Show>
-                <For each={terminalIds()}>
-                  {(id) => (
-                    <TerminalPane
-                      terminalId={id}
-                      visible={activeId() === id}
-                      theme={getTerminalTheme(id)}
-                      searchOpen={searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                      subTerminalIds={getSubTerminalIds(id)}
-                      getMeta={getMeta}
-                      onCreateSubTerminal={(parentId, cwd) =>
-                        void handleCreateSubTerminal(parentId, cwd)
-                      }
-                      activeMeta={activeMeta()}
-                      scrollLockEnabled={scrollLock()}
-                    />
-                  )}
-                </For>
-              </Suspense>
-            </ErrorBoundary>
+                )}
+              </For>
+            </Show>
           </div>
         </div>
       </div>

@@ -20,7 +20,7 @@ import TerminalPreview from "./TerminalPreview";
 import TerminalMeta from "./TerminalMeta";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 
 /** Mission Control mode — discriminated union eliminates impossible states
@@ -43,7 +43,7 @@ const MissionControl: Component<{
   /** Terminal IDs in most-recently-used order (for quick-switch card ordering). */
   mruOrder: TerminalId[];
   activeId: TerminalId | null;
-  getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
@@ -223,7 +223,7 @@ const MissionControl: Component<{
           >
             <For each={displayIds()}>
               {(id, index) => {
-                const meta = () => props.getMeta(id);
+                const meta = () => props.getMetadata(id);
                 const isActive = () => props.activeId === id;
                 const num = () => index() + 1;
                 return (

@@ -4,7 +4,6 @@
 import { cwdBasename } from "./path";
 import type {
   TerminalId,
-  TerminalInfo,
   TerminalMetadata,
   ActivitySample,
 } from "kolu-common";
@@ -29,12 +28,8 @@ function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-function terminalName(
-  meta: Omit<TerminalInfo, "id"> | undefined,
-): string | undefined {
-  return (
-    meta?.meta?.git?.repoName || cwdBasename(meta?.meta?.cwd ?? "") || undefined
-  );
+function terminalName(meta: TerminalMetadata): string {
+  return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
 }
 
 /** Build display info for all terminals.
@@ -42,7 +37,7 @@ function terminalName(
  *  and bundles activity + sub-count so consumers get one complete object. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
-  getMeta: (id: TerminalId) => Omit<TerminalInfo, "id"> | undefined,
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   getActivityHistory: (id: TerminalId) => ActivitySample[],
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
@@ -57,15 +52,15 @@ export function buildTerminalDisplayInfos(
   }> = [];
 
   for (const id of ids) {
-    const info = getMeta(id);
-    if (!info?.meta) continue;
-    const name = terminalName(info) ?? "terminal";
+    const meta = getMeta(id);
+    if (!meta) continue;
+    const name = terminalName(meta);
     const repoKey =
-      info.meta.git?.repoName || cwdBasename(info.meta.cwd) || undefined;
-    const branchKey = info.meta.git?.branch;
+      meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
+    const branchKey = meta.git?.branch;
     if (repoKey) repoKeys.add(repoKey);
     if (branchKey) branchKeys.add(branchKey);
-    entries.push({ id, name, meta: info.meta, repoKey, branchKey });
+    entries.push({ id, name, meta, repoKey, branchKey });
   }
 
   const unified = assignColors([...repoKeys, ...branchKeys]);

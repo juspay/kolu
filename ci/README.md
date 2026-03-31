@@ -100,3 +100,4 @@ Each `_run` step captures raw output to `.logs/<short-sha>/<step>@<system>.log`.
 ## Not yet implemented
 
 - **Nix cache push** — push built paths to a binary cache after successful builds
+- **Load balancing** — pick least loaded from N remote builders to build a system

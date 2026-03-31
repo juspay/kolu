@@ -1,8 +1,9 @@
 /**
  * GitHub PR metadata provider — resolves PR info for the current branch.
  *
- * Listens to "metadata" events for branch changes, and polls periodically
- * (PRs can be created/updated externally at any time).
+ * Subscribes to "git:<id>" (not the aggregated "metadata" channel).
+ * Publishes via updateMetadata() — no downstream providers depend on PR changes.
+ * Also polls periodically (PRs can be created/updated externally at any time).
  */
 
 import { execFile } from "node:child_process";
@@ -10,10 +11,11 @@ import { promisify } from "node:util";
 import {
   GitHubPrStateSchema,
   type GitHubPrInfo,
-  type TerminalMetadata,
+  type GitInfo,
 } from "kolu-common";
-import type { TerminalEntry } from "../terminals.ts";
-import { emitMetadata } from "./index.ts";
+import type { TerminalProcess } from "../terminals.ts";
+import { subscribeForTerminal } from "../publisher.ts";
+import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 const execFileAsync = promisify(execFile);
@@ -150,15 +152,16 @@ function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
 
 /**
  * Start the GitHub PR metadata provider for a terminal entry.
- * Resolves PR info on branch change and polls every 30s.
+ * Subscribes to "git" channel for branch changes, polls every 30s.
  */
 export function startGitHubPrProvider(
-  entry: TerminalEntry,
+  entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "github-pr", terminal: terminalId });
-  let lastBranch: string | undefined = entry.metadata.git?.branch;
-  let lastRepoRoot: string | undefined = entry.metadata.git?.repoRoot;
+  const meta = entry.info.meta;
+  let lastBranch: string | undefined = meta.git?.branch;
+  let lastRepoRoot: string | undefined = meta.git?.repoRoot;
 
   plog.info({ branch: lastBranch }, "started");
 
@@ -167,9 +170,9 @@ export function startGitHubPrProvider(
     void resolve(lastRepoRoot, lastBranch);
   }
 
-  function onMetadata(meta: TerminalMetadata) {
-    const branch = meta.git?.branch;
-    const repoRoot = meta.git?.repoRoot;
+  function onGitChange(git: GitInfo | null) {
+    const branch = git?.branch;
+    const repoRoot = git?.repoRoot;
     if (branch === lastBranch && repoRoot === lastRepoRoot) return;
     plog.info({ from: lastBranch, to: branch }, "branch changed, re-resolving");
     lastBranch = branch;
@@ -178,24 +181,22 @@ export function startGitHubPrProvider(
       void resolve(repoRoot, branch);
     } else {
       // No longer in a git repo
-      if (entry.metadata.pr !== null) {
-        entry.metadata.pr = null;
-        emitMetadata(entry, terminalId);
+      if (entry.info.meta.pr !== null) {
+        updateMetadata(entry, terminalId, (m) => { m.pr = null; });
       }
     }
   }
 
   async function resolve(repoRoot: string, branch: string) {
     const pr = await resolveGitHubPr(repoRoot, branch);
-    if (prInfoEqual(pr, entry.metadata.pr)) return;
-    entry.metadata.pr = pr;
+    if (prInfoEqual(pr, entry.info.meta.pr)) return;
     plog.info(
       pr
         ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }
         : { pr: null },
       "pr info updated",
     );
-    emitMetadata(entry, terminalId);
+    updateMetadata(entry, terminalId, (m) => { m.pr = pr; });
   }
 
   // Periodic poll — PRs can be created/updated externally
@@ -206,10 +207,11 @@ export function startGitHubPrProvider(
     }
   }, POLL_INTERVAL_MS);
 
-  entry.emitter.on("metadata", onMetadata);
+  const abort = new AbortController();
+  subscribeForTerminal("git", terminalId, abort.signal, onGitChange);
 
   return () => {
-    entry.emitter.off("metadata", onMetadata);
+    abort.abort();
     clearInterval(pollTimer);
     plog.info("stopped");
   };

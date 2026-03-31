@@ -1,7 +1,7 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers (attach, onExit) use async generators over WebSocket.
+ * Streaming handlers subscribe to per-terminal publisher channels over WebSocket.
  * Terminal CRUD is request-response.
  */
 import { implement } from "@orpc/server";
@@ -17,10 +17,10 @@ import {
   setTerminalTheme,
   setTerminalParent,
   reorderTerminals,
-  type TerminalEntry,
+  type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeAndYield } from "./streaming.ts";
+import { subscribeForTerminal_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getRecentRepos } from "./state.ts";
@@ -33,7 +33,7 @@ import {
 const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
-function requireTerminal(id: string): TerminalEntry {
+function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
@@ -76,13 +76,13 @@ export const appRouter = t.router({
       const entry = requireTerminal(input.id);
 
       // Subscribe FIRST, then serialize — any output between these two
-      // steps is queued inside the generator, not lost.
-      const live = subscribeAndYield(entry.emitter, "data", signal);
+      // steps is queued inside the publisher, not lost.
+      const live = subscribeForTerminal_("data", input.id, signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
 
-      yield* live;
+      for await (const data of live) yield data;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
@@ -125,12 +125,10 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-
-      // Yield current metadata immediately
-      yield { ...entry.metadata };
-
-      // Then stream changes from all providers
-      yield* subscribeAndYield(entry.emitter, "metadata", signal);
+      yield { ...entry.info.meta };
+      for await (const meta of subscribeForTerminal_("metadata", input.id, signal)) {
+        yield meta;
+      }
     }),
 
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({
@@ -138,24 +136,17 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-
-      // Yield current state immediately (isActive lives on TerminalBase, always available)
-      yield entry.isActive;
-
-      // Then stream changes (activity events emit booleans)
-      yield* subscribeAndYield<boolean>(entry.emitter, "activity", signal);
+      // Snapshot: yield full history so late-joining clients get the sparkline
+      for (const sample of entry.activityHistory) yield sample;
+      // Live: yield individual transitions as they happen
+      for await (const sample of subscribeForTerminal_("activity", input.id, signal)) {
+        yield sample;
+      }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
-      const entry = requireTerminal(input.id);
-
-      // Use subscribeAndYield instead of events.once() — it handles abort
-      // gracefully (clean return, no thrown AbortError) when clients disconnect.
-      for await (const exitCode of subscribeAndYield<number>(
-        entry.emitter,
-        "exit",
-        signal,
-      )) {
+      requireTerminal(input.id);
+      for await (const exitCode of subscribeForTerminal_("exit", input.id, signal)) {
         yield exitCode;
         return;
       }

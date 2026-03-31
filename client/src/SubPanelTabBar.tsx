@@ -7,7 +7,7 @@ import { cwdBasename } from "./path";
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
   activeSubTab: TerminalId | null;
-  getMeta: (id: TerminalId) => { meta?: TerminalMetadata } | undefined;
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
 }> = (props) => {
@@ -19,8 +19,8 @@ const SubPanelTabBar: Component<{
       <For each={props.subIds}>
         {(id, index) => {
           const label = () => {
-            const m = props.getMeta(id);
-            const base = m?.meta ? cwdBasename(m.meta.cwd) : "terminal";
+            const m = props.getMetadata(id);
+            const base = m ? cwdBasename(m.cwd) : "terminal";
             // Append 1-based index when multiple tabs share the same name
             if (props.subIds.length <= 1) return base;
             return `${base} ${index() + 1}`;
