@@ -2,11 +2,7 @@
  *  Combines server metadata with client-derived properties (colors, activity, sub-count). */
 
 import { cwdBasename } from "./path";
-import type {
-  TerminalId,
-  TerminalMetadata,
-  ActivitySample,
-} from "kolu-common";
+import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
 
 export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */
@@ -55,8 +51,7 @@ export function buildTerminalDisplayInfos(
     const meta = getMeta(id);
     if (!meta) continue;
     const name = terminalName(meta);
-    const repoKey =
-      meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
+    const repoKey = meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
     const branchKey = meta.git?.branch;
     if (repoKey) repoKeys.add(repoKey);
     if (branchKey) branchKeys.add(branchKey);

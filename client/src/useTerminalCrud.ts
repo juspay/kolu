@@ -36,7 +36,8 @@ export function useTerminalCrud(deps: {
 
   const createMut = createMutation(() => ({
     ...orpc.terminal.create.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to create terminal: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to create terminal: ${err.message}`),
   }));
 
   const killMut = createMutation(() => ({
@@ -115,7 +116,8 @@ export function useTerminalCrud(deps: {
 
     const info = await createMut.mutateAsync({ cwd });
     const themeName = deps.randomTheme()
-      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!.name
+      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+          .name
       : undefined;
     store.addKnownId(info.id);
     store.setActiveId(info.id);
