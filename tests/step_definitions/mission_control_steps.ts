@@ -149,10 +149,7 @@ Then(
 When(
   "I type {string} in Mission Control",
   async function (this: KoluWorld, text: string) {
-    // Type each character individually to simulate real keyboard input
-    for (const ch of text) {
-      await this.page.keyboard.press(ch);
-    }
+    await this.page.keyboard.type(text);
     await this.page.waitForTimeout(200);
   },
 );
