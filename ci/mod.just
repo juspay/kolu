@@ -34,4 +34,4 @@ e2e: nix
     just ci::_run e2e just test
 
 pc:
-    just ci::_run pc bash -c 'just pc; rc=$?; git checkout -- . 2>/dev/null; exit $rc'
+    just ci::_run pc bash -c 'just pc || { git checkout -- .; false; }'
