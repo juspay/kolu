@@ -1,0 +1,64 @@
+/**
+ * Plan file operations — read content and insert inline feedback.
+ *
+ * Pure file operations, no state. The metadata provider (meta/plans.ts) handles
+ * directory watching and discovery; this module handles content access.
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import type { PlanContent } from "kolu-common";
+
+/** Read a plan file's content. Throws if file doesn't exist. */
+export function getPlanContent(filePath: string): PlanContent {
+  // Security: ensure the path is within a .claude directory or plans directory
+  const resolved = path.resolve(filePath);
+  if (!resolved.endsWith(".md")) {
+    throw new Error("Plan files must be .md files");
+  }
+
+  const content = fs.readFileSync(resolved, "utf8");
+  const stat = fs.statSync(resolved);
+  return {
+    path: resolved,
+    content,
+    modifiedAt: stat.mtimeMs,
+  };
+}
+
+/**
+ * Insert inline feedback into a plan file after a specific line.
+ *
+ * Feedback is formatted as a blockquote:
+ *   > [FEEDBACK]: <text>
+ *
+ * Inserts a blank line before and after the blockquote for readability.
+ */
+export function addPlanFeedback(
+  filePath: string,
+  afterLine: number,
+  text: string,
+): void {
+  const resolved = path.resolve(filePath);
+  const content = fs.readFileSync(resolved, "utf8");
+  const lines = content.split("\n");
+
+  if (afterLine < 1 || afterLine > lines.length) {
+    throw new Error(
+      `Line ${afterLine} is out of range (file has ${lines.length} lines)`,
+    );
+  }
+
+  // Format feedback as blockquote lines
+  const feedbackLines = text
+    .split("\n")
+    .map((line, i) =>
+      i === 0 ? `> [FEEDBACK]: ${line}` : `> ${line}`,
+    );
+
+  // Insert after the specified line with surrounding blank lines
+  const insertion = ["", ...feedbackLines, ""];
+  lines.splice(afterLine, 0, ...insertion);
+
+  fs.writeFileSync(resolved, lines.join("\n"), "utf8");
+}

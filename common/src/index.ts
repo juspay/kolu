@@ -66,6 +66,34 @@ export const ClaudeCodeInfoSchema = z.object({
   model: z.string().nullable(),
 });
 
+// --- Plans ---
+
+export const PlanFileSchema = z.object({
+  /** Absolute path to the plan file. */
+  path: z.string(),
+  /** Display name (filename without extension). */
+  name: z.string(),
+  /** Project directory this plan belongs to (null for global plans). */
+  projectPath: z.string().nullable(),
+  /** Last modification timestamp (epoch ms). */
+  modifiedAt: z.number(),
+});
+
+export const PlanContentSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  modifiedAt: z.number(),
+});
+
+export const PlanFeedbackInputSchema = z.object({
+  /** Absolute path to the plan file. */
+  path: z.string(),
+  /** Line number after which to insert feedback (1-based). */
+  afterLine: z.number(),
+  /** Feedback text (will be wrapped in blockquote format). */
+  text: z.string(),
+});
+
 // --- Terminal metadata (unified, provider-aggregated) ---
 
 export const TerminalMetadataSchema = z.object({
@@ -73,6 +101,8 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  /** Plan files detected in the terminal's project plan directories. */
+  plans: z.array(PlanFileSchema).nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -189,3 +219,5 @@ export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type PlanFile = z.infer<typeof PlanFileSchema>;
+export type PlanContent = z.infer<typeof PlanContentSchema>;

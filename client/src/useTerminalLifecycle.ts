@@ -1,7 +1,11 @@
 /** Terminal lifecycle — CRUD orchestration, restore-on-load, worktree operations. */
 
 import { type Accessor, createSignal, createEffect } from "solid-js";
-import { createQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
+import {
+  createQuery,
+  createMutation,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
@@ -41,7 +45,8 @@ export function useTerminalLifecycle(deps: {
 
   const createMut = createMutation(() => ({
     ...orpc.terminal.create.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to create terminal: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to create terminal: ${err.message}`),
   }));
 
   const killMut = createMutation(() => ({
@@ -60,12 +65,14 @@ export function useTerminalLifecycle(deps: {
 
   const worktreeCreateMut = createMutation(() => ({
     ...orpc.git.worktreeCreate.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to create worktree: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to create worktree: ${err.message}`),
   }));
 
   const worktreeRemoveMut = createMutation(() => ({
     ...orpc.git.worktreeRemove.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to remove worktree: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to remove worktree: ${err.message}`),
   }));
 
   /** Set a terminal's theme name locally (optimistic) and on the server.
@@ -83,7 +90,9 @@ export function useTerminalLifecycle(deps: {
   function reorderTerminals(ids: TerminalId[]) {
     const SORT_GAP = 1000;
     for (let i = 0; i < ids.length; i++) {
-      const key = orpc.terminal.onMetadataChange.key({ input: { id: ids[i]! } });
+      const key = orpc.terminal.onMetadataChange.key({
+        input: { id: ids[i]! },
+      });
       qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
         old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
       );
@@ -135,7 +144,9 @@ export function useTerminalLifecycle(deps: {
   const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
 
   // Saved session — populated when no running terminals exist, shown in EmptyState.
-  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(null);
+  const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
+    null,
+  );
 
   // Hydrate from server state on initial load.
   // Both queries must resolve before we can decide what to show.
@@ -174,7 +185,9 @@ export function useTerminalLifecycle(deps: {
 
     // Keep persisted active terminal if it still exists; otherwise pick first
     const persisted = store.activeId();
-    const topLevel = existing.filter((t) => !t.meta.parentId).sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+    const topLevel = existing
+      .filter((t) => !t.meta.parentId)
+      .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
     const topIds = topLevel.map((t) => t.id);
     if (persisted === null || !topIds.includes(persisted)) {
       store.setActiveId(topIds[0] ?? null);
@@ -224,7 +237,8 @@ export function useTerminalLifecycle(deps: {
 
     const info = await createMut.mutateAsync({ cwd });
     const themeName = deps.randomTheme()
-      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!.name
+      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+          .name
       : undefined;
     store.addKnownId(info.id);
     store.setActiveId(info.id);

@@ -26,6 +26,8 @@ import {
   WorktreeRemoveInputSchema,
   RecentRepoSchema,
   SavedSessionSchema,
+  PlanContentSchema,
+  PlanFeedbackInputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -74,6 +76,12 @@ export const contract = oc.router({
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
     recentRepos: oc.output(z.array(RecentRepoSchema)),
+  },
+  plans: {
+    // Read a plan file's content
+    get: oc.input(z.object({ path: z.string() })).output(PlanContentSchema),
+    // Insert inline feedback into a plan file
+    addFeedback: oc.input(PlanFeedbackInputSchema).output(z.void()),
   },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),

@@ -22,6 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import PlanPane from "./PlanPane";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -34,6 +35,7 @@ import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 import { useRecentRepos } from "./useRecentRepos";
+import { usePlans } from "./usePlans";
 
 const App: Component = () => {
   const {
@@ -117,6 +119,16 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(activeId, () => setSearchOpen(false), { defer: true }));
+
+  const {
+    plans,
+    activePlanPath,
+    planContent,
+    isPlanContentLoading,
+    openPlan,
+    closePlan,
+    addFeedback,
+  } = usePlans({ activeMeta });
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds });
@@ -336,11 +348,24 @@ const App: Component = () => {
           onReorder={reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          plans={plans()}
+          activePlanPath={activePlanPath()}
+          onSelectPlan={(path) => {
+            // Toggle: clicking the active plan closes it
+            if (activePlanPath() === path) closePlan();
+            else openPlan(path);
+          }}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0">
+        <div class="flex-1 min-h-0 min-w-0 flex">
+          {/* Terminal area — always rendered, flex-grows into available space */}
           <div
-            class="h-full overflow-hidden"
+            class="h-full overflow-hidden min-w-0"
+            classList={{
+              "flex-1": !activePlanPath(),
+              // When plan pane is open, terminal takes ~65% via CSS basis
+              "basis-[65%] shrink-0": !!activePlanPath(),
+            }}
             style={{ "background-color": activeTheme().background }}
           >
             <Show
@@ -377,6 +402,22 @@ const App: Component = () => {
               </For>
             </Show>
           </div>
+          {/* Plan pane — shown as right split when a plan is open */}
+          <Show when={activePlanPath()}>
+            <div class="w-px bg-edge shrink-0" />
+            <div class="flex-1 min-w-0 min-h-0">
+              <PlanPane
+                content={planContent()}
+                loading={isPlanContentLoading()}
+                planName={
+                  plans().find((p) => p.path === activePlanPath())?.name ??
+                  "Plan"
+                }
+                onClose={closePlan}
+                onAddFeedback={addFeedback}
+              />
+            </div>
+          </Show>
         </div>
       </div>
     </div>

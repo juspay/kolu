@@ -34,6 +34,10 @@ export const CONTEXTUAL_TIPS = {
     id: "worktree",
     text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
   },
+  plans: {
+    id: "plans",
+    text: "Claude Code plans appear in the sidebar — click to review and add inline feedback",
+  },
 } as const satisfies Record<string, Tip>;
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;

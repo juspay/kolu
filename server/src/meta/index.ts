@@ -16,11 +16,15 @@ import { publishForTerminal } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
+import { startPlansProvider } from "./plans.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
-export function createMetadata(cwd: string, sortOrder: number): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null, sortOrder };
+export function createMetadata(
+  cwd: string,
+  sortOrder: number,
+): TerminalMetadata {
+  return { cwd, git: null, pr: null, claude: null, plans: null, sortOrder };
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
@@ -59,9 +63,11 @@ export function startProviders(
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startClaudeCodeProvider(entry, terminalId);
+  const stopPlans = startPlansProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
     stopClaude();
+    stopPlans();
   };
 }
