@@ -104,15 +104,21 @@ _run name +cmd:
     just ci::_signoff "{{ name }}@{{ system }}" success "${user} · ${elapsed}s · ${logrel}"
 
 # Auto-extract step@system contexts from justfile structure.
-# Parses _linux/_darwin recipe bodies which contain "CI_SYSTEM=<sys> just ci::<step> ..."
+# Parses recipe bodies which contain "CI_SYSTEM=<sys> just ci::<step> ..."
+# Handles both literal systems and {{ variable }} interpolations.
 _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
-    just --dump --dump-format json | jq -r '
+    just --dump --dump-format json | jq -r --arg local "{{ local_system }}" '
       .modules.ci.recipes
       | to_entries[]
       | select(.value.body[0][0] // "" | test("^CI_SYSTEM="))
-      | .value.body[0][0]
+      | .value.body[0] as $parts
+      # Reconstruct the line: strings pass through, variables resolve
+      | [ $parts[] | if type == "string" then .
+          elif type == "array" and .[0][0] == "variable" then
+            (if .[0][1] == "local_system" then $local else .[0][1] end)
+          else "" end ] | join("")
       | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
       | .system as $sys
       | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
