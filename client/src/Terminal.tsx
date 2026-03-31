@@ -41,9 +41,6 @@ export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
 export { renderer };
 
-/** Per-terminal WebGL addon ref for texture atlas management. */
-const webglAddons = new Map<TerminalId, WebglAddon>();
-
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
@@ -97,10 +94,11 @@ const Terminal: Component<{
   const fontSize = createZoom(props.terminalId, () => props.visible);
 
   let streamAbort: AbortController | null = null;
+  let webgl: WebglAddon | null = null;
 
   /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
   function clearTextureAtlas() {
-    webglAddons.get(props.terminalId)?.clearTextureAtlas();
+    webgl?.clearTextureAtlas();
   }
 
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
@@ -221,14 +219,14 @@ const Terminal: Component<{
 
     // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
     try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        webglAddons.delete(props.terminalId);
+      const w = new WebglAddon();
+      w.onContextLoss(() => {
+        w.dispose();
+        webgl = null;
         setRenderer("canvas");
       });
-      term.loadAddon(webgl);
-      webglAddons.set(props.terminalId, webgl);
+      term.loadAddon(w);
+      webgl = w;
       setRenderer("webgl");
     } catch {
       // WebGL unavailable — canvas renderer is the default
@@ -357,7 +355,6 @@ const Terminal: Component<{
 
     onCleanup(() => {
       streamAbort?.abort();
-      webglAddons.delete(props.terminalId);
       terminal?.dispose();
     });
   });
