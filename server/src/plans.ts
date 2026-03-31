@@ -9,9 +9,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { PlanContent } from "kolu-common";
 
-/** Read a plan file's content. Throws if file doesn't exist. */
+/** Read a plan file's content. Throws if file doesn't exist or isn't a .md file. */
 export function getPlanContent(filePath: string): PlanContent {
-  // Security: ensure the path is within a .claude directory or plans directory
   const resolved = path.resolve(filePath);
   if (!resolved.endsWith(".md")) {
     throw new Error("Plan files must be .md files");
@@ -52,9 +51,7 @@ export function addPlanFeedback(
   // Format feedback as blockquote lines
   const feedbackLines = text
     .split("\n")
-    .map((line, i) =>
-      i === 0 ? `> [FEEDBACK]: ${line}` : `> ${line}`,
-    );
+    .map((line, i) => (i === 0 ? `> [FEEDBACK]: ${line}` : `> ${line}`));
 
   // Insert after the specified line with surrounding blank lines
   const insertion = ["", ...feedbackLines, ""];

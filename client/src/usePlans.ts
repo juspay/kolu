@@ -1,7 +1,17 @@
 /** Plan state — active plan selection, content fetching, and feedback mutation. */
 
-import { type Accessor, createSignal, createMemo, createEffect, on } from "solid-js";
-import { createQuery, createMutation, useQueryClient } from "@tanstack/solid-query";
+import {
+  type Accessor,
+  createSignal,
+  createMemo,
+  createEffect,
+  on,
+} from "solid-js";
+import {
+  createQuery,
+  createMutation,
+  useQueryClient,
+} from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { orpc } from "./orpc";
 import { useTips } from "./useTips";
@@ -48,12 +58,14 @@ export function usePlans(deps?: {
       const p = activePlanPath();
       if (p) {
         void qc.invalidateQueries({
-          queryKey: orpc.plans.get.queryOptions({ input: { path: p } }).queryKey,
+          queryKey: orpc.plans.get.queryOptions({ input: { path: p } })
+            .queryKey,
         });
       }
       toast.success("Feedback added to plan");
     },
-    onError: (err: Error) => toast.error(`Failed to add feedback: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to add feedback: ${err.message}`),
   }));
 
   // Notify when new plans appear
@@ -61,12 +73,10 @@ export function usePlans(deps?: {
   let knownPaths = new Set<string>();
   createEffect(
     on(plans, (current) => {
-      const currentPaths = new Set(current.map((p) => p.path));
-      // Find plans that are new (not previously known)
-      for (const plan of current) {
-        if (!knownPaths.has(plan.path)) {
-          // Only notify if we had some previous state (not initial load)
-          if (knownPaths.size > 0) {
+      // Notify for each plan not seen before (skip on initial load)
+      if (knownPaths.size > 0) {
+        for (const plan of current) {
+          if (!knownPaths.has(plan.path)) {
             toast(`New plan: ${plan.name}`, {
               action: {
                 label: "View",
@@ -77,8 +87,7 @@ export function usePlans(deps?: {
           }
         }
       }
-      knownPaths = currentPaths;
-      // Show tip on first plan detection
+      knownPaths = new Set(current.map((p) => p.path));
       if (current.length > 0) showTipOnce(CONTEXTUAL_TIPS.plans);
     }),
   );

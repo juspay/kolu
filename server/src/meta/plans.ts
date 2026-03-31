@@ -44,11 +44,8 @@ function resolvePlanDirs(cwd: string): string[] {
   // Always include global plans
   dirs.add(GLOBAL_PLANS_DIR);
 
-  // Walk up from cwd looking for .claude/ (project root heuristic)
-  // Also check if the git provider has set repoRoot — prefer that
+  // Walk up from cwd looking for .claude/ directory (project root heuristic)
   let projectRoot: string | null = null;
-
-  // Try finding .claude directory from cwd upward
   let dir = cwd;
   while (dir !== path.dirname(dir)) {
     if (fs.existsSync(path.join(dir, ".claude"))) {
@@ -134,7 +131,9 @@ export function startPlansProvider(
     const result = plans.length > 0 ? plans : null;
     if (plansEqual(result, entry.info.meta.plans)) return;
     plog.info({ count: plans.length }, "plans updated");
-    updateMetadata(entry, terminalId, (m) => { m.plans = result; });
+    updateMetadata(entry, terminalId, (m) => {
+      m.plans = result;
+    });
   }
 
   function debouncedRefresh() {

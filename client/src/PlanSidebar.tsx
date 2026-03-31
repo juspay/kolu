@@ -34,16 +34,22 @@ const PlanSidebar: Component<{
               <Tooltip.Trigger
                 as="button"
                 data-testid="plan-entry"
-                data-active={props.activePlanPath === plan.path ? "" : undefined}
+                data-active={
+                  props.activePlanPath === plan.path ? "" : undefined
+                }
                 class="w-full px-2 py-1.5 text-sm text-left transition-colors border-b border-edge"
                 classList={{
-                  "bg-accent/10 text-fg border-l-4 border-l-accent": props.activePlanPath === plan.path,
-                  "text-fg-3 hover:text-fg-2 hover:bg-surface-2": props.activePlanPath !== plan.path,
+                  "bg-accent/10 text-fg border-l-4 border-l-accent":
+                    props.activePlanPath === plan.path,
+                  "text-fg-3 hover:text-fg-2 hover:bg-surface-2":
+                    props.activePlanPath !== plan.path,
                 }}
                 onClick={() => props.onSelect(plan.path)}
               >
                 <div class="truncate">{plan.name}</div>
-                <div class="text-xs text-fg-3 mt-0.5">{relativeTime(plan.modifiedAt)}</div>
+                <div class="text-xs text-fg-3 mt-0.5">
+                  {relativeTime(plan.modifiedAt)}
+                </div>
               </Tooltip.Trigger>
               <Tooltip.Portal>
                 <Tooltip.Content class="bg-surface-2 text-fg text-xs px-2 py-1 rounded border border-edge shadow-lg z-50">

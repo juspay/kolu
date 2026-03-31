@@ -1,12 +1,6 @@
 /** PlanPane — renders a plan file as structured sections with inline commenting. */
 
-import {
-  type Component,
-  Show,
-  For,
-  createSignal,
-  createMemo,
-} from "solid-js";
+import { type Component, Show, For, createSignal, createMemo } from "solid-js";
 import type { PlanContent } from "kolu-common";
 
 /** A parsed section of a plan file (heading + content until next heading). */
@@ -124,7 +118,10 @@ function stripFeedback(content: string): string {
     }
   }
 
-  return result.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return result
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 const SectionBlock: Component<{
@@ -253,7 +250,10 @@ const PlanPane: Component<{
     <div class="flex flex-col h-full bg-surface-0" data-testid="plan-pane">
       {/* Header */}
       <div class="flex items-center gap-2 px-3 py-2 bg-surface-1 border-b border-edge shrink-0">
-        <span class="text-sm font-medium text-fg flex-1 truncate" title={props.planName}>
+        <span
+          class="text-sm font-medium text-fg flex-1 truncate"
+          title={props.planName}
+        >
           {props.planName}
         </span>
         <button
@@ -289,7 +289,8 @@ const PlanPane: Component<{
                 <SectionBlock
                   section={section}
                   onAddFeedback={(afterLine, text) =>
-                    props.content && props.onAddFeedback(props.content.path, afterLine, text)
+                    props.content &&
+                    props.onAddFeedback(props.content.path, afterLine, text)
                   }
                 />
               )}
