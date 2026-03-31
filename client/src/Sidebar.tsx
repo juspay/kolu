@@ -11,11 +11,10 @@ import {
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
-import PlanSidebar from "./PlanSidebar";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalMetadata, PlanFile } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 /** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
 const SidebarEntry: Component<{
@@ -92,9 +91,6 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
-  plans: PlanFile[];
-  activePlanPath: string | null;
-  onSelectPlan: (path: string) => void;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -211,11 +207,6 @@ const Sidebar: Component<{
               </Show>
             </DragOverlay>
           </DragDropProvider>
-          <PlanSidebar
-            plans={props.plans}
-            activePlanPath={props.activePlanPath}
-            onSelect={props.onSelectPlan}
-          />
         </nav>
       </aside>
     </>

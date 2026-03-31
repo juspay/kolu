@@ -101,12 +101,10 @@ const App: Component = () => {
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
 
   const {
-    plans,
     activePlanPath,
+    planName,
     planContent,
     isPlanContentLoading,
-    openPlan,
-    closePlan,
     addFeedback,
   } = usePlans({ activeMeta: store.activeMeta });
 
@@ -129,7 +127,11 @@ const App: Component = () => {
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(parentId, store.getSubTerminalIds(parentId), direction),
+      subPanel.cycleSubTab(
+        parentId,
+        store.getSubTerminalIds(parentId),
+        direction,
+      ),
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
@@ -180,7 +182,8 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) => void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath) =>
+      void worktree.handleCreateWorktree(repoPath),
     handleKillWorktree: () => void worktree.handleKillWorktree(),
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
@@ -328,13 +331,6 @@ const App: Component = () => {
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
-          plans={plans()}
-          activePlanPath={activePlanPath()}
-          onSelectPlan={(path) => {
-            // Toggle: clicking the active plan closes it
-            if (activePlanPath() === path) closePlan();
-            else openPlan(path);
-          }}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 flex">
@@ -382,18 +378,14 @@ const App: Component = () => {
               </For>
             </Show>
           </div>
-          {/* Plan pane — shown as right split when a plan is open */}
+          {/* Plan pane — auto-shown when the active terminal's Claude session has a plan */}
           <Show when={activePlanPath()}>
             <div class="w-px bg-edge shrink-0" />
             <div class="flex-1 min-w-0 min-h-0">
               <PlanPane
                 content={planContent()}
                 loading={isPlanContentLoading()}
-                planName={
-                  plans().find((p) => p.path === activePlanPath())?.name ??
-                  "Plan"
-                }
-                onClose={closePlan}
+                planName={planName()}
                 onAddFeedback={addFeedback}
               />
             </div>

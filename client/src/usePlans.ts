@@ -1,12 +1,6 @@
-/** Plan state — active plan selection, content fetching, and feedback mutation. */
+/** Plan state — derives active plan from Claude metadata, fetches content, handles feedback. */
 
-import {
-  type Accessor,
-  createSignal,
-  createMemo,
-  createEffect,
-  on,
-} from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import {
   createQuery,
   createMutation,
@@ -14,28 +8,22 @@ import {
 } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { orpc } from "./orpc";
-import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
-import type { PlanFile, PlanContent, TerminalMetadata } from "kolu-common";
+import type { PlanContent, TerminalMetadata } from "kolu-common";
 
-/** Singleton state — created once, cached at module level. */
-let cached: ReturnType<typeof createPlansState> | null = null;
-
-function createPlansState() {
-  const [activePlanPath, setActivePlanPath] = createSignal<string | null>(null);
-
-  return { activePlanPath, setActivePlanPath };
-}
-
-export function usePlans(deps?: {
+export function usePlans(deps: {
   activeMeta: Accessor<TerminalMetadata | null>;
 }) {
-  if (!cached) cached = createPlansState();
-  const { activePlanPath, setActivePlanPath } = cached;
+  /** Path to the latest plan from the active terminal's Claude session. */
+  const activePlanPath = createMemo(
+    () => deps.activeMeta()?.claude?.latestPlanPath ?? null,
+  );
 
-  /** All plan files from the active terminal's metadata. */
-  const plans = createMemo((): PlanFile[] => {
-    return deps?.activeMeta()?.plans ?? [];
+  /** Plan display name derived from file path. */
+  const planName = createMemo(() => {
+    const p = activePlanPath();
+    if (!p) return "Plan";
+    const filename = p.split("/").pop() ?? "Plan";
+    return filename.replace(/\.md$/, "");
   });
 
   /** Fetch content of the active plan. */
@@ -54,7 +42,6 @@ export function usePlans(deps?: {
   const addFeedbackMut = createMutation(() => ({
     ...orpc.plans.addFeedback.mutationOptions(),
     onSuccess: () => {
-      // Refetch the plan content after feedback is added
       const p = activePlanPath();
       if (p) {
         void qc.invalidateQueries({
@@ -68,49 +55,15 @@ export function usePlans(deps?: {
       toast.error(`Failed to add feedback: ${err.message}`),
   }));
 
-  // Notify when new plans appear
-  const { showTipOnce } = useTips();
-  let knownPaths = new Set<string>();
-  createEffect(
-    on(plans, (current) => {
-      // Notify for each plan not seen before (skip on initial load)
-      if (knownPaths.size > 0) {
-        for (const plan of current) {
-          if (!knownPaths.has(plan.path)) {
-            toast(`New plan: ${plan.name}`, {
-              action: {
-                label: "View",
-                onClick: () => openPlan(plan.path),
-              },
-              duration: 8_000,
-            });
-          }
-        }
-      }
-      knownPaths = new Set(current.map((p) => p.path));
-      if (current.length > 0) showTipOnce(CONTEXTUAL_TIPS.plans);
-    }),
-  );
-
-  function openPlan(path: string) {
-    setActivePlanPath(path);
-  }
-
-  function closePlan() {
-    setActivePlanPath(null);
-  }
-
   function addFeedback(path: string, afterLine: number, text: string) {
     addFeedbackMut.mutate({ path, afterLine, text });
   }
 
   return {
-    plans,
     activePlanPath,
+    planName,
     planContent: () => planContent.data as PlanContent | undefined,
     isPlanContentLoading: () => planContent.isLoading,
-    openPlan,
-    closePlan,
     addFeedback,
   };
 }

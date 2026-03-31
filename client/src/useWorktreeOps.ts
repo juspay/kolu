@@ -18,12 +18,14 @@ export function useWorktreeOps(deps: {
 
   const worktreeCreateMut = createMutation(() => ({
     ...orpc.git.worktreeCreate.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to create worktree: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to create worktree: ${err.message}`),
   }));
 
   const worktreeRemoveMut = createMutation(() => ({
     ...orpc.git.worktreeRemove.mutationOptions(),
-    onError: (err: Error) => toast.error(`Failed to remove worktree: ${err.message}`),
+    onError: (err: Error) =>
+      toast.error(`Failed to remove worktree: ${err.message}`),
   }));
 
   async function handleCreateWorktree(repoPath: string) {

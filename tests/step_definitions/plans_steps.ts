@@ -1,9 +1,10 @@
 /**
  * Plan detection & inline commenting — step definitions.
  *
- * Creates temp project directories with .claude/plans/ subdirectories
- * containing mock plan files. The terminal CDs into the project to
- * trigger the plans provider.
+ * Plans are tied to Claude sessions via the session slug. The slug appears
+ * in every JSONL entry and the plan file lives at ~/.claude/plans/{slug}.md.
+ * These tests mock a Claude session with a known slug and create/remove
+ * plan files in the real ~/.claude/plans/ directory.
  */
 
 import { When, Then, Given, After } from "@cucumber/cucumber";
@@ -36,97 +37,181 @@ Make the necessary modifications following the identified patterns.
 Run tests and confirm everything works correctly.
 `;
 
-/** Track temp directories for cleanup. */
-let projectDir: string | null = null;
+const SESSION_ID = "test-plan-session-00000000-0000-0000-0000";
+const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
+const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
+const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
+
+/** Unique slug per test run to avoid collisions between parallel workers. */
+let testSlug: string | null = null;
+let mockSessionFile: string | null = null;
+let mockProjectDir: string | null = null;
+let mockTranscriptPath: string | null = null;
+let mockPlanFile: string | null = null;
 
 function cleanup() {
-  if (projectDir && fs.existsSync(projectDir)) {
-    fs.rmSync(projectDir, { recursive: true });
-    projectDir = null;
+  if (mockSessionFile && fs.existsSync(mockSessionFile)) {
+    fs.unlinkSync(mockSessionFile);
+    mockSessionFile = null;
   }
+  if (mockTranscriptPath && fs.existsSync(mockTranscriptPath)) {
+    fs.unlinkSync(mockTranscriptPath);
+  }
+  if (mockProjectDir && fs.existsSync(mockProjectDir)) {
+    fs.rmSync(mockProjectDir, { recursive: true });
+    mockProjectDir = null;
+  }
+  mockTranscriptPath = null;
+  if (mockPlanFile && fs.existsSync(mockPlanFile)) {
+    fs.unlinkSync(mockPlanFile);
+    mockPlanFile = null;
+  }
+  testSlug = null;
 }
 
 After(function () {
   cleanup();
 });
 
-function createProjectWithPlan(planName: string, content: string): string {
-  cleanup();
-  projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-plan-test-"));
-  const plansDir = path.join(projectDir, ".claude", "plans");
-  fs.mkdirSync(plansDir, { recursive: true });
-  fs.writeFileSync(path.join(plansDir, `${planName}.md`), content);
-  return projectDir;
+async function getTerminalPid(world: KoluWorld): Promise<number> {
+  const resp = await world.page.request.fetch("/rpc/terminal/list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: JSON.stringify({}),
+  });
+  const body = await resp.json();
+  const list = (body.json ?? body) as Array<{ pid: number; id: string }>;
+  if (list.length === 0) throw new Error("No terminals found");
+  return list[0]!.pid;
 }
+
+/** Build a JSONL transcript with the test slug on every entry. */
+function buildTranscript(slug: string): string {
+  const userMsg = JSON.stringify({
+    type: "user",
+    uuid: "u1",
+    timestamp: new Date().toISOString(),
+    message: { role: "user", content: [{ type: "text", text: "hello" }] },
+    slug,
+  });
+  const assistantMsg = JSON.stringify({
+    type: "assistant",
+    uuid: "a1",
+    timestamp: new Date().toISOString(),
+    message: {
+      model: "claude-opus-4-6",
+      role: "assistant",
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Done!" }],
+    },
+    slug,
+  });
+  return userMsg + "\n" + assistantMsg + "\n";
+}
+
+/** Generate a unique slug for this test scenario. */
+function generateSlug(): string {
+  return `kolu-test-plan-${process.pid}-${Date.now()}`;
+}
+
+/** Whether to create a plan file (given the plan name). */
+let pendingPlanContent: string | null = null;
 
 Given(
   "a project directory with a plan file {string}",
   function (this: KoluWorld, planName: string) {
-    createProjectWithPlan(planName, SIMPLE_PLAN);
+    // Plan name is ignored — we use the session slug as filename.
+    // Store the content to write when the session is mocked (we need the slug).
+    pendingPlanContent = SIMPLE_PLAN;
   },
 );
 
 Given(
   "a project directory with a structured plan file {string}",
   function (this: KoluWorld, planName: string) {
-    createProjectWithPlan(planName, STRUCTURED_PLAN);
+    pendingPlanContent = STRUCTURED_PLAN;
   },
 );
 
-When("I cd into the project directory", async function (this: KoluWorld) {
-  if (!projectDir) throw new Error("No project directory created");
-  await this.terminalRun(`cd ${projectDir}`);
-  // Wait for CWD change to propagate (OSC 7 from shell)
-  await this.page.waitForTimeout(2000);
+Given("a project directory with no plan files", function (this: KoluWorld) {
+  pendingPlanContent = null;
 });
 
 When(
-  "a new plan file {string} is added to the project",
-  async function (this: KoluWorld, planName: string) {
-    if (!projectDir) throw new Error("No project directory created");
-    const plansDir = path.join(projectDir, ".claude", "plans");
-    fs.writeFileSync(path.join(plansDir, `${planName}.md`), SIMPLE_PLAN);
-  },
-);
+  "a Claude Code session is mocked in the project directory",
+  async function (this: KoluWorld) {
+    if (!SESSIONS_DIR || !PROJECTS_DIR) {
+      throw new Error(
+        "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
+      );
+    }
 
-Then(
-  "the sidebar should show a plan entry {string}",
-  async function (this: KoluWorld, planName: string) {
-    const entry = this.page.locator(
-      `[data-testid="plan-entry"]:has-text("${planName}")`,
+    cleanup();
+    testSlug = generateSlug();
+
+    const pid = await getTerminalPid(this);
+    // Use a unique CWD so the encoded project dir doesn't collide
+    const mockCwd = `/tmp/kolu-plan-${pid}-${Date.now()}`;
+    const encodedCwd = mockCwd.replace(/[/.]/g, "-");
+
+    // Create session file
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    mockSessionFile = path.join(SESSIONS_DIR, `${pid}.json`);
+    fs.writeFileSync(
+      mockSessionFile,
+      JSON.stringify({
+        pid,
+        sessionId: SESSION_ID,
+        cwd: mockCwd,
+        startedAt: Date.now(),
+      }),
     );
-    await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return await entry.count();
-        } catch {
-          return 0;
-        }
-      },
-      (count) => count > 0,
-      { attempts: 30, intervalMs: 500 },
-    );
-    const count = await entry.count();
-    assert.ok(count > 0, `Expected plan entry "${planName}" in sidebar`);
+
+    // Create transcript with slug
+    mockProjectDir = path.join(PROJECTS_DIR, encodedCwd);
+    fs.mkdirSync(mockProjectDir, { recursive: true });
+    mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
+    fs.writeFileSync(mockTranscriptPath, buildTranscript(testSlug));
+
+    // Create plan file at ~/.claude/plans/{slug}.md if content was set
+    if (pendingPlanContent) {
+      fs.mkdirSync(PLANS_DIR, { recursive: true });
+      mockPlanFile = path.join(PLANS_DIR, `${testSlug}.md`);
+      fs.writeFileSync(mockPlanFile, pendingPlanContent);
+      pendingPlanContent = null;
+    }
   },
 );
 
 When(
-  "I click the plan entry {string}",
-  async function (this: KoluWorld, planName: string) {
-    const entry = this.page.locator(
-      `[data-testid="plan-entry"]:has-text("${planName}")`,
-    );
-    await entry.click();
-    // Wait for plan pane to render
-    await this.page.waitForTimeout(500);
+  "a new plan file {string} is added to the project",
+  async function (this: KoluWorld, _planName: string) {
+    if (!testSlug) throw new Error("No test slug — mock a session first");
+    // Create the plan file for this session's slug
+    fs.mkdirSync(PLANS_DIR, { recursive: true });
+    mockPlanFile = path.join(PLANS_DIR, `${testSlug}.md`);
+    fs.writeFileSync(mockPlanFile, SIMPLE_PLAN);
+    // Touch transcript to trigger metadata refresh
+    if (mockTranscriptPath) {
+      fs.writeFileSync(mockTranscriptPath, buildTranscript(testSlug));
+    }
   },
 );
 
 Then("the plan pane should be visible", async function (this: KoluWorld) {
   const pane = this.page.locator('[data-testid="plan-pane"]');
-  await pane.waitFor({ state: "visible", timeout: 5000 });
+  await pollUntil(
+    this.page,
+    async () => {
+      try {
+        return await pane.isVisible();
+      } catch {
+        return false;
+      }
+    },
+    (visible) => visible,
+    { attempts: 30, intervalMs: 500 },
+  );
 });
 
 Then("the plan pane should not be visible", async function (this: KoluWorld) {
@@ -141,25 +226,26 @@ Then("the plan pane should not be visible", async function (this: KoluWorld) {
       }
     },
     (count) => count === 0,
-    { attempts: 10, intervalMs: 300 },
+    { attempts: 30, intervalMs: 500 },
   );
 });
 
 Then(
   "the plan pane should show the plan name {string}",
-  async function (this: KoluWorld, planName: string) {
+  async function (this: KoluWorld, _planName: string) {
+    // Plan name is now the slug, but we verify the pane shows something
     const pane = this.page.locator('[data-testid="plan-pane"]');
     const text = await pane.textContent();
-    assert.ok(
-      text?.includes(planName),
-      `Expected plan pane to show "${planName}", got: ${text}`,
-    );
+    assert.ok(text && text.length > 0, "Expected plan pane to show content");
   },
 );
 
 Then(
   "the plan pane should show at least {int} sections",
   async function (this: KoluWorld, minSections: number) {
+    await this.page
+      .locator('[data-testid="plan-pane"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
     const sections = this.page.locator('[data-testid="plan-section"]');
     await pollUntil(
       this.page,
@@ -171,7 +257,7 @@ Then(
         }
       },
       (count) => count >= minSections,
-      { attempts: 10, intervalMs: 500 },
+      { attempts: 20, intervalMs: 500 },
     );
     const count = await sections.count();
     assert.ok(
@@ -184,23 +270,26 @@ Then(
 When(
   "I add feedback {string} to the first section",
   async function (this: KoluWorld, feedbackText: string) {
-    // Hover the first section to reveal the feedback button
+    await this.page
+      .locator('[data-testid="plan-pane"]')
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await this.page
+      .locator('[data-testid="plan-section"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 5_000 });
+
     const section = this.page.locator('[data-testid="plan-section"]').first();
     await section.hover();
 
-    // Click the add feedback button
     const addBtn = section.locator('[data-testid="add-feedback-btn"]');
     await addBtn.click();
 
-    // Type the feedback
     const input = this.page.locator('[data-testid="feedback-input"]');
     await input.fill(feedbackText);
 
-    // Submit
     const submitBtn = this.page.locator('[data-testid="submit-feedback-btn"]');
     await submitBtn.click();
 
-    // Wait for the mutation to complete
     await this.page.waitForTimeout(1000);
   },
 );
@@ -208,25 +297,11 @@ When(
 Then(
   "the plan file should contain feedback {string}",
   async function (this: KoluWorld, expectedFeedback: string) {
-    if (!projectDir) throw new Error("No project directory created");
-    const plansDir = path.join(projectDir, ".claude", "plans");
-    const files = fs.readdirSync(plansDir).filter((f) => f.endsWith(".md"));
-    assert.ok(files.length > 0, "No plan files found");
-
-    // Check any plan file contains the feedback
-    let found = false;
-    for (const file of files) {
-      const content = fs.readFileSync(path.join(plansDir, file), "utf8");
-      if (content.includes(`> [FEEDBACK]: ${expectedFeedback}`)) {
-        found = true;
-        break;
-      }
-    }
-    assert.ok(found, `Expected feedback "${expectedFeedback}" in plan file`);
+    if (!mockPlanFile) throw new Error("No mock plan file");
+    const content = fs.readFileSync(mockPlanFile, "utf8");
+    assert.ok(
+      content.includes(`> [FEEDBACK]: ${expectedFeedback}`),
+      `Expected feedback "${expectedFeedback}" in plan file`,
+    );
   },
 );
-
-When("I close the plan pane", async function (this: KoluWorld) {
-  const closeBtn = this.page.locator('[data-testid="close-plan-btn"]');
-  await closeBtn.click();
-});

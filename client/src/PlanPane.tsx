@@ -238,7 +238,6 @@ const PlanPane: Component<{
   content: PlanContent | undefined;
   loading: boolean;
   planName: string;
-  onClose: () => void;
   onAddFeedback: (path: string, afterLine: number, text: string) => void;
 }> = (props) => {
   const sections = createMemo(() => {
@@ -249,21 +248,13 @@ const PlanPane: Component<{
   return (
     <div class="flex flex-col h-full bg-surface-0" data-testid="plan-pane">
       {/* Header */}
-      <div class="flex items-center gap-2 px-3 py-2 bg-surface-1 border-b border-edge shrink-0">
+      <div class="px-3 py-2 bg-surface-1 border-b border-edge shrink-0">
         <span
-          class="text-sm font-medium text-fg flex-1 truncate"
+          class="text-sm font-medium text-fg truncate block"
           title={props.planName}
         >
           {props.planName}
         </span>
-        <button
-          class="text-xs text-fg-3 hover:text-fg px-1.5 py-0.5 rounded hover:bg-surface-2"
-          onClick={props.onClose}
-          title="Close plan"
-          data-testid="close-plan-btn"
-        >
-          ✕
-        </button>
       </div>
 
       {/* Content */}
