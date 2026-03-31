@@ -34,4 +34,4 @@ e2e: nix
     just ci::_run e2e just test
 
 pc:
-    just ci::_run pc bash -c 'just pc || { git checkout -- .; false; }'
+    just ci::_run pc bash -c 'prettier --check --ignore-unknown . "!pnpm-lock.yaml" && nixpkgs-fmt --check *.nix nix/**/*.nix'
