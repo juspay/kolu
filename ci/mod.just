@@ -38,4 +38,18 @@ e2e: nix
     just ci::_run e2e just test
 
 pc:
-    just ci::_run pc just pc-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just ci::_guard
+    start=$SECONDS
+    user=$(whoami)
+    short_sha=$(echo "{{ sha }}" | cut -c1-7)
+    logdir="{{ root }}/.logs/${short_sha}"
+    mkdir -p "$logdir"
+    logfile="$logdir/pc.log"
+    trap 'elapsed=$(( SECONDS - start )); just ci::_signoff pc failure "${user} · failed after ${elapsed}s"' ERR
+    just ci::_signoff pc pending "${user} · running"
+    echo "▶ pc"
+    (cd "{{ root }}" && just pc-check) 2>&1 | tee "$logfile" | sed 's|^|[pc] |'
+    elapsed=$(( SECONDS - start ))
+    just ci::_signoff pc success "${user} · ${elapsed}s"
