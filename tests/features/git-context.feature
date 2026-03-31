@@ -54,6 +54,12 @@ Feature: Git context in header and sidebar
     And the sidebar branch should contain "test-branch"
     And there should be no page errors
 
+  Scenario: Sidebar does not show PR info on default branch
+    When I run "git init /tmp/kolu-pr-default && cd /tmp/kolu-pr-default"
+    Then the header should show a branch name
+    And the sidebar should not show PR info
+    And there should be no page errors
+
   Scenario: Header and sidebar hide git context outside a repo
     When I run "cd /tmp"
     Then the header CWD should show "/tmp"
