@@ -119,7 +119,10 @@ const TerminalMeta: Component<{
           <Show when={info().meta.claude || info().activityHistory.length > 0}>
             <div
               class="flex items-center gap-1.5"
-              classList={{ "mt-0.5": mode() === "normal", "mt-auto": mode() === "readonly" }}
+              classList={{
+                "mt-0.5": mode() === "normal",
+                "mt-auto": mode() === "readonly",
+              }}
             >
               <Show when={info().meta.claude}>
                 {(claude) => <ClaudeIndicator state={claude().state} />}

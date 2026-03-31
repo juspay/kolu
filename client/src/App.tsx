@@ -117,7 +117,11 @@ const App: Component = () => {
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(parentId, store.getSubTerminalIds(parentId), direction),
+      subPanel.cycleSubTab(
+        parentId,
+        store.getSubTerminalIds(parentId),
+        direction,
+      ),
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
@@ -168,7 +172,8 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) => void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath) =>
+      void worktree.handleCreateWorktree(repoPath),
     handleKillWorktree: () => void worktree.handleKillWorktree(),
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,

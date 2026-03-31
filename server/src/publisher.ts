@@ -60,7 +60,9 @@ export function subscribeForTerminal_<C extends keyof TerminalChannels>(
   terminalId: string,
   signal: AbortSignal | undefined,
 ): AsyncIterable<TerminalChannels[C]> {
-  return publisher.subscribe(`${String(channel)}:${terminalId}`, { signal }) as AsyncIterable<TerminalChannels[C]>;
+  return publisher.subscribe(`${String(channel)}:${terminalId}`, {
+    signal,
+  }) as AsyncIterable<TerminalChannels[C]>;
 }
 
 /** Subscribe to a per-terminal channel with a callback. Fire-and-forget convenience
@@ -73,11 +75,19 @@ export function subscribeForTerminal<C extends keyof TerminalChannels>(
 ): void {
   void (async () => {
     try {
-      for await (const event of subscribeForTerminal_(channel, terminalId, signal)) {
+      for await (const event of subscribeForTerminal_(
+        channel,
+        terminalId,
+        signal,
+      )) {
         onEvent(event);
       }
     } catch (err) {
-      if (!signal.aborted) log.error({ err, terminal: terminalId, channel }, "publisher subscription failed");
+      if (!signal.aborted)
+        log.error(
+          { err, terminal: terminalId, channel },
+          "publisher subscription failed",
+        );
     }
   })();
 }

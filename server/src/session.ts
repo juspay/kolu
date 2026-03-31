@@ -40,9 +40,7 @@ export function setSavedSession(session: SavedSession): void {
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Wire up debounced session save from terminal change events. Called once at startup. */
-export function initSessionAutoSave(
-  snapshot: () => SavedTerminal[],
-): void {
+export function initSessionAutoSave(snapshot: () => SavedTerminal[]): void {
   void (async () => {
     try {
       for await (const _ of publisher.subscribe("session:changed")) {
