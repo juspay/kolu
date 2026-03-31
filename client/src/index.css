@@ -73,3 +73,116 @@
     background-color: oklch(from var(--color-accent) l c h / 0.25);
   }
 }
+
+/* Markdown prose styling for the plan pane.
+ * Tailwind strips default element styles — these restore readable typography
+ * for rendered markdown content (headings, lists, code, blockquotes). */
+.plan-markdown h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-fg);
+}
+.plan-markdown h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-fg);
+}
+.plan-markdown h3,
+.plan-markdown h4,
+.plan-markdown h5,
+.plan-markdown h6 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.25rem;
+  color: var(--color-fg);
+}
+.plan-markdown p {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+  color: var(--color-fg-2);
+}
+.plan-markdown ul,
+.plan-markdown ol {
+  margin-left: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: var(--color-fg-2);
+}
+.plan-markdown ul {
+  list-style-type: disc;
+}
+.plan-markdown ol {
+  list-style-type: decimal;
+}
+.plan-markdown li {
+  margin-bottom: 0.25rem;
+  line-height: 1.5;
+}
+.plan-markdown code {
+  font-family: "FiraCode Nerd Font", monospace;
+  font-size: 0.85em;
+  background: var(--color-surface-2);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}
+.plan-markdown pre {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-edge);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
+}
+.plan-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.plan-markdown blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 0.75rem;
+  margin-left: 0;
+  margin-bottom: 0.5rem;
+  color: var(--color-fg-3);
+  font-style: italic;
+}
+.plan-markdown a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.plan-markdown strong {
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.plan-markdown em {
+  font-style: italic;
+}
+.plan-markdown hr {
+  border: none;
+  border-top: 1px solid var(--color-edge);
+  margin: 1rem 0;
+}
+.plan-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+}
+.plan-markdown th,
+.plan-markdown td {
+  border: 1px solid var(--color-edge);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+.plan-markdown th {
+  background: var(--color-surface-2);
+  font-weight: 600;
+}
+
+/* Selection highlight in plan pane */
+.plan-markdown ::selection {
+  background: oklch(from var(--color-accent) l c h / 0.3);
+}

@@ -193,6 +193,17 @@ Feature: Mission Control
     And all Mission Control cards should be visible
     And there should be no page errors
 
+  Scenario: Keyboard input does not leak to terminal
+    When I run "echo mc-isolation-test"
+    And I click the Mission Control icon
+    Then Mission Control should be visible
+    # Type some characters — they must NOT reach the terminal
+    When I type "leaked-text" in Mission Control
+    And I press Escape
+    Then Mission Control should not be visible
+    And the active terminal should not show "leaked-text"
+    And there should be no page errors
+
   Scenario: Click card switches to correct terminal
     When I create a terminal
     And I run "echo mc-target"

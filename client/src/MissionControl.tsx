@@ -119,16 +119,25 @@ const MissionControl: Component<{
       }
     });
 
-    // Keyboard navigation: Tab, number keys (1-9), arrow keys, Mod+. to close.
-    // Capture phase to intercept Tab before Corvu Dialog's focus trap.
+    // Keyboard navigation: Tab, number keys (1-9), arrow keys, Esc/Mod+. to close.
+    // Capture phase to intercept before Corvu Dialog's focus trap AND to prevent
+    // any keyboard input from leaking to the terminal behind the overlay.
     makeEventListener(
       window,
       "keydown",
       (e: KeyboardEvent) => {
-        // Mod+. closes Mission Control (useShortcuts' listener is gone while MC is open)
-        if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
-          e.preventDefault();
+        // Block all keyboard events from reaching terminals beneath the overlay.
+        // Enter/Space must pass through for button activation (card selection).
+        if (e.key !== "Enter" && e.key !== " ") {
           e.stopPropagation();
+        }
+
+        // Esc or Mod+. closes Mission Control
+        if (
+          e.key === "Escape" ||
+          matchesKeybind(e, SHORTCUTS.missionControl.keybind)
+        ) {
+          e.preventDefault();
           props.onMcModeChange({ mode: "closed" });
           return;
         }
@@ -139,7 +148,6 @@ const MissionControl: Component<{
           const id = displayIds()[digit - 1];
           if (id) {
             e.preventDefault();
-            e.stopPropagation();
             handleSelect(id);
           }
           return;
@@ -181,7 +189,6 @@ const MissionControl: Component<{
         }
         if (next !== currentIdx || idx === -1) {
           e.preventDefault();
-          e.stopPropagation();
           cards[next]!.focus();
         }
       },
@@ -256,8 +263,8 @@ const MissionControl: Component<{
                           />
                         </div>
                       </Show>
-                      {/* Metadata footer — fixed height so cards align when PR info varies */}
-                      <div class="px-3 py-2 bg-surface-1 border-t border-edge space-y-0.5 h-24 shrink-0">
+                      {/* Metadata footer — fixed height, flex-col so agent/activity anchors to bottom */}
+                      <div class="px-3 py-2 bg-surface-1 border-t border-edge flex flex-col gap-0.5 h-24 shrink-0">
                         <TerminalMeta
                           info={props.getDisplayInfo(id)}
                           mode="readonly"
