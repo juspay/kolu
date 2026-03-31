@@ -12,16 +12,23 @@ const PALETTE = '[data-testid="command-palette"]';
  * make standard Playwright fill/click unreliable during dialog transitions.
  */
 async function paletteCommand(world: KoluWorld, query: string) {
+  // Ensure focus is in the app (previous palette close may leave focus nowhere)
+  const terminal = world.page.locator("[data-visible] .xterm-screen");
+  if ((await terminal.count()) > 0) await terminal.first().click();
   await world.page.keyboard.press(`${MOD_KEY}+k`);
+  // Wait for dialog to open
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) !== null,
     PALETTE,
     { timeout: 5000 },
   );
-  // Fill input via native setter to bypass Corvu animation visibility issues
+  // Fill input via native setter + click first result in browser context.
+  // Uses evaluate to bypass Corvu's CSS animation visibility issues.
   await world.page.evaluate(
     ({ sel, q }) => {
-      const input = document.querySelector(`${sel} input`) as HTMLInputElement;
+      const input = document.querySelector(
+        `${sel} input`,
+      ) as HTMLInputElement;
       if (!input) throw new Error("Palette input not found");
       const nativeSet = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
@@ -32,7 +39,6 @@ async function paletteCommand(world: KoluWorld, query: string) {
     },
     { sel: PALETTE, q: query },
   );
-  await world.waitForFrame();
   // Wait for a result with layout, then click it
   await world.page.waitForFunction(
     (sel) => {
@@ -42,8 +48,9 @@ async function paletteCommand(world: KoluWorld, query: string) {
       return true;
     },
     PALETTE,
-    { timeout: 3000 },
+    { timeout: 5000 },
   );
+  // Wait for palette to fully close
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) === null,
     PALETTE,
@@ -181,14 +188,13 @@ When(
 Then(
   "the sub-panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
-    const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
-    );
-    const count = await tabs.count();
-    assert.strictEqual(
-      count,
-      expected,
-      `Expected ${expected} sub-panel tabs, got ${count}`,
+    const sel =
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])';
+    // Poll — the second sub-terminal may still be initializing
+    await this.page.waitForFunction(
+      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
+      { sel, exp: expected },
+      { timeout: 5000 },
     );
   },
 );
