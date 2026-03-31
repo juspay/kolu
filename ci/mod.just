@@ -9,20 +9,20 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
-default: _preflight _pc _run-all
+default: _preflight _local _run-all
     just ci::_summary
 
-# Formatting check — always local, runs before expensive builds
-_pc:
-    just ci::pc || true
+# System-independent checks — always local, run before expensive builds
+_local:
+    just ci::pc ci::typecheck || true
 
 [parallel]
 _run-all: _linux _darwin
 
 _linux:
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
 
-_darwin: _preflight
+_darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
 
 nix:
@@ -38,18 +38,4 @@ e2e: nix
     just ci::_run e2e just test
 
 pc:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just ci::_guard
-    start=$SECONDS
-    user=$(whoami)
-    short_sha=$(echo "{{ sha }}" | cut -c1-7)
-    logdir="{{ root }}/.logs/${short_sha}"
-    mkdir -p "$logdir"
-    logfile="$logdir/pc.log"
-    trap 'elapsed=$(( SECONDS - start )); just ci::_signoff pc failure "${user} · failed after ${elapsed}s"' ERR
-    just ci::_signoff pc pending "${user} · running"
-    echo "▶ pc"
-    (cd "{{ root }}" && just pc-check) 2>&1 | tee "$logfile" | sed 's|^|[pc] |'
-    elapsed=$(( SECONDS - start ))
-    just ci::_signoff pc success "${user} · ${elapsed}s"
+    just ci::_run pc just pc-check
