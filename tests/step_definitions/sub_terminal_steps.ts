@@ -18,7 +18,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
     PALETTE,
     { timeout: 5000 },
   );
-  // Fill input + click first result in a single evaluate (fewer round trips)
+  // Fill input via native setter to bypass Corvu animation visibility issues
   await world.page.evaluate(
     ({ sel, q }) => {
       const input = document.querySelector(`${sel} input`) as HTMLInputElement;
@@ -28,7 +28,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
         "value",
       )!.set!;
       nativeSet.call(input, q);
-      input.dispatchEvent(new InputEvent("input", { bubbles: true, data: q }));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     },
     { sel: PALETTE, q: query },
   );
@@ -60,7 +60,6 @@ When(
 );
 
 When("I click the main terminal", async function (this: KoluWorld) {
-  // Click the main terminal's xterm container (first data-visible terminal)
   const main = this.page.locator("[data-terminal-id][data-visible]").first();
   await main.click();
   await this.waitForFrame();
@@ -76,7 +75,6 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Focus should already be in the sub-terminal
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();
@@ -84,7 +82,6 @@ When(
 );
 
 Then("the sub-panel should be visible", async function (this: KoluWorld) {
-  // Sub-panel tab bar is visible when expanded
   const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
   await tabBar.waitFor({ state: "visible", timeout: 5000 });
 });
@@ -97,7 +94,6 @@ Then("the sub-panel should not be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Poll until focus settles in the sub-terminal (xterm focus can be slow under load)
     const result = await pollUntil(
       this.page,
       () =>
@@ -142,11 +138,9 @@ Then(
       // If focus didn't auto-return, click the canvas to force it
       await this.canvas.click();
     }
-    // Type a unique marker and verify it appears in the main terminal's buffer
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
-    // Poll the first visible terminal's buffer for the marker
     await pollUntilBufferContains(this.page, marker, {
       selector: "[data-terminal-id][data-visible]",
       attempts: 20,
@@ -158,7 +152,6 @@ Then(
 Then(
   "the sidebar entry should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
-    // Look for the +N badge text in the active sidebar entry
     const badge = this.page.locator(
       '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
     );
@@ -218,7 +211,6 @@ Then(
 Then(
   "the sub-panel should eventually collapse",
   async function (this: KoluWorld) {
-    // Wait for the sub-panel tab bar to disappear (sub-terminal exited)
     const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
     await tabBar.waitFor({ state: "hidden", timeout: 20000 });
   },
@@ -251,7 +243,6 @@ Then("the resize handle should be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Sub-terminal is the second visible terminal container (index 1)
     await pollUntilBufferContains(this.page, expected, {
       selector: "[data-terminal-id][data-visible]",
       index: 1,
