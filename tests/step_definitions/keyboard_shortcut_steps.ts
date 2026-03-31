@@ -1,7 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
 When("I press the shortcuts help shortcut", async function (this: KoluWorld) {

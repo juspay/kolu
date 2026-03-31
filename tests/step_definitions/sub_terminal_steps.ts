@@ -1,43 +1,48 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+const PALETTE = '[data-testid="command-palette"]';
 
-/** Open command palette, search for a command, and execute it. */
+/**
+ * Open command palette, fill a query, click the first result, wait for close.
+ * Uses page.evaluate to bypass Corvu's CSS animation visibility issues that
+ * make standard Playwright fill/click unreliable during dialog transitions.
+ */
 async function paletteCommand(world: KoluWorld, query: string) {
   await world.page.keyboard.press(`${MOD_KEY}+k`);
-  // Wait for the palette dialog to be in the DOM with data-open
   await world.page.waitForFunction(
-    () => document.querySelector('[data-testid="command-palette"][data-open]') !== null,
+    (sel) => document.querySelector(`${sel}[data-open]`) !== null,
+    PALETTE,
     { timeout: 5000 },
   );
-  // Fill the input using evaluate to bypass Corvu animation visibility issues
-  await world.page.evaluate((q) => {
-    const input = document.querySelector('[data-testid="command-palette"] input') as HTMLInputElement;
-    if (!input) throw new Error("Palette input not found");
-    const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-    nativeSet.call(input, q);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }, query);
-  // Wait for filtered results to render
-  await world.page.waitForFunction(
-    () => {
-      const items = document.querySelectorAll('[data-testid="command-palette"] li');
-      return Array.from(items).some(el => (el as HTMLElement).offsetHeight > 0);
+  // Fill input + click first result in a single evaluate (fewer round trips)
+  await world.page.evaluate(
+    ({ sel, q }) => {
+      const input = document.querySelector(`${sel} input`) as HTMLInputElement;
+      if (!input) throw new Error("Palette input not found");
+      const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      nativeSet.call(input, q);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
     },
+    { sel: PALETTE, q: query },
+  );
+  // Wait for a result with layout, then click it
+  await world.page.waitForFunction(
+    (sel) => {
+      const item = document.querySelector(`${sel} li`) as HTMLElement | null;
+      if (!item || !item.offsetHeight) return false;
+      item.click();
+      return true;
+    },
+    PALETTE,
     { timeout: 3000 },
   );
-  // Click the first result via evaluate
-  await world.page.evaluate(() => {
-    const item = document.querySelector('[data-testid="command-palette"] li') as HTMLElement;
-    if (item) item.click();
-  });
-  // Wait for palette to close and settle
   await world.page.waitForFunction(
-    () => document.querySelector('[data-testid="command-palette"][data-open]') === null,
+    (sel) => document.querySelector(`${sel}[data-open]`) === null,
+    PALETTE,
     { timeout: 5000 },
   );
   await world.waitForFrame();

@@ -1,7 +1,5 @@
 import { When } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 
 /**
  * Simulate the full image paste flow: write a valid PNG to the browser

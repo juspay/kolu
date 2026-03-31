@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 import * as assert from "node:assert";
 
 const MC_SELECTOR = '[data-testid="mission-control"]';
@@ -73,8 +73,6 @@ Then(
     );
   },
 );
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 When("I hold Ctrl and press Tab", async function (this: KoluWorld) {
   await this.page.keyboard.down("Control");

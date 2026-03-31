@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import { KoluWorld, SIDEBAR_ENTRY_SELECTOR, MOD_KEY } from "../support/world.ts";
 import * as assert from "node:assert";
 
 When(
@@ -14,7 +14,6 @@ When(
     await entry.click();
     await this.waitForFrame();
     // Close via command palette (close button was removed from sidebar)
-    const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
@@ -29,7 +28,6 @@ When(
 When(
   "I close the active terminal via command palette",
   async function (this: KoluWorld) {
-    const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });

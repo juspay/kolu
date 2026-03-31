@@ -1,8 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, MOD_KEY } from "../support/world.ts";
 import * as assert from "node:assert";
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 
 When("I open the command palette", async function (this: KoluWorld) {

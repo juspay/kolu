@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import { KoluWorld, SIDEBAR_ENTRY_SELECTOR, MOD_KEY } from "../support/world.ts";
 import * as assert from "node:assert";
 import { pollUntil } from "../support/poll.ts";
 
@@ -47,8 +47,6 @@ Then(
     );
   },
 );
-
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 When("I press the random theme shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+j`);

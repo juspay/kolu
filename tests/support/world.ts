@@ -12,9 +12,8 @@ import type { Browser, BrowserContext, Page, Locator } from "playwright";
 
 setDefaultTimeout(30_000);
 
-const REFLOW_SETTLE_MS = 200;
 const READY_TIMEOUT = 10_000;
-const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
+export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
