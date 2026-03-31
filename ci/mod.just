@@ -13,7 +13,10 @@ default: _run-all
     just ci::_summary
 
 [parallel]
-_run-all: _linux _darwin
+_run-all: _linux _darwin _local
+
+_local: _preflight
+    CI_SYSTEM={{ local_system }} just ci::pc || true
 
 _linux: _preflight
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e || true
@@ -32,3 +35,6 @@ typecheck:
 
 e2e: nix
     just ci::_run e2e just test
+
+pc:
+    just ci::_run pc just pc
