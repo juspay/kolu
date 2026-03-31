@@ -62,7 +62,7 @@ const SidebarEntry: Component<{
         }}
         style={{
           "border-left-color": props.alerting
-            ? "var(--color-accent)"
+            ? "var(--color-alert)"
             : (props.displayInfo?.repoColor ??
               (props.isActive ? "var(--accent)" : "transparent")),
           ...(props.alerting

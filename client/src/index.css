@@ -21,6 +21,7 @@
   --color-fg-3: #838390;
 
   --color-accent: #5a9ea0;
+  --color-alert: #fb923c;
 
   --color-ok: #4ade80;
   --color-warning: #facc15;
@@ -44,6 +45,7 @@
   --color-fg-3: #8a8a96;
 
   --color-accent: #3d8486;
+  --color-alert: #ea580c;
 
   --color-ok: #16a34a;
   --color-warning: #ca8a04;
@@ -63,13 +65,13 @@
   }
 }
 
-/* Pulsing accent glow on sidebar entry when a background terminal's Claude finishes */
+/* Pulsing warm glow on sidebar entry when a background terminal's Claude finishes */
 @keyframes alerting-glow {
   0%,
   100% {
-    background-color: oklch(from var(--color-accent) l c h / 0.08);
+    background-color: oklch(from var(--color-alert) l c h / 0.08);
   }
   50% {
-    background-color: oklch(from var(--color-accent) l c h / 0.25);
+    background-color: oklch(from var(--color-alert) l c h / 0.25);
   }
 }
