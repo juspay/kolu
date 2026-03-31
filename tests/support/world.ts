@@ -41,6 +41,10 @@ export class KoluWorld extends World {
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];
 
+  // Demo recording state (used by demo_steps.ts)
+  demoInterval?: ReturnType<typeof setInterval>;
+  demoFrameNum = 0;
+
   get canvas(): Locator {
     return this.page.locator("[data-visible] .xterm-screen");
   }

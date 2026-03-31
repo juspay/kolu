@@ -6,6 +6,7 @@ result
 .claude/settings.local.json
 test-results/
 tests/reports/
+tests/demo-frames/
 client/public/fonts
 .worktrees
 .logs/

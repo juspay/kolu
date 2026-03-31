@@ -81,6 +81,10 @@ test-quick *args: install
         --format pretty \
         {{ if args == "" { "--profile ui" } else { args } }}
 
+# Record MP4 demo (requires running server, e.g. just dev or just run)
+demo:
+    nix run ./docs/demo
+
 # Run pre-commit hooks on all files
 pc:
     {{ nix_shell }} pre-commit run -a

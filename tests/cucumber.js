@@ -8,4 +8,11 @@ export const ui = {
   ...(parallel > 1 && { parallel }),
 };
 
+/** Demo recording profile — runs only @demo scenarios. */
+export const demo = {
+  ...ui,
+  tags: "@demo",
+  format: ["progress-bar"],
+};
+
 export default {};

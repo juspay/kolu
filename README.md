@@ -8,6 +8,8 @@ Web-based [Agentic Development Environment](https://x.com/jdegoes/status/2036931
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
+https://github.com/juspay/kolu/raw/master/docs/demo.mp4
+
 ## Usage
 
 ```sh
