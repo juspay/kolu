@@ -38,7 +38,7 @@ const GH_TIMEOUT_MS = 5_000;
  *
  * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
  */
-function deriveCheckStatus(
+export function deriveCheckStatus(
   rollup:
     | Array<{
         __typename?: string;
@@ -138,7 +138,10 @@ async function resolveGitHubPr(
 }
 
 /** Compare two GitHubPrInfo values for equality. */
-function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
+export function prInfoEqual(
+  a: GitHubPrInfo | null,
+  b: GitHubPrInfo | null,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
