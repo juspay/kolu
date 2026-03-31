@@ -13,13 +13,10 @@ default: _run-all
     just ci::_summary
 
 [parallel]
-_run-all: _linux _darwin _local
-
-_local: _preflight
-    CI_SYSTEM={{ local_system }} just ci::pc || true
+_run-all: _linux _darwin
 
 _linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::typecheck ci::e2e ci::pc || true
 
 _darwin: _preflight
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
@@ -37,4 +34,4 @@ e2e: nix
     just ci::_run e2e just test
 
 pc:
-    just ci::_run pc just pc
+    just ci::_run pc bash -c 'just pc; rc=$?; git checkout -- . 2>/dev/null; exit $rc'
