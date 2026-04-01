@@ -36,10 +36,17 @@ nodes:
   branch:
     prompt: |
       Create a descriptive feature branch from master.
-      Write the plan to .workflow-runs/<branch-name>/plan.md and commit it.
       Push the branch. Load the github-pr skill via the Skill tool.
       Open a draft PR with gh pr create --draft.
-    description: Branch + commit plan + draft PR
+      Include a progress checklist in the PR body — one `- [ ] <node-id>: <description>` line
+      per happy-path node (from the list computed in Setup step 5). Check off nodes that
+      are already complete (sync, understand, hickey, branch) with `- [x]`.
+      After PR creation, write artifacts to .workflow-runs/PR-<num>/:
+        mkdir -p .workflow-runs/PR-<num>
+        Write plan.md and summary.md (with retroactive entries for
+        sync, understand, hickey, and branch).
+      These files are gitignored — do NOT commit them.
+    description: Branch + draft PR
     on:
       default: implement
 
