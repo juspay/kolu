@@ -57,7 +57,7 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 ## Architecture (README)
 
-- The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Keep it in sync** when making structural changes (new packages, providers, state modules, build changes).
+- The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Read it before declaring done** on any structural change, and update every part that no longer matches (table, diagram, prose, footnotes).
 
 ## Git
 
