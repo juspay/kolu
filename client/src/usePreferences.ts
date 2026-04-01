@@ -18,23 +18,13 @@ import type {
   UserPreferences,
   UserPreferencesPartial,
 } from "kolu-common";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
-
-const DEFAULTS: UserPreferences = {
-  colorScheme: "dark",
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  startupTips: true,
-  seenTips: [],
-  defaultFontSize: DEFAULT_FONT_SIZE,
-};
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 
 export function usePreferences() {
   const qc = useQueryClient();
   const query = createQuery(() => orpc.preferences.get.queryOptions());
 
-  const prefs = createMemo(() => query.data ?? DEFAULTS);
+  const prefs = createMemo(() => query.data ?? DEFAULT_PREFERENCES);
 
   const queryKey = orpc.preferences.get.queryOptions().queryKey;
 
@@ -44,7 +34,7 @@ export function usePreferences() {
       await qc.cancelQueries({ queryKey });
       const prev = qc.getQueryData(queryKey);
       qc.setQueryData(queryKey, (old: UserPreferences | undefined) =>
-        old ? { ...old, ...partial } : { ...DEFAULTS, ...partial },
+        old ? { ...old, ...partial } : { ...DEFAULT_PREFERENCES, ...partial },
       );
       return { prev };
     },
@@ -65,9 +55,6 @@ export function usePreferences() {
   }
 
   return {
-    /** True while the initial fetch is in-flight. */
-    isLoading: () => query.isLoading,
-
     randomTheme: () => prefs().randomTheme,
     setRandomTheme: (on: boolean) => update({ randomTheme: on }),
 
@@ -85,8 +72,5 @@ export function usePreferences() {
 
     seenTips: () => prefs().seenTips,
     setSeenTips: (tips: string[]) => update({ seenTips: tips }),
-
-    defaultFontSize: () => prefs().defaultFontSize,
-    setDefaultFontSize: (size: number) => update({ defaultFontSize: size }),
   } as const;
 }

@@ -36,3 +36,13 @@ Added "Color scheme persists across page reload" scenario to settings.feature. F
 
 Prettier reformatted a few files (useColorScheme.ts, usePreferences.ts, summary.md, plan.md). No issues.
 → edge: default — proceed to commit
+
+### commit (visit 1/1)
+
+Committed 12 files (278 insertions, 123 deletions) as `feat: persist user preferences on the server via conf`. Pushed to origin/like-league.
+→ edge: default — proceed to police
+
+### police (visit 1/3)
+
+Found 3 rule violations + 2 fact-check issues. All fixed: deduplicated DEFAULT_PREFERENCES to common/config.ts, removed dead accessors (isLoading, defaultFontSize, setDefaultFontSize), simplified useColorScheme to pure side-effect.
+→ edge: violations or issues found — proceed to police-fix

@@ -1,7 +1,7 @@
 /**
- * UI color scheme (dark/light) — reads from server-backed preferences.
+ * Color scheme DOM effect — toggles `.dark` on <html> based on server-backed preferences.
  *
- * Toggles `.dark` on <html> so CSS variable overrides in index.css kick in.
+ * Call once from the app root. The effect tracks the `colorScheme` preference reactively.
  * Re-exports ColorScheme type from common for convenience.
  */
 
@@ -13,19 +13,17 @@ export type { ColorScheme } from "kolu-common";
 
 let initialized = false;
 
+/** Initialize the color scheme DOM effect. Idempotent — safe to call multiple times. */
 export function useColorScheme() {
-  const { colorScheme, setColorScheme } = usePreferences();
+  if (initialized) return;
+  initialized = true;
 
-  if (!initialized) {
-    initialized = true;
-    const prefersDark = usePrefersDark();
-    createEffect(() => {
-      const dark =
-        colorScheme() === "dark" ||
-        (colorScheme() === "system" && prefersDark());
-      document.documentElement.classList.toggle("dark", dark);
-    });
-  }
+  const { colorScheme } = usePreferences();
+  const prefersDark = usePrefersDark();
 
-  return { colorScheme, setColorScheme } as const;
+  createEffect(() => {
+    const dark =
+      colorScheme() === "dark" || (colorScheme() === "system" && prefersDark());
+    document.documentElement.classList.toggle("dark", dark);
+  });
 }

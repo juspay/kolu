@@ -9,17 +9,7 @@
 import fs from "node:fs";
 import Conf from "conf";
 import type { RecentRepo, SavedSession, UserPreferences } from "kolu-common";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
-
-export const DEFAULT_PREFERENCES: UserPreferences = {
-  colorScheme: "dark",
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  startupTips: true,
-  seenTips: [],
-  defaultFontSize: DEFAULT_FONT_SIZE,
-};
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 
 interface StateSchema {
   recentRepos: RecentRepo[];

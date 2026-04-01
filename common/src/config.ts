@@ -15,6 +15,17 @@ export const DEFAULT_PORT = 7681;
 /** Default font size for the terminal (px). */
 export const DEFAULT_FONT_SIZE = 14;
 
+/** Default user preferences — single source of truth for server and client. */
+export const DEFAULT_PREFERENCES = {
+  colorScheme: "dark" as const,
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  startupTips: true,
+  seenTips: [] as string[],
+  defaultFontSize: DEFAULT_FONT_SIZE,
+};
+
 /** Scrollback buffer size in lines. Matches Ghostty's ~10K default. */
 export const DEFAULT_SCROLLBACK = 10_000;
 
