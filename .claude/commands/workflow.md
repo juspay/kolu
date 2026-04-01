@@ -50,13 +50,14 @@ For the current node:
 1. **Check visit limit.** If visits >= `max_visits` (node-level, or `defaults.max_visits`), STOP: `"[workflow] HALT: node '<id>' exceeded max_visits (<N>)."` Write summary.md with halt reason.
 2. **Increment visit count.**
 3. **Print status:** `[workflow] → <node-id>: <description> (visit <N>/<max>)`
-4. **Execute the action:**
+4. **Check for gate.** If the node has `gate: true`, present what this node produced (e.g., the plan) and ask the user to approve before continuing. Use `AskUserQuestion` with options "Proceed" and "Revise". If "Revise", let the user provide feedback, re-execute the node, and gate again. By default nodes have no gate — execution is autonomous.
+5. **Execute the action:**
    - `skill`: Invoke via the Skill tool — `skill: "<target>"`, `args: "<args>"`.
    - `run`: Execute via Bash tool. Use `run_in_background: true` if description contains "background".
    - `prompt`: Execute the instruction directly — read files, write code, run commands, whatever the prompt says.
-5. **Record in summary.md** — Append the node's result: what happened, which edge will be taken and why.
-6. **Pick the next edge.** Look at the node's `on:` map. For each non-`default` key, evaluate the condition against what just happened (conversation context, command output, skill results). If a condition matches, follow that edge. If none match, follow `default`. If there is no `on:` map, the workflow is **done**.
-7. **Continue** with the next node.
+6. **Record in summary.md** — Append the node's result: what happened, which edge will be taken and why.
+7. **Pick the next edge.** Look at the node's `on:` map. For each non-`default` key, evaluate the condition against what just happened (conversation context, command output, skill results). If a condition matches, follow that edge. If none match, follow `default`. If there is no `on:` map, the workflow is **done**.
+8. **Continue** with the next node.
 
 ## Rules
 

@@ -40,6 +40,7 @@ nodes:
       Push the branch. Load the github-pr skill via the Skill tool.
       Open a draft PR with gh pr create --draft.
     description: Branch + commit plan + draft PR
+    gate: true
     on:
       default: implement
 
