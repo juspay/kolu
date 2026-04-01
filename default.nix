@@ -4,8 +4,7 @@
 , commitHash ? "dev"
 }:
 let
-  nodejs = pkgs.nodejs;
-  pnpm = pkgs.pnpm;
+  bun = pkgs.bun;
   ghosttyThemes = pkgs.callPackage ./nix/ghostty-themes { };
   fonts = pkgs.callPackage ./nix/fonts { };
   worktreeWords = pkgs.callPackage ./nix/worktree-words { };
@@ -52,25 +51,60 @@ let
     paths = [ xclip-kolu-shim wl-paste-kolu-shim ];
   };
 
+  # Source files for the build — only what's needed.
+  depsSrc = pkgs.lib.fileset.toSource {
+    root = ./.;
+    fileset = pkgs.lib.fileset.unions [
+      ./package.json
+      ./bun.lock
+      ./common/package.json
+      ./server/package.json
+      ./client/package.json
+      ./tests/package.json
+    ];
+  };
+
   src = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
       ./package.json
-      ./pnpm-workspace.yaml
-      ./pnpm-lock.yaml
+      ./bun.lock
       ./tsconfig.base.json
       ./common
       ./server
       ./client
+      ./tests/package.json
     ];
   };
 
-  pnpmDeps = pkgs.fetchPnpmDeps {
-    pname = "kolu";
-    version = "0.1.0";
-    inherit src;
-    hash = "sha256-VV8erpO/s6n+1Lap1W6kzS22NLQEnRfXPHqZr02oOCU=";
-    fetcherVersion = 3;
+  # Fixed-output derivation: download all bun dependencies into a cache.
+  # Hash must be updated when bun.lock changes (build will show correct hash).
+  bunDeps = pkgs.stdenvNoCC.mkDerivation {
+    name = "kolu-bun-deps";
+    src = depsSrc;
+
+    nativeBuildInputs = [ bun pkgs.cacert ];
+
+    dontConfigure = true;
+    dontBuild = true;
+
+    impureEnvVars = pkgs.lib.fetchers.proxyImpureEnvVars;
+
+    installPhase = ''
+      export HOME=$(mktemp -d)
+      export BUN_INSTALL_CACHE_DIR=$out/cache
+      mkdir -p $out/cache
+      bun install --frozen-lockfile
+      # Only keep the cache; node_modules will be recreated in the main build
+      rm -rf node_modules
+
+      # Normalize permissions for reproducibility
+      find $out -type f -print0 | xargs -0 chmod 444
+      find $out -type d -print0 | xargs -0 chmod 555
+    '';
+
+    outputHashMode = "recursive";
+    outputHash = "sha256-TJZGa/BbqpVb95X2DULoPWdVkTOuCmYIBdMiPVRQGE8=";
   };
 
   # Shared env vars — used by the kolu build, the devShell, and the wrapper.
@@ -91,29 +125,31 @@ let
     inherit src;
 
     nativeBuildInputs = [
-      nodejs
-      pnpm
-      pkgs.pnpmConfigHook
-      pkgs.python3
-      pkgs.node-gyp
-      pkgs.pkg-config
+      bun
+      # node symlink so patchShebangs can resolve #!/usr/bin/env node shebangs.
+      # bun is node-compatible and runs these scripts correctly.
+      (pkgs.writeShellScriptBin "node" ''exec ${bun}/bin/bun "$@"'')
     ];
 
-    inherit pnpmDeps;
-
     env = {
-      npm_config_nodedir = nodejs;
-      NIX_NODEJS_BUILDNPMPACKAGE = "1";
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
+    configurePhase = ''
+      export HOME=$(mktemp -d)
+      export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
+      cp -r ${bunDeps}/cache/. "$BUN_INSTALL_CACHE_DIR/"
+      chmod -R u+w "$BUN_INSTALL_CACHE_DIR"
+      bun install --frozen-lockfile
+      patchShebangs node_modules */node_modules
+    '';
+
     buildPhase = ''
       runHook preBuild
-      pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
-      node-gyp rebuild
-      popd
       ln -sfn $KOLU_FONTS_DIR client/public/fonts
-      pnpm --filter kolu-client build
+      pushd client
+      bun run build
+      popd
       runHook postBuild
     '';
 
@@ -121,7 +157,6 @@ let
       runHook preInstall
       cp -r . $out
       rm -rf $out/client/src $out/client/node_modules
-      chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
       runHook postInstall
     '';
   };
@@ -140,12 +175,12 @@ in
 
   default = pkgs.writeShellApplication {
     name = "kolu";
-    runtimeInputs = [ nodejs pkgs.tsx pkgs.git pkgs.gh ];
+    runtimeInputs = [ bun pkgs.git pkgs.gh ];
     text = ''
       export KOLU_CLIENT_DIST="${koluStamped}/client/dist"
       export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"
       export KOLU_RANDOM_WORDS="${koluEnv.KOLU_RANDOM_WORDS}"
-      exec tsx "${koluStamped}/server/src/index.ts" "$@"
+      exec bun "${koluStamped}/server/src/index.ts" "$@"
     '';
   };
 }

@@ -72,12 +72,12 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 ## Architecture
 
-pnpm monorepo, three packages:
+bun monorepo, three packages:
 
 | Package   | Stack                                                                                                                                                               |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
-| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
+| `server/` | [Hono](https://hono.dev/) + [Bun.Terminal](https://bun.com/docs/runtime/child-process) (PTY) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)     |
 | `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
 
 ### Communication
@@ -108,7 +108,7 @@ flowchart TB
   end
 
   subgraph Server["Server (Hono)"]
-    PTY["node-pty\nshell process"]:::server
+    PTY["Bun.Terminal\nshell process"]:::server
     Headless["@xterm/headless\nscreen state"]:::server
     Pub["Publisher\nper-terminal channels"]:::server
     Providers["Metadata providers"]:::server
@@ -143,7 +143,7 @@ flowchart TB
   style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
 ```
 
-**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to Bun.Terminal; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
 **Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers feed a single metadata channel streamed to the client as a live query[^providers].
 
@@ -165,7 +165,7 @@ flowchart TB
 
 Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
 
-[^build]: `koluEnv` includes `KOLU_THEMES_JSON`, font paths, and clipboard shims. The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
+[^build]: `koluEnv` includes `KOLU_THEMES_JSON`, font paths, and clipboard shims. The final derivation is a wrapper script that sets the environment and execs `bun`.
 
 ## Development
 

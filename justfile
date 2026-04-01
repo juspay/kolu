@@ -8,9 +8,9 @@ mod ci 'ci/mod.just'
 default:
     @just --list
 
-# Install pnpm dependencies
+# Install bun dependencies
 install:
-    {{ nix_shell }} pnpm install
+    {{ nix_shell }} bun install
 
 # Run server + client in parallel.
 # Enters nix develop once, then re-invokes just inside it — subsequent
@@ -27,19 +27,19 @@ _dev-parallel: server client
 
 # Run TypeScript type checking across all packages
 watch: install
-    {{ nix_shell }} pnpm typecheck
+    {{ nix_shell }} bun typecheck
 
 # Run server with auto-reload
 server:
-    cd server && {{ nix_shell }} pnpm dev
+    cd server && {{ nix_shell }} bun run dev
 
 # Run client with Vite dev server (HMR)
 client:
-    cd client && {{ nix_shell }} pnpm dev
+    cd client && {{ nix_shell }} bun run dev
 
 # Run unit tests (vitest) across server and client packages
 test-unit: install
-    {{ nix_shell }} pnpm test:unit
+    {{ nix_shell }} bun test:unit
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
@@ -47,14 +47,14 @@ test: install
     set -euo pipefail
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
-    {{ nix_shell }} pnpm install
+    {{ nix_shell }} bun install
     # Temp dirs for Claude Code status detection mock tests
     export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
     export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} bun test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
-# Builds client via pnpm, spawns server from source on random ports.
+# Builds client via bun, spawns server from source on random ports.
 # Examples:
 #   just test-quick                                              # all tests
 #   just test-quick features/command-palette.feature:149         # single scenario by line
@@ -62,24 +62,24 @@ test: install
 test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
-    {{ nix_shell }} pnpm --filter kolu-client build
+    {{ nix_shell }} bun run --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
     # Without nix build there's no `kolu` binary, so we create a temp wrapper
-    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
+    # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec bun.
     wrapper="$(mktemp)"
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/client/dist" exec bun "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
     # Temp dirs for Claude Code status detection mock tests
     export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
     export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     cd tests
-    {{ nix_shell }} pnpm install
+    {{ nix_shell }} bun install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \
-        {{ nix_shell }} node --import tsx \
+        {{ nix_shell }} bun \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 

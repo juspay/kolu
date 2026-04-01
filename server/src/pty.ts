@@ -1,11 +1,10 @@
 /**
- * Pure PTY lifecycle wrapper around node-pty.
+ * Pure PTY lifecycle wrapper using Bun.Terminal.
  *
  * Transport-agnostic: communicates via onData/onExit callbacks.
  * Maintains a headless xterm instance for screen state serialization
  * on late-joining clients (~4KB vs raw scrollback replay).
  */
-import * as pty from "node-pty";
 import { createRequire } from "node:module";
 import {
   DEFAULT_COLS,
@@ -61,14 +60,6 @@ export function spawnPty(
   env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
 
   tlog.info({ shell, cwd }, "spawning pty");
-  const proc = pty.spawn(shell, osc7.args, {
-    name: "xterm-256color",
-    cols: DEFAULT_COLS,
-    rows: DEFAULT_ROWS,
-    cwd,
-    env,
-  });
-  tlog.info({ pid: proc.pid }, "pty spawned");
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.
@@ -106,26 +97,46 @@ export function spawnPty(
   // headless terminal responds immediately, avoiding latency from the client.
   // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
   // don't consume these, so the shell echoes them as visible garbage.
+  let procTerminal: ReturnType<typeof Bun.spawn>["terminal"];
   const headlessOnDataDisposable = headless.onData((data: string) => {
     if (data.startsWith("\x1b]")) return;
-    proc.write(data);
+    procTerminal?.write(data);
   });
 
-  const dataDisposable = proc.onData((data: string) => {
-    headless.write(data);
-    opts.onData(data);
+  const proc = Bun.spawn([shell, ...osc7.args], {
+    cwd,
+    env,
+    terminal: {
+      cols: DEFAULT_COLS,
+      rows: DEFAULT_ROWS,
+      name: "xterm-256color",
+      data(_terminal: unknown, chunk: Uint8Array) {
+        const str = new TextDecoder().decode(chunk);
+        headless.write(str);
+        opts.onData(str);
+      },
+      exit(_terminal: unknown, _exitCode: number) {
+        // Bun.Terminal exit code is PTY lifecycle (0=EOF, 1=error),
+        // not the subprocess exit code. Use proc.exited for that.
+      },
+    },
   });
+  // Terminal is always defined when spawned with the terminal option
+  const terminal = proc.terminal!;
+  procTerminal = terminal;
+  tlog.info({ pid: proc.pid }, "pty spawned");
 
-  const exitDisposable = proc.onExit(({ exitCode }) => opts.onExit(exitCode));
+  // Watch for subprocess exit to get the real exit code
+  proc.exited.then((code) => opts.onExit(code));
 
   return {
     pid: proc.pid,
     get cwd() {
       return currentCwd;
     },
-    write: (data) => proc.write(data),
+    write: (data) => terminal.write(data),
     resize: (cols, rows) => {
-      proc.resize(cols, rows);
+      terminal.resize(cols, rows);
       headless.resize(cols, rows);
     },
     getScreenState: () => serializeAddon.serialize(),
@@ -142,9 +153,7 @@ export function spawnPty(
     dispose() {
       oscDisposable.dispose();
       headlessOnDataDisposable.dispose();
-      dataDisposable.dispose();
-      exitDisposable.dispose();
-      proc.kill();
+      terminal.close();
       headless.dispose();
       osc7.cleanup();
     },

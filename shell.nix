@@ -22,9 +22,7 @@ pkgs.mkShell {
   packages = with pkgs; [
     just
     nixd
-    nodejs
-    pnpm
-    tsx
+    bun
     nixpkgs-fmt
     prettier
   ];

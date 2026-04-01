@@ -1,13 +1,13 @@
 {
+  "name": "kolu-tests",
   "private": true,
   "type": "module",
   "devDependencies": {
     "@cucumber/cucumber": "^12.7.0",
     "get-port": "^7.2.0",
-    "playwright": "1.57.0",
-    "tsx": "^4.19.0"
+    "playwright": "1.57.0"
   },
   "scripts": {
-    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui"
+    "test": "bun ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui"
   }
 }
