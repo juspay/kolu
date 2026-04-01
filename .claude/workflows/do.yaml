@@ -44,7 +44,7 @@ nodes:
       are already complete (sync, understand, hickey, branch) with `- [x]`.
       After PR creation, move artifacts to final path:
         mkdir -p .workflow-runs/PR-<num>
-        mv .workflow-runs/plan.md .workflow-runs/PR-<num>/plan.md
+        git mv .workflow-runs/plan.md .workflow-runs/PR-<num>/plan.md
       Create .workflow-runs/PR-<num>/summary.md with retroactive entries for
       sync, understand, hickey, and branch. Commit and push.
     description: Branch + commit plan + draft PR
