@@ -105,7 +105,11 @@ let
     '';
 
     outputHashMode = "recursive";
-    outputHash = "sha256-TJZGa/BbqpVb95X2DULoPWdVkTOuCmYIBdMiPVRQGE8=";
+    # Platform-specific: bun downloads native packages (esbuild, lightningcss)
+    outputHash = {
+      x86_64-linux = "sha256-TJZGa/BbqpVb95X2DULoPWdVkTOuCmYIBdMiPVRQGE8=";
+      aarch64-darwin = "sha256-h/TvfXdGo/ex+UYtOeWHJHjCsMHtiJ4NQuDuxzOiF2k=";
+    }.${pkgs.stdenv.hostPlatform.system};
   };
 
   # Shared env vars — used by the kolu build, the devShell, and the wrapper.
