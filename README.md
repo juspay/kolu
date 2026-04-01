@@ -84,13 +84,15 @@ pnpm monorepo, three packages:
 
 All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three query patterns[^orpc-patterns]:
 
-| Pattern            | Semantics                         | Used for                                            |
-| ------------------ | --------------------------------- | --------------------------------------------------- |
-| Request / response | one-shot                          | `terminal.create`, `terminal.resize`, `session.get` |
-| Live query         | each push replaces previous value | Terminal metadata (CWD, git, PR, Claude state)      |
-| Streamed query     | pushes accumulate into an array   | Activity sparklines                                 |
+| Pattern            | Semantics                         | TanStack integration           | Used for                                               |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------ |
+| Request / response | one-shot                          | `createMutation`[^rr]          | `terminal.create`, `terminal.kill`, `terminal.reorder` |
+| Live query         | each push replaces previous value | `experimental_liveOptions`     | Terminal metadata (CWD, git, PR, Claude state)         |
+| Streamed query     | pushes accumulate into an array   | `experimental_streamedOptions` | Activity sparklines                                    |
 
-[^orpc-patterns]: Wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query). Live queries use `experimental_liveOptions`; streamed queries use `experimental_streamedOptions` with `maxChunks` to cap array growth.
+All three are wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
+
+[^rr]: Mutations update the TanStack cache on success — either optimistically via `qc.setQueryData` (reorder, theme) or by adding new IDs to `knownIds` which reactively spawns new live/streamed queries (create). A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
 
 ### Data flow
 
