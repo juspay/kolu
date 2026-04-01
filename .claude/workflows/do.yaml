@@ -34,7 +34,7 @@ nodes:
   branch:
     prompt: |
       Create a descriptive feature branch from master.
-      Write the plan to .plans/<branch-name>.md and commit it.
+      Write the plan to .workflows/<branch-name>/plan.md and commit it.
       Push the branch. Load the github-pr skill via the Skill tool.
       Open a draft PR with gh pr create --draft.
     description: Branch + commit plan + draft PR
