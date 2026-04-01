@@ -112,7 +112,7 @@ Metadata channel ← all providers publish here → streamed to client
 
 ### Client
 
-[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). State management follows a singleton-hook pattern: `useXxx.ts` modules create a [`createStore`](https://docs.solidjs.com/reference/store-utilities/create-store) once at module level, exposing reactive accessors consumed by any component.
+[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). State management follows a singleton-hook pattern: `useXxx.ts` modules create reactive state (signals or [stores](https://docs.solidjs.com/reference/store-utilities/create-store)) once at module level, exposing accessors consumed by any component.
 
 Key state modules:
 
