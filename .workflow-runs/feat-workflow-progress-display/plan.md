@@ -19,6 +19,10 @@ Modify `.claude/commands/workflow.md` to:
 
 Fix/loop nodes (police-fix, test-fix, ci-fix) don't appear in the progress line — the parent happy-path node stays as ▸ current until the loop resolves.
 
+## PR
+
+https://github.com/juspay/kolu/pull/283
+
 ## Files changed
 
 - `.claude/commands/workflow.md` — Setup section + Execution Loop step 3
