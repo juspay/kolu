@@ -31,7 +31,7 @@ Without `--review`, the entire graph runs autonomously end-to-end.
 
 Each workflow run produces artifacts in `.workflow-runs/PR-<num>/`:
 
-- **`plan.md`** — The plan/task description. Written before implementation starts. Committed to git as the first commit on the feature branch.
+- **`plan.md`** — The plan/task description. Written before implementation starts.
 - **`summary.md`** — Execution summary, updated incrementally as each node completes. Contains:
   - Task input / description
   - Graph path traversed (every node visited, in order, with visit counts)
@@ -78,7 +78,7 @@ For the current node:
    What happened (1-2 sentences).
    → edge: <condition matched> or <default> — <why>
    ```
-   Write this to the file using the Write/Edit tool. Do not batch — append after _every_ node, including trivial ones like `sync` and `fmt`. After writing, stage the file with `git add .workflow-runs/PR-<num>/summary.md` so it is included in the next commit.
+   Write this to the file using the Write/Edit tool. Do not batch — append after _every_ node, including trivial ones like `sync` and `fmt`. These files are gitignored — do NOT stage or commit them.
 7. **Pick the next edge.** Look at the node's `on:` map. For each non-`default` key, evaluate the condition against what just happened (conversation context, command output, skill results). If a condition matches, follow that edge. If none match, follow `default`. If there is no `on:` map, the workflow is **done**.
 8. **Continue** with the next node.
 

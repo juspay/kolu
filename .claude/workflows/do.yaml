@@ -36,18 +36,17 @@ nodes:
   branch:
     prompt: |
       Create a descriptive feature branch from master.
-      Write the plan to .workflow-runs/plan.md (temporary — moved after PR creation).
-      Commit and push the branch. Load the github-pr skill via the Skill tool.
+      Push the branch. Load the github-pr skill via the Skill tool.
       Open a draft PR with gh pr create --draft.
       Include a progress checklist in the PR body — one `- [ ] <node-id>: <description>` line
       per happy-path node (from the list computed in Setup step 5). Check off nodes that
       are already complete (sync, understand, hickey, branch) with `- [x]`.
-      After PR creation, move artifacts to final path:
+      After PR creation, write artifacts to .workflow-runs/PR-<num>/:
         mkdir -p .workflow-runs/PR-<num>
-        git mv .workflow-runs/plan.md .workflow-runs/PR-<num>/plan.md
-      Create .workflow-runs/PR-<num>/summary.md with retroactive entries for
-      sync, understand, hickey, and branch. Commit and push.
-    description: Branch + commit plan + draft PR
+        Write plan.md and summary.md (with retroactive entries for
+        sync, understand, hickey, and branch).
+      These files are gitignored — do NOT commit them.
+    description: Branch + draft PR
     on:
       default: implement
 
@@ -76,7 +75,6 @@ nodes:
   commit:
     prompt: |
       Create a NEW commit (never amend) with a conventional commit message.
-      Always include .workflow-runs/PR-<num>/summary.md in the commit.
       Push to the PR branch.
     description: Commit and push
     on:
@@ -143,7 +141,5 @@ nodes:
       default: done
 
   done:
-    prompt: |
-      Commit and push any remaining staged .workflow-runs/ changes (summary.md)
-      before reporting. Then report the PR URL and a brief summary of what was delivered.
-    description: Final commit + report completion
+    prompt: Report the PR URL and a brief summary of what was delivered.
+    description: Report completion
