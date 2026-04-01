@@ -20,20 +20,26 @@ async function waitForClaudeReady(
   id: string,
   timeoutMs = 30_000,
 ): Promise<void> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const stream = await client.terminal.onMetadataChange({ id });
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const stream = await client.terminal.onMetadataChange({
-      id,
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
     });
-    for await (const meta of stream) {
-      if (ac.signal.aborted) break;
-      if (meta.claude?.state === "waiting") break;
-    }
-  } catch {
-    // Stream aborted or terminal gone
+    const ready = (async () => {
+      for await (const meta of stream) {
+        if (meta.claude?.state === "waiting") return;
+      }
+      throw new Error("stream ended without claude reaching waiting state");
+    })();
+    await Promise.race([ready, timeout]);
   } finally {
     clearTimeout(timer);
+    // Close the async iterator to release the server-side subscription
+    if (Symbol.asyncIterator in stream) {
+      const iter = stream[Symbol.asyncIterator]();
+      iter.return?.();
+    }
   }
 }
 
@@ -79,9 +85,13 @@ export function useWorktreeOps(deps: {
         // Wait for Claude Code to become ready (watching metadata state),
         // then type the prompt into the interactive session.
         if (opts.prompt) {
-          void waitForClaudeReady(id).then(() =>
-            client.terminal.sendInput({ id, data: opts.prompt + "\n" }),
-          );
+          void waitForClaudeReady(id)
+            .then(() =>
+              client.terminal.sendInput({ id, data: opts.prompt + "\n" }),
+            )
+            .catch(() =>
+              toast.error("Could not send prompt — Claude Code didn't start"),
+            );
         }
       }
     }

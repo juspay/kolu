@@ -115,7 +115,8 @@ const NewWorktreeDialog: Component<{
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key === "Enter") {
+    // Don't intercept Enter inside the prompt textarea (let newlines through)
+    if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement)) {
       e.preventDefault();
       handleCreate();
     }
