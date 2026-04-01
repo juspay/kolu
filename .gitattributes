@@ -1,1 +1,2 @@
-npins/default.nix linguist-generated
+nix/tamal/default.nix linguist-generated
+nix/tamal/lock.json linguist-generated

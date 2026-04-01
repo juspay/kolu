@@ -1,4 +1,4 @@
-# Pinned nixpkgs import — managed by npins.
-# To update: npins update nixpkgs
-let sources = import ../npins;
-in import sources.nixpkgs
+# Pinned nixpkgs import — managed by nixtamal.
+# To update: nixtamal refresh && nixtamal lock (from nix/tamal/)
+let inputs = import ./tamal { };
+in import inputs.nixpkgs
