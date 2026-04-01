@@ -94,18 +94,17 @@ oRPC supports three query patterns, all wired through [`@orpc/tanstack-query`](h
 
 ### Server
 
-[Hono](https://hono.dev/) serves HTTP (`/api/health`, static client assets) and upgrades `/rpc/ws` to WebSocket for oRPC streaming.
+Hono serves HTTP (`/api/health`, static client assets) and upgrades `/rpc/ws` to WebSocket for oRPC streaming.
 
-**Terminal lifecycle** — each terminal wraps a [node-pty](https://github.com/microsoft/node-pty) spawn paired with an [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) instance. The headless xterm parses VT sequences server-side, enabling serialized screen-state snapshots for late-joining clients (~4 KB instead of replaying the full scrollback buffer). PTY output, metadata changes, activity transitions, and exit events are routed through a typed in-memory pub/sub layer ([publisher](server/src/publisher.ts)) to per-terminal channels.
+**Terminal lifecycle** — each terminal wraps a node-pty spawn paired with an @xterm/headless instance. The headless xterm parses VT sequences server-side, enabling serialized screen-state snapshots for late-joining clients (~4 KB instead of replaying the full scrollback buffer). PTY output, metadata changes, activity transitions, and exit events are routed through a typed in-memory [pub/sub layer](server/src/publisher.ts) to per-terminal channels.
 
-**Metadata providers** form a one-way DAG — each provider subscribes to upstream changes, resolves its own data, and publishes downstream:
+**Metadata providers** form a one-way DAG — each provider subscribes to upstream changes and publishes downstream. All providers feed into a single aggregated metadata channel streamed to the client:
 
 ```
 CWD change (OSC 7 from shell)
-  → Git provider — watches .git/HEAD, resolves branch & worktree info via simple-git
+  → Git provider — watches .git/HEAD, resolves branch & worktree via simple-git
     → GitHub provider — polls `gh pr view`, derives combined CI check status
-Metadata channel ← all providers publish here → streamed to client
-  ↑ Claude provider — polls ~/.claude/sessions/, matches PID to PTY via /proc
+  → Claude provider — polls ~/.claude/sessions/, matches PID to PTY via /proc
 ```
 
 **Persistence** — terminal sessions (CWD, sort order, parent relationships) auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms. Schema is versioned with explicit migrations.
