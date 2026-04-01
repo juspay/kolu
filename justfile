@@ -85,13 +85,11 @@ test-quick *args: install
 
 # Format all files in-place
 fmt:
-    {{ nix_shell }} prettier --write --ignore-unknown .
-    {{ nix_shell }} nixpkgs-fmt *.nix nix/**/*.nix
+    {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
 
 # Check formatting without modifying files (used by CI)
 fmt-check:
-    {{ nix_shell }} prettier --check --ignore-unknown .
-    {{ nix_shell }} nixpkgs-fmt --check *.nix nix/**/*.nix
+    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
 # Nix build (server + client)
 build:
