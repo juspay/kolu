@@ -5,12 +5,11 @@
 # Consume this with `fetchBunDeps` (recommended)
 # or `pkgs.callPackage` if you wish to handle
 # it manually.
-{
-  copyPathToStore,
-  fetchFromGitHub,
-  fetchgit,
-  fetchurl,
-  ...
+{ copyPathToStore
+, fetchFromGitHub
+, fetchgit
+, fetchurl
+, ...
 }:
 {
   "@apideck/better-ajv-errors@0.3.7" = fetchurl {
