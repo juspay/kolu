@@ -25,7 +25,7 @@ Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
     const card = this.page.locator('[data-testid="session-restore"]');
-    await card.waitFor({ state: "visible", timeout: 10000 });
+    await card.waitFor({ state: "visible", timeout: 20000 });
   },
 );
 

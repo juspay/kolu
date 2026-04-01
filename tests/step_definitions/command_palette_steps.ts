@@ -140,9 +140,7 @@ Then(
   "the palette breadcrumb should not be visible",
   async function (this: KoluWorld) {
     const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
-    await assert.rejects(
-      breadcrumb.waitFor({ state: "visible", timeout: 500 }),
-    );
+    await breadcrumb.waitFor({ state: "hidden", timeout: 3000 });
   },
 );
 
