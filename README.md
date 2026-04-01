@@ -76,27 +76,29 @@ pnpm monorepo, three packages:
 
 | Package   | Stack                                                                                                                                                               |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                                          |
+| `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
 | `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
 | `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
 
 ### Communication
 
-All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.unnoq.com/). The contract in `common/` is shared by both sides — types are checked at compile time, payloads validated by Zod at runtime.
+All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three query patterns[^orpc-patterns]:
 
-oRPC supports three query patterns, all wired through [`@orpc/tanstack-query`](https://orpc.unnoq.com/docs/tanstack-query/solid-query):
+| Pattern            | Semantics                         | Used for                                            |
+| ------------------ | --------------------------------- | --------------------------------------------------- |
+| Request / response | one-shot                          | `terminal.create`, `terminal.resize`, `session.get` |
+| Live query         | each push replaces previous value | Terminal metadata (CWD, git, PR, Claude state)      |
+| Streamed query     | pushes accumulate into an array   | Activity sparklines                                 |
 
-| Pattern            | oRPC mode                      | Semantics                         | Used for                                            |
-| ------------------ | ------------------------------ | --------------------------------- | --------------------------------------------------- |
-| Request / response | regular query/mutation         | one-shot                          | `terminal.create`, `terminal.resize`, `session.get` |
-| Live query         | `experimental_liveOptions`     | each push replaces previous value | Terminal metadata (CWD, git, PR, Claude state)      |
-| Streamed query     | `experimental_streamedOptions` | pushes accumulate into an array   | Activity sparklines (`maxChunks`-capped)            |
+[^orpc-patterns]: Wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query). Live queries use `experimental_liveOptions`; streamed queries use `experimental_streamedOptions` with `maxChunks` to cap array growth.
 
 ### Server
 
-Hono serves HTTP (`/api/health`, static client assets) and upgrades `/rpc/ws` to WebSocket for oRPC streaming.
+Hono serves HTTP and upgrades `/rpc/ws` to WebSocket for oRPC streaming.
 
-**Terminal lifecycle** — each terminal wraps a node-pty spawn paired with an @xterm/headless instance. The headless xterm parses VT sequences server-side, enabling serialized screen-state snapshots for late-joining clients (~4 KB instead of replaying the full scrollback buffer). PTY output, metadata changes, activity transitions, and exit events are routed through a typed in-memory [pub/sub layer](server/src/publisher.ts) to per-terminal channels.
+**Terminal lifecycle** — each terminal wraps a node-pty spawn paired with an @xterm/headless instance. The headless xterm parses VT sequences server-side, enabling screen-state snapshots for late-joining clients[^lazy-attach]. Events are routed through a typed in-memory [pub/sub layer](server/src/publisher.ts) to per-terminal channels.
+
+[^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
 **Metadata providers** form a one-way DAG — each provider subscribes to upstream changes and publishes downstream. All providers feed into a single aggregated metadata channel streamed to the client:
 
@@ -109,23 +111,54 @@ flowchart LR
   GitHub --> Meta
 ```
 
-**Persistence** — terminal sessions (CWD, sort order, parent relationships) auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms. Schema is versioned with explicit migrations.
+**Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
+
+[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
 
 ### Client
 
-[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). The client never calls `client.*` directly for server state — all server-derived data flows through [TanStack Query](https://tanstack.com/query) via [`@orpc/tanstack-query`](https://orpc.unnoq.com/docs/tanstack-query/solid-query). The oRPC contract generates type-safe `queryOptions`, `mutationOptions`, `experimental_liveOptions`, and `experimental_streamedOptions` that plug directly into TanStack's cache, deduplication, and lifecycle management.
+[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). All server-derived state flows through [TanStack Query](https://tanstack.com/query) via [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query) — the client never makes raw RPC calls for stateful data. The oRPC contract generates type-safe query/mutation options that plug directly into TanStack's cache, deduplication, and lifecycle management.
 
-**How server state reaches components:** [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) creates a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/createQueries) array — one live query and one streamed query per known terminal ID. When a terminal is added or removed, the query array reactively resizes. Metadata queries use `experimental_liveOptions` (each server push replaces the cached value); activity queries use `experimental_streamedOptions` (each push appends to the cached array, capped by `maxChunks`, trimmed to a 5-minute window via `select`). Components read derived state through `getMetadata(id)` and `getActivityHistory(id)` — plain accessors into the TanStack cache.
+```mermaid
+flowchart TB
+  subgraph Server["Server (WebSocket)"]
+    Meta["metadata stream\n(per terminal)"]
+    Activity["activity stream\n(per terminal)"]
+    Mutations["mutations\n(create, kill, reorder, …)"]
+  end
 
-**Mutations** ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) use `createMutation` with `orpc.*.mutationOptions()`. On success, they invalidate relevant query keys to trigger refetches (e.g., invalidating metadata after a reorder).
+  subgraph TanStack["TanStack Query Cache"]
+    Live["Live queries\n(liveOptions)"]
+    Streamed["Streamed queries\n(streamedOptions)"]
+    Mut["createMutation\n(mutationOptions)"]
+  end
 
-Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS signals and [stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
+  subgraph Components["SolidJS Components"]
+    GMeta["getMetadata(id)"]
+    GActivity["getActivityHistory(id)"]
+    CRUD["handleCreate / handleKill / …"]
+  end
 
-[xterm.js](https://xtermjs.org/) renders terminals with WebGL acceleration, clickable URLs, image protocols (sixel, iTerm2, kitty), and search. The WebSocket connection uses [PartySocket](https://docs.partykit.io/reference/partysocket-api/) for auto-reconnect with exponential backoff; server restarts are detected via a `processId` probe.
+  Meta --> Live
+  Activity --> Streamed
+  Mutations --> Mut
+  Live --> GMeta
+  Streamed --> GActivity
+  Mut -->|invalidates| Live
+  CRUD --> Mut
+```
+
+[`useTerminalMetadata`](client/src/useTerminalMetadata.ts) creates a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array — one live query and one streamed query per known terminal. The array reactively resizes as terminals are added or removed. Mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) invalidate query keys on success to trigger refetches[^client-state].
+
+[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
+
+[xterm.js](https://xtermjs.org/) renders terminals with WebGL acceleration, clickable URLs, image protocols (sixel, iTerm2, kitty), and search. [PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles auto-reconnect; server restarts are detected via a `processId` probe.
 
 ### Build & packaging
 
-Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared environment variables (`KOLU_THEMES_JSON`, font paths, clipboard shims) are defined once in `koluEnv` and consumed by both the build and the devShell. The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
+Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
+
+[^build]: `koluEnv` includes `KOLU_THEMES_JSON`, font paths, and clipboard shims. The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
 
 ## Development
 
