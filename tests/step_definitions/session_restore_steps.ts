@@ -8,7 +8,7 @@ Given(
   async function (this: KoluWorld, count: number) {
     // Use paths guaranteed to exist on all platforms (no mkdir needed)
     const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
-    await this.page.request.fetch("/rpc/session/test__set", {
+    const resp = await this.page.request.fetch("/rpc/session/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({
@@ -18,14 +18,22 @@ Given(
         },
       }),
     });
+    assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
   },
 );
 
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    const card = this.page.locator('[data-testid="session-restore"]');
-    await card.waitFor({ state: "visible", timeout: 20000 });
+    // Under 8 parallel workers, page/server init can be slow.
+    // Use waitForFunction for a reactive DOM check.
+    await this.page.waitForFunction(
+      () => {
+        const card = document.querySelector('[data-testid="session-restore"]');
+        return card && card.getBoundingClientRect().height > 0;
+      },
+      { timeout: 20000 },
+    );
   },
 );
 
