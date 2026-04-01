@@ -40,14 +40,7 @@ For each finding: file, line, one-line risk, concrete fix. If no issues, say so 
 
 ## Pass 3: Elegance
 
-Review the changes for unnecessary complexity, non-idiomatic patterns, and missed simplifications.
-
-- Could any code be shorter without losing clarity?
-- Are there language/framework features that would express the same intent more directly?
-- Are there unnecessary abstractions that should be removed?
-- Is the code idiomatic for the technology (e.g., SolidJS patterns, not React patterns)?
-
-For each finding: what to simplify and how. Focus on the changes only, not the whole codebase.
+Invoke the `/elegance` command via the Skill tool: `skill: "elegance"`. Scope to changes in the current branch/PR only. When `/elegance` asks about scope, answer: **changes in the current branch/PR only**.
 
 ## Output
 
