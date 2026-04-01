@@ -49,26 +49,11 @@ When(
 Then(
   "the sidebar should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    // Use Playwright's built-in polling via expect-like pattern
-    if (expected === 0) {
-      await entries.first().waitFor({ state: "hidden", timeout: 10000 });
-    } else {
-      await entries
-        .nth(expected - 1)
-        .waitFor({ state: "visible", timeout: 10000 });
-      // Verify no extra entries
-      for (let attempt = 0; attempt < 10; attempt++) {
-        const count = await entries.count();
-        if (count === expected) return;
-        await this.waitForFrame();
-      }
-    }
-    const count = await entries.count();
-    assert.strictEqual(
-      count,
-      expected,
-      `Expected ${expected} sidebar entries, got ${count}`,
+    const sel = SIDEBAR_ENTRY_SELECTOR;
+    await this.page.waitForFunction(
+      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
+      { sel, exp: expected },
+      { timeout: 5000 },
     );
   },
 );
@@ -81,7 +66,6 @@ Then("the empty state tip should be visible", async function (this: KoluWorld) {
 Then(
   "the sidebar should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     // Natural exit can take a moment — use waitForFunction for reactive check
     const sel = SIDEBAR_ENTRY_SELECTOR;
     await this.page.waitForFunction(
