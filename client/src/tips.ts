@@ -49,19 +49,19 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     : []),
   {
     id: "amb-sub",
-    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal with a sub-panel`,
+    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your workspace with a terminal panel`,
   },
-  { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
+  { id: "amb-drag", text: "Drag sidebar entries to reorder workspaces" },
   {
     id: "amb-mru",
     text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
   },
   {
     id: "amb-search",
-    text: `${formatKeybind(SHORTCUTS.findInTerminal.keybind)} searches terminal output`,
+    text: `${formatKeybind(SHORTCUTS.findInTerminal.keybind)} searches workspace output`,
   },
   {
     id: "amb-random-theme",
-    text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the terminal color theme`,
+    text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the color theme`,
   },
 ];

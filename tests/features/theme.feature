@@ -84,7 +84,7 @@ Feature: Theme switching
     And I select "Theme" in the palette
     And I type "Dracula" in the palette
     And I press Enter
-    And I create a terminal
+    And I create a workspace
     Then the header should show theme "Tomorrow Night"
     # Select the newly created terminal (index 1 in createdTerminalIds),
     # then switch back to it after selecting the background terminal by sidebar position.

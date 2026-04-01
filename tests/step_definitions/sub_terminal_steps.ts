@@ -55,9 +55,9 @@ async function paletteCommand(world: KoluWorld, query: string) {
 }
 
 When(
-  "I create a sub-terminal via command palette",
+  "I create a terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal");
   },
 );
 
@@ -68,16 +68,16 @@ When("I click the main terminal", async function (this: KoluWorld) {
 });
 
 When(
-  "I toggle the sub-panel via command palette",
+  "I toggle the terminal panel via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal");
   },
 );
 
 When(
-  "I run {string} in the sub-terminal",
+  "I run {string} in the terminal panel",
   async function (this: KoluWorld, command: string) {
-    // Wait for focus to be in a sub-terminal (not the main one)
+    // Wait for focus to be in a terminal (not the main one)
     await this.page.waitForFunction(
       () => {
         const active = document.activeElement;
@@ -91,18 +91,21 @@ When(
   },
 );
 
-Then("the sub-panel should be visible", async function (this: KoluWorld) {
+Then("the terminal panel should be visible", async function (this: KoluWorld) {
   const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
   await tabBar.waitFor({ state: "visible", timeout: 5000 });
 });
 
-Then("the sub-panel should not be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-  await tabBar.waitFor({ state: "hidden", timeout: 5000 });
-});
+Then(
+  "the terminal panel should not be visible",
+  async function (this: KoluWorld) {
+    const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+    await tabBar.waitFor({ state: "hidden", timeout: 5000 });
+  },
+);
 
 Then(
-  "the sub-terminal should have keyboard focus",
+  "the terminal should have keyboard focus",
   async function (this: KoluWorld) {
     const result = await pollUntil(
       this.page,
@@ -130,7 +133,7 @@ Then(
     );
     assert.ok(
       result.focused,
-      `Expected keyboard focus in the sub-terminal (${result.reason})`,
+      `Expected keyboard focus in the terminal panel (${result.reason})`,
     );
   },
 );
@@ -160,10 +163,10 @@ Then(
 );
 
 Then(
-  "the sidebar entry should show sub-terminal count {int}",
+  "the sidebar entry should show terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[data-active] [data-testid="terminal-count"]',
     );
     const text = await badge.textContent({ timeout: 5000 });
     assert.strictEqual(text, `+${expected}`);
@@ -171,17 +174,17 @@ Then(
 );
 
 When(
-  "I create another sub-terminal via command palette",
+  "I create another terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "New sub-terminal");
+    await paletteCommand(this, "New terminal");
   },
 );
 
 When(
-  "I click sub-panel tab {int}",
+  "I click terminal panel tab {int}",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])',
     );
     await tabs.nth(index - 1).click();
     await this.waitForFrame();
@@ -189,11 +192,11 @@ When(
 );
 
 Then(
-  "the sub-panel tab bar should have {int} tab(s)",
+  "the terminal panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
     const sel =
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])';
-    // Poll — the second sub-terminal may still be initializing
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])';
+    // Poll — the second terminal may still be initializing
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -203,10 +206,10 @@ Then(
 );
 
 Then(
-  "sub-panel tab {int} should be active",
+  "terminal panel tab {int} should be active",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title="New terminal"])',
     );
     const tab = tabs.nth(index - 1);
     const active = await tab.getAttribute("data-active");
@@ -218,7 +221,7 @@ Then(
 );
 
 Then(
-  "the sub-panel should eventually collapse",
+  "the terminal panel should eventually collapse",
   async function (this: KoluWorld) {
     const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
     await tabBar.waitFor({ state: "hidden", timeout: 20000 });
@@ -226,13 +229,13 @@ Then(
 );
 
 Then(
-  "the sidebar entry should not show a sub-terminal count",
+  "the sidebar entry should not show a terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
+      '[data-testid="sidebar"] button[data-active] [data-testid="terminal-count"]',
     );
     const count = await badge.count();
-    assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
+    assert.strictEqual(count, 0, "Expected no terminal count badge");
   },
 );
 
@@ -250,7 +253,7 @@ Then("the resize handle should be visible", async function (this: KoluWorld) {
 });
 
 Then(
-  "the sub-terminal screen should contain {string}",
+  "the terminal panel screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await pollUntilBufferContains(this.page, expected, {
       selector: "[data-terminal-id][data-visible]",

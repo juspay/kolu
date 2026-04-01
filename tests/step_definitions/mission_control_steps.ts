@@ -150,12 +150,12 @@ When(
 );
 
 Then(
-  "the active terminal should not show {string}",
+  "the active workspace should not show {string}",
   async function (this: KoluWorld, forbidden: string) {
     const content = await readBufferText(this.page);
     assert.ok(
       !content.includes(forbidden),
-      `Terminal buffer unexpectedly contains "${forbidden}".\nBuffer (partial): ${content.slice(0, 500)}`,
+      `Workspace buffer unexpectedly contains "${forbidden}".\nBuffer (partial): ${content.slice(0, 500)}`,
     );
   },
 );

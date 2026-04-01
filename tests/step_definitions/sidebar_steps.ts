@@ -3,21 +3,21 @@ import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
-When("I create a terminal", async function (this: KoluWorld) {
+When("I create a workspace", async function (this: KoluWorld) {
   const id = await this.createTerminal();
   this.createdTerminalIds.push(id);
 });
 
 When(
-  "I select terminal {int} in the sidebar",
+  "I select workspace {int} in the sidebar",
   async function (this: KoluWorld, index: number) {
-    // Select by the Nth terminal created in this scenario (1-based)
+    // Select by the Nth workspace created in this scenario (1-based)
     const id = this.createdTerminalIds[index - 1];
-    assert.ok(id, `No terminal created at index ${index} in this scenario`);
+    assert.ok(id, `No workspace created at index ${index} in this scenario`);
     await this.page
       .locator(`[data-testid="sidebar"] [data-terminal-id="${id}"]`)
       .click();
-    // Wait for the selected terminal to become active (data-visible attribute appears)
+    // Wait for the selected workspace to become active (data-visible attribute appears)
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: 5000 });
@@ -41,10 +41,10 @@ Given("I note the sidebar entry count", async function (this: KoluWorld) {
 });
 
 Then(
-  "the sidebar should have {int} more terminal entry/entries",
+  "the sidebar should have {int} more workspace entry/entries",
   async function (this: KoluWorld, delta: number) {
     const expected = (this.savedSidebarCount ?? 0) + delta;
-    // Wait for entries to appear (onMount restores terminals asynchronously after refresh)
+    // Wait for entries to appear (onMount restores workspaces asynchronously after refresh)
     const buttons = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     await buttons
       .nth(expected - 1)
@@ -60,10 +60,10 @@ Then(
 );
 
 Then(
-  "the terminal should have keyboard focus",
+  "the workspace should have keyboard focus",
   async function (this: KoluWorld) {
     // Ghostty uses a hidden textarea for keyboard input.
-    // Verify focus is inside the active terminal container (data-visible), not the sidebar.
+    // Verify focus is inside the active workspace container (data-visible), not the sidebar.
     // Poll — Corvu's focus trap release is async and can be slow under load.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
@@ -73,7 +73,7 @@ Then(
 );
 
 Then(
-  "the active terminal should show {string}",
+  "the active workspace should show {string}",
   async function (this: KoluWorld, expected: string) {
     await pollUntilBufferContains(this.page, expected);
   },

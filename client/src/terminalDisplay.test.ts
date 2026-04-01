@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   assignColors,
-  terminalName,
+  workspaceName,
   buildTerminalDisplayInfos,
 } from "./terminalDisplay";
 import type { TerminalMetadata, GitInfo, ActivitySample } from "kolu-common";
@@ -59,19 +59,19 @@ describe("assignColors", () => {
   });
 });
 
-describe("terminalName", () => {
+describe("workspaceName", () => {
   it("returns repo name when git info is present", () => {
     expect(
-      terminalName(makeMeta({ git: makeGit({ repoName: "my-repo" }) })),
+      workspaceName(makeMeta({ git: makeGit({ repoName: "my-repo" }) })),
     ).toBe("my-repo");
   });
 
   it("falls back to cwd basename when no git", () => {
-    expect(terminalName(makeMeta())).toBe("project");
+    expect(workspaceName(makeMeta())).toBe("project");
   });
 
   it("falls back to cwd basename ~ for home dir", () => {
-    expect(terminalName(makeMeta({ cwd: "/root" }))).toBe("~");
+    expect(workspaceName(makeMeta({ cwd: "/root" }))).toBe("~");
   });
 });
 
@@ -99,17 +99,17 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info.name).toBe("repo");
     expect(info.repoColor).toMatch(/^oklch\(/);
     expect(info.branchColor).toMatch(/^oklch\(/);
-    expect(info.subCount).toBe(0);
+    expect(info.terminalCount).toBe(0);
   });
 
-  it("counts sub-terminals", () => {
+  it("counts terminals in workspace", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1"],
       () => makeMeta(),
       () => [] as ActivitySample[],
-      () => ["sub-1", "sub-2"],
+      () => ["term-1", "term-2"],
     );
-    expect(result.get("id-1")!.subCount).toBe(2);
+    expect(result.get("id-1")!.terminalCount).toBe(2);
   });
 
   it("skips terminals with no metadata", () => {

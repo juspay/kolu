@@ -13,8 +13,8 @@ export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   markAttention: (id: TerminalId) => void;
-  terminalIds: Accessor<TerminalId[]>;
-  terminalLabel: (id: TerminalId) => string;
+  workspaceIds: Accessor<TerminalId[]>;
+  workspaceLabel: (id: TerminalId) => string;
 }) {
   // Request browser notification permission eagerly when alerts are enabled
   if (deps.activityAlerts()) requestNotificationPermission();
@@ -23,9 +23,10 @@ export function useTerminalAlerts(deps: {
   // SolidJS's on() tracks previous values natively — no manual Map needed.
   createEffect(
     on(
-      () => deps.terminalIds().map((id) => deps.getMetadata(id)?.claude?.state),
+      () =>
+        deps.workspaceIds().map((id) => deps.getMetadata(id)?.claude?.state),
       (states, prevStates) => {
-        const ids = deps.terminalIds();
+        const ids = deps.workspaceIds();
         for (let i = 0; i < ids.length; i++) {
           if (prevStates && prevStates[i] !== undefined) {
             checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
@@ -45,16 +46,16 @@ export function useTerminalAlerts(deps: {
     const isBackground = id !== deps.activeId();
     if (isBackground) deps.markAttention(id);
     if (isBackground || document.hidden)
-      fireActivityAlert(deps.terminalLabel(id));
+      fireActivityAlert(deps.workspaceLabel(id));
   }
 
   function simulateAlert() {
     if (!deps.activityAlerts()) return;
-    const inactive = deps.terminalIds().filter((id) => id !== deps.activeId());
+    const inactive = deps.workspaceIds().filter((id) => id !== deps.activeId());
     if (inactive.length === 0) return;
     const id = inactive[Math.floor(Math.random() * inactive.length)]!;
     deps.markAttention(id);
-    fireActivityAlert(deps.terminalLabel(id));
+    fireActivityAlert(deps.workspaceLabel(id));
   }
 
   return { simulateAlert };

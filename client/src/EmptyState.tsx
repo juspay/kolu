@@ -1,4 +1,4 @@
-/** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
+/** Empty state — shown when no workspaces exist. Offers session restore + key shortcuts. */
 
 import { type Component, For, Show } from "solid-js";
 import type { SavedSession } from "kolu-common";
@@ -8,10 +8,10 @@ import Kbd from "./Kbd";
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 
 const features = [
-  { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
+  { label: "New workspace", shortcut: SHORTCUTS.createTerminalAlt.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
   { label: "Mission Control", shortcut: SHORTCUTS.missionControl.keybind },
-  { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
+  { label: "Terminal panel", shortcut: SHORTCUTS.toggleSubPanel.keybind },
 ];
 
 interface EmptyStateProps {
@@ -51,7 +51,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 </For>
                 <Show when={subCount() > 0}>
                   <div class="text-xs text-fg-3/50">
-                    +{subCount()} sub-terminal{subCount() > 1 ? "s" : ""}
+                    +{subCount()} terminal{subCount() > 1 ? "s" : ""}
                   </div>
                 </Show>
               </div>
@@ -60,7 +60,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 class="w-full px-3 py-1.5 text-sm rounded bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
                 onClick={() => props.onRestore?.()}
               >
-                Restore {session().terminals.length} terminal
+                Restore {session().terminals.length} workspace
                 {session().terminals.length > 1 ? "s" : ""}
               </button>
             </div>

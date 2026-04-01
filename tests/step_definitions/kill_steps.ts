@@ -7,47 +7,47 @@ import {
 import * as assert from "node:assert";
 
 When(
-  "I close terminal {int} via sidebar",
+  "I close workspace {int} via sidebar",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
-    assert.ok(id, `No terminal created at index ${index}`);
-    // Select the terminal first by clicking its sidebar entry
+    assert.ok(id, `No workspace created at index ${index}`);
+    // Select the workspace first by clicking its sidebar entry
     const entry = this.page.locator(
       `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
     );
     await entry.click();
     await this.waitForFrame();
-    // Close via command palette (close button was removed from sidebar)
+    // Close via command palette
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("input").fill("Close terminal");
+    await palette.locator("input").fill("Close workspace");
     await palette
-      .locator("li", { hasText: "Close terminal" })
+      .locator("li", { hasText: "Close workspace" })
       .waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    await palette.locator("li", { hasText: "Close workspace" }).click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
   },
 );
 
 When(
-  "I close the active terminal via command palette",
+  "I close the active workspace via command palette",
   async function (this: KoluWorld) {
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
     await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("input").fill("Close terminal");
+    await palette.locator("input").fill("Close workspace");
     await palette
-      .locator("li", { hasText: "Close terminal" })
+      .locator("li", { hasText: "Close workspace" })
       .waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    await palette.locator("li", { hasText: "Close workspace" }).click();
     await this.waitForFrame();
   },
 );
 
 Then(
-  "the sidebar should have {int} terminal entry/entries",
+  "the sidebar should have {int} workspace entry/entries",
   async function (this: KoluWorld, expected: number) {
     const sel = SIDEBAR_ENTRY_SELECTOR;
     await this.page.waitForFunction(
@@ -64,7 +64,7 @@ Then("the empty state tip should be visible", async function (this: KoluWorld) {
 });
 
 Then(
-  "the sidebar should eventually have {int} terminal entry/entries",
+  "the sidebar should eventually have {int} workspace entry/entries",
   async function (this: KoluWorld, expected: number) {
     // Natural exit can take a moment — use waitForFunction for reactive check
     const sel = SIDEBAR_ENTRY_SELECTOR;

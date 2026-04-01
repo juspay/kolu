@@ -21,7 +21,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   },
   SHORTCUTS.nextTerminalTab,
   SHORTCUTS.prevTerminalTab,
-  { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
+  { ...SHORTCUTS.switchTo1, label: "Switch to workspace 1–9" },
   SHORTCUTS.findInTerminal,
   SHORTCUTS.zoomIn,
   SHORTCUTS.zoomOut,

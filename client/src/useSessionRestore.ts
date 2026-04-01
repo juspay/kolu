@@ -4,7 +4,7 @@ import { createSignal, createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import { client } from "./rpc";
 import { orpc } from "./orpc";
-import { useSubPanel } from "./useSubPanel";
+import { useTerminalPanel } from "./useTerminalPanel";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -12,13 +12,13 @@ export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
   handleCreate: (cwd?: string) => Promise<TerminalId>;
-  handleCreateSubTerminal: (
-    parentId: TerminalId,
+  handleCreateTerminal: (
+    workspaceId: TerminalId,
     cwd?: string,
   ) => Promise<void>;
 }) {
   const { store } = deps;
-  const subPanel = useSubPanel();
+  const terminalPanel = useTerminalPanel();
 
   const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
 
@@ -42,21 +42,21 @@ export function useSessionRestore(deps: {
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
-    // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs: Record<TerminalId, TerminalId[]> = {};
+    // Initialize terminal panel active tabs for workspaces with terminals
+    const terminals: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
       if (t.meta.parentId) {
-        (subs[t.meta.parentId] ??= []).push(t.id);
+        (terminals[t.meta.parentId] ??= []).push(t.id);
       }
     }
-    for (const [parentId, subIds] of Object.entries(subs)) {
-      const panel = subPanel.getSubPanel(parentId);
-      if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
-        subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
+    for (const [workspaceId, termIds] of Object.entries(terminals)) {
+      const panel = terminalPanel.getSubPanel(workspaceId);
+      if (!panel.activeSubTab || !termIds.includes(panel.activeSubTab)) {
+        terminalPanel.setActiveSubTab(workspaceId, termIds[0] ?? null);
       }
     }
 
-    // Keep persisted active terminal if it still exists; otherwise pick first
+    // Keep persisted active workspace if it still exists; otherwise pick first
     const persisted = store.activeId();
     const topLevel = existing
       .filter((t) => !t.meta.parentId)
@@ -66,7 +66,7 @@ export function useSessionRestore(deps: {
       store.setActiveId(topIds[0] ?? null);
     }
 
-    // Seed MRU with all top-level terminals (active first, rest in sidebar order).
+    // Seed MRU with all top-level workspaces (active first, rest in sidebar order).
     const active = store.activeId();
     store.setMruOrder(
       active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
@@ -75,9 +75,9 @@ export function useSessionRestore(deps: {
     for (const t of existing) deps.subscribeExit(t.id);
   }
 
-  // Re-fetch saved session when all terminals are killed mid-session.
+  // Re-fetch saved session when all workspaces are closed mid-session.
   createEffect(() => {
-    if (store.terminalIds().length === 0 && hydrated) {
+    if (store.workspaceIds().length === 0 && hydrated) {
       client.session.get().then(setSavedSession);
     }
   });
@@ -87,15 +87,16 @@ export function useSessionRestore(deps: {
     if (!session) return;
     setSavedSession(null);
     const oldToNew = new Map<string, TerminalId>();
-    const topLevel = session.terminals.filter((t) => !t.parentId);
-    const subTerminals = session.terminals.filter((t) => t.parentId);
-    for (const t of topLevel) {
+    const workspaces = session.terminals.filter((t) => !t.parentId);
+    const terminals = session.terminals.filter((t) => t.parentId);
+    for (const t of workspaces) {
       const newId = await deps.handleCreate(t.cwd);
       oldToNew.set(t.id, newId);
     }
-    for (const t of subTerminals) {
-      const newParentId = oldToNew.get(t.parentId!);
-      if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+    for (const t of terminals) {
+      const newWorkspaceId = oldToNew.get(t.parentId!);
+      if (newWorkspaceId)
+        await deps.handleCreateTerminal(newWorkspaceId, t.cwd);
     }
   }
 

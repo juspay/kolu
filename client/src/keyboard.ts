@@ -64,13 +64,13 @@ export function formatKeybind(kb: Keybind): string {
   return isMac ? parts.join("") : parts.join("+");
 }
 
-/** Mod+1 through Mod+9 for direct terminal switching. */
+/** Mod+1 through Mod+9 for direct workspace switching. */
 const SWITCH_SHORTCUTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [
     `switchTo${i + 1}`,
     {
       keybind: { key: String(i + 1), mod: true },
-      label: `Switch to terminal ${i + 1}`,
+      label: `Switch to workspace ${i + 1}`,
     },
   ]),
 ) as { [K in `switchTo${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`]: Shortcut };
@@ -80,19 +80,19 @@ export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
   createTerminal: {
     keybind: { key: "t", mod: true },
-    label: "Create new terminal",
+    label: "New workspace",
   },
   createTerminalAlt: {
     keybind: { key: "Enter", mod: true },
-    label: "Create new terminal",
+    label: "New workspace",
   },
   nextTerminal: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
-    label: "Next terminal",
+    label: "Next workspace",
   },
   prevTerminal: {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
-    label: "Previous terminal",
+    label: "Previous workspace",
   },
   nextTerminalTab: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
@@ -109,26 +109,26 @@ export const SHORTCUTS = {
   shortcutsHelp: { keybind: { key: "/", mod: true }, label: "Shortcuts help" },
   findInTerminal: {
     keybind: { key: "f", mod: true },
-    label: "Find in terminal",
+    label: "Find in workspace",
   },
   zoomIn: { keybind: { key: "+", mod: true }, label: "Zoom in" },
   zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
   toggleSubPanel: {
     keybind: { key: "`", code: "Backquote", ctrl: true },
-    label: "Toggle sub-panel",
+    label: "Toggle terminal panel",
   },
   createSubTerminal: {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
-    label: "New sub-terminal",
+    label: "New terminal",
   },
   nextSubTab: {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    label: "Next sub-tab",
+    label: "Next terminal tab",
   },
   prevSubTab: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    label: "Previous sub-tab",
+    label: "Previous terminal tab",
   },
   missionControl: {
     keybind: { key: ".", mod: true },
@@ -140,7 +140,7 @@ export const SHORTCUTS = {
   },
   copyTerminalText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
-    label: "Copy terminal text",
+    label: "Copy workspace text",
   },
 } as const satisfies Record<string, Shortcut>;
 

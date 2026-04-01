@@ -1,8 +1,8 @@
-/** Terminal store — composes view state and metadata modules.
+/** Workspace store — composes view state and metadata modules.
  *  Server-derived state (including ordering) lives in TanStack cache.
  *  Client view state (activeId, attention, mruOrder) lives in local signals.
  *
- *  The terminal list is a live query — the server pushes updates on
+ *  The workspace list is a live query — the server pushes updates on
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
 import { createQuery } from "@tanstack/solid-query";

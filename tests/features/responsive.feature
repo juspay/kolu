@@ -32,11 +32,11 @@ Feature: Responsive sidebar layout
     Then the sidebar should not be visible
 
   Scenario: Selecting terminal auto-closes sidebar on mobile
-    Given I create a terminal
+    Given I create a workspace
     When I resize the viewport to 375x667
     And I click the sidebar toggle
     Then the sidebar should be visible
-    When I select terminal 1 in the sidebar
+    When I select workspace 1 in the sidebar
     Then the sidebar should not be visible
 
   Scenario: Sidebar does not overlap header on mobile

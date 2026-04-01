@@ -74,9 +74,9 @@ export const TerminalMetadataSchema = z.object({
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
   themeName: z.string().optional(),
-  /** If set, this terminal is a sub-terminal of the given parent. */
+  /** If set, this terminal belongs to the given workspace. */
   parentId: z.string().optional(),
-  /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
+  /** Numeric ordering within the group (top-level workspaces or terminals in a workspace). Higher = later. */
   sortOrder: z.number(),
 });
 
@@ -162,7 +162,7 @@ export const SavedTerminalSchema = z.object({
   /** Stable ID within this session (original terminal UUID at save time). */
   id: z.string(),
   cwd: z.string(),
-  /** References another saved terminal's `id` (sub-terminal relationship). */
+  /** References a workspace's `id` (terminal belongs to this workspace). */
   parentId: z.string().optional(),
   /** Snapshot of repo name at save time (for display only). */
   repoName: z.string().optional(),

@@ -1,4 +1,4 @@
-/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal. */
+/** Terminal panel UI state — singleton module. Tracks collapsed, size, active tab per workspace. */
 
 import { createStore, produce } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
@@ -32,7 +32,7 @@ function ensureState(parentId: TerminalId): SubPanelState {
   return state[parentId]!;
 }
 
-export function useSubPanel() {
+export function useTerminalPanel() {
   return {
     getSubPanel(parentId: TerminalId): SubPanelState {
       return ensureState(parentId);

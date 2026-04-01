@@ -4,7 +4,7 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 
 Given(
-  "a saved session with {int} terminals",
+  "a saved session with {int} workspaces",
   async function (this: KoluWorld, count: number) {
     // Use paths guaranteed to exist on all platforms (no mkdir needed)
     const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);

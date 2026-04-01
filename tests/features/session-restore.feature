@@ -4,10 +4,10 @@ Feature: Session restore
 
   Scenario: Restore previous session from empty state
     # Seed a known session on the server (no timing dependency on auto-save)
-    Given a saved session with 2 terminals
+    Given a saved session with 2 workspaces
     When I open the app
     Then the session restore card should be visible
-    And the restore button should mention "2 terminals"
+    And the restore button should mention "2 workspaces"
     When I click the restore button
     Then there should be 2 sidebar entries
     And there should be no page errors

@@ -1,4 +1,4 @@
-/** Terminal metadata display — name, branch, PR, agent status, activity.
+/** Workspace metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
 import { type Component, Show } from "solid-js";
@@ -10,11 +10,11 @@ import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
-export type TerminalMetaMode = "normal" | "readonly";
+export type WorkspaceMetaMode = "normal" | "readonly";
 
-const TerminalMeta: Component<{
+const WorkspaceMeta: Component<{
   info: TerminalDisplayInfo | undefined;
-  mode?: TerminalMetaMode;
+  mode?: WorkspaceMetaMode;
 }> = (props) => {
   const mode = () => props.mode ?? "normal";
   const nameClass = () =>
@@ -23,13 +23,13 @@ const TerminalMeta: Component<{
   const i = () => props.info;
 
   return (
-    <Show when={i()} fallback={<TerminalMetaSkeleton />}>
+    <Show when={i()} fallback={<WorkspaceMetaSkeleton />}>
       {(info) => (
         <>
           {/* Name row */}
           <div class={`flex items-center gap-1.5 ${nameClass()} truncate`}>
             <span
-              data-testid="terminal-meta-name"
+              data-testid="workspace-meta-name"
               class="truncate"
               style={{ color: info().repoColor }}
             >
@@ -48,12 +48,12 @@ const TerminalMeta: Component<{
                 </Show>
               )}
             </Show>
-            <Show when={info().subCount > 0}>
+            <Show when={info().terminalCount > 0}>
               <span
-                data-testid="sub-count"
+                data-testid="terminal-count"
                 class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
               >
-                +{info().subCount}
+                +{info().terminalCount}
               </span>
             </Show>
           </div>
@@ -63,7 +63,7 @@ const TerminalMeta: Component<{
             when={info().meta.git}
             fallback={
               <div
-                data-testid="terminal-meta-branch"
+                data-testid="workspace-meta-branch"
                 class={`${detailClass()} text-fg-2`}
               >
                 {"\u00A0"}
@@ -73,7 +73,7 @@ const TerminalMeta: Component<{
             {(git) => (
               <Tip label={git().branch}>
                 <div
-                  data-testid="terminal-meta-branch"
+                  data-testid="workspace-meta-branch"
                   class={`${detailClass()} truncate`}
                   style={{ color: info().branchColor }}
                   classList={{ "text-fg-2": !info().branchColor }}
@@ -89,7 +89,7 @@ const TerminalMeta: Component<{
             {(pr) => (
               <div
                 class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
-                data-testid="terminal-meta-pr"
+                data-testid="workspace-meta-pr"
                 title={`#${pr().number} ${pr().title}`}
               >
                 <PrStateIcon state={pr().state} class="w-3 h-3" />
@@ -141,11 +141,11 @@ const TerminalMeta: Component<{
 };
 
 /** Skeleton placeholder shown while metadata query is pending. */
-const TerminalMetaSkeleton: Component = () => (
+const WorkspaceMetaSkeleton: Component = () => (
   <div class="animate-pulse space-y-1.5">
     <div class="h-3.5 w-24 bg-surface-2 rounded" />
     <div class="h-3 w-16 bg-surface-2 rounded" />
   </div>
 );
 
-export default TerminalMeta;
+export default WorkspaceMeta;

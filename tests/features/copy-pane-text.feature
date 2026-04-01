@@ -15,5 +15,5 @@ Feature: Copy terminal text
     And I open the command palette
     And I type "Copy terminal" in the palette
     And I press Enter
-    Then a toast should appear with text "Copied terminal text to clipboard"
+    Then a toast should appear with text "Copied workspace text to clipboard"
     And there should be no page errors

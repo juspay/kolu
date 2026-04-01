@@ -7,22 +7,22 @@ import type { MCMode } from "./MissionControl";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 interface ShortcutDeps {
-  terminalIds: Accessor<TerminalId[]>;
+  workspaceIds: Accessor<TerminalId[]>;
   activeId: Accessor<TerminalId | null>;
   setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  handleCreateTerminal: (workspaceId: TerminalId, cwd?: string) => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
   mcMode: Accessor<MCMode>;
   setMcMode: Setter<MCMode>;
-  toggleSubPanel: (parentId: TerminalId) => void;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
-  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
+  toggleTerminalPanel: (workspaceId: TerminalId) => void;
+  getTerminalIds: (workspaceId: TerminalId) => TerminalId[];
+  cycleTerminalTab: (workspaceId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
-  handleCopyTerminalText: () => void;
+  handleCopyWorkspaceText: () => void;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root.
@@ -48,10 +48,10 @@ export function useShortcuts(deps: ShortcutDeps) {
 
 /** Try to handle the event. Returns true if a shortcut matched. */
 function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
-  // Mod+1-9: switch to terminal by position
+  // Mod+1-9: switch to workspace by position
   const digit = parseInt(e.key);
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
-    const ids = deps.terminalIds();
+    const ids = deps.workspaceIds();
     if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);
     return true;
   }
@@ -82,12 +82,12 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
-    cycleTerminal(deps, 1);
+    cycleWorkspace(deps, 1);
     return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
-    cycleTerminal(deps, -1);
+    cycleWorkspace(deps, -1);
     return true;
   }
 
@@ -113,19 +113,18 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
     const id = deps.activeId();
-    if (id)
-      deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
+    if (id) deps.handleCreateTerminal(id, deps.activeMeta()?.cwd ?? undefined);
     return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
     const id = deps.activeId();
     if (id) {
-      // If no sub-terminals exist yet, create one
-      if (deps.getSubTerminalIds(id).length === 0) {
-        deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
+      // If no terminals exist yet, create one
+      if (deps.getTerminalIds(id).length === 0) {
+        deps.handleCreateTerminal(id, deps.activeMeta()?.cwd ?? undefined);
       } else {
-        deps.toggleSubPanel(id);
+        deps.toggleTerminalPanel(id);
       }
     }
     return true;
@@ -133,13 +132,13 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
 
   if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
     const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, 1);
+    if (id) deps.cycleTerminalTab(id, 1);
     return true;
   }
 
   if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
     const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, -1);
+    if (id) deps.cycleTerminalTab(id, -1);
     return true;
   }
 
@@ -149,15 +148,15 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.copyTerminalText.keybind)) {
-    deps.handleCopyTerminalText();
+    deps.handleCopyWorkspaceText();
     return true;
   }
 
   return false;
 }
 
-function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
-  const ids = deps.terminalIds();
+function cycleWorkspace(deps: ShortcutDeps, direction: 1 | -1) {
+  const ids = deps.workspaceIds();
   if (ids.length === 0) return;
   const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;

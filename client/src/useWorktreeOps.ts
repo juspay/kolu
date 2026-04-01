@@ -1,4 +1,4 @@
-/** Worktree operations — create and remove git worktrees with associated terminals. */
+/** Worktree operations — create and remove git worktrees with associated workspaces. */
 
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
@@ -40,8 +40,8 @@ export function useWorktreeOps(deps: {
     if (!id) return;
     const meta = store.activeMeta();
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
-    const subs = store.getSubTerminalIds(id);
-    for (const subId of subs) await deps.handleKill(subId);
+    const terminals = store.getTerminalIds(id);
+    for (const termId of terminals) await deps.handleKill(termId);
     await deps.handleKill(id);
     if (worktreePath) {
       await worktreeRemoveMut.mutateAsync({ worktreePath });

@@ -63,19 +63,19 @@ function showStartupTip() {
  * Wire up state-driven tip triggers. Call once from the app root.
  * Event-driven tips (sidebar click, theme button) stay at their call sites.
  */
-function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
-  // Startup tip — once, 1s after first terminal appears
+function initTipTriggers(deps: { workspaceIds: Accessor<TerminalId[]> }) {
+  // Startup tip — once, 1s after first workspace appears
   let startupFired = false;
   createEffect(() => {
-    if (!startupFired && deps.terminalIds().length > 0) {
+    if (!startupFired && deps.workspaceIds().length > 0) {
       startupFired = true;
       setTimeout(showStartupTip, 1000);
     }
   });
 
-  // Mission Control nudge at 3+ terminals
+  // Mission Control nudge at 3+ workspaces
   createEffect(() => {
-    if (deps.terminalIds().length >= 3)
+    if (deps.workspaceIds().length >= 3)
       showTipOnce(CONTEXTUAL_TIPS.missionControl);
   });
 }

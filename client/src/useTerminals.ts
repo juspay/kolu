@@ -30,8 +30,8 @@ export function useTerminals(deps: {
     activeId: store.activeId,
     getMetadata: store.getMetadata,
     markAttention: store.markAttention,
-    terminalIds: store.terminalIds,
-    terminalLabel: store.terminalLabel,
+    workspaceIds: store.workspaceIds,
+    workspaceLabel: store.workspaceLabel,
   });
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state). */
@@ -40,7 +40,7 @@ export function useTerminals(deps: {
       try {
         const stream = await client.terminal.onExit({ id });
         for await (const code of stream) {
-          const label = store.terminalLabel(id);
+          const label = store.workspaceLabel(id);
           toast(
             code === 0
               ? `${label} exited`
@@ -64,7 +64,7 @@ export function useTerminals(deps: {
     store,
     subscribeExit,
     handleCreate: crud.handleCreate,
-    handleCreateSubTerminal: crud.handleCreateSubTerminal,
+    handleCreateTerminal: crud.handleCreateTerminal,
   });
 
   const worktree = useWorktreeOps({

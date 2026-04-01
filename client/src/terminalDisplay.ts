@@ -1,5 +1,5 @@
-/** Terminal display info — everything needed to render a terminal in any surface.
- *  Combines server metadata with client-derived properties (colors, activity, sub-count). */
+/** Workspace display info — everything needed to render a workspace in any surface.
+ *  Combines server metadata with client-derived properties (colors, activity, terminal count). */
 
 import { cwdBasename } from "./path";
 import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
@@ -11,7 +11,7 @@ export type TerminalDisplayInfo = {
   branchColor?: string;
   meta: TerminalMetadata;
   activityHistory: ActivitySample[];
-  subCount: number;
+  terminalCount: number;
 };
 
 /** Assign OKLCH colors via golden-angle hue spacing.
@@ -24,18 +24,18 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-export function terminalName(meta: TerminalMetadata): string {
-  return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
+export function workspaceName(meta: TerminalMetadata): string {
+  return meta.git?.repoName || cwdBasename(meta.cwd) || "workspace";
 }
 
-/** Build display info for all terminals.
- *  Resolves colors from the full terminal list (global hue uniqueness)
- *  and bundles activity + sub-count so consumers get one complete object. */
+/** Build display info for all workspaces.
+ *  Resolves colors from the full workspace list (global hue uniqueness)
+ *  and bundles activity + terminal count so consumers get one complete object. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   getActivityHistory: (id: TerminalId) => ActivitySample[],
-  getSubTerminalIds: (id: TerminalId) => TerminalId[],
+  getTerminalIds: (workspaceId: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
   const repoKeys = new Set<string>();
   const branchKeys = new Set<string>();
@@ -50,7 +50,7 @@ export function buildTerminalDisplayInfos(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const name = terminalName(meta);
+    const name = workspaceName(meta);
     const repoKey = meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
     const branchKey = meta.git?.branch;
     if (repoKey) repoKeys.add(repoKey);
@@ -67,7 +67,7 @@ export function buildTerminalDisplayInfos(
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
       activityHistory: getActivityHistory(id),
-      subCount: getSubTerminalIds(id).length,
+      terminalCount: getTerminalIds(id).length,
     });
   }
   return result;

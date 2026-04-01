@@ -27,7 +27,7 @@ When(
 );
 
 Then(
-  "the sidebar should have {int} fewer terminal entry/entries",
+  "the sidebar should have {int} fewer workspace entry/entries",
   async function (this: KoluWorld, fewer: number) {
     assert.ok(
       this.savedSidebarCount !== undefined,

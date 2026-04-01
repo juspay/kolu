@@ -38,23 +38,23 @@ async function assertActivity(
   );
 }
 
-Then("the terminal should show as active", async function (this: KoluWorld) {
+Then("the workspace should show as active", async function (this: KoluWorld) {
   await assertActivity(this, this.createdTerminalIds.length, true);
 });
 
-Then("the terminal should show as sleeping", async function (this: KoluWorld) {
+Then("the workspace should show as sleeping", async function (this: KoluWorld) {
   await assertActivity(this, this.createdTerminalIds.length, false);
 });
 
 Then(
-  "terminal {int} should show as active",
+  "workspace {int} should show as active",
   async function (this: KoluWorld, index: number) {
     await assertActivity(this, index, true);
   },
 );
 
 Then(
-  "terminal {int} should show as sleeping",
+  "workspace {int} should show as sleeping",
   async function (this: KoluWorld, index: number) {
     await assertActivity(this, index, false);
   },
@@ -77,7 +77,7 @@ Then("the activity graph should have data", async function (this: KoluWorld) {
 });
 
 When(
-  "I wait for the terminal to become idle",
+  "I wait for the workspace to become idle",
   async function (this: KoluWorld) {
     // The idle threshold is 5s, but shell init (starship, nix env, etc.) may
     // produce sporadic output that resets the timer. Under load from the full

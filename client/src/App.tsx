@@ -15,7 +15,7 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
-import TerminalPane from "./TerminalPane";
+import WorkspacePane from "./WorkspacePane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import MissionControl, { type MCMode } from "./MissionControl";
@@ -30,7 +30,7 @@ import { usePreferences } from "./usePreferences";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
-import { useSubPanel } from "./useSubPanel";
+import { useTerminalPanel } from "./useTerminalPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 import { useRecentRepos } from "./useRecentRepos";
@@ -69,7 +69,7 @@ const App: Component = () => {
   });
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
-  const subPanel = useSubPanel();
+  const terminalPanel = useTerminalPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
@@ -94,36 +94,37 @@ const App: Component = () => {
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
 
-  // Terminal search bar state — close when switching terminals
+  // Search bar state — close when switching workspaces
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
-  initTipTriggers({ terminalIds: store.terminalIds });
+  initTipTriggers({ workspaceIds: store.workspaceIds });
 
   useShortcuts({
-    terminalIds: store.terminalIds,
+    workspaceIds: store.workspaceIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    handleCreateTerminal: (workspaceId, cwd) =>
+      void crud.handleCreateTerminal(workspaceId, cwd),
     activeMeta: store.activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
     mcMode,
     setMcMode,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
-    getSubTerminalIds: store.getSubTerminalIds,
-    cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(
-        parentId,
-        store.getSubTerminalIds(parentId),
+    toggleTerminalPanel: (workspaceId) =>
+      terminalPanel.togglePanel(workspaceId),
+    getTerminalIds: store.getTerminalIds,
+    cycleTerminalTab: (workspaceId, direction) =>
+      terminalPanel.cycleSubTab(
+        workspaceId,
+        store.getTerminalIds(workspaceId),
         direction,
       ),
     handleRandomizeTheme,
-    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleCopyWorkspaceText: () => void crud.handleCopyWorkspaceText(),
   });
 
   const { refetch: refetchRecentRepos } = useRecentRepos();
@@ -154,17 +155,17 @@ const App: Component = () => {
   }
 
   const commands = createCommands({
-    terminalIds: store.terminalIds,
+    terminalIds: store.workspaceIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
     activeMeta: store.activeMeta,
     handleCreate: (cwd) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    handleCreateSubTerminal: (workspaceId, cwd) =>
+      void crud.handleCreateTerminal(workspaceId, cwd),
     handleKill: (id) => void crud.handleKill(id),
-    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
-    getSubTerminalIds: store.getSubTerminalIds,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    handleCopyTerminalText: () => void crud.handleCopyWorkspaceText(),
+    getSubTerminalIds: store.getTerminalIds,
+    toggleSubPanel: (workspaceId) => terminalPanel.togglePanel(workspaceId),
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
@@ -244,7 +245,7 @@ const App: Component = () => {
           setMcMode(mode);
           if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
         }}
-        terminalIds={store.terminalIds()}
+        workspaceIds={store.workspaceIds()}
         mruOrder={store.mruOrder()}
         activeId={store.activeId()}
         getMetadata={store.getMetadata}
@@ -311,18 +312,18 @@ const App: Component = () => {
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">
         <Sidebar
-          terminalIds={store.terminalIds()}
+          terminalIds={store.workspaceIds()}
           activeId={store.activeId()}
           getMetadata={store.getMetadata}
           needsAttention={store.needsAttention}
           getDisplayInfo={store.getDisplayInfo}
           onSelect={store.setActiveId}
           onCreate={() => crud.handleCreate()}
-          onReorder={crud.reorderTerminals}
+          onReorder={crud.reorderWorkspaces}
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
+        {/* min-w-0: override flex min-width:auto so workspace area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0">
           <div
             class="h-full overflow-hidden"
@@ -336,24 +337,24 @@ const App: Component = () => {
                 </div>
               }
             >
-              <Show when={store.terminalIds().length === 0}>
+              <Show when={store.workspaceIds().length === 0}>
                 <EmptyState
                   savedSession={session.savedSession() ?? undefined}
                   onRestore={() => void session.handleRestoreSession()}
                 />
               </Show>
-              <For each={store.terminalIds()}>
+              <For each={store.workspaceIds()}>
                 {(id) => (
-                  <TerminalPane
-                    terminalId={id}
+                  <WorkspacePane
+                    workspaceId={id}
                     visible={store.activeId() === id}
                     theme={getTerminalTheme(id)}
                     searchOpen={searchOpen()}
                     onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={store.getSubTerminalIds(id)}
+                    terminalIds={store.getTerminalIds(id)}
                     getMetadata={store.getMetadata}
-                    onCreateSubTerminal={(parentId, cwd) =>
-                      void crud.handleCreateSubTerminal(parentId, cwd)
+                    onCreateTerminal={(workspaceId, cwd) =>
+                      void crud.handleCreateTerminal(workspaceId, cwd)
                     }
                     activeMeta={store.activeMeta()}
                     scrollLockEnabled={scrollLock()}

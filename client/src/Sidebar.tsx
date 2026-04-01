@@ -10,7 +10,7 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import Tip from "./Tip";
-import TerminalMeta from "./TerminalMeta";
+import WorkspaceMeta from "./WorkspaceMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
@@ -73,13 +73,13 @@ const SidebarEntry: Component<{
         onMouseDown={(e) => e.preventDefault()}
         title={props.metadata?.cwd ?? String(props.id)}
       >
-        <TerminalMeta info={props.displayInfo} />
+        <WorkspaceMeta info={props.displayInfo} />
       </button>
     </div>
   );
 };
 
-/** Sidebar — collapsible terminal list with drag-to-reorder. */
+/** Sidebar — collapsible workspace list with drag-to-reorder. */
 const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
@@ -141,13 +141,13 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal" class="w-full">
+        <Tip label="New workspace" class="w-full">
           <button
-            data-testid="create-terminal"
+            data-testid="create-workspace"
             class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
             onClick={props.onCreate}
           >
-            + New terminal
+            + New workspace
           </button>
         </Tip>
         <nav class="flex-1 overflow-y-auto">
@@ -199,7 +199,7 @@ const Sidebar: Component<{
                       style={{ "border-left-color": d()?.repoColor }}
                     >
                       <span style={{ color: d()?.repoColor }}>
-                        {d()?.name ?? "terminal"}
+                        {d()?.name ?? "workspace"}
                       </span>
                     </div>
                   );

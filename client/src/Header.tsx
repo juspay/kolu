@@ -145,7 +145,7 @@ const Header: Component<{
           </Tip>
         )}
         <Tip
-          label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
+          label={`Find in workspace (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
           <button
             class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"

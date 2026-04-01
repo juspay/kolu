@@ -88,9 +88,9 @@ export function useTerminalMetadata(deps: {
   const bySortOrder = (a: TerminalId, b: TerminalId) =>
     (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0);
 
-  /** Top-level terminal IDs sorted by sortOrder.
-   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
-  const terminalIds = createMemo(() =>
+  /** Top-level workspace IDs sorted by sortOrder.
+   *  Workspaces whose metadata hasn't arrived yet are excluded (still loading). */
+  const workspaceIds = createMemo(() =>
     terminalIdList()
       .filter((id) => {
         const m = getMetadata(id);
@@ -99,10 +99,10 @@ export function useTerminalMetadata(deps: {
       .sort(bySortOrder),
   );
 
-  /** Sub-terminal IDs for a parent, sorted by sortOrder. */
-  function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
+  /** Terminal IDs within a workspace, sorted by sortOrder. */
+  function getTerminalIds(workspaceId: TerminalId): TerminalId[] {
     return terminalIdList()
-      .filter((id) => getMetadata(id)?.parentId === parentId)
+      .filter((id) => getMetadata(id)?.parentId === workspaceId)
       .sort(bySortOrder);
   }
 
@@ -115,10 +115,10 @@ export function useTerminalMetadata(deps: {
 
   const displayInfos = createMemo(() =>
     buildTerminalDisplayInfos(
-      terminalIds(),
+      workspaceIds(),
       getMetadata,
       getActivityHistory,
-      getSubTerminalIds,
+      getTerminalIds,
     ),
   );
 
@@ -126,19 +126,19 @@ export function useTerminalMetadata(deps: {
     return displayInfos().get(id);
   }
 
-  /** Human-readable label for a terminal by its sidebar position. */
-  function terminalLabel(id: TerminalId): string {
-    const pos = terminalIds().indexOf(id) + 1;
-    return pos > 0 ? `Terminal ${pos}` : "Terminal";
+  /** Human-readable label for a workspace by its sidebar position. */
+  function workspaceLabel(id: TerminalId): string {
+    const pos = workspaceIds().indexOf(id) + 1;
+    return pos > 0 ? `Workspace ${pos}` : "Workspace";
   }
 
   return {
     getMetadata,
     getActivityHistory,
-    terminalIds,
-    getSubTerminalIds,
+    workspaceIds,
+    getTerminalIds,
     activeMeta,
     getDisplayInfo,
-    terminalLabel,
+    workspaceLabel,
   };
 }

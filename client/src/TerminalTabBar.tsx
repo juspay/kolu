@@ -1,10 +1,10 @@
-/** Tab bar for sub-terminals within a parent's sub-panel. */
+/** Tab bar for terminals within a workspace's terminal panel. */
 
 import { type Component, For } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { cwdBasename } from "./path";
 
-const SubPanelTabBar: Component<{
+const TerminalTabBar: Component<{
   subIds: TerminalId[];
   activeSubTab: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
@@ -43,7 +43,7 @@ const SubPanelTabBar: Component<{
       <button
         class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
-        title="New sub-terminal"
+        title="New terminal"
       >
         +
       </button>
@@ -51,4 +51,4 @@ const SubPanelTabBar: Component<{
   );
 };
 
-export default SubPanelTabBar;
+export default TerminalTabBar;

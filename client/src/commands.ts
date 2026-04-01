@@ -43,7 +43,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
 
   return createMemo((): PaletteCommand[] => [
     {
-      name: "Create new terminal",
+      name: "New workspace",
       keybind: [
         SHORTCUTS.createTerminal.keybind,
         SHORTCUTS.createTerminalAlt.keybind,
@@ -72,7 +72,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.activeMeta()?.git?.isWorktree
       ? [
           {
-            name: "Close terminal and remove worktree",
+            name: "Close workspace and remove worktree",
             onSelect: () => deps.handleKillWorktree(),
           },
         ]
@@ -80,11 +80,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.activeId() !== null
       ? [
           {
-            name: "Close terminal",
+            name: "Close workspace",
             onSelect: () => deps.handleKill(deps.activeId()!),
           },
           {
-            name: "Toggle sub-panel",
+            name: "Toggle terminal panel",
             keybind: SHORTCUTS.toggleSubPanel.keybind,
             onSelect: () => {
               const id = deps.activeId()!;
@@ -96,7 +96,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             },
           },
           {
-            name: "New sub-terminal",
+            name: "New terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
               deps.handleCreateSubTerminal(
@@ -105,7 +105,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               ),
           },
           {
-            name: "Copy terminal text",
+            name: "Copy workspace text",
             keybind: SHORTCUTS.copyTerminalText.keybind,
             onSelect: () => deps.handleCopyTerminalText(),
           },
@@ -122,10 +122,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.terminalIds().length > 0
       ? [
           {
-            name: "Switch terminal",
+            name: "Switch workspace",
             children: () =>
               deps.terminalIds().map((id, i) => ({
-                name: `Switch to terminal ${i + 1}`,
+                name: `Switch to workspace ${i + 1}`,
                 keybind:
                   i < 9
                     ? SHORTCUTS[
@@ -188,7 +188,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             }),
         },
         {
-          name: "Close all terminals",
+          name: "Close all workspaces",
           onSelect: () => deps.handleCloseAll(),
         },
         {

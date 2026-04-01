@@ -1,4 +1,4 @@
-/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
+/** Workspace CRUD — create, kill, close-all, theme, reorder, copy text.
  *
  *  Mutations use optimistic cache writes on the live list query so the UI
  *  updates instantly. The server's live push arrives moments later and
@@ -10,7 +10,7 @@ import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
 import { orpc } from "./orpc";
-import { useSubPanel } from "./useSubPanel";
+import { useTerminalPanel } from "./useTerminalPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
@@ -22,7 +22,7 @@ export function useTerminalCrud(deps: {
   subscribeExit: (id: TerminalId) => void;
 }) {
   const { store } = deps;
-  const subPanel = useSubPanel();
+  const terminalPanel = useTerminalPanel();
   const { showTipOnce } = useTips();
   const qc = useQueryClient();
 
@@ -43,7 +43,7 @@ export function useTerminalCrud(deps: {
   const createMut = createMutation(() => ({
     ...orpc.terminal.create.mutationOptions(),
     onError: (err: Error) =>
-      toast.error(`Failed to create terminal: ${err.message}`),
+      toast.error(`Failed to create workspace: ${err.message}`),
   }));
 
   const killMut = createMutation(() => ({
@@ -52,12 +52,12 @@ export function useTerminalCrud(deps: {
 
   const killAllMut = createMutation(() => ({
     ...orpc.terminal.killAll.mutationOptions(),
-    onError: () => toast.error("Failed to close all terminals"),
+    onError: () => toast.error("Failed to close all workspaces"),
   }));
 
   const reorderMut = createMutation(() => ({
     ...orpc.terminal.reorder.mutationOptions(),
-    onError: () => toast.error("Failed to reorder terminals"),
+    onError: () => toast.error("Failed to reorder workspaces"),
   }));
 
   // --- Optimistic list helpers ---
@@ -77,7 +77,7 @@ export function useTerminalCrud(deps: {
 
   // --- Handlers ---
 
-  /** Set a terminal's theme name locally (optimistic) and on the server. */
+  /** Set a workspace's theme name locally (optimistic) and on the server. */
   function setThemeName(id: TerminalId, name: string) {
     const key = orpc.terminal.onMetadataChange.key({ input: { id } });
     qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
@@ -87,7 +87,7 @@ export function useTerminalCrud(deps: {
   }
 
   /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
-  function reorderTerminals(ids: TerminalId[]) {
+  function reorderWorkspaces(ids: TerminalId[]) {
     const SORT_GAP = 1000;
     ids.forEach((id, i) => {
       const key = orpc.terminal.onMetadataChange.key({ input: { id } });
@@ -98,34 +98,34 @@ export function useTerminalCrud(deps: {
     reorderMut.mutate({ ids });
   }
 
-  /** Remove a terminal and auto-switch if it was active. */
+  /** Remove a workspace/terminal and auto-switch if it was active. */
   function removeAndAutoSwitch(id: TerminalId) {
     const parentId = store.getMetadata(id)?.parentId;
 
     if (parentId) {
-      const subs = store.getSubTerminalIds(parentId).filter((x) => x !== id);
-      if (subs.length === 0) {
-        subPanel.collapsePanel(parentId);
+      const terminals = store.getTerminalIds(parentId).filter((x) => x !== id);
+      if (terminals.length === 0) {
+        terminalPanel.collapsePanel(parentId);
       } else {
-        const panel = subPanel.getSubPanel(parentId);
+        const panel = terminalPanel.getSubPanel(parentId);
         if (panel.activeSubTab === id) {
-          subPanel.setActiveSubTab(parentId, subs[0] ?? null);
+          terminalPanel.setActiveSubTab(parentId, terminals[0] ?? null);
         }
       }
       removeFromList(id);
       return;
     }
 
-    // Top-level terminal — promote sub-terminals to top-level
-    const orphanIds = store.getSubTerminalIds(id);
-    for (const subId of orphanIds) {
-      setParentMut.mutate({ id: subId, parentId: null });
+    // Top-level workspace — promote terminals to top-level workspaces
+    const orphanIds = store.getTerminalIds(id);
+    for (const termId of orphanIds) {
+      setParentMut.mutate({ id: termId, parentId: null });
     }
 
-    const ids = store.terminalIds();
+    const ids = store.workspaceIds();
     const idx = ids.indexOf(id);
     removeFromList(id);
-    subPanel.removePanel(id);
+    terminalPanel.removePanel(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -133,8 +133,8 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Create a new terminal on the server, add to list cache, and make it active.
-   *  Returns the new terminal ID (for session restore mapping). */
+  /** Create a new workspace on the server, add to list cache, and make it active.
+   *  Returns the new workspace ID (for session restore mapping). */
   async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -150,11 +150,11 @@ export function useTerminalCrud(deps: {
     return info.id;
   }
 
-  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const info = await createMut.mutateAsync({ cwd, parentId });
+  async function handleCreateTerminal(workspaceId: TerminalId, cwd?: string) {
+    const info = await createMut.mutateAsync({ cwd, parentId: workspaceId });
     addToList(info);
-    subPanel.setActiveSubTab(parentId, info.id);
-    subPanel.expandPanel(parentId);
+    terminalPanel.setActiveSubTab(workspaceId, info.id);
+    terminalPanel.expandPanel(workspaceId);
     deps.subscribeExit(info.id);
   }
 
@@ -162,21 +162,21 @@ export function useTerminalCrud(deps: {
     try {
       await killMut.mutateAsync({ id });
     } catch {
-      // Terminal may already be gone
+      // Workspace may already be gone
     }
     removeAndAutoSwitch(id);
   }
 
-  async function handleCopyTerminalText() {
+  async function handleCopyWorkspaceText() {
     const id = store.activeId();
     if (id === null) return;
     try {
       const text = await client.terminal.screenText({ id });
       await navigator.clipboard.writeText(text);
-      toast("Copied terminal text to clipboard");
+      toast("Copied workspace text to clipboard");
     } catch (err) {
-      console.error("Failed to copy terminal text:", err);
-      toast.error("Failed to copy terminal text");
+      console.error("Failed to copy workspace text:", err);
+      toast.error("Failed to copy workspace text");
     }
   }
 
@@ -188,12 +188,12 @@ export function useTerminalCrud(deps: {
 
   return {
     setThemeName,
-    reorderTerminals,
+    reorderWorkspaces,
     removeAndAutoSwitch,
     handleCreate,
-    handleCreateSubTerminal,
+    handleCreateTerminal,
     handleKill,
-    handleCopyTerminalText,
+    handleCopyWorkspaceText,
     handleCloseAll,
   };
 }

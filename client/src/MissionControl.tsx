@@ -17,7 +17,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import TerminalPreview from "./TerminalPreview";
-import TerminalMeta from "./TerminalMeta";
+import WorkspaceMeta from "./WorkspaceMeta";
 import { matchesKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -39,8 +39,8 @@ export type MCMode =
 const MissionControl: Component<{
   mcMode: MCMode;
   onMcModeChange: (mode: MCMode) => void;
-  terminalIds: TerminalId[];
-  /** Terminal IDs in most-recently-used order (for quick-switch card ordering). */
+  workspaceIds: TerminalId[];
+  /** Workspace IDs in most-recently-used order (for quick-switch card ordering). */
   mruOrder: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
@@ -54,12 +54,12 @@ const MissionControl: Component<{
   /** Cards in display order: MRU for quick-switch, sidebar order otherwise.
    *  MRU may be incomplete (e.g. after refresh) — append any missing terminals at the end. */
   const displayIds = createMemo(() => {
-    if (!isQuickSwitch()) return props.terminalIds;
+    if (!isQuickSwitch()) return props.workspaceIds;
     const mru = props.mruOrder;
-    const existing = new Set(props.terminalIds);
+    const existing = new Set(props.workspaceIds);
     const inMru = new Set(mru);
     const ordered = mru.filter((id) => existing.has(id));
-    const missing = props.terminalIds.filter((id) => !inMru.has(id));
+    const missing = props.workspaceIds.filter((id) => !inMru.has(id));
     return [...ordered, ...missing];
   });
 
@@ -216,7 +216,7 @@ const MissionControl: Component<{
           when={displayIds().length > 0}
           fallback={
             <div class="flex-1 flex items-center justify-center text-fg-3 text-sm">
-              No terminals open
+              No workspaces open
             </div>
           }
         >
@@ -265,7 +265,7 @@ const MissionControl: Component<{
                       </Show>
                       {/* Metadata footer — fixed height, flex-col so agent/activity anchors to bottom */}
                       <div class="px-3 py-2 bg-surface-1 border-t border-edge flex flex-col gap-0.5 h-24 shrink-0">
-                        <TerminalMeta
+                        <WorkspaceMeta
                           info={props.getDisplayInfo(id)}
                           mode="readonly"
                         />

@@ -5,13 +5,13 @@ Feature: Activity Alerts
     Given the terminal is ready
 
   Scenario: Simulated alert shows sidebar glow on background terminal
-    When I create a terminal
+    When I create a workspace
     And I simulate an activity alert
     Then a sidebar entry should be notified
     And there should be no page errors
 
   Scenario: Visiting notified terminal clears the glow
-    When I create a terminal
+    When I create a workspace
     And I simulate an activity alert
     Then a sidebar entry should be notified
     When I click the notified sidebar entry
@@ -19,7 +19,7 @@ Feature: Activity Alerts
     And there should be no page errors
 
   Scenario: Alerts respect the settings toggle
-    When I create a terminal
+    When I create a workspace
     And I click the settings button
     And I click the activity alerts toggle
     And I press Escape

@@ -54,9 +54,9 @@ export class KoluWorld extends World {
     return this.page.locator("[data-visible] .xterm-screen");
   }
 
-  /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
+  /** Click the sidebar "+" button to create a workspace, then wait for its canvas and focus. Returns terminal ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
-    // Wait for app to settle (onMount may still be restoring terminals from server)
+    // Wait for app to settle (onMount may still be restoring workspaces from server)
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
@@ -64,7 +64,7 @@ export class KoluWorld extends World {
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     const countBefore = await entries.count();
 
-    await this.page.locator('[data-testid="create-terminal"]').click();
+    await this.page.locator('[data-testid="create-workspace"]').click();
 
     // Wait for the new entry to appear in the sidebar
     await entries.nth(countBefore).waitFor({ state: "visible", timeout });
@@ -92,7 +92,7 @@ export class KoluWorld extends World {
   async waitForReady(timeout = READY_TIMEOUT) {
     await this.waitForSettled(timeout);
 
-    // If the empty state is visible, create a terminal
+    // If the empty state is visible, create a workspace
     if (await this.page.locator('[data-testid="empty-state"]').isVisible()) {
       await this.createTerminal(timeout);
     }
