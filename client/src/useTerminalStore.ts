@@ -16,17 +16,18 @@ export function useTerminalStore() {
     orpc.terminal.list.experimental_liveOptions(),
   );
 
-  const listData = (): TerminalInfo[] | undefined => listQuery.data;
+  const terminals = (): TerminalInfo[] | undefined => listQuery.data;
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    listData,
+    terminals,
     activeId: view.activeId,
   });
 
   return {
     // Live terminal list from server
-    listData,
+    terminals,
+    listLoading: () => listQuery.isLoading,
     // View state
     ...view,
     // Server metadata + activity + derived ordering

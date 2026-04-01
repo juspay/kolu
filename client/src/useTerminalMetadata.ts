@@ -32,12 +32,12 @@ import {
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  listData: Accessor<TerminalInfo[] | undefined>;
+  terminals: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
 }) {
   /** Terminal IDs derived from the live list query. */
   const terminalIdList = createMemo(
-    () => deps.listData()?.map((t) => t.id) ?? [],
+    () => deps.terminals()?.map((t) => t.id) ?? [],
   );
 
   // --- Metadata (slow-changing) — each event replaces the previous ---
@@ -85,6 +85,9 @@ export function useTerminalMetadata(deps: {
 
   // --- Order derived from metadata sortOrder ---
 
+  const bySortOrder = (a: TerminalId, b: TerminalId) =>
+    (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0);
+
   /** Top-level terminal IDs sorted by sortOrder.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
@@ -93,20 +96,14 @@ export function useTerminalMetadata(deps: {
         const m = getMetadata(id);
         return m && !m.parentId;
       })
-      .sort(
-        (a, b) =>
-          (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0),
-      ),
+      .sort(bySortOrder),
   );
 
   /** Sub-terminal IDs for a parent, sorted by sortOrder. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return terminalIdList()
       .filter((id) => getMetadata(id)?.parentId === parentId)
-      .sort(
-        (a, b) =>
-          (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0),
-      );
+      .sort(bySortOrder);
   }
 
   // --- Derived accessors ---
