@@ -9,6 +9,7 @@ import * as pty from "node-pty";
 import { createRequire } from "node:module";
 import {
   DEFAULT_COLS,
+  DEFAULT_PORT,
   DEFAULT_ROWS,
   DEFAULT_SCROLLBACK,
 } from "kolu-common/config";
@@ -66,7 +67,7 @@ export function spawnPty(
   // tmux compatibility: Claude Code detects multiplexer via $TMUX and uses $TMUX_PANE as self-identity
   env.TMUX = tmux.tmuxEnv;
   env.TMUX_PANE = tmux.paneId;
-  env.KOLU_PORT = process.env.KOLU_PORT ?? "7681";
+  env.KOLU_PORT = process.env.KOLU_PORT ?? String(DEFAULT_PORT);
 
   tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, osc7.args, {

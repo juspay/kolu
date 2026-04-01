@@ -7,10 +7,13 @@
  * inside Kolu terminals with zero configuration.
  *
  * Environment:
- *   KOLU_PORT     — Kolu server port (default: 7681)
- *   TMUX_PANE     — Synthetic pane ID for the calling terminal (e.g. %0)
- *   KOLU_TMUX_IDS — JSON map of pane index → terminal UUID (injected by server)
+ *   KOLU_PORT  — Kolu server port (default: 7681)
+ *   TMUX_PANE  — Synthetic pane ID for the calling terminal (e.g. %0)
  */
+
+import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // --- Config ---
 
@@ -79,7 +82,9 @@ function buildPaneMap(all: TerminalInfo[]): Map<number, TerminalInfo> {
   const map = new Map<number, TerminalInfo>();
   let idx = 0;
   // Each terminal (top-level and children) gets a sequential pane index
-  for (const t of all.sort((a, b) => a.meta.sortOrder - b.meta.sortOrder)) {
+  for (const t of [...all].sort(
+    (a, b) => a.meta.sortOrder - b.meta.sortOrder,
+  )) {
     map.set(idx, t);
     idx++;
   }
@@ -93,20 +98,19 @@ function paneIdToIndex(paneId: string): number {
 }
 
 /** Resolve a tmux target (-t) to a terminal. Supports %N, bare index, session:window.pane. */
-async function resolveTarget(
+function resolveTarget(
   target: string | undefined,
   all: TerminalInfo[],
-): Promise<TerminalInfo | undefined> {
+): TerminalInfo | undefined {
   const paneMap = buildPaneMap(all);
 
   if (!target) {
-    // Use $TMUX_PANE from env
+    // Use $TMUX_PANE from env — fail if unset (every Kolu PTY has TMUX_PANE)
     const envPane = process.env.TMUX_PANE;
     if (envPane) {
       return paneMap.get(paneIdToIndex(envPane));
     }
-    // Fallback: first terminal
-    return paneMap.get(0);
+    return undefined;
   }
 
   // %N pane ID
@@ -219,6 +223,22 @@ function evalFormat(
 
 // --- Argument parsing ---
 
+/** Flags that take a subsequent value argument (shared across all tmux subcommands). */
+const VALUED_FLAGS = new Set([
+  "-t",
+  "-F",
+  "-c",
+  "-s",
+  "-n",
+  "-x",
+  "-y",
+  "-l",
+  "-p",
+  "-S",
+  "-E",
+  "-L",
+]);
+
 function parseArgs(args: string[]): {
   flags: Record<string, string | true>;
   positional: string[];
@@ -233,29 +253,14 @@ function parseArgs(args: string[]): {
       break;
     }
     if (arg.startsWith("-") && arg.length > 1) {
-      // Flags that take a value
-      const valuedFlags = new Set([
-        "-t",
-        "-F",
-        "-c",
-        "-s",
-        "-n",
-        "-x",
-        "-y",
-        "-l",
-        "-p",
-        "-S",
-        "-E",
-        "-L",
-      ]);
       // Handle combined short flags like -hp
-      if (arg.length > 2 && !arg.startsWith("--") && !valuedFlags.has(arg)) {
+      if (arg.length > 2 && !arg.startsWith("--") && !VALUED_FLAGS.has(arg)) {
         // Split into individual flags, last one may take a value
         for (let j = 1; j < arg.length; j++) {
           const flag = `-${arg[j]}`;
           if (
             j === arg.length - 1 &&
-            valuedFlags.has(flag) &&
+            VALUED_FLAGS.has(flag) &&
             i + 1 < args.length
           ) {
             flags[flag] = args[++i]!;
@@ -265,7 +270,7 @@ function parseArgs(args: string[]): {
         }
         continue;
       }
-      if (valuedFlags.has(arg) && i + 1 < args.length) {
+      if (VALUED_FLAGS.has(arg) && i + 1 < args.length) {
         flags[arg] = args[++i]!;
       } else {
         flags[arg] = true;
@@ -348,37 +353,36 @@ async function cmdListPanes(args: string[]): Promise<void> {
 
   if (allFlag) {
     // List all panes across all windows
-    panes = all.sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+    panes = [...all].sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
   } else if (target) {
     // List panes in the targeted window
-    const win = await resolveTarget(target, all);
+    const win = resolveTarget(target, all);
     if (!win) {
       process.stderr.write(`can't find window: ${target}\n`);
       process.exit(1);
     }
     const winId = win.meta.parentId || win.id;
-    panes = [all.find((t) => t.id === winId)!, ...children(all, winId)].filter(
-      Boolean,
+    panes = [all.find((t) => t.id === winId), ...children(all, winId)].filter(
+      (t): t is TerminalInfo => t != null,
     );
   } else {
     // List panes in the current window (from $TMUX_PANE)
-    const current = await resolveTarget(undefined, all);
+    const current = resolveTarget(undefined, all);
     if (current) {
       const winId = current.meta.parentId || current.id;
-      panes = [
-        all.find((t) => t.id === winId)!,
-        ...children(all, winId),
-      ].filter(Boolean);
+      panes = [all.find((t) => t.id === winId), ...children(all, winId)].filter(
+        (t): t is TerminalInfo => t != null,
+      );
     } else {
       panes = all;
     }
   }
 
+  const paneMap = buildPaneMap(all);
   for (const pane of panes) {
     if (fmt) {
       console.log(evalFormat(fmt, pane, all));
     } else {
-      const paneMap = buildPaneMap(all);
       let idx = 0;
       for (const [i, t] of paneMap) {
         if (t.id === pane.id) {
@@ -404,13 +408,13 @@ async function cmdSplitWindow(args: string[]): Promise<void> {
   // Determine parent: explicit target, or $TMUX_PANE
   let parentId: string | undefined;
   if (target) {
-    const parent = await resolveTarget(target, all);
+    const parent = resolveTarget(target, all);
     if (parent) {
       // If target is a child, use its parent (split within same window)
       parentId = parent.meta.parentId || parent.id;
     }
   } else {
-    const current = await resolveTarget(undefined, all);
+    const current = resolveTarget(undefined, all);
     if (current) {
       parentId = current.meta.parentId || current.id;
     }
@@ -434,7 +438,7 @@ async function cmdSendKeys(args: string[]): Promise<void> {
   const literal = flags["-l"];
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) {
     process.stderr.write(`can't find pane: ${target || "$TMUX_PANE"}\n`);
     process.exit(1);
@@ -505,7 +509,7 @@ async function cmdCapturePane(args: string[]): Promise<void> {
   // -J flag means join wrapped lines (we always do this)
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) {
     process.stderr.write(`can't find pane: ${target || "$TMUX_PANE"}\n`);
     process.exit(1);
@@ -530,7 +534,7 @@ async function cmdKillPane(args: string[]): Promise<void> {
   const target = flags["-t"] as string | undefined;
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) {
     process.stderr.write(`can't find pane: ${target || "$TMUX_PANE"}\n`);
     process.exit(1);
@@ -542,13 +546,11 @@ async function cmdKillPane(args: string[]): Promise<void> {
 async function cmdDisplayMessage(args: string[]): Promise<void> {
   const { flags, positional } = parseArgs(args);
   const target = flags["-t"] as string | undefined;
-  const printFlag = flags["-p"];
-
-  // -p means print to stdout (we always do)
+  // -p means print to stdout — we always do, so it's accepted but not checked
   const fmt = positional[0] || (flags["-F"] as string) || "";
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) {
     // Fallback: use first terminal
     const first = all[0];
@@ -566,11 +568,7 @@ async function cmdNewSession(args: string[]): Promise<void> {
   const cwd = flags["-c"] as string | undefined;
   // -s (session name) is ignored — Kolu is always one session
 
-  const created = await rpc<TerminalInfo>("terminal/create", {
-    cwd: cwd || undefined,
-  });
-
-  // Output session info
+  await rpc<TerminalInfo>("terminal/create", { cwd: cwd || undefined });
   console.log(SESSION_NAME);
 }
 
@@ -599,7 +597,7 @@ async function cmdResizePane(args: string[]): Promise<void> {
   if (!width && !height) return; // Nothing to resize
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) return;
 
   await rpc("terminal/resize", {
@@ -618,7 +616,7 @@ async function cmdBreakPane(args: string[]): Promise<void> {
   const target = flags["-t"] as string | undefined;
 
   const all = await listAllTerminals();
-  const term = await resolveTarget(target, all);
+  const term = resolveTarget(target, all);
   if (!term) return;
 
   // break-pane = promote to top-level (clear parent)
@@ -631,8 +629,8 @@ async function cmdJoinPane(args: string[]): Promise<void> {
   const target = flags["-t"] as string | undefined;
 
   const all = await listAllTerminals();
-  const srcTerm = await resolveTarget(source, all);
-  const dstTerm = await resolveTarget(target, all);
+  const srcTerm = resolveTarget(source, all);
+  const dstTerm = resolveTarget(target, all);
   if (!srcTerm || !dstTerm) return;
 
   // join-pane = make source a child of target's window
@@ -641,10 +639,6 @@ async function cmdJoinPane(args: string[]): Promise<void> {
 }
 
 // --- wait-for (file-based inter-process signaling) ---
-
-import { existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
 function waitForSignalPath(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9._-]/g, "_");
