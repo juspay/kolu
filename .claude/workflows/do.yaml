@@ -39,6 +39,9 @@ nodes:
       Write the plan to .workflow-runs/<branch-name>/plan.md and commit it.
       Push the branch. Load the github-pr skill via the Skill tool.
       Open a draft PR with gh pr create --draft.
+      Include a progress checklist in the PR body — one `- [ ] <node-id>: <description>` line
+      per happy-path node (from the list computed in Setup step 5). Check off nodes that
+      are already complete (sync, understand, hickey, branch) with `- [x]`.
     description: Branch + commit plan + draft PR
     on:
       default: implement

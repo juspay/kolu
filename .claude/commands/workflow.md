@@ -71,15 +71,16 @@ For the current node:
    - `skill`: Invoke via the Skill tool — `skill: "<target>"`, `args: "<args>"`.
    - `run`: Execute via Bash tool. Use `run_in_background: true` if description contains "background".
    - `prompt`: Execute the instruction directly — read files, write code, run commands, whatever the prompt says.
-5. **Record in summary.md** — BEFORE proceeding to the next node, append this node's result to `.workflow-runs/<branch-name>/summary.md`. This is NOT optional — skip this and the workflow is broken. If `summary.md` doesn't exist yet, create it with a `# Summary` header and the task description. Each append must use this format:
+5. **Update PR checklist.** If a draft PR exists, update its body to check off the completed node. Use `gh pr edit --body` to replace `- [ ] <node-id>` with `- [x] <node-id>` for the node that just finished. Skip this step for nodes before the PR is created (e.g. `sync`, `understand`, `hickey`, `branch`).
+6. **Record in summary.md** — BEFORE proceeding to the next node, append this node's result to `.workflow-runs/<branch-name>/summary.md`. This is NOT optional — skip this and the workflow is broken. If `summary.md` doesn't exist yet, create it with a `# Summary` header and the task description. Each append must use this format:
    ```
    ### <node-id> (visit N/max)
    What happened (1-2 sentences).
    → edge: <condition matched> or <default> — <why>
    ```
    Write this to the file using the Write/Edit tool. Do not batch — append after _every_ node, including trivial ones like `sync` and `fmt`.
-6. **Pick the next edge.** Look at the node's `on:` map. For each non-`default` key, evaluate the condition against what just happened (conversation context, command output, skill results). If a condition matches, follow that edge. If none match, follow `default`. If there is no `on:` map, the workflow is **done**.
-7. **Continue** with the next node.
+7. **Pick the next edge.** Look at the node's `on:` map. For each non-`default` key, evaluate the condition against what just happened (conversation context, command output, skill results). If a condition matches, follow that edge. If none match, follow `default`. If there is no `on:` map, the workflow is **done**.
+8. **Continue** with the next node.
 
 ## Rules
 
