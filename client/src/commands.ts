@@ -7,7 +7,6 @@ import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { useRecentRepos } from "./useRecentRepos";
 import { client } from "./rpc";
 
 export interface CommandDeps {
@@ -31,7 +30,7 @@ export interface CommandDeps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
-  handleCreateWorktree: (repoPath: string) => void;
+  openNewWorktreeDialog: () => void;
   handleKillWorktree: () => void;
   // Debug
   simulateAlert: () => void;
@@ -39,8 +38,6 @@ export interface CommandDeps {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos } = useRecentRepos();
-
   return createMemo((): PaletteCommand[] => [
     {
       name: "Create new terminal",
@@ -52,22 +49,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     },
     {
       name: "New worktree\u2026",
-      children: () => {
-        const repos = recentRepos();
-        if (repos.length === 0) {
-          return [
-            {
-              name: "No recent repos",
-              description: "cd into a git repo first",
-            },
-          ];
-        }
-        return repos.map((r) => ({
-          name: r.repoName,
-          description: r.repoRoot,
-          onSelect: () => deps.handleCreateWorktree(r.repoRoot),
-        }));
-      },
+      onSelect: () => deps.openNewWorktreeDialog(),
     },
     ...(deps.activeMeta()?.git?.isWorktree
       ? [

@@ -22,6 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import NewWorktreeDialog from "./NewWorktreeDialog";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -33,7 +34,6 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
-import { useRecentRepos } from "./useRecentRepos";
 
 const App: Component = () => {
   const {
@@ -91,6 +91,9 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
+  // New worktree dialog state
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = createSignal(false);
+
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
 
@@ -125,15 +128,6 @@ const App: Component = () => {
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
-
-  const { refetch: refetchRecentRepos } = useRecentRepos();
-
-  // Refetch recent repos whenever the palette opens, regardless of how (Ctrl+K, header click, etc.)
-  createEffect(
-    on(paletteOpen, (open) => {
-      if (open) refetchRecentRepos();
-    }),
-  );
 
   function openPalette() {
     setPaletteInitialGroup(undefined);
@@ -172,8 +166,10 @@ const App: Component = () => {
     setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) =>
-      void worktree.handleCreateWorktree(repoPath),
+    openNewWorktreeDialog: () => {
+      setPaletteOpen(false);
+      setWorktreeDialogOpen(true);
+    },
     handleKillWorktree: () => void worktree.handleKillWorktree(),
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
@@ -287,6 +283,11 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <NewWorktreeDialog
+        open={worktreeDialogOpen()}
+        onOpenChange={withRefocus(setWorktreeDialogOpen)}
+        onCreateWorktree={(opts) => void worktree.handleCreateWorktree(opts)}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

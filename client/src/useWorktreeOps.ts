@@ -3,8 +3,36 @@
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { orpc } from "./orpc";
-import type { TerminalId } from "kolu-common";
+import { client } from "./rpc";
+import type { TerminalId, WorktreeAgent } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
+
+/** Options for creating a worktree with an optional agent. */
+export interface WorktreeCreateOpts {
+  repoPath: string;
+  agent: WorktreeAgent;
+  dangerouslySkipPermissions: boolean;
+  prompt: string;
+}
+
+/**
+ * Wait for Claude Code to reach "waiting" state via the terminal metadata stream.
+ * The `for await` loop automatically calls `.return()` on the async iterator
+ * when we break out, releasing the server-side subscription.
+ */
+async function waitForClaudeReady(
+  id: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const stream = await client.terminal.onMetadataChange({ id });
+  const deadline = Date.now() + timeoutMs;
+  for await (const meta of stream) {
+    if (meta.claude?.state === "waiting") return;
+    if (Date.now() > deadline)
+      throw new Error("Claude Code did not become ready in time");
+  }
+  throw new Error("Stream ended before Claude Code became ready");
+}
 
 export function useWorktreeOps(deps: {
   store: TerminalStore;
@@ -28,10 +56,38 @@ export function useWorktreeOps(deps: {
       toast.error(`Failed to remove worktree: ${err.message}`),
   }));
 
-  async function handleCreateWorktree(repoPath: string) {
-    const result = await worktreeCreateMut.mutateAsync({ repoPath });
+  async function handleCreateWorktree(opts: WorktreeCreateOpts) {
+    const result = await worktreeCreateMut.mutateAsync({
+      repoPath: opts.repoPath,
+    });
     toast(`Created worktree at ${result.path}`);
-    await deps.handleCreate(result.path);
+    const terminalId = await deps.handleCreate(result.path);
+
+    // Launch Claude Code in the new terminal
+    if (opts.agent === "claude") {
+      const args = ["claude"];
+      if (opts.dangerouslySkipPermissions)
+        args.push("--dangerously-skip-permissions");
+      await client.terminal.sendInput({
+        id: terminalId,
+        data: args.join(" ") + "\n",
+      });
+
+      // Send prompt as the first user message once Claude Code is ready
+      if (opts.prompt) {
+        void waitForClaudeReady(terminalId)
+          .then(() =>
+            client.terminal.sendInput({
+              id: terminalId,
+              data: opts.prompt + "\n",
+            }),
+          )
+          .catch(() =>
+            toast.error("Could not send prompt — Claude Code didn't start"),
+          );
+      }
+    }
+
     invalidateRepos();
   }
 

@@ -148,6 +148,18 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+// --- Worktree config (server-side persistent state) ---
+
+export const WorktreeAgentSchema = z.enum(["shell", "claude"]);
+
+export const WorktreeConfigSchema = z.object({
+  agent: WorktreeAgentSchema,
+  dangerouslySkipPermissions: z.boolean(),
+});
+
+export type WorktreeAgent = z.infer<typeof WorktreeAgentSchema>;
+export type WorktreeConfig = z.infer<typeof WorktreeConfigSchema>;
+
 // --- Recent repos (server-side persistent state) ---
 
 export const RecentRepoSchema = z.object({
