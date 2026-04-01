@@ -61,27 +61,30 @@ export function useWorktreeOps(deps: {
       repoPath: opts.repoPath,
     });
     toast(`Created worktree at ${result.path}`);
-    await deps.handleCreate(result.path);
+    const terminalId = await deps.handleCreate(result.path);
 
-    // Launch Claude Code in the newly active terminal
+    // Launch Claude Code in the new terminal
     if (opts.agent === "claude") {
-      const id = store.activeId();
-      if (id) {
-        const args = ["claude"];
-        if (opts.dangerouslySkipPermissions)
-          args.push("--dangerously-skip-permissions");
-        await client.terminal.sendInput({ id, data: args.join(" ") + "\n" });
+      const args = ["claude"];
+      if (opts.dangerouslySkipPermissions)
+        args.push("--dangerously-skip-permissions");
+      await client.terminal.sendInput({
+        id: terminalId,
+        data: args.join(" ") + "\n",
+      });
 
-        // Send prompt as the first user message once Claude Code is ready
-        if (opts.prompt) {
-          void waitForClaudeReady(id)
-            .then(() =>
-              client.terminal.sendInput({ id, data: opts.prompt + "\n" }),
-            )
-            .catch(() =>
-              toast.error("Could not send prompt — Claude Code didn't start"),
-            );
-        }
+      // Send prompt as the first user message once Claude Code is ready
+      if (opts.prompt) {
+        void waitForClaudeReady(terminalId)
+          .then(() =>
+            client.terminal.sendInput({
+              id: terminalId,
+              data: opts.prompt + "\n",
+            }),
+          )
+          .catch(() =>
+            toast.error("Could not send prompt — Claude Code didn't start"),
+          );
       }
     }
 
