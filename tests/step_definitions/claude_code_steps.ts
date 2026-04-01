@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
+import { pollUntilBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
@@ -28,17 +29,30 @@ Before({ tags: "@claude-mock" }, function () {
   }
 });
 
-/** Get the terminal shell PID via the server API. */
+/** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
-  const resp = await world.page.request.fetch("/rpc/terminal/list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({}),
-  });
-  const body = await resp.json();
-  const list = (body.json ?? body) as Array<{ pid: number; id: string }>;
-  if (list.length === 0) throw new Error("No terminals found");
-  return list[0]!.pid;
+  const marker = `PID_MARKER_${Date.now()}`;
+  await world.page.keyboard.type(`echo $$; echo ${marker}`);
+  await world.page.keyboard.press("Enter");
+  // Wait for the marker to appear — guarantees the PID output is complete
+  const text = await pollUntilBufferContains(world.page, marker);
+  // The PID is the line immediately before the marker line
+  const lines = text.split("\n").map((l) => l.trim());
+  const markerIdx = lines.findIndex(
+    (l) => l.includes(marker) && !l.includes("echo"),
+  );
+  if (markerIdx <= 0)
+    throw new Error(
+      `Could not find marker output in buffer:\n${text.slice(0, 800)}`,
+    );
+  // Walk backwards from marker to find the PID (first purely numeric line)
+  for (let i = markerIdx - 1; i >= 0; i--) {
+    const num = parseInt(lines[i]!, 10);
+    if (!isNaN(num) && num > 0 && String(num) === lines[i]) return num;
+  }
+  throw new Error(
+    `Could not parse PID from buffer before marker:\n${text.slice(0, 800)}`,
+  );
 }
 
 /** Build a JSONL transcript with a specific final state. */

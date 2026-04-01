@@ -1,8 +1,8 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers subscribe to per-terminal publisher channels over WebSocket.
- * Terminal CRUD is request-response.
+ * Streaming handlers subscribe to publisher channels over WebSocket.
+ * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
  */
 import { implement } from "@orpc/server";
 
@@ -20,7 +20,7 @@ import {
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_ } from "./publisher.ts";
+import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import {
@@ -54,7 +54,12 @@ export const appRouter = t.router({
     create: t.terminal.create.handler(async ({ input }) =>
       createTerminal(input.cwd, input.parentId),
     ),
-    list: t.terminal.list.handler(async () => listTerminals()),
+    list: t.terminal.list.handler(async function* ({ signal }) {
+      yield listTerminals();
+      for await (const list of subscribeSystem_("terminal-list", signal)) {
+        yield list;
+      }
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);

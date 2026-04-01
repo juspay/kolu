@@ -2,7 +2,7 @@
 
 ## Code Quality
 
-- After making changes, automatically run `/code-review` before declaring work complete.
+- After making changes, automatically run `/code-police` before declaring work complete.
 - Run `just fmt` (formatting) before declaring done.
 - **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
@@ -54,6 +54,10 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 ## Persistent State (conf)
 
 - State is stored via `conf` in `server/src/state.ts`. When modifying `StateSchema`, **you must add a migration** in the `migrations` object and bump `SCHEMA_VERSION`. Without a migration, existing users' state files silently lose or misinterpret data on schema changes.
+
+## Architecture (README)
+
+- The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Read it before declaring done** on any structural change, and update every part that no longer matches (table, diagram, prose, footnotes).
 
 ## Git
 

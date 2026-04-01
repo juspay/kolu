@@ -1,4 +1,8 @@
-/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text. */
+/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
+ *
+ *  Mutations use optimistic cache writes on the live list query so the UI
+ *  updates instantly. The server's live push arrives moments later and
+ *  replaces with authoritative data. */
 
 import type { Accessor } from "solid-js";
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
@@ -9,7 +13,7 @@ import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -21,6 +25,8 @@ export function useTerminalCrud(deps: {
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
   const qc = useQueryClient();
+
+  const listKey = orpc.terminal.list.key();
 
   // --- Mutations ---
 
@@ -53,6 +59,23 @@ export function useTerminalCrud(deps: {
     ...orpc.terminal.reorder.mutationOptions(),
     onError: () => toast.error("Failed to reorder terminals"),
   }));
+
+  // --- Optimistic list helpers ---
+
+  function addToList(info: TerminalInfo) {
+    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) => [
+      ...(old ?? []),
+      info,
+    ]);
+  }
+
+  function removeFromList(id: TerminalId) {
+    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) =>
+      old ? old.filter((t) => t.id !== id) : old,
+    );
+  }
+
+  // --- Handlers ---
 
   /** Set a terminal's theme name locally (optimistic) and on the server. */
   function setThemeName(id: TerminalId, name: string) {
@@ -89,7 +112,7 @@ export function useTerminalCrud(deps: {
           subPanel.setActiveSubTab(parentId, subs[0] ?? null);
         }
       }
-      store.removeKnownId(id);
+      removeFromList(id);
       return;
     }
 
@@ -101,7 +124,7 @@ export function useTerminalCrud(deps: {
 
     const ids = store.terminalIds();
     const idx = ids.indexOf(id);
-    store.removeKnownId(id);
+    removeFromList(id);
     subPanel.removePanel(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
@@ -110,8 +133,9 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Create a new terminal on the server, add to known IDs, and make it active. */
-  async function handleCreate(cwd?: string) {
+  /** Create a new terminal on the server, add to list cache, and make it active.
+   *  Returns the new terminal ID (for session restore mapping). */
+  async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     const info = await createMut.mutateAsync({ cwd });
@@ -119,15 +143,16 @@ export function useTerminalCrud(deps: {
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    store.addKnownId(info.id);
+    addToList(info);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (themeName) setThemeName(info.id, themeName);
+    return info.id;
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
     const info = await createMut.mutateAsync({ cwd, parentId });
-    store.addKnownId(info.id);
+    addToList(info);
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
     deps.subscribeExit(info.id);
@@ -157,6 +182,7 @@ export function useTerminalCrud(deps: {
 
   async function handleCloseAll() {
     await killAllMut.mutateAsync(undefined);
+    qc.setQueryData(listKey, []);
     store.reset();
   }
 

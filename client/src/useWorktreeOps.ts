@@ -36,7 +36,7 @@ async function waitForClaudeReady(
 
 export function useWorktreeOps(deps: {
   store: TerminalStore;
-  handleCreate: (cwd?: string) => Promise<void>;
+  handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
