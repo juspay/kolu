@@ -5,6 +5,12 @@
 }:
 let
   bun = pkgs.bun;
+
+  # bun2nix — pinned by rev, lazy-evaluated (not fetched during nix develop).
+  bun2nix = (builtins.getFlake
+    "github:nix-community/bun2nix/c843f477b15f51151f8c6bcc886954699440a6e1"
+  ).packages.${pkgs.stdenv.hostPlatform.system}.default.passthru;
+
   ghosttyThemes = pkgs.callPackage ./nix/ghostty-themes { };
   fonts = pkgs.callPackage ./nix/fonts { };
   worktreeWords = pkgs.callPackage ./nix/worktree-words { };
@@ -51,25 +57,12 @@ let
     paths = [ xclip-kolu-shim wl-paste-kolu-shim ];
   };
 
-  # Minimal source for the dependency FOD — just package.json files and lockfile.
-  # Separate from src so that source code changes don't invalidate the dep cache.
-  depsSrc = pkgs.lib.fileset.toSource {
-    root = ./.;
-    fileset = pkgs.lib.fileset.unions [
-      ./package.json
-      ./bun.lock
-      ./common/package.json
-      ./server/package.json
-      ./client/package.json
-      ./tests/package.json
-    ];
-  };
-
   src = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
       ./package.json
       ./bun.lock
+      ./bun.nix
       ./tsconfig.base.json
       ./common
       ./server
@@ -78,38 +71,8 @@ let
     ];
   };
 
-  # Fixed-output derivation: download all bun dependencies into a cache.
-  # Hash must be updated when bun.lock changes (build will show correct hash).
-  bunDeps = pkgs.stdenvNoCC.mkDerivation {
-    name = "kolu-bun-deps";
-    src = depsSrc;
-
-    nativeBuildInputs = [ bun pkgs.cacert ];
-
-    dontConfigure = true;
-    dontBuild = true;
-
-    impureEnvVars = pkgs.lib.fetchers.proxyImpureEnvVars;
-
-    installPhase = ''
-      export HOME=$(mktemp -d)
-      export BUN_INSTALL_CACHE_DIR=$out/cache
-      mkdir -p $out/cache
-      bun install --frozen-lockfile
-      # Only keep the cache; node_modules will be recreated in the main build
-      rm -rf node_modules
-
-      # Normalize permissions for reproducibility
-      find $out -type f -print0 | xargs -0 chmod 444
-      find $out -type d -print0 | xargs -0 chmod 555
-    '';
-
-    outputHashMode = "recursive";
-    # Platform-specific: bun downloads native packages (esbuild, lightningcss)
-    outputHash = {
-      x86_64-linux = "sha256-TJZGa/BbqpVb95X2DULoPWdVkTOuCmYIBdMiPVRQGE8=";
-      aarch64-darwin = "sha256-h/TvfXdGo/ex+UYtOeWHJHjCsMHtiJ4NQuDuxzOiF2k=";
-    }.${pkgs.stdenv.hostPlatform.system};
+  bunDeps = bun2nix.fetchBunDeps {
+    bunNix = ./bun.nix;
   };
 
   # Shared env vars — used by the kolu build, the devShell, and the wrapper.
@@ -131,28 +94,22 @@ let
 
     nativeBuildInputs = [
       bun
-      # node symlink so patchShebangs can resolve #!/usr/bin/env node shebangs.
-      # bun is node-compatible and runs these scripts correctly.
-      (pkgs.writeShellScriptBin "node" ''exec ${bun}/bin/bun "$@"'')
+      bun2nix.hook
     ];
+
+    inherit bunDeps;
+
+    # Skip bun2nix's default build/check/install phases — we do our own
+    dontUseBunBuild = true;
+    dontUseBunCheck = true;
+    dontUseBunInstall = true;
 
     env = {
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
-    configurePhase = ''
-      export HOME=$(mktemp -d)
-      export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
-      cp -r ${bunDeps}/cache/. "$BUN_INSTALL_CACHE_DIR/"
-      chmod -R u+w "$BUN_INSTALL_CACHE_DIR"
-      bun install --frozen-lockfile
-      patchShebangs node_modules */node_modules
-    '';
-
     buildPhase = ''
       runHook preBuild
-      # Root node_modules/.bin has patched shebangs; workspace .bin may not
-      export PATH="$PWD/node_modules/.bin:$PATH"
       ln -sfn $KOLU_FONTS_DIR client/public/fonts
       pushd client
       bun run build
