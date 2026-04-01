@@ -100,11 +100,13 @@ Hono serves HTTP (`/api/health`, static client assets) and upgrades `/rpc/ws` to
 
 **Metadata providers** form a one-way DAG — each provider subscribes to upstream changes and publishes downstream. All providers feed into a single aggregated metadata channel streamed to the client:
 
-```
-CWD change (OSC 7 from shell)
-  → Git provider — watches .git/HEAD, resolves branch & worktree via simple-git
-    → GitHub provider — polls `gh pr view`, derives combined CI check status
-  → Claude provider — polls ~/.claude/sessions/, matches PID to PTY via /proc
+```mermaid
+flowchart LR
+  CWD["CWD change\n(OSC 7)"] --> Git["Git provider\n.git/HEAD watcher"]
+  Git --> GitHub["GitHub provider\ngh pr view polling"]
+  Claude["Claude provider\n~/.claude/sessions polling"] --> Meta
+  Git --> Meta["Metadata channel\n→ client"]
+  GitHub --> Meta
 ```
 
 **Persistence** — terminal sessions (CWD, sort order, parent relationships) auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms. Schema is versioned with explicit migrations.
