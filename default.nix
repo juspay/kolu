@@ -151,6 +151,8 @@ let
 
     buildPhase = ''
       runHook preBuild
+      # Root node_modules/.bin has patched shebangs; workspace .bin may not
+      export PATH="$PWD/node_modules/.bin:$PATH"
       ln -sfn $KOLU_FONTS_DIR client/public/fonts
       pushd client
       bun run build
