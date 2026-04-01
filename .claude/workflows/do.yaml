@@ -143,5 +143,7 @@ nodes:
       default: done
 
   done:
-    prompt: Report the PR URL and a brief summary of what was delivered.
-    description: Report completion
+    prompt: |
+      Commit and push any remaining staged .workflow-runs/ changes (summary.md)
+      before reporting. Then report the PR URL and a brief summary of what was delivered.
+    description: Final commit + report completion
