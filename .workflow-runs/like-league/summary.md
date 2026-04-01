@@ -46,3 +46,18 @@ Committed 12 files (278 insertions, 123 deletions) as `feat: persist user prefer
 
 Found 3 rule violations + 2 fact-check issues. All fixed: deduplicated DEFAULT_PREFERENCES to common/config.ts, removed dead accessors (isLoading, defaultFontSize, setDefaultFontSize), simplified useColorScheme to pure side-effect.
 → edge: violations or issues found — proceed to police-fix
+
+### police-fix (visit 1/3)
+
+Applied all fixes from police pass. Formatted, type-checked, committed, pushed.
+→ edge: default — proceed to police
+
+### police (visit 2/3)
+
+Re-checked all 6 rules against final code. All clear — no remaining violations.
+→ edge: default — proceed to test
+
+### police-fix (visit 1/3)
+
+Applied all fixes from police pass. Formatted, type-checked, committed, pushed.
+→ edge: default — proceed to police
