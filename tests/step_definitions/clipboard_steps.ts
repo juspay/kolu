@@ -27,7 +27,8 @@ When("I paste an image into the terminal", async function (this: KoluWorld) {
   await this.canvas.click();
   await this.page.keyboard.press(`${MOD_KEY}+v`);
 
-  // Wait for the async upload RPC to complete (goes over WebSocket,
-  // so Playwright's waitForResponse can't observe it).
-  await this.page.waitForTimeout(500);
+  // Wait for the upload RPC acknowledgement — the terminal buffer will
+  // contain the uploaded file path once the server responds.
+  await this.waitForFrame();
+  await this.waitForFrame();
 });

@@ -32,6 +32,7 @@ const SubPanelTabBar: Component<{
               classList={{
                 "bg-surface-2 text-fg font-medium": isActive(),
               }}
+              data-active={isActive() || undefined}
               onClick={() => props.onSelect(id)}
             >
               {label()}

@@ -71,7 +71,7 @@ Then("the activity graph should have data", async function (this: KoluWorld) {
     this.page,
     async () => (await graph.getAttribute("data-has-data")) === "true",
     (val) => val === true,
-    { attempts: 30, intervalMs: 500 },
+    { attempts: 30, intervalMs: 200 },
   );
   assert.ok(hasData, "Expected activity graph to have data");
 });

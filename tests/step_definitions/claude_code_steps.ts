@@ -172,7 +172,7 @@ Then(
         }
       },
       (s) => s === expectedState,
-      { attempts: 30, intervalMs: 500 },
+      { attempts: 30, intervalMs: 200 },
     );
     assert.strictEqual(
       state,
@@ -196,7 +196,7 @@ async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
       }
     },
     (count) => count > 0,
-    { attempts: 30, intervalMs: 500 },
+    { attempts: 30, intervalMs: 200 },
   );
   const count = await indicator.count();
   assert.ok(
@@ -235,7 +235,7 @@ Then(
         }
       },
       (count) => count === 0,
-      { attempts: 30, intervalMs: 500 },
+      { attempts: 30, intervalMs: 200 },
     );
     const count = await this.page
       .locator('[data-testid="claude-indicator"]')

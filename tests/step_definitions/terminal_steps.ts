@@ -1,6 +1,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
 import { readBufferText, pollUntilBufferContains } from "../support/buffer.ts";
+import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
 /** Fetch terminal list from server via oRPC HTTP endpoint. */
@@ -234,19 +235,19 @@ Then(
 Then(
   "the file {string} should contain a number greater than {int}",
   async function (this: KoluWorld, filePath: string, min: number) {
-    // Poll for the file to contain the expected value
     const fs = await import("node:fs/promises");
-    let cols = NaN;
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        const content = (await fs.readFile(filePath, "utf-8")).trim();
-        cols = Number(content);
-        if (!isNaN(cols) && cols > min) return;
-      } catch {
-        // File not yet written
-      }
-      await this.waitForFrame();
-    }
+    const cols = await pollUntil(
+      this.page,
+      async () => {
+        try {
+          return Number((await fs.readFile(filePath, "utf-8")).trim());
+        } catch {
+          return NaN;
+        }
+      },
+      (n) => !isNaN(n) && n > min,
+      { attempts: 30 },
+    );
     assert.ok(
       !isNaN(cols) && cols > min,
       `Expected ${filePath} to contain a number > ${min}, got: "${cols}"`,

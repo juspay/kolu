@@ -209,10 +209,10 @@ Then(
       '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
     );
     const tab = tabs.nth(index - 1);
-    const classes = await tab.getAttribute("class");
+    const active = await tab.getAttribute("data-active");
     assert.ok(
-      classes?.includes("font-medium"),
-      `Expected tab ${index} to be active (have font-medium class)`,
+      active !== null,
+      `Expected tab ${index} to be active (have data-active attribute)`,
     );
   },
 );
