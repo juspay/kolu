@@ -155,17 +155,18 @@ const App: Component = () => {
   }
 
   const commands = createCommands({
-    terminalIds: store.workspaceIds,
+    workspaceIds: store.workspaceIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
     activeMeta: store.activeMeta,
     handleCreate: (cwd) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (workspaceId, cwd) =>
+    handleCreateTerminal: (workspaceId, cwd) =>
       void crud.handleCreateTerminal(workspaceId, cwd),
     handleKill: (id) => void crud.handleKill(id),
-    handleCopyTerminalText: () => void crud.handleCopyWorkspaceText(),
-    getSubTerminalIds: store.getTerminalIds,
-    toggleSubPanel: (workspaceId) => terminalPanel.togglePanel(workspaceId),
+    handleCopyWorkspaceText: () => void crud.handleCopyWorkspaceText(),
+    getTerminalIds: store.getTerminalIds,
+    toggleTerminalPanel: (workspaceId) =>
+      terminalPanel.togglePanel(workspaceId),
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,

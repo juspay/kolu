@@ -27,8 +27,9 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
     <div class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-xs w-full">
       <Show when={props.savedSession}>
         {(session) => {
-          const topLevel = () => session().terminals.filter((t) => !t.parentId);
-          const subCount = () =>
+          const workspaces = () =>
+            session().terminals.filter((t) => !t.parentId);
+          const terminalCount = () =>
             session().terminals.filter((t) => t.parentId).length;
           return (
             <div
@@ -37,7 +38,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
             >
               <p class="text-fg-2 text-sm mb-2">Restore previous session</p>
               <div class="space-y-1 mb-3">
-                <For each={topLevel()}>
+                <For each={workspaces()}>
                   {(t) => (
                     <div class="text-xs text-fg-3 truncate" title={t.cwd}>
                       <Show when={t.repoName} fallback={t.cwd}>
@@ -49,9 +50,9 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                     </div>
                   )}
                 </For>
-                <Show when={subCount() > 0}>
+                <Show when={terminalCount() > 0}>
                   <div class="text-xs text-fg-3/50">
-                    +{subCount()} terminal{subCount() > 1 ? "s" : ""}
+                    +{terminalCount()} terminal{terminalCount() > 1 ? "s" : ""}
                   </div>
                 </Show>
               </div>

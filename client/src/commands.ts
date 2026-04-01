@@ -11,16 +11,16 @@ import { useRecentRepos } from "./useRecentRepos";
 import { client } from "./rpc";
 
 export interface CommandDeps {
-  terminalIds: Accessor<TerminalId[]>;
+  workspaceIds: Accessor<TerminalId[]>;
   activeId: Accessor<TerminalId | null>;
   setActiveId: (id: TerminalId) => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  handleCreateTerminal: (workspaceId: TerminalId, cwd?: string) => void;
   handleKill: (id: TerminalId) => void;
-  handleCopyTerminalText: () => void;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
-  toggleSubPanel: (parentId: TerminalId) => void;
+  handleCopyWorkspaceText: () => void;
+  getTerminalIds: (workspaceId: TerminalId) => TerminalId[];
+  toggleTerminalPanel: (workspaceId: TerminalId) => void;
   // Theme
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
@@ -88,10 +88,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             keybind: SHORTCUTS.toggleSubPanel.keybind,
             onSelect: () => {
               const id = deps.activeId()!;
-              if (deps.getSubTerminalIds(id).length === 0) {
-                deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd);
+              if (deps.getTerminalIds(id).length === 0) {
+                deps.handleCreateTerminal(id, deps.activeMeta()?.cwd);
               } else {
-                deps.toggleSubPanel(id);
+                deps.toggleTerminalPanel(id);
               }
             },
           },
@@ -99,7 +99,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "New terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
-              deps.handleCreateSubTerminal(
+              deps.handleCreateTerminal(
                 deps.activeId()!,
                 deps.activeMeta()?.cwd,
               ),
@@ -107,7 +107,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           {
             name: "Copy workspace text",
             keybind: SHORTCUTS.copyTerminalText.keybind,
-            onSelect: () => deps.handleCopyTerminalText(),
+            onSelect: () => deps.handleCopyWorkspaceText(),
           },
         ]
       : []),
@@ -119,12 +119,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ],
       onSelect: () => deps.setMcMode({ mode: "browse" }),
     },
-    ...(deps.terminalIds().length > 0
+    ...(deps.workspaceIds().length > 0
       ? [
           {
             name: "Switch workspace",
             children: () =>
-              deps.terminalIds().map((id, i) => ({
+              deps.workspaceIds().map((id, i) => ({
                 name: `Switch to workspace ${i + 1}`,
                 keybind:
                   i < 9
