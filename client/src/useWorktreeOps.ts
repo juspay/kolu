@@ -7,6 +7,7 @@ import { client } from "./rpc";
 import type { TerminalId, WorktreeAgent } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
+/** Options for creating a worktree with an optional agent. */
 export interface WorktreeCreateOpts {
   repoPath: string;
   agent: WorktreeAgent;
@@ -19,16 +20,21 @@ async function waitForClaudeReady(
   id: string,
   timeoutMs = 30_000,
 ): Promise<void> {
-  const stream = await client.terminal.onMetadataChange({ id });
-  const timeout = new Promise<void>((_, reject) =>
-    setTimeout(() => reject(new Error("timeout")), timeoutMs),
-  );
-  const ready = (async () => {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    const stream = await client.terminal.onMetadataChange({
+      id,
+    });
     for await (const meta of stream) {
-      if (meta.claude?.state === "waiting") return;
+      if (ac.signal.aborted) break;
+      if (meta.claude?.state === "waiting") break;
     }
-  })();
-  await Promise.race([ready, timeout]);
+  } catch {
+    // Stream aborted or terminal gone
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function useWorktreeOps(deps: {

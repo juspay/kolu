@@ -56,8 +56,6 @@ const NewWorktreeDialog: Component<{
   const [skipPerms, setSkipPerms] = createSignal(false);
   const [prompt, setPrompt] = createSignal("");
 
-  let repoListRef!: HTMLDivElement;
-
   // Sync local state from server config when it loads / dialog opens
   createEffect(
     on(
@@ -138,7 +136,6 @@ const NewWorktreeDialog: Component<{
         <div class="space-y-1">
           <span class="text-xs text-fg-3">Repository</span>
           <div
-            ref={repoListRef}
             data-testid="worktree-repo-list"
             class="max-h-[180px] overflow-y-auto rounded border border-edge bg-surface-0"
           >
