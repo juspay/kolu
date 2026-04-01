@@ -16,7 +16,7 @@ Execute a workflow defined in `.claude/workflows/<name>.yaml`.
 
 ## Artifacts
 
-Each workflow run produces artifacts in `.workflows/<branch-name>/`:
+Each workflow run produces artifacts in `.workflow-runs/<branch-name>/`:
 
 - **`plan.md`** — The plan/task description. Written by the `branch` node (or equivalent) before implementation starts. Committed to git as the first commit on the feature branch.
 - **`summary.md`** — Execution summary. Written at the end of the workflow (or on halt). Contains:
