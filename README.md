@@ -113,18 +113,15 @@ flowchart LR
 
 ### Client
 
-[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). State management follows a singleton-hook pattern: `useXxx.ts` modules create reactive state (signals or [stores](https://docs.solidjs.com/reference/store-utilities/create-store)) once at module level, exposing accessors consumed by any component.
+[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). The client never calls `client.*` directly for server state — all server-derived data flows through [TanStack Query](https://tanstack.com/query) via [`@orpc/tanstack-query`](https://orpc.unnoq.com/docs/tanstack-query/solid-query). The oRPC contract generates type-safe `queryOptions`, `mutationOptions`, `experimental_liveOptions`, and `experimental_streamedOptions` that plug directly into TanStack's cache, deduplication, and lifecycle management.
 
-Key state modules:
+**How server state reaches components:** [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) creates a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/createQueries) array — one live query and one streamed query per known terminal ID. When a terminal is added or removed, the query array reactively resizes. Metadata queries use `experimental_liveOptions` (each server push replaces the cached value); activity queries use `experimental_streamedOptions` (each push appends to the cached array, capped by `maxChunks`, trimmed to a 5-minute window via `select`). Components read derived state through `getMetadata(id)` and `getActivityHistory(id)` — plain accessors into the TanStack cache.
 
-| Module                                                     | Responsibility                                                                                                                                   |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`useTerminalStore`](client/src/useTerminalStore.ts)       | Terminal identity, active/MRU selection, attention flags                                                                                         |
-| [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) | Wires live + streamed queries per terminal via [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/createQueries) |
-| [`useTerminalCrud`](client/src/useTerminalCrud.ts)         | Create, kill, reorder, theme assignment                                                                                                          |
-| [`useSessionRestore`](client/src/useSessionRestore.ts)     | Hydrates terminals from saved session on mount                                                                                                   |
+**Mutations** ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) use `createMutation` with `orpc.*.mutationOptions()`. On success, they invalidate relevant query keys to trigger refetches (e.g., invalidating metadata after a reorder).
 
-[xterm.js](https://xtermjs.org/) renders terminals with WebGL acceleration, clickable URLs, image protocols (sixel, iTerm2, kitty), and search. Reconnection is handled by [PartySocket](https://docs.partykit.io/reference/partysocket-api/) with exponential backoff; server restarts are detected via a `processId` probe.
+Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS signals and [stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
+
+[xterm.js](https://xtermjs.org/) renders terminals with WebGL acceleration, clickable URLs, image protocols (sixel, iTerm2, kitty), and search. The WebSocket connection uses [PartySocket](https://docs.partykit.io/reference/partysocket-api/) for auto-reconnect with exponential backoff; server restarts are detected via a `processId` probe.
 
 ### Build & packaging
 
