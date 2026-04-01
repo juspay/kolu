@@ -13,7 +13,7 @@ Feature: Copy terminal text
     When I run "echo palette-copy-test"
     And the screen state should contain "palette-copy-test"
     And I open the command palette
-    And I type "Copy terminal" in the palette
+    And I type "Copy workspace" in the palette
     And I press Enter
     Then a toast should appear with text "Copied workspace text to clipboard"
     And there should be no page errors
