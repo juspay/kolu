@@ -76,11 +76,93 @@ pnpm monorepo, three packages:
 
 | Package   | Stack                                                                                                                                                               |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common/` | [oRPC](https://orpc.unnoq.com/) contract + [Zod](https://zod.dev/) schemas                                                                                          |
+| `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
 | `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
 | `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
 
-All communication over a single WebSocket (`/rpc/ws`) via oRPC. Server state (queries, mutations, push-based streams) is managed by TanStack Query via `@orpc/tanstack-query`. Metadata uses `experimental_liveOptions` (each event replaces the previous — only current state matters). Activity uses `experimental_streamedOptions` (events accumulate for sparkline rendering, capped by `maxChunks`).
+### Communication
+
+All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three query patterns[^orpc-patterns]:
+
+| Pattern            | Semantics                         | TanStack integration           | Used for                                               |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------ |
+| Request / response | one-shot                          | `createMutation`[^rr]          | `terminal.create`, `terminal.kill`, `terminal.reorder` |
+| Live query         | each push replaces previous value | `experimental_liveOptions`     | Terminal metadata (CWD, git, PR, Claude state)         |
+| Streamed query     | pushes accumulate into an array   | `experimental_streamedOptions` | Activity sparklines                                    |
+
+All three are wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
+
+[^rr]: Mutations update the TanStack cache on success — either optimistically via `qc.setQueryData` (reorder, theme) or by adding new IDs to `knownIds` which reactively spawns new live/streamed queries (create). A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
+
+### Data flow
+
+Two loops drive the system — a **terminal I/O loop** (the hot path) and a **metadata loop** (side-channel enrichment). Both flow over the same WebSocket and land in [TanStack Query](https://tanstack.com/query) cache on the client via [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
+
+```mermaid
+flowchart TB
+  subgraph Client["Client (SolidJS)"]
+    User((User)):::user
+    Xterm["xterm.js\nrender + input"]:::client
+    TQ["TanStack Query\ncache"]:::cache
+    UI["UI components\nsidebar · header · palette"]:::client
+  end
+
+  subgraph Server["Server (Hono)"]
+    PTY["node-pty\nshell process"]:::server
+    Headless["@xterm/headless\nscreen state"]:::server
+    Pub["Publisher\nper-terminal channels"]:::server
+    Providers["Metadata providers"]:::server
+  end
+
+  %% Terminal I/O loop
+  User -->|"keystroke"| Xterm
+  Xterm -->|"sendInput\n(request/response)"| PTY
+  PTY -->|"shell output"| Headless
+  PTY -->|"shell output"| Pub
+  Pub -->|"attach stream"| Xterm
+
+  %% Metadata loop
+  PTY -.->|"OSC 7\n(CWD change)"| Providers
+  Providers -.->|"metadata stream\n(live query)"| TQ
+  Pub -.->|"activity stream\n(streamed query)"| TQ
+  TQ -.-> UI
+
+  %% User actions
+  UI -->|"create · kill · reorder\n(request/response)"| PTY
+  UI -.->|"invalidates"| TQ
+
+  classDef user fill:#f4a261,stroke:#e76f51,color:#000
+  classDef client fill:#2a9d8f,stroke:#264653,color:#fff
+  classDef cache fill:#e76f51,stroke:#f4a261,color:#fff
+  classDef server fill:#264653,stroke:#2a9d8f,color:#fff
+
+  style Client fill:none,stroke:#2a9d8f,stroke-width:2px,color:#2a9d8f
+  style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
+```
+
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+
+**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers feed a single metadata channel streamed to the client as a live query[^providers].
+
+**User actions** — command palette and sidebar dispatch mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) via `createMutation` + `orpc.*.mutationOptions()`. On success, they invalidate query keys so TanStack refetches. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) manages a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array that reactively resizes as terminals come and go[^client-state].
+
+[^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
+
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider matches PIDs to PTYs via `/proc/{pid}/fd/0`.
+
+[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
+
+**Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
+
+[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
+
+[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; server restarts are detected via a `processId` probe.
+
+### Build & packaging
+
+Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
+
+[^build]: `koluEnv` includes `KOLU_THEMES_JSON`, font paths, and clipboard shims. The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
 
 ## Development
 
