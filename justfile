@@ -27,7 +27,7 @@ _dev-parallel: server client
 
 # Run TypeScript type checking across all packages
 watch: install
-    {{ nix_shell }} bun typecheck
+    {{ nix_shell }} bun run typecheck
 
 # Run server with auto-reload
 server:
@@ -39,7 +39,7 @@ client:
 
 # Run unit tests (vitest) across server and client packages
 test-unit: install
-    {{ nix_shell }} bun test:unit
+    {{ nix_shell }} bun run test:unit
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
@@ -51,7 +51,7 @@ test: install
     # Temp dirs for Claude Code status detection mock tests
     export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
     export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} bun test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} bun run test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via bun, spawns server from source on random ports.
