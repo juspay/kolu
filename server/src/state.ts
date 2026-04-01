@@ -8,11 +8,12 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo, SavedSession } from "kolu-common";
+import type { RecentRepo, SavedSession, WorktreeConfig } from "kolu-common";
 
 interface StateSchema {
   recentRepos: RecentRepo[];
   session: SavedSession | null;
+  worktreeConfig: WorktreeConfig;
 }
 
 /**
@@ -20,7 +21,12 @@ interface StateSchema {
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.1.0";
+const DEFAULT_WORKTREE_CONFIG: WorktreeConfig = {
+  agent: "shell",
+  dangerouslySkipPermissions: false,
+};
+
+const SCHEMA_VERSION = "1.2.0";
 
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
@@ -30,11 +36,16 @@ export const store = new Conf<StateSchema>({
   defaults: {
     recentRepos: [],
     session: null,
+    worktreeConfig: DEFAULT_WORKTREE_CONFIG,
   },
   migrations: {
     // sortOrder added to SavedTerminal — old sessions don't have it.
     // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
     "1.1.0": () => {},
+    // worktreeConfig added — default is shell agent, no skip-permissions.
+    "1.2.0": (s: Conf<StateSchema>) => {
+      s.set("worktreeConfig", DEFAULT_WORKTREE_CONFIG);
+    },
   },
 });
 
@@ -66,6 +77,16 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
   // Sort most-recent first, then trim
   repos.sort((a, b) => b.lastSeen - a.lastSeen);
   store.set("recentRepos", repos.slice(0, MAX_RECENT_REPOS));
+}
+
+// --- Worktree config ---
+
+export function getWorktreeConfig(): WorktreeConfig {
+  return store.get("worktreeConfig");
+}
+
+export function setWorktreeConfig(config: WorktreeConfig): void {
+  store.set("worktreeConfig", config);
 }
 
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */

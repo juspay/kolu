@@ -27,6 +27,55 @@ When(
 );
 
 Then(
+  "the new worktree dialog should be visible",
+  async function (this: KoluWorld) {
+    const dialog = this.page.locator('[data-testid="new-worktree-dialog"]');
+    await dialog.waitFor({ state: "visible", timeout: 3000 });
+  },
+);
+
+Then(
+  "the worktree dialog should show repo {string}",
+  async function (this: KoluWorld, repoName: string) {
+    const dialog = this.page.locator('[data-testid="new-worktree-dialog"]');
+    const item = dialog
+      .locator('[data-testid="worktree-repo-item"]')
+      .filter({ hasText: new RegExp(`^${repoName}`) });
+    await item.first().waitFor({ state: "visible", timeout: 3000 });
+  },
+);
+
+When(
+  "I select repo {string} in the worktree dialog",
+  async function (this: KoluWorld, repoName: string) {
+    const dialog = this.page.locator('[data-testid="new-worktree-dialog"]');
+    const item = dialog
+      .locator('[data-testid="worktree-repo-item"]')
+      .filter({ hasText: new RegExp(`^${repoName}`) });
+    await item.first().waitFor({ state: "visible", timeout: 3000 });
+    await item.first().click();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I select agent {string} in the worktree dialog",
+  async function (this: KoluWorld, agentLabel: string) {
+    const dialog = this.page.locator('[data-testid="new-worktree-dialog"]');
+    const agentBtn = dialog.locator("button").filter({ hasText: agentLabel });
+    await agentBtn.first().click();
+    await this.waitForFrame();
+  },
+);
+
+When("I click the worktree create button", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="worktree-create-btn"]');
+  await this.waitForFrame();
+  // Wait for worktree creation + terminal spawn
+  await this.page.waitForTimeout(1000);
+});
+
+Then(
   "the sidebar should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {
     assert.ok(
