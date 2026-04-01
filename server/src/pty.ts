@@ -58,6 +58,9 @@ export function spawnPty(
   const osc7 = osc7Init(shell, env.HOME, clipboard.shimBinDir);
   Object.assign(env, osc7.env);
   env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
+  // Bun.Terminal doesn't set TERM from the name option (unlike node-pty).
+  // Without TERM, shells default to "dumb" — breaking prompts, colors, and cursor.
+  env.TERM = "xterm-256color";
 
   tlog.info({ shell, cwd }, "spawning pty");
 
