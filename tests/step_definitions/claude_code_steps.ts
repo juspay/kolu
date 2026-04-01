@@ -38,9 +38,13 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
   const text = await pollUntilBufferContains(world.page, marker);
   // The PID is the line immediately before the marker line
   const lines = text.split("\n").map((l) => l.trim());
-  const markerIdx = lines.findIndex((l) => l.includes(marker) && !l.includes("echo"));
+  const markerIdx = lines.findIndex(
+    (l) => l.includes(marker) && !l.includes("echo"),
+  );
   if (markerIdx <= 0)
-    throw new Error(`Could not find marker output in buffer:\n${text.slice(0, 800)}`);
+    throw new Error(
+      `Could not find marker output in buffer:\n${text.slice(0, 800)}`,
+    );
   // Walk backwards from marker to find the PID (first purely numeric line)
   for (let i = markerIdx - 1; i >= 0; i--) {
     const num = parseInt(lines[i]!, 10);
