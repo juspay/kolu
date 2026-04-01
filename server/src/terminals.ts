@@ -19,6 +19,7 @@ import {
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
+import { getTmuxShimDir, allocatePaneIndex, tmuxEnvValue } from "./tmux-env.ts";
 import {
   createMetadata,
   updateMetadata,
@@ -129,6 +130,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const tlog = log.child({ terminal: id });
   const clipboardDir = createClipboardDir(id);
 
+  const paneIndex = allocatePaneIndex();
   const handle = spawnPty(
     tlog,
     {
@@ -168,6 +170,11 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       },
     },
     { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
+    {
+      shimBinDir: getTmuxShimDir(),
+      tmuxEnv: tmuxEnvValue(),
+      paneId: `%${paneIndex}`,
+    },
     cwd,
   );
 

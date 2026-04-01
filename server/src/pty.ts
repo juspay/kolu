@@ -48,17 +48,25 @@ export function spawnPty(
     onCwd?: (cwd: string) => void;
   },
   clipboard: { shimBinDir: string; clipboardDir: string },
+  tmux: { shimBinDir: string; tmuxEnv: string; paneId: string },
   spawnCwd?: string,
 ): PtyHandle {
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = spawnCwd || env.HOME || "/";
 
-  // Inject clipboard shim dir into shell rc AFTER the user's rc —
+  // Inject shim dirs into shell rc AFTER the user's rc —
   // NixOS rebuilds PATH during shell init, so env-level PATH gets lost.
-  const osc7 = osc7Init(shell, env.HOME, clipboard.shimBinDir);
+  const extraPath = [clipboard.shimBinDir, tmux.shimBinDir]
+    .filter(Boolean)
+    .join(":");
+  const osc7 = osc7Init(shell, env.HOME, extraPath);
   Object.assign(env, osc7.env);
   env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
+  // tmux compatibility: Claude Code detects multiplexer via $TMUX and uses $TMUX_PANE as self-identity
+  env.TMUX = tmux.tmuxEnv;
+  env.TMUX_PANE = tmux.paneId;
+  env.KOLU_PORT = process.env.KOLU_PORT ?? "7681";
 
   tlog.info({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, osc7.args, {
