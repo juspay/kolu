@@ -83,17 +83,11 @@ Then(
       "Must note sidebar count first",
     );
     const expected = this.savedSidebarCount! - fewer;
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const count = await entries.count();
-      if (count === expected) return;
-      await this.waitForFrame();
-    }
-    const count = await entries.count();
-    assert.strictEqual(
-      count,
-      expected,
-      `Expected ${expected} sidebar entries (${this.savedSidebarCount} - ${fewer}), got ${count}`,
+    const sel = SIDEBAR_ENTRY_SELECTOR;
+    await this.page.waitForFunction(
+      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
+      { sel, exp: expected },
+      { timeout: 5000 },
     );
   },
 );

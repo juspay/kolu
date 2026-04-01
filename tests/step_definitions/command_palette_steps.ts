@@ -83,14 +83,13 @@ Then(
 Then(
   "palette item {int} should be selected",
   async function (this: KoluWorld, index: number) {
-    // Selected item has bg-surface-3 class (0-based internally, 1-based in feature)
     const items = this.page.locator(`${PALETTE_SELECTOR} li`);
     const item = items.nth(index - 1);
     await item.waitFor({ state: "visible", timeout: 3000 });
-    const classes = await item.getAttribute("class");
+    const selected = await item.getAttribute("data-selected");
     assert.ok(
-      classes?.includes("bg-surface-3"),
-      `Palette item ${index} is not selected (classes: ${classes})`,
+      selected !== null,
+      `Palette item ${index} is not selected (missing data-selected)`,
     );
   },
 );
@@ -101,10 +100,10 @@ Then(
     const items = this.page.locator(`${PALETTE_SELECTOR} li`);
     const count = await items.count();
     const last = items.nth(count - 1);
-    const classes = await last.getAttribute("class");
+    const selected = await last.getAttribute("data-selected");
     assert.ok(
-      classes?.includes("bg-surface-3"),
-      `Last palette item is not selected (classes: ${classes})`,
+      selected !== null,
+      `Last palette item is not selected (missing data-selected)`,
     );
   },
 );
@@ -141,9 +140,7 @@ Then(
   "the palette breadcrumb should not be visible",
   async function (this: KoluWorld) {
     const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
-    await assert.rejects(
-      breadcrumb.waitFor({ state: "visible", timeout: 500 }),
-    );
+    await breadcrumb.waitFor({ state: "hidden", timeout: 3000 });
   },
 );
 

@@ -22,6 +22,8 @@ Then("a sidebar entry should be notified", async function (this: KoluWorld) {
 });
 
 Then("no sidebar entry should be notified", async function (this: KoluWorld) {
+  // Double frame wait to flush SolidJS reactivity + any pending DOM updates
+  await this.waitForFrame();
   await this.waitForFrame();
   const count = await this.page
     .locator('[data-testid="sidebar"] [data-alerting]')

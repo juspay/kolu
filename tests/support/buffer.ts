@@ -54,7 +54,7 @@ export async function pollUntilBufferContains(
   for (let i = 0; i < attempts; i++) {
     content = await readBufferText(page, selector, index);
     if (content.includes(expected)) return content;
-    await page.waitForTimeout(intervalMs);
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new Error(
     `Buffer does not contain "${expected}" after ${attempts} attempts.\nBuffer (partial): ${content.slice(0, 500)}`,

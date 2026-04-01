@@ -51,7 +51,7 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
     } catch {
       // server not up yet
     }
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(
     `Server did not become healthy at ${url} within ${timeoutMs}ms`,
