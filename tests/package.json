@@ -4,7 +4,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^12.7.0",
     "get-port": "^7.2.0",
-    "playwright": "1.57.0",
+    "playwright": "1.58.2",
     "tsx": "^4.19.0"
   },
   "scripts": {
