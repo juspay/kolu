@@ -3,13 +3,24 @@ name: code-police
 description: Review code for quality, simplicity, and common mistakes before declaring work complete.
 ---
 
-# Code Review
+# Code Police
 
-Review the current changes against these principles. Flag any violations.
+Review the current changes against **every rule in `code-police.yaml`** (in this skill's directory). That file is the primary checklist — read it first.
 
-**Also check `.claude/code-police.yaml`** — it contains specific anti-patterns caught from past reviews. Check every rule in that file against the diff.
+Additionally, check the principles below.
 
-## Simple, not easy (Rich Hickey)
+## Output
+
+Present a table with **every rule from `code-police.yaml`**:
+
+| Rule ID | Violation found? | What was identified | Action taken |
+|---------|-----------------|---------------------|--------------|
+
+If no violation was found for a rule, mark it as "No" with a brief note on what was checked. Every rule must appear in the table — no skipping.
+
+## Additional principles
+
+### Simple, not easy (Rich Hickey)
 
 Simple means _not interleaved_. Each module does one thing. Data flows through arguments and return values, not shared mutable state or indirection.
 
@@ -17,36 +28,21 @@ Simple means _not interleaved_. Each module does one thing. Data flows through a
 - No "for future use" code. Build what's needed now.
 - Prefer plain data over objects with behavior.
 
-## DRY (with Rule of Three)
-
-- Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction.
-- But _identical_ content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count.
-- Versions, ports, paths — define once, reference everywhere.
-
-## Make invalid states unrepresentable
-
-- Use discriminated unions, not booleans or stringly-typed fields.
-- If two fields can't both be `undefined` at the same time, model that in the type.
-
-## Dead code
-
-- Aggressively remove unused code. No commented-out blocks, no "just in case" leftovers.
-
-## Styling
+### Styling
 
 - Tailwind utilities only in markup. No custom CSS unless truly impossible with Tailwind.
 
-## Completeness
+### Completeness
 
 - Implement the full spec. Read the plan/requirements and check every deliverable.
 - Run CI locally before declaring done.
 - Run tests.
 
-## Justfile
+### Justfile
 
 - Every recipe must have a doc comment (line starting with `#` above the recipe name).
 
-## Module structure — volatility-based decomposition
+### Module structure — volatility-based decomposition
 
 Group code by _rate of change_, not by technical layer. Things that change together live together; things that change independently get separate modules.
 
@@ -54,13 +50,7 @@ Group code by _rate of change_, not by technical layer. Things that change toget
 - UI components get their own file (`client/src/Header.tsx`, not inlined in `App.tsx`).
 - Shared constants used by multiple modules (e.g., theme colors) get their own file to avoid coupling unrelated modules.
 
-## Readability
+### Readability
 
 - Every exported type and every component needs a doc comment.
 - Avoid deeply nested callbacks. Extract into named functions.
-
-## Comments
-
-- Add comments where the _why_ isn't obvious from the code. Don't comment the _what_.
-- Also add comments where the _what_ isn't obvious — e.g. non-obvious guards, CSS workarounds, platform-specific behavior.
-- Non-obvious workarounds (temp files, wrapper scripts, env var shims) **must** have a comment explaining _why_ they exist.
