@@ -92,79 +92,69 @@ All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.de
 
 [^orpc-patterns]: Wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query). Live queries use `experimental_liveOptions`; streamed queries use `experimental_streamedOptions` with `maxChunks` to cap array growth.
 
-### Server
+### Data flow
 
-Hono serves HTTP and upgrades `/rpc/ws` to WebSocket for oRPC streaming.
+Two loops drive the system — a **terminal I/O loop** (the hot path) and a **metadata loop** (side-channel enrichment). Both flow over the same WebSocket and land in [TanStack Query](https://tanstack.com/query) cache on the client via [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
 
-**Terminal lifecycle** — each terminal wraps a node-pty spawn paired with an @xterm/headless instance. The headless xterm parses VT sequences server-side, enabling screen-state snapshots for late-joining clients[^lazy-attach]. Events are routed through a typed in-memory [pub/sub layer](server/src/publisher.ts) to per-terminal channels.
+```mermaid
+flowchart TB
+  subgraph Client["Client (SolidJS)"]
+    User((User)):::user
+    Xterm["xterm.js\nrender + input"]:::client
+    TQ["TanStack Query\ncache"]:::cache
+    UI["UI components\nsidebar · header · palette"]:::client
+  end
+
+  subgraph Server["Server (Hono)"]
+    PTY["node-pty\nshell process"]:::server
+    Headless["@xterm/headless\nscreen state"]:::server
+    Pub["Publisher\nper-terminal channels"]:::server
+    Providers["Metadata providers"]:::server
+  end
+
+  %% Terminal I/O loop
+  User -->|"keystroke"| Xterm
+  Xterm -->|"sendInput (RPC)"| PTY
+  PTY -->|"shell output"| Headless
+  PTY -->|"shell output"| Pub
+  Pub -->|"attach stream"| Xterm
+
+  %% Metadata loop
+  PTY -.->|"OSC 7\n(CWD change)"| Providers
+  Providers -.->|"metadata stream\n(live query)"| TQ
+  Pub -.->|"activity stream\n(streamed query)"| TQ
+  TQ -.-> UI
+
+  %% User actions
+  UI -->|"create · kill · reorder\n(mutations)"| PTY
+  UI -.->|"invalidates"| TQ
+
+  classDef user fill:#f4a261,stroke:#e76f51,color:#000
+  classDef client fill:#2a9d8f,stroke:#264653,color:#fff
+  classDef cache fill:#e76f51,stroke:#f4a261,color:#fff
+  classDef server fill:#264653,stroke:#2a9d8f,color:#fff
+
+  style Client fill:none,stroke:#2a9d8f,stroke-width:2px,color:#2a9d8f
+  style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
+```
+
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+
+**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers feed a single metadata channel streamed to the client as a live query[^providers].
+
+**User actions** — command palette and sidebar dispatch mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) via `createMutation` + `orpc.*.mutationOptions()`. On success, they invalidate query keys so TanStack refetches. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) manages a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array that reactively resizes as terminals come and go[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
-**Metadata providers** form a one-way DAG — each provider subscribes to upstream changes and publishes downstream. All providers feed into a single aggregated metadata channel streamed to the client:
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider matches PIDs to PTYs via `/proc/{pid}/fd/0`.
 
-```mermaid
-flowchart LR
-  CWD["CWD change\n(OSC 7)"]:::trigger --> Git["Git provider\n.git/HEAD watcher"]:::provider
-  Git --> GitHub["GitHub provider\ngh pr view polling"]:::provider
-  Claude["Claude provider\n~/.claude/sessions polling"]:::provider --> Meta
-  Git --> Meta(["Metadata channel\n→ client"]):::output
-  GitHub --> Meta
-
-  classDef trigger fill:#f4a261,stroke:#e76f51,color:#000
-  classDef provider fill:#264653,stroke:#2a9d8f,color:#fff
-  classDef output fill:#2a9d8f,stroke:#264653,color:#fff
-```
+[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
 
 **Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
 
 [^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
 
-### Client
-
-[SolidJS](https://www.solidjs.com/) SPA bundled by [Vite](https://vite.dev/). All server-derived state flows through [TanStack Query](https://tanstack.com/query) via [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query) — the client never makes raw RPC calls for stateful data. The oRPC contract generates type-safe query/mutation options that plug directly into TanStack's cache, deduplication, and lifecycle management.
-
-```mermaid
-flowchart TB
-  subgraph Server["Server (WebSocket)"]
-    Meta["metadata stream\n(per terminal)"]:::server
-    Activity["activity stream\n(per terminal)"]:::server
-    Mutations["mutations\n(create, kill, reorder, …)"]:::server
-  end
-
-  subgraph TanStack["TanStack Query Cache"]
-    Live["Live queries\n(liveOptions)"]:::cache
-    Streamed["Streamed queries\n(streamedOptions)"]:::cache
-    Mut["createMutation\n(mutationOptions)"]:::cache
-  end
-
-  subgraph Components["SolidJS Components"]
-    GMeta["getMetadata(id)"]:::component
-    GActivity["getActivityHistory(id)"]:::component
-    CRUD["handleCreate / handleKill / …"]:::component
-  end
-
-  Meta --> Live
-  Activity --> Streamed
-  Mutations --> Mut
-  Live --> GMeta
-  Streamed --> GActivity
-  Mut -.->|invalidates| Live
-  CRUD --> Mut
-
-  classDef server fill:#264653,stroke:#2a9d8f,color:#fff
-  classDef cache fill:#e76f51,stroke:#f4a261,color:#fff
-  classDef component fill:#2a9d8f,stroke:#264653,color:#fff
-
-  style Server fill:none,stroke:#2a9d8f,stroke-width:2px,color:#2a9d8f
-  style TanStack fill:none,stroke:#e76f51,stroke-width:2px,color:#e76f51
-  style Components fill:none,stroke:#264653,stroke-width:2px,color:#264653
-```
-
-[`useTerminalMetadata`](client/src/useTerminalMetadata.ts) creates a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array — one live query and one streamed query per known terminal. The array reactively resizes as terminals are added or removed. Mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) invalidate query keys on success to trigger refetches[^client-state].
-
-[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
-
-[xterm.js](https://xtermjs.org/) renders terminals with WebGL acceleration, clickable URLs, image protocols (sixel, iTerm2, kitty), and search. [PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles auto-reconnect; server restarts are detected via a `processId` probe.
+[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; server restarts are detected via a `processId` probe.
 
 ### Build & packaging
 
