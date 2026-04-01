@@ -71,7 +71,7 @@ export function useTerminalCrud(deps: {
 
   function removeFromList(id: TerminalId) {
     qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) =>
-      old?.filter((t) => t.id !== id),
+      old ? old.filter((t) => t.id !== id) : old,
     );
   }
 

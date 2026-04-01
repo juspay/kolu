@@ -31,16 +31,18 @@ Before({ tags: "@claude-mock" }, function () {
 
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
-  await world.page.keyboard.type("echo $$");
+  const marker = `PID_MARKER_${Date.now()}`;
+  await world.page.keyboard.type(`echo $$; echo ${marker}`);
   await world.page.keyboard.press("Enter");
-  // Wait for the output to appear in the buffer
-  const text = await pollUntilBufferContains(world.page, "$$");
+  // Wait for the marker to appear — guarantees the PID output is complete
+  const text = await pollUntilBufferContains(world.page, marker);
   // Find the line after "echo $$" — that's the PID output
   const lines = text.split("\n").map((l) => l.trim());
   const echoIdx = lines.findIndex((l) => l.includes("echo $$"));
   if (echoIdx === -1) throw new Error("Could not find 'echo $$' in buffer");
-  // The PID is on the next non-empty line
+  // The PID is on the next non-empty line before the marker
   for (let i = echoIdx + 1; i < lines.length; i++) {
+    if (lines[i]!.includes(marker)) break;
     const num = parseInt(lines[i]!, 10);
     if (!isNaN(num) && num > 0) return num;
   }
