@@ -1,38 +1,7 @@
-{
-  "v": "1.0.0",
-  "i": {
-    "nixpkgs": {
-      "kd": [
-        1,
-        {
-          "ft": 1,
-          "ur": "https://github.com/NixOS/nixpkgs/archive/8d029aa64915e54b7846873d9583af4c9fd21ea4.tar.gz",
-          "ms": []
-        }
-      ],
-      "ha": {
-        "al": 0,
-        "vl": "sha256-tsecHNsWwr4wSaM2oW9GwafMwE24J+xD8bKDoto3exY="
-      },
-      "fv": "8d029aa64915e54b7846873d9583af4c9fd21ea4",
-      "ps": []
-    },
-    "iTerm2-Color-Schemes": {
-      "kd": [
-        1,
-        {
-          "ft": 1,
-          "ur": "https://github.com/mbadolato/iTerm2-Color-Schemes/archive/a2c7b60293a81d82767893d89bc7599342c04cbf.tar.gz",
-          "ms": []
-        }
-      ],
-      "ha": {
-        "al": 0,
-        "vl": "sha256-OyIxDnVw19uhlpyA+AwNtmQjNnQO06CFUOgY76PKBLg="
-      },
-      "fv": "a2c7b60293a81d82767893d89bc7599342c04cbf",
-      "ps": []
-    }
-  },
-  "p": {}
+{"v":"1.0.0"
+,"i":{
+"nixpkgs":{"kd":[1,{"ft":1,"ur":"https://github.com/NixOS/nixpkgs/archive/8d029aa64915e54b7846873d9583af4c9fd21ea4.tar.gz","ms":[]}],"ha":{"al":0,"vl":"sha256-tsecHNsWwr4wSaM2oW9GwafMwE24J+xD8bKDoto3exY="},"fv":"8d029aa64915e54b7846873d9583af4c9fd21ea4","ps":[]}
+,"iTerm2-Color-Schemes":{"kd":[1,{"ft":1,"ur":"https://github.com/mbadolato/iTerm2-Color-Schemes/archive/a2c7b60293a81d82767893d89bc7599342c04cbf.tar.gz","ms":[]}],"ha":{"al":0,"vl":"sha256-OyIxDnVw19uhlpyA+AwNtmQjNnQO06CFUOgY76PKBLg="},"fv":"a2c7b60293a81d82767893d89bc7599342c04cbf","ps":[]}
+}
+,"p":{}
 }
