@@ -36,18 +36,18 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
   await world.page.keyboard.press("Enter");
   // Wait for the marker to appear — guarantees the PID output is complete
   const text = await pollUntilBufferContains(world.page, marker);
-  // Find the line after "echo $$" — that's the PID output
+  // The PID is the line immediately before the marker line
   const lines = text.split("\n").map((l) => l.trim());
-  const echoIdx = lines.findIndex((l) => l.includes("echo $$"));
-  if (echoIdx === -1) throw new Error("Could not find 'echo $$' in buffer");
-  // The PID is on the next non-empty line before the marker
-  for (let i = echoIdx + 1; i < lines.length; i++) {
-    if (lines[i]!.includes(marker)) break;
+  const markerIdx = lines.findIndex((l) => l.includes(marker) && !l.includes("echo"));
+  if (markerIdx <= 0)
+    throw new Error(`Could not find marker output in buffer:\n${text.slice(0, 800)}`);
+  // Walk backwards from marker to find the PID (first purely numeric line)
+  for (let i = markerIdx - 1; i >= 0; i--) {
     const num = parseInt(lines[i]!, 10);
-    if (!isNaN(num) && num > 0) return num;
+    if (!isNaN(num) && num > 0 && String(num) === lines[i]) return num;
   }
   throw new Error(
-    `Could not parse PID from buffer after 'echo $$':\n${text.slice(0, 500)}`,
+    `Could not parse PID from buffer before marker:\n${text.slice(0, 800)}`,
   );
 }
 
