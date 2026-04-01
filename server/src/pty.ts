@@ -92,18 +92,8 @@ export function spawnPty(
     },
   );
 
-  // Forward device query responses (DA1/DSR) from headless terminal back to
-  // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
-  // headless terminal responds immediately, avoiding latency from the client.
-  // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
-  // don't consume these, so the shell echoes them as visible garbage.
-  // Streaming decoder handles multi-byte UTF-8 sequences split across chunks
+  // Streaming decoder — handles multi-byte UTF-8 sequences split across chunks
   const decoder = new TextDecoder();
-  let procTerminal: ReturnType<typeof Bun.spawn>["terminal"];
-  const headlessOnDataDisposable = headless.onData((data: string) => {
-    if (data.startsWith("\x1b]")) return;
-    procTerminal?.write(data);
-  });
 
   const proc = Bun.spawn([shell, ...osc7.args], {
     cwd,
@@ -123,10 +113,19 @@ export function spawnPty(
       },
     },
   });
-  // Terminal is always defined when spawned with the terminal option
+  // Always defined when spawned with the terminal option
   const terminal = proc.terminal!;
-  procTerminal = terminal;
   tlog.info({ pid: proc.pid }, "pty spawned");
+
+  // Forward device query responses (DA1/DSR) from headless terminal back to
+  // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
+  // headless terminal responds immediately, avoiding latency from the client.
+  // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
+  // don't consume these, so the shell echoes them as visible garbage.
+  const headlessOnDataDisposable = headless.onData((data: string) => {
+    if (data.startsWith("\x1b]")) return;
+    terminal.write(data);
+  });
 
   // Watch for subprocess exit to get the real exit code.
   // Catch rejection so abnormal termination doesn't become an unhandled promise.

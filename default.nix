@@ -51,7 +51,8 @@ let
     paths = [ xclip-kolu-shim wl-paste-kolu-shim ];
   };
 
-  # Source files for the build — only what's needed.
+  # Minimal source for the dependency FOD — just package.json files and lockfile.
+  # Separate from src so that source code changes don't invalidate the dep cache.
   depsSrc = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
