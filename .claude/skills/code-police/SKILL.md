@@ -14,7 +14,7 @@ Additionally, check the principles below.
 Present a table with **every rule from `code-police.yaml`**:
 
 | Rule ID | Violation found? | What was identified | Action taken |
-|---------|-----------------|---------------------|--------------|
+| ------- | ---------------- | ------------------- | ------------ |
 
 If no violation was found for a rule, mark it as "No" with a brief note on what was checked. Every rule must appear in the table — no skipping.
 
