@@ -16,16 +16,16 @@ interface StateSchema {
   worktreeConfig: WorktreeConfig;
 }
 
-/**
- * Schema version — bump this when adding migrations.
- * Must be valid semver. `conf` runs all migration handlers
- * whose keys are > the last-seen version and ≤ this value.
- */
 const DEFAULT_WORKTREE_CONFIG: WorktreeConfig = {
   agent: "shell",
   dangerouslySkipPermissions: false,
 };
 
+/**
+ * Schema version — bump this when adding migrations.
+ * Must be valid semver. `conf` runs all migration handlers
+ * whose keys are > the last-seen version and ≤ this value.
+ */
 const SCHEMA_VERSION = "1.2.0";
 
 export const store = new Conf<StateSchema>({

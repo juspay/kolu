@@ -56,12 +56,17 @@ const NewWorktreeDialog: Component<{
   const [skipPerms, setSkipPerms] = createSignal(false);
   const [prompt, setPrompt] = createSignal("");
 
-  // Sync local state from server config when it loads / dialog opens
+  // Reset ephemeral state + sync persisted config when dialog opens
   createEffect(
     on(
-      () => [props.open, configQuery.data] as const,
-      ([open, data]) => {
-        if (open && data) {
+      () => props.open,
+      (open) => {
+        if (!open) return;
+        refetch();
+        setSelectedRepo(null);
+        setPrompt("");
+        const data = configQuery.data;
+        if (data) {
           setAgent(data.agent);
           setSkipPerms(data.dangerouslySkipPermissions);
         }
@@ -69,21 +74,7 @@ const NewWorktreeDialog: Component<{
     ),
   );
 
-  // Refetch repos + reset ephemeral state when dialog opens
-  createEffect(
-    on(
-      () => props.open,
-      (open) => {
-        if (open) {
-          refetch();
-          setSelectedRepo(null);
-          setPrompt("");
-        }
-      },
-    ),
-  );
-
-  // Auto-select first repo when list loads
+  // Auto-select first repo when list loads (or refreshes)
   createEffect(
     on(recentRepos, (repos) => {
       if (props.open && repos.length > 0 && selectedRepo() === null) {

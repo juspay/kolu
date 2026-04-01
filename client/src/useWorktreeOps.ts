@@ -15,32 +15,23 @@ export interface WorktreeCreateOpts {
   prompt: string;
 }
 
-/** Wait for Claude Code to reach "waiting" state via metadata stream. */
+/**
+ * Wait for Claude Code to reach "waiting" state via the terminal metadata stream.
+ * The `for await` loop automatically calls `.return()` on the async iterator
+ * when we break out, releasing the server-side subscription.
+ */
 async function waitForClaudeReady(
   id: string,
   timeoutMs = 30_000,
 ): Promise<void> {
   const stream = await client.terminal.onMetadataChange({ id });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-    });
-    const ready = (async () => {
-      for await (const meta of stream) {
-        if (meta.claude?.state === "waiting") return;
-      }
-      throw new Error("stream ended without claude reaching waiting state");
-    })();
-    await Promise.race([ready, timeout]);
-  } finally {
-    clearTimeout(timer);
-    // Close the async iterator to release the server-side subscription
-    if (Symbol.asyncIterator in stream) {
-      const iter = stream[Symbol.asyncIterator]();
-      iter.return?.();
-    }
+  const deadline = Date.now() + timeoutMs;
+  for await (const meta of stream) {
+    if (meta.claude?.state === "waiting") return;
+    if (Date.now() > deadline)
+      throw new Error("Claude Code did not become ready in time");
   }
+  throw new Error("Stream ended before Claude Code became ready");
 }
 
 export function useWorktreeOps(deps: {
@@ -72,18 +63,16 @@ export function useWorktreeOps(deps: {
     toast(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
 
-    // Send agent command to the newly active terminal
+    // Launch Claude Code in the newly active terminal
     if (opts.agent === "claude") {
       const id = store.activeId();
       if (id) {
-        let cmd = "claude";
+        const args = ["claude"];
         if (opts.dangerouslySkipPermissions)
-          cmd += " --dangerously-skip-permissions";
-        cmd += "\n";
-        await client.terminal.sendInput({ id, data: cmd });
-        // If a prompt was provided, send it as the first user message.
-        // Wait for Claude Code to become ready (watching metadata state),
-        // then type the prompt into the interactive session.
+          args.push("--dangerously-skip-permissions");
+        await client.terminal.sendInput({ id, data: args.join(" ") + "\n" });
+
+        // Send prompt as the first user message once Claude Code is ready
         if (opts.prompt) {
           void waitForClaudeReady(id)
             .then(() =>
