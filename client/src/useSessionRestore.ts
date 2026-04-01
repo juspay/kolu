@@ -29,7 +29,7 @@ export function useSessionRestore(deps: {
   // Hydrate from server state on initial load.
   let hydrated = false;
   createEffect(() => {
-    const existing = store.terminals();
+    const existing = store.listQuery.data;
     const session = sessionQuery.data;
     if (existing === undefined || session === undefined) return;
     if (hydrated) return;
@@ -100,7 +100,7 @@ export function useSessionRestore(deps: {
   }
 
   return {
-    isLoading: () => store.listLoading(),
+    isLoading: () => store.listQuery.isLoading,
     savedSession,
     handleRestoreSession,
   };

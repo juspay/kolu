@@ -1,0 +1,15 @@
+rules:
+  - id: tanstack-use-loading-state
+    rule: |
+      Never check `.data === undefined` as a proxy for loading —
+      use TanStack Query's `.isLoading` or `.isPending`.
+    rationale: |
+      Conflates "loading" with "no data" and misses error states.
+
+  - id: no-query-wrapper-accessors
+    rule: |
+      Don't wrap query properties in accessor functions —
+      export the query object directly.
+    rationale: |
+      Wrapper accessors like `() => query.isLoading` add indirection
+      without value; the query object is already reactive in SolidJS.

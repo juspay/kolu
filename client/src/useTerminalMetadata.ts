@@ -12,7 +12,7 @@
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
 import { type Accessor, createMemo } from "solid-js";
-import { createQueries } from "@tanstack/solid-query";
+import { createQueries, type CreateQueryResult } from "@tanstack/solid-query";
 import type {
   TerminalId,
   TerminalInfo,
@@ -32,12 +32,12 @@ import {
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  terminals: Accessor<TerminalInfo[] | undefined>;
+  listQuery: CreateQueryResult<TerminalInfo[]>;
   activeId: Accessor<TerminalId | null>;
 }) {
   /** Terminal IDs derived from the live list query. */
   const terminalIdList = createMemo(
-    () => deps.terminals()?.map((t) => t.id) ?? [],
+    () => deps.listQuery.data?.map((t) => t.id) ?? [],
   );
 
   // --- Metadata (slow-changing) — each event replaces the previous ---

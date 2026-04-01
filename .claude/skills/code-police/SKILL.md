@@ -1,11 +1,13 @@
 ---
-name: code-review
+name: code-police
 description: Review code for quality, simplicity, and common mistakes before declaring work complete.
 ---
 
 # Code Review
 
 Review the current changes against these principles. Flag any violations.
+
+**Also check `.claude/code-police.yaml`** — it contains specific anti-patterns caught from past reviews. Check every rule in that file against the diff.
 
 ## Simple, not easy (Rich Hickey)
 

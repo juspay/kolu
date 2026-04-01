@@ -6,7 +6,6 @@
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
 import { createQuery } from "@tanstack/solid-query";
-import type { TerminalInfo } from "kolu-common";
 import { orpc } from "./orpc";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
@@ -16,18 +15,15 @@ export function useTerminalStore() {
     orpc.terminal.list.experimental_liveOptions(),
   );
 
-  const terminals = (): TerminalInfo[] | undefined => listQuery.data;
-
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    terminals,
+    listQuery,
     activeId: view.activeId,
   });
 
   return {
     // Live terminal list from server
-    terminals,
-    listLoading: () => listQuery.isLoading,
+    listQuery,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
