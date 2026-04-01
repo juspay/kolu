@@ -97,6 +97,8 @@ export function spawnPty(
   // headless terminal responds immediately, avoiding latency from the client.
   // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
   // don't consume these, so the shell echoes them as visible garbage.
+  // Streaming decoder handles multi-byte UTF-8 sequences split across chunks
+  const decoder = new TextDecoder();
   let procTerminal: ReturnType<typeof Bun.spawn>["terminal"];
   const headlessOnDataDisposable = headless.onData((data: string) => {
     if (data.startsWith("\x1b]")) return;
@@ -111,7 +113,7 @@ export function spawnPty(
       rows: DEFAULT_ROWS,
       name: "xterm-256color",
       data(_terminal: unknown, chunk: Uint8Array) {
-        const str = new TextDecoder().decode(chunk);
+        const str = decoder.decode(chunk, { stream: true });
         headless.write(str);
         opts.onData(str);
       },
@@ -126,8 +128,12 @@ export function spawnPty(
   procTerminal = terminal;
   tlog.info({ pid: proc.pid }, "pty spawned");
 
-  // Watch for subprocess exit to get the real exit code
-  proc.exited.then((code) => opts.onExit(code));
+  // Watch for subprocess exit to get the real exit code.
+  // Catch rejection so abnormal termination doesn't become an unhandled promise.
+  proc.exited.then(
+    (code) => opts.onExit(code),
+    () => opts.onExit(1),
+  );
 
   return {
     pid: proc.pid,
