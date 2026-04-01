@@ -61,9 +61,7 @@ When(
 Then(
   "the color scheme should be {string}",
   async function (this: KoluWorld, scheme: string) {
-    const active = this.page.locator(`[data-testid="color-scheme-${scheme}"]`);
-    // The active button gets bg-accent — verify it's present via class check would be fragile;
-    // instead verify the html element's class reflects the resolved scheme.
+    // Verify the html element's class reflects the resolved scheme.
     if (scheme === "dark") {
       await this.page.waitForFunction(() =>
         document.documentElement.classList.contains("dark"),
@@ -73,7 +71,13 @@ Then(
         () => !document.documentElement.classList.contains("dark"),
       );
     }
-    // Verify the button is rendered (scheme option exists)
-    await active.waitFor({ state: "visible", timeout: 3000 });
+    // Verify the button is rendered if the settings popover is open
+    const popover = this.page.locator('[data-testid="settings-popover"]');
+    if (await popover.isVisible()) {
+      const active = this.page.locator(
+        `[data-testid="color-scheme-${scheme}"]`,
+      );
+      await active.waitFor({ state: "visible", timeout: 3000 });
+    }
   },
 );

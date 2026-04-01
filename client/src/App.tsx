@@ -43,6 +43,8 @@ const App: Component = () => {
     setScrollLock,
     activityAlerts,
     setActivityAlerts,
+    colorScheme,
+    setColorScheme,
   } = usePreferences();
 
   const { store, crud, session, worktree, alerts } = useTerminals({
@@ -70,7 +72,8 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
-  const { colorScheme, setColorScheme } = useColorScheme();
+  // Initialize color scheme DOM effect (dark class toggle)
+  useColorScheme();
 
   // Fetch hostname from server; used in document title and header
   const serverInfo = createQuery(() => orpc.server.info.queryOptions());

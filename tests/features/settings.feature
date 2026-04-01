@@ -33,3 +33,12 @@ Feature: Settings Popover
     When I click the "dark" color scheme button
     Then the color scheme should be "dark"
     And there should be no page errors
+
+  Scenario: Color scheme persists across page reload
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the "light" color scheme button
+    Then the color scheme should be "light"
+    When I refresh the page
+    Then the color scheme should be "light"
+    And there should be no page errors

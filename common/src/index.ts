@@ -177,6 +177,27 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
+// --- User preferences (server-side persistent state) ---
+
+export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+
+export const UserPreferencesSchema = z.object({
+  colorScheme: ColorSchemeSchema,
+  randomTheme: z.boolean(),
+  scrollLock: z.boolean(),
+  activityAlerts: z.boolean(),
+  startupTips: z.boolean(),
+  seenTips: z.array(z.string()),
+  defaultFontSize: z.number(),
+});
+export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+
+export const UserPreferencesPartialSchema = UserPreferencesSchema.partial();
+export type UserPreferencesPartial = z.infer<
+  typeof UserPreferencesPartialSchema
+>;
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
