@@ -45,9 +45,14 @@ Then(
 When("I click the restore button", async function (this: KoluWorld) {
   const btn = this.page.locator('[data-testid="restore-session"]');
   await btn.click();
-  // Wait for at least one terminal to appear
-  const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-  await entries.first().waitFor({ state: "visible", timeout: 15000 });
+  // Wait for at least one terminal to appear — under load from 8 parallel
+  // workers, server can be slow to spawn terminals. Use waitForFunction
+  // for a reactive DOM check instead of locator.waitFor.
+  await this.page.waitForFunction(
+    (sel) => document.querySelectorAll(sel).length > 0,
+    SIDEBAR_ENTRY_SELECTOR,
+    { timeout: 20000 },
+  );
 });
 
 Then(

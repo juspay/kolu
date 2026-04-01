@@ -293,6 +293,7 @@ const CommandPalette: Component<{
                       "text-fg-2 hover:bg-surface-2 border-transparent":
                         selectedIndex() !== i(),
                     }}
+                    data-selected={selectedIndex() === i() || undefined}
                     onMouseEnter={() => mouseActive && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                   >
