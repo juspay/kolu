@@ -114,7 +114,7 @@ flowchart TB
 
   %% Terminal I/O loop
   User -->|"keystroke"| Xterm
-  Xterm -->|"sendInput (RPC)"| PTY
+  Xterm -->|"sendInput\n(request/response)"| PTY
   PTY -->|"shell output"| Headless
   PTY -->|"shell output"| Pub
   Pub -->|"attach stream"| Xterm
@@ -126,7 +126,7 @@ flowchart TB
   TQ -.-> UI
 
   %% User actions
-  UI -->|"create · kill · reorder\n(mutations)"| PTY
+  UI -->|"create · kill · reorder\n(request/response)"| PTY
   UI -.->|"invalidates"| TQ
 
   classDef user fill:#f4a261,stroke:#e76f51,color:#000
