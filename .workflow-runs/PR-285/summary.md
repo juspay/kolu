@@ -53,3 +53,7 @@ All three passes clean (rules, fact-check, elegance). Single-word YAML change �
 
 148 scenarios: 146 passed, 2 failed. Failures in `claude-code.feature:33` (Claude indicator timing test) — unrelated to our YAML change, flaky test.
 → edge: default — proceed to ci (flaky failures, not related to change)
+
+### ci (visit 1/5)
+
+CI running in background. Awaiting results.
