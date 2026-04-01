@@ -1,3 +1,5 @@
+# After editing this file, regenerate the mermaid graph:
+#   .claude/workflows/render-mermaid.sh do.yaml --update
 version: 1
 
 defaults:
