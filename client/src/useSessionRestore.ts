@@ -1,4 +1,4 @@
-/** Session restore — queries, hydration from server state, session restore handler. */
+/** Session restore — hydration from server state, session restore handler. */
 
 import { createSignal, createEffect } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
@@ -11,7 +11,7 @@ import type { TerminalStore } from "./useTerminalStore";
 export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
-  handleCreate: (cwd?: string) => Promise<void>;
+  handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
@@ -20,7 +20,6 @@ export function useSessionRestore(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
 
-  const terminalsQuery = createQuery(() => orpc.terminal.list.queryOptions());
   const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -30,7 +29,7 @@ export function useSessionRestore(deps: {
   // Hydrate from server state on initial load.
   let hydrated = false;
   createEffect(() => {
-    const existing = terminalsQuery.data;
+    const existing = store.listData();
     const session = sessionQuery.data;
     if (existing === undefined || session === undefined) return;
     if (hydrated) return;
@@ -43,8 +42,6 @@ export function useSessionRestore(deps: {
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
-    store.setKnownIds(existing.map((t) => t.id));
-
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
@@ -93,9 +90,8 @@ export function useSessionRestore(deps: {
     const topLevel = session.terminals.filter((t) => !t.parentId);
     const subTerminals = session.terminals.filter((t) => t.parentId);
     for (const t of topLevel) {
-      await deps.handleCreate(t.cwd);
-      const ids = store.knownIds();
-      oldToNew.set(t.id, ids[ids.length - 1]!);
+      const newId = await deps.handleCreate(t.cwd);
+      oldToNew.set(t.id, newId);
     }
     for (const t of subTerminals) {
       const newParentId = oldToNew.get(t.parentId!);
@@ -104,7 +100,7 @@ export function useSessionRestore(deps: {
   }
 
   return {
-    isLoading: () => terminalsQuery.isLoading,
+    isLoading: () => store.listData() === undefined,
     savedSession,
     handleRestoreSession,
   };

@@ -1,48 +1,38 @@
 /** Terminal store — composes view state and metadata modules.
  *  Server-derived state (including ordering) lives in TanStack cache.
- *  Client view state (activeId, attention, mruOrder) lives in local signals. */
+ *  Client view state (activeId, attention, mruOrder) lives in local signals.
+ *
+ *  The terminal list is a live query — the server pushes updates on
+ *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
-import { createSignal } from "solid-js";
-import type { TerminalId } from "kolu-common";
+import { createQuery } from "@tanstack/solid-query";
+import type { TerminalInfo } from "kolu-common";
+import { orpc } from "./orpc";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  /** Unordered set of known terminal IDs — drives TanStack query subscriptions.
-   *  Order is derived from metadata sortOrder, not from this array. */
-  const [knownIds, setKnownIds] = createSignal<TerminalId[]>([]);
+  const listQuery = createQuery(() =>
+    orpc.terminal.list.experimental_liveOptions(),
+  );
+
+  const listData = (): TerminalInfo[] | undefined => listQuery.data;
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    knownIds,
+    listData,
     activeId: view.activeId,
   });
 
-  function addKnownId(id: TerminalId) {
-    setKnownIds((prev) => [...prev, id]);
-  }
-
-  function removeKnownId(id: TerminalId) {
-    setKnownIds((prev) => prev.filter((x) => x !== id));
-  }
-
-  function reset() {
-    setKnownIds([]);
-    view.reset();
-  }
-
   return {
-    // Known IDs (unordered — for subscription management)
-    knownIds,
-    setKnownIds,
-    addKnownId,
-    removeKnownId,
+    // Live terminal list from server
+    listData,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
     ...metadata,
-    // Lifecycle
-    reset,
+    // Lifecycle (view-state only — list is server-driven)
+    reset: view.reset,
   };
 }
 

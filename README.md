@@ -92,7 +92,7 @@ All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.de
 
 All three are wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
 
-[^rr]: Mutations update the TanStack cache on success — either optimistically via `qc.setQueryData` (reorder, theme) or by adding new IDs to `knownIds` which reactively spawns new live/streamed queries (create). A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
+[^rr]: Mutations update the TanStack cache on success — optimistically via `qc.setQueryData` (reorder, theme, create, kill). The terminal list itself is a live query pushed by the server on create/kill/reorder. A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
 
 ### Data flow
 

@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
+import { pollUntilBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
@@ -28,17 +29,24 @@ Before({ tags: "@claude-mock" }, function () {
   }
 });
 
-/** Get the terminal shell PID via the server API. */
+/** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
-  const resp = await world.page.request.fetch("/rpc/terminal/list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({}),
-  });
-  const body = await resp.json();
-  const list = (body.json ?? body) as Array<{ pid: number; id: string }>;
-  if (list.length === 0) throw new Error("No terminals found");
-  return list[0]!.pid;
+  await world.page.keyboard.type("echo $$");
+  await world.page.keyboard.press("Enter");
+  // Wait for the output to appear in the buffer
+  const text = await pollUntilBufferContains(world.page, "$$");
+  // Find the line after "echo $$" — that's the PID output
+  const lines = text.split("\n").map((l) => l.trim());
+  const echoIdx = lines.findIndex((l) => l.includes("echo $$"));
+  if (echoIdx === -1) throw new Error("Could not find 'echo $$' in buffer");
+  // The PID is on the next non-empty line
+  for (let i = echoIdx + 1; i < lines.length; i++) {
+    const num = parseInt(lines[i]!, 10);
+    if (!isNaN(num) && num > 0) return num;
+  }
+  throw new Error(
+    `Could not parse PID from buffer after 'echo $$':\n${text.slice(0, 500)}`,
+  );
 }
 
 /** Build a JSONL transcript with a specific final state. */

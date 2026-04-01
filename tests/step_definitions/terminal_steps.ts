@@ -4,15 +4,11 @@ import { readBufferText, pollUntilBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
-/** Fetch terminal list from server via oRPC HTTP endpoint. */
-async function fetchTerminalList(world: KoluWorld) {
-  const resp = await world.page.request.fetch("/rpc/terminal/list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({}),
-  });
-  const body = await resp.json();
-  return (body.json ?? body) as unknown[];
+/** Count terminals by reading sidebar entries from the DOM. */
+async function countTerminals(world: KoluWorld) {
+  return world.page
+    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .count();
 }
 
 // ── Background ──
@@ -31,7 +27,7 @@ When("I run {string}", async function (this: KoluWorld, command: string) {
 
 When("I refresh the page", async function (this: KoluWorld) {
   // Snapshot terminal count before refresh so post-refresh assertions can verify reconnect
-  this.terminalCountBeforeRefresh = (await fetchTerminalList(this)).length;
+  this.terminalCountBeforeRefresh = await countTerminals(this);
   await this.page.reload();
   // Wait for app to finish restoring terminals/state before subsequent assertions
   await this.waitForSettled();
@@ -42,15 +38,15 @@ Then(
   async function (this: KoluWorld, _expected: string) {
     // Verify reconnection: after refresh the terminal count should be unchanged,
     // meaning the client reused existing PTYs instead of spawning new ones.
-    const terminals = await fetchTerminalList(this);
+    const terminalCount = await countTerminals(this);
     assert.ok(
       this.terminalCountBeforeRefresh !== undefined,
       "No terminal count snapshot — was 'I refresh the page' called first?",
     );
     assert.strictEqual(
-      terminals.length,
+      terminalCount,
       this.terminalCountBeforeRefresh,
-      `Expected ${this.terminalCountBeforeRefresh} terminals after refresh, got ${terminals.length} — refresh created a new terminal instead of reconnecting`,
+      `Expected ${this.terminalCountBeforeRefresh} terminals after refresh, got ${terminalCount} — refresh created a new terminal instead of reconnecting`,
     );
   },
 );

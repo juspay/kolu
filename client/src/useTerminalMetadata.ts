@@ -8,11 +8,17 @@
  *    a history snapshot on connect, then individual [epochMs, boolean] samples.
  *    maxChunks caps the source array; select trims to the display window.
  *
+ *  Terminal IDs are derived from the live list query data.
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
 import { type Accessor, createMemo } from "solid-js";
 import { createQueries } from "@tanstack/solid-query";
-import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+  ActivitySample,
+} from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 import { orpc } from "./orpc";
 import {
@@ -26,13 +32,18 @@ import {
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  knownIds: Accessor<TerminalId[]>;
+  listData: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
 }) {
+  /** Terminal IDs derived from the live list query. */
+  const terminalIdList = createMemo(
+    () => deps.listData()?.map((t) => t.id) ?? [],
+  );
+
   // --- Metadata (slow-changing) — each event replaces the previous ---
 
   const metadataQueries = createQueries(() => ({
-    queries: deps.knownIds().map((id) =>
+    queries: terminalIdList().map((id) =>
       orpc.terminal.onMetadataChange.experimental_liveOptions({
         input: { id },
       }),
@@ -40,14 +51,14 @@ export function useTerminalMetadata(deps: {
   }));
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const idx = deps.knownIds().indexOf(id);
+    const idx = terminalIdList().indexOf(id);
     return idx >= 0 ? metadataQueries[idx]?.data : undefined;
   }
 
   // --- Activity (high-frequency) — events accumulate for sparkline ---
 
   const activityQueries = createQueries(() => ({
-    queries: deps.knownIds().map((id) =>
+    queries: terminalIdList().map((id) =>
       orpc.terminal.onActivityChange.experimental_streamedOptions({
         input: { id },
         queryFnOptions: {
@@ -68,7 +79,7 @@ export function useTerminalMetadata(deps: {
   }));
 
   function getActivityHistory(id: TerminalId): ActivitySample[] {
-    const idx = deps.knownIds().indexOf(id);
+    const idx = terminalIdList().indexOf(id);
     return idx >= 0 ? (activityQueries[idx]?.data ?? []) : [];
   }
 
@@ -77,8 +88,7 @@ export function useTerminalMetadata(deps: {
   /** Top-level terminal IDs sorted by sortOrder.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
-    deps
-      .knownIds()
+    terminalIdList()
       .filter((id) => {
         const m = getMetadata(id);
         return m && !m.parentId;
@@ -91,8 +101,7 @@ export function useTerminalMetadata(deps: {
 
   /** Sub-terminal IDs for a parent, sorted by sortOrder. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return deps
-      .knownIds()
+    return terminalIdList()
       .filter((id) => getMetadata(id)?.parentId === parentId)
       .sort(
         (a, b) =>
