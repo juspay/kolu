@@ -50,6 +50,8 @@ flowchart TD
   branch["branch\n─────\nBranch + draft PR"]
   implement["implement\n─────\nWrite the code"]
   e2e["e2e\n─────\nAdd/update e2e tests"]
+  docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
+  docs-fix["docs-fix\n─────\nFix outdated docs\n⟲ max 3"]
 
   subgraph "police.yaml"
     police["police\n─────\nCode review\n⟲ max 3"]
@@ -69,8 +71,6 @@ flowchart TD
   end
 
   update-pr["update-pr\n─────\nUpdate PR if needed"]
-  docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
-  docs-fix["docs-fix\n─────\nFix outdated docs\n⟲ max 3"]
   done["done\n─────\nReport completion"]
 
   sync --> understand
@@ -78,7 +78,10 @@ flowchart TD
   hickey --> branch
   branch --> implement
   implement --> e2e
-  e2e --> police
+  e2e --> docs
+  docs -->|"docs outdated"| docs-fix
+  docs --> police
+  docs-fix --> docs
   police -->|"violations or issues found"| police-fix
   police -->|"clean"| fmt
   police-fix -->|"fixed"| fmt
@@ -94,10 +97,7 @@ flowchart TD
   ci-triage -->|"real bug"| ci-fix
   ci-retry --> ci
   ci-fix -->|"fixed"| fmt
-  update-pr --> docs
-  docs -->|"docs outdated"| docs-fix
-  docs --> done
-  docs-fix --> docs
+  update-pr --> done
 
   classDef included fill:#475569,stroke:#334155,color:#fff
   classDef local fill:#64748b,stroke:#475569,color:#fff

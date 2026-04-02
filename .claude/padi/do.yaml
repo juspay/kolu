@@ -75,10 +75,26 @@ nodes:
       Run just test-quick to verify they pass.
     description: Add/update e2e tests
     on:
+      default: docs
+
+  docs:
+    prompt: |
+      Check if README.md and CLAUDE.md are still accurate.
+      Compare against files changed in this PR.
+    max_visits: 3
+    description: Verify docs are up to date
+    on:
+      "docs outdated": docs-fix
       default: police
 
+  docs-fix:
+    prompt: Update the outdated documentation. Only fix stale sections.
+    max_visits: 3
+    description: Fix outdated docs
+    on:
+      default: docs
+
   # police and police-fix are included from ./police.yaml
-  # police reviews uncommitted changes; fix loop stays pre-commit
 
   fmt:
     prompt: "Run: just fmt"
@@ -126,26 +142,7 @@ nodes:
       If scope changed, update via gh pr edit.
     description: Update PR if needed
     on:
-      default: docs
-
-  docs:
-    prompt: |
-      Check if README.md and CLAUDE.md are still accurate.
-      Compare against files changed in this PR.
-    max_visits: 3
-    description: Verify docs are up to date
-    on:
-      "docs outdated": docs-fix
       default: done
-
-  docs-fix:
-    prompt: |
-      Update outdated documentation. Only fix stale sections.
-      Run just fmt. Create a NEW commit. Push.
-    max_visits: 3
-    description: Fix outdated docs
-    on:
-      default: docs
 
   done:
     prompt: Report the PR URL and a brief summary of what was delivered.
