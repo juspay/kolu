@@ -117,7 +117,7 @@ nodes:
 
   ci:
     run: just ci
-    max_visits: 5
+    max_visits: 20
     description: Run CI (background)
     on:
       "failed": ci-fix
@@ -125,12 +125,24 @@ nodes:
 
   ci-fix:
     prompt: |
-      Read the CI failure output carefully. Fix the issue.
-      Run just fmt. Create a NEW commit. Push.
+      Read the CI failure output carefully. Identify which step(s) failed
+      by checking GitHub commit statuses or the CI summary output.
+
+      For each failing step, determine: is this a flaky failure (non-deterministic,
+      timing-related, pre-existing — no code change needed) or a real bug?
+
+      **Flaky failure:** Re-run just the failing step(s) with `just ci::<step>`
+      (e.g. `just ci::e2e`). For multi-system steps, target the failing system:
+      `CI_SYSTEM=x86_64-linux just ci::<step>`. Do NOT create a commit.
+      If the retry passes, report "retried successfully".
+
+      **Real bug:** Fix the issue, run just fmt, create a NEW commit, push.
+      Report "fixed with new commit".
     max_visits: 5
-    description: Fix CI failure
+    description: Analyze and fix/retry CI failure
     on:
-      default: ci
+      "fixed with new commit": ci
+      default: update-pr
 
   update-pr:
     prompt: |
