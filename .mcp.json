@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "workflow": {
-      "command": "nix",
-      "args": ["run", "./padi"],
-      "env": {}
-    }
-  }
-}

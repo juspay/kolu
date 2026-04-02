@@ -9,4 +9,4 @@ tests/reports/
 client/public/fonts
 .worktrees
 .logs/
-.workflow-runs/
+.do-results.json
