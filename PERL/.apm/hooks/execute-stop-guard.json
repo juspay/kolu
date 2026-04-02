@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./PERL/.apm/hooks/scripts/execute-stop-guard.sh"
+            "command": "./scripts/execute-stop-guard.sh"
           }
         ]
       }
