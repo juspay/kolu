@@ -1,13 +1,8 @@
 # CI loop: run CI, fix failures, retry.
 # Reusable — include from any workflow that needs a CI gate.
-#
-# Ports:
-#   done — CI passed (or ci-fix decided to move on).
-#          Includer wires this to whatever comes after CI.
-#
-# Entry: "ci" node (parent edges target it directly).
 
 ports:
+  # CI passed (or ci-fix decided to move on)
   done:
 
 nodes:

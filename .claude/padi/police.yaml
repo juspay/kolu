@@ -1,13 +1,10 @@
 # Code quality gate. Reusable across projects.
-# Parent creates the fix→re-review loop by wiring :fix back to police.
-#
-# Ports:
-#   done — review passed, no violations
-#   fix  — violations found; parent handles fmt/commit, then re-enters police
 
 ports:
-  done:
-  fix:
+  # No violations found — review passed
+  clean:
+  # Violations found and fixed — parent handles fmt/commit
+  fixed:
 
 rules:
   - id: tanstack-use-loading-state
@@ -81,10 +78,10 @@ nodes:
     description: Code review
     on:
       "violations or issues found": police-fix
-      default: :done
+      default: :clean
 
   police-fix:
     prompt: Fix the violations/issues found by code-police.
     description: Fix police violations
     on:
-      default: :fix
+      default: :fixed

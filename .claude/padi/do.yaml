@@ -8,8 +8,8 @@ version: 1
 include:
   - path: ./police.yaml
     on:
-      done: fmt
-      fix: fmt
+      clean: fmt
+      fixed: fmt
   - path: ./ci.yaml
     on:
       done: update-pr
