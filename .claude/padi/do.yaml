@@ -17,7 +17,7 @@ entry_points:
 
 nodes:
   sync:
-    prompt: "Run: git fetch origin"
+    prompt: "Run: git fetch origin && git remote set-head origin --auto"
     description: Fetch latest remote refs
     on:
       default: understand
