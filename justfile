@@ -91,6 +91,43 @@ fmt:
 fmt-check:
     {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
+# Deploy .apm/ prompts → .claude/commands/ (skills are symlinked)
+apm-deploy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p .claude/commands
+    for src in .apm/prompts/*.prompt.md; do
+        name=$(basename "$src" .prompt.md)
+        sed -e '/^input:$/d' -e '/^  - arguments$/d' -e 's/\${input:arguments}/$ARGUMENTS/g' \
+            "$src" > ".claude/commands/${name}.md"
+    done
+    echo "Deployed $(ls .apm/prompts/*.prompt.md | wc -l) prompts → .claude/commands/"
+
+# Check .claude/commands/ matches .apm/prompts/ (CI drift check)
+apm-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    for src in .apm/prompts/*.prompt.md; do
+        name=$(basename "$src" .prompt.md)
+        sed -e '/^input:$/d' -e '/^  - arguments$/d' -e 's/\${input:arguments}/$ARGUMENTS/g' \
+            "$src" > "$tmp/${name}.md"
+    done
+    # Check skills symlink
+    if [[ ! -L .claude/skills ]] || [[ "$(readlink .claude/skills)" != "../.apm/skills" ]]; then
+        echo "ERROR: .claude/skills is not a symlink to ../.apm/skills" >&2
+        exit 1
+    fi
+    # Check commands match
+    if ! diff -rq "$tmp/" .claude/commands/ > /dev/null 2>&1; then
+        echo "ERROR: .claude/commands/ is out of sync with .apm/prompts/" >&2
+        diff -ru "$tmp/" .claude/commands/ || true
+        echo "Run 'just apm-deploy' to fix." >&2
+        exit 1
+    fi
+    echo "APM drift check passed"
+
 # Nix build (server + client)
 build:
     nix build

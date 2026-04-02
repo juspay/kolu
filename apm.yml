@@ -1,0 +1,5 @@
+name: kolu
+version: 1.0.0
+description: "Kolu development workflow skills and prompts"
+type: hybrid
+target: claude

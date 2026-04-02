@@ -10,3 +10,4 @@ client/public/fonts
 .worktrees
 .logs/
 .execute-results.json
+apm_modules/
