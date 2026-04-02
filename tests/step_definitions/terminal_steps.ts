@@ -25,6 +25,10 @@ When("I run {string}", async function (this: KoluWorld, command: string) {
   await this.waitForFrame();
 });
 
+When("I wait {int}ms", async function (this: KoluWorld, ms: number) {
+  await this.page.waitForTimeout(ms);
+});
+
 When("I refresh the page", async function (this: KoluWorld) {
   // Snapshot terminal count before refresh so post-refresh assertions can verify reconnect
   this.terminalCountBeforeRefresh = await countTerminals(this);

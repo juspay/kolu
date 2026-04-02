@@ -163,6 +163,17 @@ Feature: Command Palette
     Then the shortcuts help should be visible
     And there should be no page errors
 
+  Scenario: Dialog stays open during terminal output
+    When I run "sleep 0.5 && echo dialog-survives &"
+    And I open the command palette
+    Then the command palette should be visible
+    # Wait for background output to arrive
+    When I wait 1500ms
+    Then the command palette should be visible
+    When I press Escape
+    Then the active terminal should show "dialog-survives"
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette

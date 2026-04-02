@@ -36,6 +36,7 @@ const ModalDialog: Component<{
   <Dialog
     open={props.open}
     onOpenChange={props.onOpenChange}
+    closeOnOutsideFocus={false}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
     initialFocusEl={props.initialFocusEl}
