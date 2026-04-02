@@ -78,8 +78,8 @@ const WorktreeRemoveConfirm: Component<{
             data-testid="worktree-confirm-remove"
             class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
             onClick={() => {
-              props.onOpenChange(false);
               props.onConfirm();
+              props.onOpenChange(false);
             }}
           >
             Remove worktree
