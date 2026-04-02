@@ -33,4 +33,3 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
-- TEST: this line should cause apm-sync to fail
