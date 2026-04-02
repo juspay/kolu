@@ -11,21 +11,12 @@ When(
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
-    // Select the terminal first by clicking its sidebar entry
     const entry = this.page.locator(
       `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
     );
-    await entry.click();
-    await this.waitForFrame();
-    // Close via command palette (close button was removed from sidebar)
-    await this.page.keyboard.press(`${MOD_KEY}+k`);
-    const palette = this.page.locator('[data-testid="command-palette"]');
-    await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("input").fill("Close terminal");
-    await palette
-      .locator("li", { hasText: "Close terminal" })
-      .waitFor({ state: "visible", timeout: 3000 });
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    // Hover to reveal the close button, then click it
+    await entry.hover();
+    await entry.locator('[data-testid="sidebar-close"]').click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: 5000 });
   },

@@ -1,5 +1,5 @@
-/** Confirmation dialog for "Close terminal and remove worktree".
- *  Shows branch + PR info so the user sees what they're about to destroy. */
+/** Confirmation dialog shown when closing a worktree terminal.
+ *  Offers three choices: cancel, close only, or close and remove worktree. */
 
 import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
@@ -12,36 +12,44 @@ const WorktreeRemoveConfirm: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   meta: TerminalMetadata | null;
-  onConfirm: () => void;
+  onCloseOnly: () => void;
+  onCloseAndRemove: () => void;
 }> = (props) => {
-  let confirmRef!: HTMLButtonElement;
+  let cancelRef!: HTMLButtonElement;
 
   return (
     <ModalDialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      initialFocusEl={confirmRef}
+      initialFocusEl={cancelRef}
     >
       <Dialog.Content
         class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-sm text-sm space-y-4"
         data-testid="worktree-remove-confirm"
       >
         <Dialog.Label class="font-semibold text-fg">
-          Remove worktree?
+          Remove worktree too?
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
-          <p>
-            This will close the terminal and permanently delete the worktree.
-          </p>
+          <p>This terminal is in a git worktree.</p>
 
           <Show when={props.meta?.git}>
             {(git) => (
               <div class="flex items-center gap-1.5 text-fg-3 text-xs bg-surface-2 rounded px-2.5 py-2">
                 <WorktreeIcon class="w-3.5 h-3.5 shrink-0" />
                 <span class="font-medium text-fg-2 truncate">
-                  {git().branch}
+                  {git().repoName}
                 </span>
+                <span class="text-fg-3">/</span>
+                <span class="truncate">{git().branch}</span>
+              </div>
+            )}
+          </Show>
+          <Show when={props.meta?.git?.worktreePath}>
+            {(path) => (
+              <div class="text-xs text-fg-3 truncate" title={path()}>
+                {path()}
               </div>
             )}
           </Show>
@@ -66,19 +74,29 @@ const WorktreeRemoveConfirm: Component<{
           </Show>
         </div>
 
-        <div class="flex justify-end gap-2 pt-1">
+        <div class="flex flex-wrap justify-end gap-2 pt-1">
           <button
-            class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+            ref={cancelRef}
+            class="px-3 py-1.5 text-xs rounded text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
             onClick={() => props.onOpenChange(false)}
           >
             Cancel
           </button>
           <button
-            ref={confirmRef}
+            class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+            data-testid="worktree-confirm-close-only"
+            onClick={() => {
+              props.onCloseOnly();
+              props.onOpenChange(false);
+            }}
+          >
+            Close only
+          </button>
+          <button
             data-testid="worktree-confirm-remove"
             class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
             onClick={() => {
-              props.onConfirm();
+              props.onCloseAndRemove();
               props.onOpenChange(false);
             }}
           >

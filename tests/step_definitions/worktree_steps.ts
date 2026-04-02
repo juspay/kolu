@@ -40,6 +40,15 @@ When("I confirm worktree removal", async function (this: KoluWorld) {
 });
 
 When(
+  "I click close only in the worktree confirmation",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="worktree-confirm-close-only"]')
+      .click();
+  },
+);
+
+When(
   "I dismiss the worktree remove confirmation",
   async function (this: KoluWorld) {
     // Press Escape to close the dialog

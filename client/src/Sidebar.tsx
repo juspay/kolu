@@ -24,6 +24,7 @@ const SidebarEntry: Component<{
   alerting: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
+  onClose: (id: TerminalId) => void;
   /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
@@ -74,6 +75,17 @@ const SidebarEntry: Component<{
         title={props.metadata?.cwd ?? String(props.id)}
       >
         <TerminalMeta info={props.displayInfo} />
+        <span
+          data-testid="sidebar-close"
+          class="absolute top-1 right-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onClose(props.id);
+          }}
+          title="Close terminal"
+        >
+          ×
+        </span>
       </button>
     </div>
   );
@@ -87,6 +99,7 @@ const Sidebar: Component<{
   needsAttention: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
+  onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
@@ -183,6 +196,7 @@ const Sidebar: Component<{
                       alerting={props.needsAttention(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
+                      onClose={props.onCloseTerminal}
                       dropEdge={edge()}
                     />
                   );

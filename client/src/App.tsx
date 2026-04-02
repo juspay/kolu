@@ -162,6 +162,16 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Close a terminal — shows worktree confirmation dialog if applicable. */
+  function closeTerminal(id: TerminalId) {
+    const meta = store.getMetadata(id);
+    if (meta?.git?.isWorktree) {
+      setWorktreeConfirmTarget({ id, meta });
+    } else {
+      void crud.handleKill(id);
+    }
+  }
+
   const commands = createCommands({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -170,7 +180,6 @@ const App: Component = () => {
     handleCreate: (cwd) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
-    handleKill: (id) => void crud.handleKill(id),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
@@ -183,10 +192,9 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
       void worktree.handleCreateWorktree(repoPath),
-    handleKillWorktree: () => {
+    handleClose: () => {
       const id = store.activeId();
-      const meta = id ? store.getMetadata(id) : undefined;
-      if (id && meta) setWorktreeConfirmTarget({ id, meta });
+      if (id) closeTerminal(id);
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
@@ -309,7 +317,11 @@ const App: Component = () => {
           }
         }}
         meta={worktreeConfirmTarget()?.meta ?? null}
-        onConfirm={() => {
+        onCloseOnly={() => {
+          const target = worktreeConfirmTarget();
+          if (target) void crud.handleKill(target.id);
+        }}
+        onCloseAndRemove={() => {
           const target = worktreeConfirmTarget();
           if (target) void worktree.handleKillWorktree(target.id);
         }}
@@ -344,6 +356,7 @@ const App: Component = () => {
           needsAttention={store.needsAttention}
           getDisplayInfo={store.getDisplayInfo}
           onSelect={store.setActiveId}
+          onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
