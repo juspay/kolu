@@ -8,5 +8,5 @@ dependencies:
     - ./PERL
 
 compilation:
-  target: all
+  target: claude
   strategy: distributed
