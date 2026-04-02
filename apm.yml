@@ -6,3 +6,4 @@ type: hybrid
 dependencies:
   apm:
     - ./PERL
+    - anthropics/skills/skills/frontend-design

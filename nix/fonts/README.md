@@ -6,10 +6,10 @@ Nix derivation that fetches and self-hosts all web font assets, replacing CDN de
 
 | Font                   | Use                     | Source                                                                   | Weights            |
 | ---------------------- | ----------------------- | ------------------------------------------------------------------------ | ------------------ |
-| **Inter**              | UI chrome (`font-sans`) | Google Fonts v20                                                         | 400–600 (variable) |
+| **DM Sans**            | UI chrome (`font-sans`) | Google Fonts v17                                                         | 400–600 (variable) |
 | **FiraCode Nerd Font** | Terminal (`xterm.js`)   | [nerdfont-webfonts](https://github.com/mshaugh/nerdfont-webfonts) v3.3.0 | 400, 700           |
 
-Inter is split into 7 unicode-range subsets (latin, latin-ext, cyrillic, cyrillic-ext, greek, greek-ext, vietnamese) so browsers only download what they need.
+DM Sans is split into 2 unicode-range subsets (latin, latin-ext) so browsers only download what they need.
 
 ## Outputs
 
@@ -18,9 +18,8 @@ The derivation produces a flat directory:
 ```
 $out/
   fonts.css                        # @font-face declarations (auto-generated)
-  inter-latin.woff2                # Inter subset files
-  inter-latin-ext.woff2
-  ...
+  dm-sans-latin.woff2              # DM Sans subset files
+  dm-sans-latin-ext.woff2
   FiraCodeNerdFont-Regular.woff2   # FiraCode variants
   FiraCodeNerdFont-Bold.woff2
 ```
@@ -33,7 +32,7 @@ $out/
 
 ## Updating fonts
 
-Edit `interSubsets` or `firacode` in `default.nix`. To get a new hash:
+Edit `dmSansSubsets` or `firacode` in `default.nix`. To get a new hash:
 
 ```sh
 nix hash convert --to sri --hash-algo sha256 $(nix-prefetch-url <url>)
