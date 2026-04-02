@@ -2,7 +2,7 @@
 # Reusable — include from any workflow that needs a CI gate.
 
 ports:
-  # CI passed (or ci-fix decided to move on)
+  # CI passed
   done:
 
 nodes:
