@@ -38,6 +38,9 @@ const ModalDialog: Component<{
     onOpenChange={props.onOpenChange}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
+    // xterm emits synthetic focusin events on incoming data, which Corvu
+    // interprets as the user leaving the dialog — disable this channel.
+    closeOnOutsideFocus={false}
     initialFocusEl={props.initialFocusEl}
     trapFocus={props.trapFocus}
   >
