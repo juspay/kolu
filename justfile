@@ -88,6 +88,11 @@ apm:
     uvx --from git+https://github.com/microsoft/apm apm compile
     uvx --from git+https://github.com/microsoft/apm apm install
 
+# Remove APM-deployed files (.claude/commands, skills, rules, settings.json, CLAUDE.md)
+apm-clean:
+    uvx --from git+https://github.com/microsoft/apm apm compile --clean
+    uvx --from git+https://github.com/microsoft/apm apm prune
+
 # Format all files in-place
 fmt:
     {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
