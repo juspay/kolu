@@ -35,7 +35,7 @@ const PROJECTS_DIR =
 const POLL_INTERVAL_MS = 3_000;
 const TAIL_BYTES = 16_384;
 
-interface SessionFile {
+export interface SessionFile {
   pid: number;
   sessionId: string;
   cwd: string;
@@ -67,7 +67,7 @@ export function encodeProjectPath(cwd: string): string {
  * JSONL in the project dir — handles resumed sessions where the PID's session
  * ID differs from the transcript's original session ID.
  */
-function findTranscriptPath(session: SessionFile): string | null {
+export function findTranscriptPath(session: SessionFile): string | null {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
 
   // Exact match by session ID
@@ -113,7 +113,7 @@ function findTranscriptPath(session: SessionFile): string | null {
  * Read the last N bytes of a file and parse JSONL lines.
  * Returns lines in order (oldest first).
  */
-function tailJsonlLines(filePath: string, bytes: number): string[] {
+export function tailJsonlLines(filePath: string, bytes: number): string[] {
   try {
     const stat = fs.statSync(filePath);
     const start = Math.max(0, stat.size - bytes);

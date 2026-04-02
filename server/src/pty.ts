@@ -22,6 +22,26 @@ const { Terminal } =
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
+/** Extract plain text from an xterm buffer within a line range. */
+export function getScreenText(
+  buffer: {
+    length: number;
+    getLine(
+      i: number,
+    ): { translateToString(trimRight: boolean): string } | undefined;
+  },
+  startLine?: number,
+  endLine?: number,
+): string {
+  const start = Math.max(0, startLine ?? 0);
+  const end = Math.min(buffer.length, endLine ?? buffer.length);
+  const lines: string[] = [];
+  for (let i = start; i < end; i++) {
+    lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
+  }
+  return lines.join("\n");
+}
+
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
@@ -129,16 +149,8 @@ export function spawnPty(
       headless.resize(cols, rows);
     },
     getScreenState: () => serializeAddon.serialize(),
-    getScreenText: (startLine?: number, endLine?: number) => {
-      const buf = headless.buffer.active;
-      const start = Math.max(0, startLine ?? 0);
-      const end = Math.min(buf.length, endLine ?? buf.length);
-      const lines: string[] = [];
-      for (let i = start; i < end; i++) {
-        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-      }
-      return lines.join("\n");
-    },
+    getScreenText: (startLine?: number, endLine?: number) =>
+      getScreenText(headless.buffer.active, startLine, endLine),
     dispose() {
       oscDisposable.dispose();
       headlessOnDataDisposable.dispose();

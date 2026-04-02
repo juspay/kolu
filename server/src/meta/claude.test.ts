@@ -1,5 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { deriveState, encodeProjectPath, infoEqual } from "./claude.ts";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import {
+  deriveState,
+  encodeProjectPath,
+  infoEqual,
+  tailJsonlLines,
+} from "./claude.ts";
 import type { ClaudeCodeInfo } from "kolu-common";
 
 describe("deriveState", () => {
@@ -126,5 +134,137 @@ describe("infoEqual", () => {
     { field: "model", value: "claude-sonnet-4-6" },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
+  });
+});
+
+describe("tailJsonlLines", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-tail-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("reads all lines from a small file", () => {
+    const filePath = path.join(tmpDir, "small.jsonl");
+    const lines = [
+      JSON.stringify({ type: "user" }),
+      JSON.stringify({
+        type: "assistant",
+        message: { stop_reason: "end_turn" },
+      }),
+    ];
+    fs.writeFileSync(filePath, lines.join("\n") + "\n");
+    const result = tailJsonlLines(filePath, 16_384);
+    expect(result).toEqual(lines);
+  });
+
+  it("skips partial first line when reading from middle of file", () => {
+    const filePath = path.join(tmpDir, "large.jsonl");
+    // Write enough data so that reading last N bytes starts mid-line
+    const longLine = JSON.stringify({ type: "system", data: "x".repeat(200) });
+    const lastLine = JSON.stringify({ type: "user" });
+    fs.writeFileSync(filePath, longLine + "\n" + lastLine + "\n");
+    // Read only last 50 bytes — will start mid-way through longLine
+    const result = tailJsonlLines(filePath, 50);
+    expect(result).toEqual([lastLine]);
+  });
+
+  it("returns empty array for nonexistent file", () => {
+    expect(tailJsonlLines(path.join(tmpDir, "nope.jsonl"), 1024)).toEqual([]);
+  });
+
+  it("returns empty array for empty file", () => {
+    const filePath = path.join(tmpDir, "empty.jsonl");
+    fs.writeFileSync(filePath, "");
+    expect(tailJsonlLines(filePath, 1024)).toEqual([]);
+  });
+
+  it("handles file with no trailing newline", () => {
+    const filePath = path.join(tmpDir, "no-newline.jsonl");
+    const line = JSON.stringify({ type: "user" });
+    fs.writeFileSync(filePath, line);
+    const result = tailJsonlLines(filePath, 16_384);
+    expect(result).toEqual([line]);
+  });
+});
+
+describe("findTranscriptPath", () => {
+  let tmpDir: string;
+  let findTranscriptPath: (typeof import("./claude.ts"))["findTranscriptPath"];
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-find-test-"));
+    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    vi.resetModules();
+    const mod = await import("./claude.ts");
+    findTranscriptPath = mod.findTranscriptPath;
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns exact match by session ID", () => {
+    const cwd = "/home/user/myproject";
+    const sessionId = "test-session-123";
+    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
+    fs.mkdirSync(projectDir, { recursive: true });
+    const transcriptPath = path.join(projectDir, `${sessionId}.jsonl`);
+    fs.writeFileSync(transcriptPath, JSON.stringify({ type: "user" }) + "\n");
+
+    const result = findTranscriptPath({ pid: 1, sessionId, cwd });
+    expect(result).toBe(transcriptPath);
+  });
+
+  it("falls back to most recently modified JSONL", () => {
+    const cwd = "/home/user/fallback-project";
+    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    // Write a JSONL with a different session ID but recent mtime
+    const otherPath = path.join(projectDir, "other-session.jsonl");
+    fs.writeFileSync(otherPath, JSON.stringify({ type: "user" }) + "\n");
+    // Touch it to ensure it's recent
+    fs.utimesSync(otherPath, new Date(), new Date());
+
+    const result = findTranscriptPath({
+      pid: 1,
+      sessionId: "nonexistent-id",
+      cwd,
+    });
+    expect(result).toBe(otherPath);
+  });
+
+  it("returns null when project dir does not exist", () => {
+    const result = findTranscriptPath({
+      pid: 1,
+      sessionId: "any",
+      cwd: "/nonexistent/path",
+    });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when MRU file is stale", () => {
+    const cwd = "/home/user/stale-project";
+    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const stalePath = path.join(projectDir, "stale.jsonl");
+    fs.writeFileSync(stalePath, JSON.stringify({ type: "user" }) + "\n");
+    // Set mtime to 10 seconds ago (beyond 2 * POLL_INTERVAL_MS = 6s)
+    const staleTime = new Date(Date.now() - 10_000);
+    fs.utimesSync(stalePath, staleTime, staleTime);
+
+    const result = findTranscriptPath({
+      pid: 1,
+      sessionId: "nonexistent",
+      cwd,
+    });
+    expect(result).toBeNull();
   });
 });
