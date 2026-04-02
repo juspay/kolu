@@ -88,6 +88,10 @@ apm:
     uvx --from git+https://github.com/microsoft/apm apm compile
     uvx --from git+https://github.com/microsoft/apm apm install
 
+# Audit APM packages for security issues (Unicode, lockfile consistency)
+apm-audit:
+    uvx --from git+https://github.com/microsoft/apm apm audit --ci
+
 # Remove APM-deployed files and compiled CLAUDE.md
 apm-clean:
     uvx --from git+https://github.com/microsoft/apm apm uninstall PERL
