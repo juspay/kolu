@@ -67,6 +67,43 @@ nix run ./padi  # starts on stdio, ctrl-c to exit
 
 Sessions are ephemeral (in-memory). Results are written to `.workflow-runs/<session-id>/results.yaml` as an append-only execution record.
 
+## Composable workflows
+
+Workflows can include nodes from external YAML files via `include:`. Fragments declare exit **ports** — named boundary points that the includer wires to its own nodes.
+
+```yaml
+# ci-loop.yaml — reusable fragment
+ports:
+  done: # exit port (includer must wire this)
+nodes:
+  ci:
+    run: just ci
+    on:
+      failed: ci-fix
+      default: :done # port reference, not a node name
+  ci-fix:
+    on:
+      "fixed with new commit": ci
+      default: :done
+```
+
+```yaml
+# do.yaml — parent workflow
+include:
+  - path: ./ci-loop.yaml
+    on:
+      done: update-pr # wire the port to a real node
+nodes:
+  test:
+    on:
+      default: ci # enter the fragment directly
+  update-pr: ...
+```
+
+Bare string includes (no ports) also work for simple cases: `include: [./extra-nodes.yaml]`.
+
+Parse-time validation catches: unwired ports, undeclared port references, name collisions, circular includes, and dangling edge targets.
+
 ## Design
 
 - **Evidence is opaque** — server records strings, doesn't interpret them
