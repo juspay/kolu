@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "workflow": {
+      "command": "nix",
+      "args": ["run", "./workflow-mcp"],
+      "env": {}
+    }
+  }
+}
