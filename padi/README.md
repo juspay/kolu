@@ -67,6 +67,64 @@ nix run ./padi  # starts on stdio, ctrl-c to exit
 
 Sessions are ephemeral (in-memory). Results are written to `.workflow-runs/<session-id>/results.yaml` as an append-only execution record.
 
+## Composable workflows
+
+Workflows can include nodes from external YAML files via `include:`. Fragments declare exit **ports** — named boundary points that the includer wires to its own nodes.
+
+```yaml
+# ci.yaml — reusable CI gate
+ports:
+  # CI passed
+  done:
+  # Real bug found and fixed
+  fixed:
+nodes:
+  ci:
+    prompt: "Run: just ci (in background)"
+    on:
+      "failed": ci-triage
+      default: :done
+  ci-triage:
+    prompt: Classify failure — flaky or real bug?
+    on:
+      "flaky": ci-retry
+      "real bug": ci-fix
+  ci-retry:
+    prompt: Re-run the failing step.
+    on:
+      default: ci
+  ci-fix:
+    prompt: Fix the bug.
+    on:
+      default: :fixed
+```
+
+```yaml
+# do.yaml — parent wires ports to its own nodes
+include:
+  - path: ./ci.yaml
+    on:
+      done: update-pr
+      fixed: fmt # fmt → commit → test → ci (natural loop)
+```
+
+Prompts support `{{keypath}}` interpolation — reference same-file YAML data:
+
+```yaml
+rules:
+  - id: no-dead-code
+    rule: Remove unused code.
+nodes:
+  review:
+    prompt: |
+      Check these rules:
+      {{rules}}
+```
+
+Bare string includes (no ports) also work: `include: [./extra-nodes.yaml]`.
+
+Parse-time validation catches: unwired ports, undeclared port references, name collisions, circular includes, dangling edge targets, and missing template keys.
+
 ## Design
 
 - **Evidence is opaque** — server records strings, doesn't interpret them

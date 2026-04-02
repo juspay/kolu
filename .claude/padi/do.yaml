@@ -5,6 +5,16 @@
 # the agent calls workflow_complete(evidence) to advance.
 version: 1
 
+include:
+  - path: ./police.yaml
+    on:
+      clean: fmt
+      fixed: fmt
+  - path: ./ci.yaml
+    on:
+      done: update-pr
+      fixed: fmt
+
 defaults:
   max_visits: 1
 
@@ -65,7 +75,26 @@ nodes:
       Run just test-quick to verify they pass.
     description: Add/update e2e tests
     on:
-      default: fmt
+      default: docs
+
+  docs:
+    prompt: |
+      Check if README.md and CLAUDE.md are still accurate.
+      Compare against files changed in this PR.
+    max_visits: 3
+    description: Verify docs are up to date
+    on:
+      "docs outdated": docs-fix
+      default: police
+
+  docs-fix:
+    prompt: Update the outdated documentation. Only fix stale sections.
+    max_visits: 3
+    description: Fix outdated docs
+    on:
+      default: docs
+
+  # police and police-fix are included from ./police.yaml
 
   fmt:
     prompt: "Run: just fmt"
@@ -79,26 +108,7 @@ nodes:
       Push to the PR branch.
     description: Commit and push
     on:
-      default: police
-
-  police:
-    prompt: |
-      Run code-police: review for quality, fact-check for correctness,
-      and evaluate for elegance. Scope to changes in the current branch only.
-    max_visits: 3
-    description: Code quality + fact-check + elegance review
-    on:
-      "violations or issues found": police-fix
       default: test
-
-  police-fix:
-    prompt: |
-      Fix the violations/issues found by code-police.
-      Run just fmt. Create a NEW commit. Push.
-    max_visits: 3
-    description: Fix police violations
-    on:
-      default: police
 
   test:
     prompt: |
@@ -117,29 +127,14 @@ nodes:
   test-fix:
     prompt: |
       Analyze the test failure. If flaky, re-run without changes.
-      If real: fix the issue, run just fmt, create a NEW commit, push.
+      If real: fix the issue.
     max_visits: 3
     description: Fix or retry test failures
     on:
+      "fixed": fmt
       default: test
 
-  ci:
-    prompt: "Run: just ci (in background)"
-    max_visits: 20
-    description: Run CI
-    on:
-      "failed": ci-fix
-      default: update-pr
-
-  ci-fix:
-    prompt: |
-      Read CI failure output. For flaky failures, retry with just ci::<step>.
-      For real bugs: fix, run just fmt, create a NEW commit, push.
-    max_visits: 5
-    description: Analyze and fix/retry CI failure
-    on:
-      "fixed with new commit": ci
-      default: update-pr
+  # ci and ci-fix are included from ./ci.yaml
 
   update-pr:
     prompt: |
@@ -147,26 +142,7 @@ nodes:
       If scope changed, update via gh pr edit.
     description: Update PR if needed
     on:
-      default: docs
-
-  docs:
-    prompt: |
-      Check if README.md and CLAUDE.md are still accurate.
-      Compare against files changed in this PR.
-    max_visits: 3
-    description: Verify docs are up to date
-    on:
-      "docs outdated": docs-fix
       default: done
-
-  docs-fix:
-    prompt: |
-      Update outdated documentation. Only fix stale sections.
-      Run just fmt. Create a NEW commit. Push.
-    max_visits: 3
-    description: Fix outdated docs
-    on:
-      default: docs
 
   done:
     prompt: Report the PR URL and a brief summary of what was delivered.

@@ -44,23 +44,33 @@ Start mid-graph with `--from`:
 
 ```mermaid
 flowchart TD
-  sync["sync\n─────\nFast-forward to latest remote"]
+  sync["sync\n─────\nFetch latest remote refs"]
   understand["understand\n─────\nResearch task and codebase"]
   hickey["hickey\n─────\nEvaluate approach for structural simplicity"]
   branch["branch\n─────\nBranch + draft PR"]
   implement["implement\n─────\nWrite the code"]
   e2e["e2e\n─────\nAdd/update e2e tests"]
-  fmt["fmt\n─────\nAuto-format"]
-  commit["commit\n─────\nCommit and push"]
-  police["police\n─────\nCode quality + fact-check + elegance review\n⟲ max 3"]
-  police-fix["police-fix\n─────\nFix police violations\n⟲ max 3"]
-  test["test\n─────\nQuick e2e tests\n⟲ max 4"]
-  test-fix["test-fix\n─────\nFix or retry test failures\n⟲ max 3"]
-  ci["ci\n─────\nRun CI\n⟲ max 20"]
-  ci-fix["ci-fix\n─────\nAnalyze and fix/retry CI failure\n⟲ max 5"]
-  update-pr["update-pr\n─────\nUpdate PR if needed"]
   docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
   docs-fix["docs-fix\n─────\nFix outdated docs\n⟲ max 3"]
+
+  subgraph "police.yaml"
+    police["police\n─────\nCode review\n⟲ max 3"]
+    police-fix["police-fix\n─────\nFix police violations"]
+  end
+
+  fmt["fmt\n─────\nAuto-format"]
+  commit["commit\n─────\nCommit and push"]
+  test["test\n─────\nTargeted e2e tests\n⟲ max 4"]
+  test-fix["test-fix\n─────\nFix or retry test failures\n⟲ max 3"]
+
+  subgraph "ci.yaml"
+    ci["ci\n─────\nRun CI\n⟲ max 20"]
+    ci-triage["ci-triage\n─────\nClassify CI failure\n⟲ max 5"]
+    ci-retry["ci-retry\n─────\nRetry flaky CI step\n⟲ max 5"]
+    ci-fix["ci-fix\n─────\nFix real CI bug\n⟲ max 5"]
+  end
+
+  update-pr["update-pr\n─────\nUpdate PR if needed"]
   done["done\n─────\nReport completion"]
 
   sync --> understand
@@ -68,34 +78,39 @@ flowchart TD
   hickey --> branch
   branch --> implement
   implement --> e2e
-  e2e --> fmt
-  fmt --> commit
-  commit --> police
+  e2e --> docs
+  docs -->|"docs outdated"| docs-fix
+  docs --> police
+  docs-fix --> docs
   police -->|"violations or issues found"| police-fix
-  police --> test
-  police-fix --> police
+  police -->|"clean"| fmt
+  police-fix -->|"fixed"| fmt
+  fmt --> commit
+  commit --> test
   test -->|"failed"| test-fix
   test --> ci
+  test-fix -->|"fixed"| fmt
   test-fix --> test
-  ci -->|"failed"| ci-fix
-  ci --> update-pr
-  ci-fix -->|"fixed with new commit"| ci
-  ci-fix --> update-pr
-  update-pr --> docs
-  docs -->|"docs outdated"| docs-fix
-  docs --> done
-  docs-fix --> docs
+  ci -->|"failed"| ci-triage
+  ci -->|"done"| update-pr
+  ci-triage -->|"flaky"| ci-retry
+  ci-triage -->|"real bug"| ci-fix
+  ci-retry --> ci
+  ci-fix -->|"fixed"| fmt
+  update-pr --> done
 
-  classDef prompt fill:#64748b,stroke:#475569,color:#fff
-  class sync,understand,hickey,branch,implement,e2e,fmt,commit,police,police-fix,test,test-fix,ci,ci-fix,update-pr,docs,docs-fix,done prompt
+  classDef included fill:#475569,stroke:#334155,color:#fff
+  classDef local fill:#64748b,stroke:#475569,color:#fff
+  class police,police-fix,ci,ci-triage,ci-retry,ci-fix included
+  class sync,understand,hickey,branch,implement,e2e,fmt,commit,test,test-fix,update-pr,docs,docs-fix,done local
 ```
 
 ### Loop limits
 
-| Node                    | max_visits | Purpose                     |
-| ----------------------- | ---------- | --------------------------- |
-| `police` / `police-fix` | 3          | Quality convergence         |
-| `test`                  | 4          | Covers flaky retries        |
-| `test-fix`              | 3          | Real fix attempts           |
-| `ci`                    | 20         | CI can be slow to stabilize |
-| `ci-fix`                | 5          | Fix attempts per CI cycle   |
+| Node                                | max_visits | Purpose                     |
+| ----------------------------------- | ---------- | --------------------------- |
+| `police`                            | 3          | Quality convergence         |
+| `test`                              | 4          | Covers flaky retries        |
+| `test-fix`                          | 3          | Fix attempts                |
+| `ci`                                | 20         | CI can be slow to stabilize |
+| `ci-triage` / `ci-retry` / `ci-fix` | 5          | Per-failure handling        |
