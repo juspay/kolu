@@ -3,7 +3,7 @@ description: Execute a task end-to-end — implement, PR, CI loop, ship
 argument-hint: "<github-issue-url | prompt> [--review] [--from <step>]"
 ---
 
-# Do Workflow
+# Execute Workflow
 
 Take a task and execute it top-to-bottom: research, implement, open a draft PR, pass CI, refine, and ship.
 
@@ -43,7 +43,7 @@ Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted.
 Print a progress line before each step:
 
 ```
-[do] ✓sync ✓research ▸hickey · branch · implement · docs · police · fmt · commit · test · ci · update-pr · done
+[execute] ✓sync ✓research ▸hickey · branch · implement · docs · police · fmt · commit · test · ci · update-pr · done
 ```
 
 ### sync

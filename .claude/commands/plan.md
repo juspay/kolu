@@ -6,8 +6,8 @@ description: Plan a task factually — research first, ask when unsure, keep it 
 
 Plan a task with thorough research and user approval before implementing.
 
-This is `/do --review` — same workflow, but pauses after research + hickey for plan approval.
+This is `/execute --review` — same workflow, but pauses after research + hickey for plan approval.
 
 ARGUMENTS: $ARGUMENTS
 
-Invoke: `/do --review $ARGUMENTS`
+Invoke: `/execute --review $ARGUMENTS`
