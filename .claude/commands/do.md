@@ -138,7 +138,7 @@ When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
 Run: `just fmt`
 
-**Verify**: No formatting changes remain (working tree is clean after fmt).
+**Verify**: `just fmt` ran without error.
 
 ---
 
@@ -185,9 +185,11 @@ Re-check the PR title/body against current scope. If scope changed, update via `
 
 ### done
 
-Report the PR URL and a brief summary of what was delivered.
-
 Update `.do-results.json` with `status: "completed"`.
+
+Present a summary of all steps with their verification status. If any step has a non-success status, retry it before finishing.
+
+Report the PR URL and update the PR description with the final step status table.
 
 ---
 

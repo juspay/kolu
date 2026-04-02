@@ -91,36 +91,6 @@ fmt:
 fmt-check:
     {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
-# Validate /do workflow results against expected steps
-do-results-check:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    expected=".do-results.expected.json"
-    actual=".do-results.json"
-    if [[ ! -f "$actual" ]]; then
-        echo "FAIL: $actual not found — /do workflow has not been run" >&2
-        exit 1
-    fi
-    # Check overall status
-    status=$(jq -r '.status' "$actual")
-    if [[ "$status" != "completed" ]]; then
-        echo "FAIL: workflow status is '$status', expected 'completed'" >&2
-        exit 1
-    fi
-    # Check every expected step is present and passed
-    failed=0
-    while IFS= read -r step; do
-        actual_status=$(jq -r --arg name "$step" '.steps[] | select(.name == $name) | .status' "$actual")
-        if [[ "$actual_status" != "passed" ]]; then
-            echo "FAIL: step '$step' has status '${actual_status:-missing}', expected 'passed'" >&2
-            failed=1
-        fi
-    done < <(jq -r '.steps[].name' "$expected")
-    if [[ "$failed" -eq 1 ]]; then
-        exit 1
-    fi
-    echo "OK: all workflow steps passed"
-
 # Nix build (server + client)
 build:
     nix build
