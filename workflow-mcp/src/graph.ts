@@ -100,7 +100,10 @@ export function listWorkflows(workflowsDir: string): string[] {
     return readdirSync(workflowsDir)
       .filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"))
       .map((f) => f.replace(/\.ya?ml$/, ""));
-  } catch {
-    return [];
+  } catch (err: unknown) {
+    // Missing directory is expected (no workflows yet); anything else is a real error
+    if (err instanceof Error && "code" in err && err.code === "ENOENT")
+      return [];
+    throw err;
   }
 }

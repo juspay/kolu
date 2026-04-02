@@ -24,80 +24,55 @@ export const WorkflowNodeSchema = z.object({
 });
 export type WorkflowNode = z.infer<typeof WorkflowNodeSchema>;
 
-export const WorkflowGraphSchema = z.object({
-  name: z.string(),
-  entryPoints: z.record(z.string(), z.string()),
-  defaults: z.object({ maxVisits: z.number().int().positive() }),
-  nodes: z.record(z.string(), WorkflowNodeSchema),
-});
-export type WorkflowGraph = z.infer<typeof WorkflowGraphSchema>;
+export interface WorkflowGraph {
+  name: string;
+  entryPoints: Record<string, string>;
+  defaults: { maxVisits: number };
+  nodes: Record<string, WorkflowNode>;
+}
 
 // --- Session state (in-memory) ---
 
-export const StepRecordSchema = z.object({
-  nodeId: z.string(),
-  visit: z.number().int(),
-  startedAt: z.string(),
-  completedAt: z.string().optional(),
-  evidence: z.string().optional(),
-  edgeTaken: z.string().optional(),
-});
-export type StepRecord = z.infer<typeof StepRecordSchema>;
+export interface StepRecord {
+  nodeId: string;
+  visit: number;
+  startedAt: string;
+  completedAt?: string;
+  evidence?: string;
+  edgeTaken?: string;
+}
 
-export type SessionStatus = "running" | "completed" | "halted";
+export interface Session {
+  id: string;
+  workflowName: string;
+  entryPoint: string;
+  input?: string;
+  currentNodeId: string;
+  visitCounts: Record<string, number>;
+  history: StepRecord[];
+  happyPath: string[];
+  startedAt: string;
+  status: "running" | "completed" | "halted";
+  haltReason?: string;
+}
 
-export const SessionSchema = z.object({
-  id: z.string(),
-  workflowName: z.string(),
-  entryPoint: z.string(),
-  input: z.string().optional(),
-  currentNodeId: z.string(),
-  visitCounts: z.record(z.string(), z.number()),
-  history: z.array(StepRecordSchema),
-  happyPath: z.array(z.string()),
-  startedAt: z.string(),
-  status: z.enum(["running", "completed", "halted"]),
-  haltReason: z.string().optional(),
-});
-export type Session = z.infer<typeof SessionSchema>;
+/** Snapshot of a node for tool responses. */
+export interface NodeStatus {
+  id: string;
+  description: string;
+  instruction: Instruction;
+  visit: number;
+  maxVisits: number;
+  edges: WorkflowEdge[];
+}
 
-// --- Tool I/O ---
+export interface ProgressNode {
+  id: string;
+  state: "completed" | "current" | "pending";
+}
 
-export const StartInputSchema = z.object({
-  workflow: z.string().describe("Workflow name (filename without .yaml)"),
-  entryPoint: z
-    .string()
-    .optional()
-    .describe("Entry point name (default: 'default')"),
-  input: z.string().optional().describe("Task input / description"),
-});
-
-export const CompleteInputSchema = z.object({
-  evidence: z.string().describe("What happened — opaque string recorded as-is"),
-  edge: z
-    .string()
-    .optional()
-    .describe(
-      "Edge condition to follow (omit for auto-advance on default-only nodes)",
-    ),
-});
-
-export const NodeStatusSchema = z.object({
-  id: z.string(),
-  description: z.string(),
-  instruction: InstructionSchema,
-  visit: z.number(),
-  maxVisits: z.number(),
-  edges: z.array(WorkflowEdgeSchema),
-});
-
-export const ProgressNodeSchema = z.object({
-  id: z.string(),
-  state: z.enum(["completed", "current", "pending"]),
-});
-
-export const StatusResponseSchema = z.object({
-  session: SessionSchema,
-  progress: z.array(ProgressNodeSchema),
-  progressLine: z.string(),
-});
+/** Result of advancing the state machine one step. */
+export type AdvanceResult =
+  | { status: "running"; nextNode: WorkflowNode }
+  | { status: "completed" }
+  | { status: "halted"; reason: string };

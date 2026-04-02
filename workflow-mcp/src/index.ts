@@ -6,6 +6,7 @@ import { parseWorkflowFile, listWorkflows } from "./graph.js";
 import {
   createSession,
   getCurrentNode,
+  nodeStatus,
   advance,
   getProgress,
 } from "./session.js";
@@ -30,17 +31,37 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+/** Validate workflow name contains no path separators. */
+function validateWorkflowName(name: string): void {
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error(`Invalid workflow name: ${name}`);
+  }
+}
+
+function errorResponse(msg: string) {
+  return {
+    content: [{ type: "text" as const, text: msg }],
+    isError: true as const,
+  };
+}
+
+function jsonResponse(data: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(data) }] };
+}
+
+/** Guard: returns the active session + graph or an error response. */
+function requireSession() {
+  if (!activeSession || !activeGraph)
+    return errorResponse("No active session.");
+  return { session: activeSession, graph: activeGraph };
+}
+
 // --- workflow_list ---
 server.tool(
   "workflow_list",
   "List available workflow definitions",
   {},
-  async () => {
-    const names = listWorkflows(workflowsDir);
-    return {
-      content: [{ type: "text", text: JSON.stringify(names) }],
-    };
-  },
+  async () => jsonResponse(listWorkflows(workflowsDir)),
 );
 
 // --- workflow_start ---
@@ -57,15 +78,15 @@ server.tool(
   },
   async ({ workflow, entryPoint, input }) => {
     if (activeSession?.status === "running") {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: A session is already running (${activeSession.id}). Complete or abandon it first.`,
-          },
-        ],
-        isError: true,
-      };
+      return errorResponse(
+        `A session is already running (${activeSession.id}). Complete or abandon it first.`,
+      );
+    }
+
+    try {
+      validateWorkflowName(workflow);
+    } catch (err) {
+      return errorResponse(err instanceof Error ? err.message : String(err));
     }
 
     const filePath = join(workflowsDir, `${workflow}.yaml`);
@@ -73,15 +94,9 @@ server.tool(
     try {
       graph = parseWorkflowFile(filePath, workflow);
     } catch (err) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error loading workflow: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-        isError: true,
-      };
+      return errorResponse(
+        `Error loading workflow: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     const ep = entryPoint ?? "default";
@@ -89,15 +104,9 @@ server.tool(
     try {
       session = createSession(graph, ep, input);
     } catch (err) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error starting session: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-        isError: true,
-      };
+      return errorResponse(
+        `Error starting session: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     activeSession = session;
@@ -107,25 +116,11 @@ server.tool(
     const { line } = getProgress(session);
     writeResults(resultsDir, session);
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            sessionId: session.id,
-            progress: line,
-            currentNode: {
-              id: node.id,
-              description: node.description,
-              instruction: node.instruction,
-              visit: session.visitCounts[node.id] ?? 0,
-              maxVisits: node.maxVisits,
-              edges: node.edges,
-            },
-          }),
-        },
-      ],
-    };
+    return jsonResponse({
+      sessionId: session.id,
+      progress: line,
+      currentNode: nodeStatus(node, session),
+    });
   },
 );
 
@@ -135,45 +130,24 @@ server.tool(
   "Get the current step instruction and metadata",
   {},
   async () => {
-    if (!activeSession || !activeGraph) {
-      return {
-        content: [{ type: "text", text: "Error: No active session." }],
-        isError: true,
-      };
+    const guard = requireSession();
+    if ("isError" in guard) return guard;
+    const { session, graph } = guard;
+
+    if (session.status !== "running") {
+      return jsonResponse({
+        status: session.status,
+        haltReason: session.haltReason,
+      });
     }
 
-    if (activeSession.status !== "running") {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Session is ${activeSession.status}. ${activeSession.haltReason ?? ""}`,
-          },
-        ],
-      };
-    }
+    const node = getCurrentNode(graph, session);
+    const { line } = getProgress(session);
 
-    const node = getCurrentNode(activeGraph, activeSession);
-    const { line } = getProgress(activeSession);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            progress: line,
-            currentNode: {
-              id: node.id,
-              description: node.description,
-              instruction: node.instruction,
-              visit: activeSession.visitCounts[node.id] ?? 0,
-              maxVisits: node.maxVisits,
-              edges: node.edges,
-            },
-          }),
-        },
-      ],
-    };
+    return jsonResponse({
+      progress: line,
+      currentNode: nodeStatus(node, session),
+    });
   },
 );
 
@@ -193,94 +167,45 @@ server.tool(
       ),
   },
   async ({ evidence, edge }) => {
-    if (!activeSession || !activeGraph) {
-      return {
-        content: [{ type: "text", text: "Error: No active session." }],
-        isError: true,
-      };
-    }
+    const guard = requireSession();
+    if ("isError" in guard) return guard;
+    const { session, graph } = guard;
 
-    if (activeSession.status !== "running") {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Session is ${activeSession.status}.`,
-          },
-        ],
-        isError: true,
-      };
+    if (session.status !== "running") {
+      return errorResponse(`Session is ${session.status}.`);
     }
 
     let result;
     try {
-      result = advance(activeGraph, activeSession, evidence, edge);
+      result = advance(graph, session, evidence, edge);
     } catch (err) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-        isError: true,
-      };
+      return errorResponse(err instanceof Error ? err.message : String(err));
     }
 
-    writeResults(resultsDir, activeSession);
+    writeResults(resultsDir, session);
 
-    if (result.done) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              status: "completed",
-              message: "Workflow completed successfully.",
-              resultsDir: join(resultsDir, activeSession.id),
-            }),
-          },
-        ],
-      };
+    if (result.status === "completed") {
+      return jsonResponse({
+        status: "completed",
+        message: "Workflow completed successfully.",
+        resultsDir: join(resultsDir, session.id),
+      });
     }
 
-    if (result.halted) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              status: "halted",
-              reason: result.haltReason,
-              resultsDir: join(resultsDir, activeSession.id),
-            }),
-          },
-        ],
-      };
+    if (result.status === "halted") {
+      return jsonResponse({
+        status: "halted",
+        reason: result.reason,
+        resultsDir: join(resultsDir, session.id),
+      });
     }
 
-    const node = result.nextNode!;
-    const { line } = getProgress(activeSession);
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            status: "running",
-            progress: line,
-            currentNode: {
-              id: node.id,
-              description: node.description,
-              instruction: node.instruction,
-              visit: activeSession.visitCounts[node.id] ?? 0,
-              maxVisits: node.maxVisits,
-              edges: node.edges,
-            },
-          }),
-        },
-      ],
-    };
+    const { line } = getProgress(session);
+    return jsonResponse({
+      status: "running",
+      progress: line,
+      currentNode: nodeStatus(result.nextNode, session),
+    });
   },
 );
 
@@ -290,35 +215,23 @@ server.tool(
   "Get full session status including progress and history",
   {},
   async () => {
-    if (!activeSession) {
-      return {
-        content: [{ type: "text", text: "Error: No active session." }],
-        isError: true,
-      };
-    }
+    if (!activeSession) return errorResponse("No active session.");
 
     const { nodes, line } = getProgress(activeSession);
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            session: {
-              id: activeSession.id,
-              workflowName: activeSession.workflowName,
-              status: activeSession.status,
-              haltReason: activeSession.haltReason,
-              startedAt: activeSession.startedAt,
-              input: activeSession.input,
-            },
-            progress: nodes,
-            progressLine: line,
-            history: activeSession.history,
-          }),
-        },
-      ],
-    };
+    return jsonResponse({
+      session: {
+        id: activeSession.id,
+        workflowName: activeSession.workflowName,
+        status: activeSession.status,
+        haltReason: activeSession.haltReason,
+        startedAt: activeSession.startedAt,
+        input: activeSession.input,
+      },
+      progress: nodes,
+      progressLine: line,
+      history: activeSession.history,
+    });
   },
 );
 

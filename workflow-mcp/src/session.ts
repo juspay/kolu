@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AdvanceResult,
   Session,
   WorkflowGraph,
   WorkflowNode,
-  ProgressNodeSchema,
+  NodeStatus,
+  ProgressNode,
 } from "./schema.js";
 import { computeHappyPath } from "./graph.js";
-import type { z } from "zod";
-
-type ProgressNode = z.infer<typeof ProgressNodeSchema>;
 
 export function createSession(
   graph: WorkflowGraph,
@@ -51,11 +50,16 @@ export function getCurrentNode(
   return node;
 }
 
-export interface AdvanceResult {
-  done: boolean;
-  halted: boolean;
-  haltReason?: string;
-  nextNode?: WorkflowNode;
+/** Build the NodeStatus snapshot used in tool responses. */
+export function nodeStatus(node: WorkflowNode, session: Session): NodeStatus {
+  return {
+    id: node.id,
+    description: node.description,
+    instruction: node.instruction,
+    visit: session.visitCounts[node.id] ?? 0,
+    maxVisits: node.maxVisits,
+    edges: node.edges,
+  };
 }
 
 export function advance(
@@ -80,41 +84,11 @@ export function advance(
   // Terminal node — no edges means workflow is done
   if (currentNode.edges.length === 0) {
     session.status = "completed";
-    if (currentStep) currentStep.edgeTaken = undefined;
-    return { done: true, halted: false };
+    return { status: "completed" };
   }
 
   // Resolve which edge to follow
-  let targetNodeId: string;
-  const nonDefaultEdges = currentNode.edges.filter(
-    (e) => e.condition !== "default",
-  );
-  const defaultEdge = currentNode.edges.find((e) => e.condition === "default");
-
-  if (edge) {
-    // Agent specified an edge
-    const matched = currentNode.edges.find((e) => e.condition === edge);
-    if (!matched) {
-      throw new Error(
-        `Edge '${edge}' not found on node '${currentNode.id}'. Available: ${currentNode.edges.map((e) => e.condition).join(", ")}`,
-      );
-    }
-    targetNodeId = matched.target;
-    if (currentStep) currentStep.edgeTaken = edge;
-  } else if (nonDefaultEdges.length === 0 && defaultEdge) {
-    // Only default edge — auto-advance
-    targetNodeId = defaultEdge.target;
-    if (currentStep) currentStep.edgeTaken = "default";
-  } else if (nonDefaultEdges.length > 0) {
-    // Multiple edges but agent didn't specify — error
-    throw new Error(
-      `Node '${currentNode.id}' has conditional edges. You must specify which edge to follow: ${currentNode.edges.map((e) => `"${e.condition}"`).join(", ")}`,
-    );
-  } else {
-    // No edges at all (shouldn't reach here due to earlier check)
-    session.status = "completed";
-    return { done: true, halted: false };
-  }
+  const targetNodeId = resolveEdge(currentNode, edge, currentStep);
 
   const nextNode = graph.nodes[targetNodeId];
   if (!nextNode) {
@@ -124,9 +98,10 @@ export function advance(
   // Check visit limit
   const visits = (session.visitCounts[targetNodeId] ?? 0) + 1;
   if (visits > nextNode.maxVisits) {
+    const reason = `Node '${targetNodeId}' exceeded max_visits (${nextNode.maxVisits})`;
     session.status = "halted";
-    session.haltReason = `Node '${targetNodeId}' exceeded max_visits (${nextNode.maxVisits})`;
-    return { done: false, halted: true, haltReason: session.haltReason };
+    session.haltReason = reason;
+    return { status: "halted", reason };
   }
 
   // Advance
@@ -138,7 +113,41 @@ export function advance(
     startedAt: new Date().toISOString(),
   });
 
-  return { done: false, halted: false, nextNode };
+  return { status: "running", nextNode };
+}
+
+/**
+ * Determine which edge to follow from the current node.
+ * Auto-advances on default-only nodes; requires explicit edge when
+ * conditional edges exist.
+ */
+function resolveEdge(
+  node: WorkflowNode,
+  edge: string | undefined,
+  currentStep: { edgeTaken?: string } | undefined,
+): string {
+  const defaultEdge = node.edges.find((e) => e.condition === "default");
+  const hasConditional = node.edges.some((e) => e.condition !== "default");
+
+  if (edge) {
+    const matched = node.edges.find((e) => e.condition === edge);
+    if (!matched) {
+      throw new Error(
+        `Edge '${edge}' not found on node '${node.id}'. Available: ${node.edges.map((e) => e.condition).join(", ")}`,
+      );
+    }
+    if (currentStep) currentStep.edgeTaken = edge;
+    return matched.target;
+  }
+
+  if (!hasConditional && defaultEdge) {
+    if (currentStep) currentStep.edgeTaken = "default";
+    return defaultEdge.target;
+  }
+
+  throw new Error(
+    `Node '${node.id}' has conditional edges. You must specify which edge to follow: ${node.edges.map((e) => `"${e.condition}"`).join(", ")}`,
+  );
 }
 
 export function getProgress(session: Session): {
