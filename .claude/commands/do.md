@@ -76,7 +76,14 @@ Evaluate the planned approach for structural simplicity. Invoke the `hickey` ski
 - Identify concerns. Check for complecting. Suggest simplifications.
 - Revise the approach to eliminate accidental complexity before proceeding.
 
-**If `--review`**: After hickey completes, use `EnterPlanMode` to present the revised approach. Wait for user approval via `ExitPlanMode`. Then continue autonomously.
+**If `--review`**: After hickey completes, use `EnterPlanMode` to present the revised approach for user approval:
+
+- **Clarify ambiguities** first — ask via `AskUserQuestion` if anything is unclear. Don't guess.
+- **High-level plan**: what to do and why, not implementation details. Include an **Architecture section** (affected modules, new abstractions, ripple effects).
+- **Split non-trivial plans into phases** — MVP first, each phase functionally self-sufficient.
+- Include a **Simplicity assessment** noting what hickey found and any trade-offs accepted.
+
+Use `ExitPlanMode` to present the plan. Once approved, continue autonomously from **branch**.
 
 **Verify**: Complecting concerns addressed or justified.
 
