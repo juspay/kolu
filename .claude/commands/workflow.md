@@ -64,7 +64,7 @@ For the current node:
 2. **Increment visit count.**
 3. **Print progress.** Show the happy path with position markers — `✓` for visited nodes, `▸` for the current node, `·` for pending nodes. Use the node ID as the label. If the current node is NOT on the happy path (e.g. a fix node), keep the last happy-path node as `▸` and append the fix node after it.
    ```
-   [workflow] ✓sync ✓understand ✓hickey ✓branch ▸implement · e2e · fmt · commit · police · test · ci · update-pr · done
+   [workflow] ✓sync ✓understand ✓hickey ✓branch ▸implement · e2e · fmt · commit · police · test · ci · update-pr · docs · done
    ```
    Print this line before every node execution. It replaces the old single-node status line.
 4. **Execute the action:**
