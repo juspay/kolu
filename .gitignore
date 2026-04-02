@@ -9,3 +9,4 @@ tests/reports/
 client/public/fonts
 .worktrees
 .logs/
+.do-results.json
