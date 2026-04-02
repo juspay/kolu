@@ -63,8 +63,8 @@ flowchart TD
   police-fix["police-fix\n─────\nFix police violations\n⟲ max 3"]
   test["test\n─────\nQuick e2e tests\n⟲ max 4"]
   test-fix["test-fix\n─────\nFix or retry test failures\n⟲ max 3"]
-  ci["ci\n─────\nRun CI (background)\n⟲ max 5"]
-  ci-fix["ci-fix\n─────\nFix CI failure\n⟲ max 5"]
+  ci["ci\n─────\nRun CI (background)"]
+  ci-fix["ci-fix\n─────\nAnalyze and fix/retry CI failure\n⟲ max 5"]
   update-pr["update-pr\n─────\nUpdate PR if needed"]
   docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
   docs-fix["docs-fix\n─────\nFix outdated docs\n⟲ max 3"]
@@ -86,7 +86,8 @@ flowchart TD
   test-fix --> test
   ci -->|"failed"| ci-fix
   ci --> update-pr
-  ci-fix --> ci
+  ci-fix -->|"fixed with new commit"| ci
+  ci-fix --> update-pr
   update-pr --> docs
   docs -->|"docs outdated"| docs-fix
   docs --> done
