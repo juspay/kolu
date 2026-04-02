@@ -117,7 +117,7 @@ nodes:
 
   ci:
     run: just ci
-    max_visits: 1
+    max_visits: 20
     description: Run CI (background)
     on:
       "failed": ci-fix
