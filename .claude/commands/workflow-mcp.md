@@ -24,6 +24,7 @@ Call `workflow_start` with:
 ### 2. Print progress and execute the current step
 
 **Before every step**, print the `progress` line from the response. Example:
+
 ```
 [workflow] ✓sync ✓understand ▸hickey · branch · implement · e2e · fmt · commit · police · test · ci · update-pr · docs · done
 ```
