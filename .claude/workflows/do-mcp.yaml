@@ -11,6 +11,7 @@ entry_points:
   polish: police
   ci-only: ci
   post-implement: fmt
+  followup: implement
 
 nodes:
   sync:
@@ -96,9 +97,15 @@ nodes:
       default: police
 
   test:
-    prompt: "Run: just test-quick"
+    prompt: |
+      Run only the e2e tests relevant to the code paths changed in this PR.
+      Use git diff master...HEAD --name-only to identify changed files,
+      then run just test-quick with only the matching .feature files
+      (e.g. just test-quick features/worktree.feature).
+      If changes are purely server-internal with no UI impact, unit tests
+      may suffice — skip e2e if no relevant scenarios exist.
     max_visits: 4
-    description: Quick e2e tests
+    description: Targeted e2e tests
     on:
       "failed": test-fix
       default: ci

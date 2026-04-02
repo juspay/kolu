@@ -33,6 +33,17 @@ rules:
       Aggressively remove unused code. No commented-out blocks,
       no "just in case" leftovers.
 
+  - id: no-silent-error-swallowing
+    rule: |
+      Never silently swallow errors. Empty `catch {}` blocks, bare
+      `catch: pass`, and `|| true` hide failures. At minimum, log
+      the error. If the catch is intentional (best-effort operation),
+      add a comment explaining *why* the error is safe to ignore.
+    rationale: |
+      Silent swallowing masks bugs — failures disappear without a trace,
+      making debugging impossible. A logged warning costs nothing; a
+      swallowed error costs hours.
+
   - id: comments-why-not-what
     rule: |
       Add comments where the _why_ isn't obvious from the code.
