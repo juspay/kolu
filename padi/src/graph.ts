@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   Instruction,
@@ -18,6 +19,7 @@ interface RawYamlNode {
 
 interface RawYaml {
   version?: number;
+  include?: string[];
   defaults?: { max_visits?: number };
   entry_points?: Record<string, string>;
   nodes?: Record<string, RawYamlNode>;
@@ -32,17 +34,12 @@ function parseInstruction(raw: RawYamlNode): Instruction {
   );
 }
 
-export function parseWorkflowFile(
-  filePath: string,
-  name: string,
-): WorkflowGraph {
-  const content = readFileSync(filePath, "utf-8");
-  const raw = parseYaml(content) as RawYaml;
-
-  const defaultMaxVisits = raw.defaults?.max_visits ?? 1;
-  const entryPoints = raw.entry_points ?? { default: "start" };
+/** Parse nodes from raw YAML, applying the given default max_visits. */
+function parseNodes(
+  raw: RawYaml,
+  defaultMaxVisits: number,
+): Record<string, WorkflowNode> {
   const nodes: Record<string, WorkflowNode> = {};
-
   for (const [id, rawNode] of Object.entries(raw.nodes ?? {})) {
     const edges = rawNode.on
       ? Object.entries(rawNode.on).map(([condition, target]) => ({
@@ -59,6 +56,71 @@ export function parseWorkflowFile(
       edges,
     };
   }
+  return nodes;
+}
+
+/**
+ * Recursively resolve `include:` directives, merging nodes into a flat namespace.
+ * Detects circular includes via visited set; errors on node name collisions.
+ */
+function resolveIncludes(
+  filePath: string,
+  raw: RawYaml,
+  visited: Set<string>,
+): Record<string, WorkflowNode> {
+  const absPath = resolve(filePath);
+  if (visited.has(absPath)) {
+    throw new Error(`Circular include detected: ${absPath}`);
+  }
+  visited.add(absPath);
+
+  const defaultMaxVisits = raw.defaults?.max_visits ?? 1;
+  const nodes = parseNodes(raw, defaultMaxVisits);
+
+  for (const includePath of raw.include ?? []) {
+    const resolvedPath = resolve(dirname(filePath), includePath);
+    const content = readFileSync(resolvedPath, "utf-8");
+    const includedRaw = parseYaml(content) as RawYaml;
+    const includedNodes = resolveIncludes(resolvedPath, includedRaw, visited);
+
+    for (const [id, node] of Object.entries(includedNodes)) {
+      if (nodes[id]) {
+        throw new Error(
+          `Node name collision: '${id}' defined in both ${absPath} and ${resolvedPath}`,
+        );
+      }
+      nodes[id] = node;
+    }
+  }
+
+  return nodes;
+}
+
+/** Validate that every edge target references an existing node. */
+function validateEdgeTargets(nodes: Record<string, WorkflowNode>): void {
+  for (const [id, node] of Object.entries(nodes)) {
+    for (const edge of node.edges) {
+      if (!nodes[edge.target]) {
+        throw new Error(
+          `Dangling edge: node '${id}' has edge '${edge.condition}' → '${edge.target}', but '${edge.target}' does not exist`,
+        );
+      }
+    }
+  }
+}
+
+export function parseWorkflowFile(
+  filePath: string,
+  name: string,
+): WorkflowGraph {
+  const content = readFileSync(filePath, "utf-8");
+  const raw = parseYaml(content) as RawYaml;
+
+  const nodes = resolveIncludes(filePath, raw, new Set());
+  validateEdgeTargets(nodes);
+
+  const defaultMaxVisits = raw.defaults?.max_visits ?? 1;
+  const entryPoints = raw.entry_points ?? { default: "start" };
 
   return {
     name,

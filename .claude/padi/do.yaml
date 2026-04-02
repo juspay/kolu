@@ -5,6 +5,9 @@
 # the agent calls workflow_complete(evidence) to advance.
 version: 1
 
+include:
+  - ./ci-loop.yaml
+
 defaults:
   max_visits: 1
 
@@ -122,23 +125,7 @@ nodes:
     on:
       default: test
 
-  ci:
-    prompt: "Run: just ci (in background)"
-    max_visits: 20
-    description: Run CI
-    on:
-      "failed": ci-fix
-      default: update-pr
-
-  ci-fix:
-    prompt: |
-      Read CI failure output. For flaky failures, retry with just ci::<step>.
-      For real bugs: fix, run just fmt, create a NEW commit, push.
-    max_visits: 5
-    description: Analyze and fix/retry CI failure
-    on:
-      "fixed with new commit": ci
-      default: update-pr
+  # ci and ci-fix nodes are included from ./ci-loop.yaml
 
   update-pr:
     prompt: |

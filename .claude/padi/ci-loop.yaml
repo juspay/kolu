@@ -1,0 +1,24 @@
+# CI loop: run CI, fix failures, retry.
+# Reusable — include from any workflow that needs a CI gate.
+#
+# Expects the parent graph to define an 'update-pr' node
+# (the default exit edge target).
+
+nodes:
+  ci:
+    prompt: "Run: just ci (in background)"
+    max_visits: 20
+    description: Run CI
+    on:
+      "failed": ci-fix
+      default: update-pr
+
+  ci-fix:
+    prompt: |
+      Read CI failure output. For flaky failures, retry with just ci::<step>.
+      For real bugs: fix, run just fmt, create a NEW commit, push.
+    max_visits: 5
+    description: Analyze and fix/retry CI failure
+    on:
+      "fixed with new commit": ci
+      default: update-pr
