@@ -16,10 +16,10 @@ import type { Session, WorkflowGraph } from "./schema.js";
 // Resolve paths relative to CWD (the project root)
 const cwd = process.cwd();
 const workflowsDir = resolve(
-  process.env["WORKFLOW_MCP_WORKFLOWS_DIR"] ?? join(cwd, ".claude/workflows"),
+  process.env["PADI_WORKFLOWS_DIR"] ?? join(cwd, ".claude/workflows"),
 );
 const resultsDir = resolve(
-  process.env["WORKFLOW_MCP_RESULTS_DIR"] ?? join(cwd, ".workflow-runs"),
+  process.env["PADI_RESULTS_DIR"] ?? join(cwd, ".workflow-runs"),
 );
 
 // Single active session (one workflow at a time)
@@ -27,7 +27,7 @@ let activeSession: Session | undefined;
 let activeGraph: WorkflowGraph | undefined;
 
 const server = new McpServer({
-  name: "workflow-mcp",
+  name: "padi",
   version: "0.1.0",
 });
 

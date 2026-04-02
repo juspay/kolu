@@ -18,7 +18,7 @@
         let
           lib = pkgs.callPackage ./default.nix { };
           wrapper = pkgs.writeShellApplication {
-            name = "workflow-mcp";
+            name = "padi";
             runtimeInputs = [ pkgs.nodejs pkgs.tsx ];
             text = ''
               exec tsx "${lib}/src/index.ts" "$@"

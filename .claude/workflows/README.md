@@ -1,13 +1,13 @@
 # Workflow DAG
 
-MCP-driven YAML graphs that drive coding agents through a task. The workflow server (`workflow-mcp/`) serves one step at a time as a state machine — Claude calls `workflow_complete(evidence)` to advance.
+MCP-driven YAML graphs that drive coding agents through a task. The workflow server (`padi/`) serves one step at a time as a state machine — Claude calls `workflow_complete(evidence)` to advance.
 
 ## How it works
 
 Two parts:
 
 1. **YAML graph** (`.claude/workflows/*.yaml`) — nodes, transitions, loop limits
-2. **MCP server** (`workflow-mcp/`) — reads the graph, enforces step ordering, gates advancement on evidence
+2. **MCP server** (`padi/`) — reads the graph, enforces step ordering, gates advancement on evidence
 
 All nodes are `prompt` type — the server decides what runs, Claude executes the instruction.
 
