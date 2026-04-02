@@ -13,7 +13,7 @@ Execute a workflow defined in `.claude/workflows/<name>.yaml`.
 2. Determine the entry point: use `--from <name>` if provided, otherwise `default` from `entry_points`.
 3. Store everything after `--` as the task input (available to `prompt` nodes as context).
 4. Check for `--dry-run` and `--review` flags.
-5. **Compute the happy path.** Starting from the entry node, follow each node's `default` edge until reaching a terminal node (no `on:` map). Store this ordered list of node IDs — it is used for the progress display. Example for `do.yaml` default entry: `sync → understand → hickey → branch → implement → e2e → fmt → commit → police → test → ci → update-pr → done`.
+5. **Compute the happy path.** Starting from the entry node, follow each node's `default` edge until reaching a terminal node (no `on:` map). Store this ordered list of node IDs — it is used for the progress display. Example for `do.yaml` default entry: `sync → understand → hickey → branch → implement → e2e → fmt → commit → police → test → ci → update-pr → docs → done`.
 
 ## Review mode (`--review`)
 
@@ -64,7 +64,7 @@ For the current node:
 2. **Increment visit count.**
 3. **Print progress.** Show the happy path with position markers — `✓` for visited nodes, `▸` for the current node, `·` for pending nodes. Use the node ID as the label. If the current node is NOT on the happy path (e.g. a fix node), keep the last happy-path node as `▸` and append the fix node after it.
    ```
-   [workflow] ✓sync ✓understand ✓hickey ✓branch ▸implement · e2e · fmt · commit · police · test · ci · update-pr · done
+   [workflow] ✓sync ✓understand ✓hickey ✓branch ▸implement · e2e · fmt · commit · police · test · ci · update-pr · docs · done
    ```
    Print this line before every node execution. It replaces the old single-node status line.
 4. **Execute the action:**
@@ -88,4 +88,5 @@ For the current node:
 - **Feature branches only.** Never commit to master/main.
 - **Background for CI.** Always run CI commands with `run_in_background: true`.
 - **No questions.** Do NOT use `AskUserQuestion` unless `--review` is active during the planning phase, or a node's prompt explicitly says to. Make sensible default choices.
+- **Never stop between nodes.** After a node completes (including `skill` nodes), immediately proceed to the next node. Do not wait for user input, do not pause to summarize, do not treat a skill return as a stopping point. The workflow runs end-to-end without interruption (unless `--review` is active during the planning phase).
 - **Transparency.** Always print the progress line before executing each node.
