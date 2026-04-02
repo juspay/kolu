@@ -8,11 +8,17 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo, SavedSession } from "kolu-common";
+import type {
+  RecentRepo,
+  SavedSession,
+  UserPreferences,
+  UserPreferencesUpdate,
+} from "kolu-common";
 
 interface StateSchema {
   recentRepos: RecentRepo[];
   session: SavedSession | null;
+  preferences: UserPreferences;
 }
 
 /**
@@ -20,7 +26,16 @@ interface StateSchema {
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.1.0";
+const SCHEMA_VERSION = "1.2.0";
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  colorScheme: "dark",
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  startupTips: true,
+  seenTips: [],
+};
 
 export const store = new Conf<StateSchema>({
   projectName: "kolu",
@@ -30,11 +45,14 @@ export const store = new Conf<StateSchema>({
   defaults: {
     recentRepos: [],
     session: null,
+    preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
     // sortOrder added to SavedTerminal — old sessions don't have it.
     // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
     "1.1.0": () => {},
+    // preferences field added — new field has defaults, no data to transform.
+    "1.2.0": () => {},
   },
 });
 
@@ -74,4 +92,19 @@ export function getRecentRepos(): RecentRepo[] {
   const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
+}
+
+// --- User preferences ---
+
+/** Get all user preferences. */
+export function getPreferences(): UserPreferences {
+  return store.get("preferences");
+}
+
+/** Partial-update user preferences. Returns the full merged result. */
+export function setPreferences(update: UserPreferencesUpdate): UserPreferences {
+  const current = store.get("preferences");
+  const merged = { ...current, ...update };
+  store.set("preferences", merged);
+  return merged;
 }

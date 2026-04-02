@@ -177,6 +177,22 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
+// --- User preferences (server-side persistent state) ---
+
+export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+
+export const UserPreferencesSchema = z.object({
+  colorScheme: ColorSchemeSchema,
+  randomTheme: z.boolean(),
+  scrollLock: z.boolean(),
+  activityAlerts: z.boolean(),
+  startupTips: z.boolean(),
+  seenTips: z.array(z.string()),
+});
+
+/** Partial update — only the fields being changed. */
+export const UserPreferencesUpdateSchema = UserPreferencesSchema.partial();
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
@@ -189,3 +205,6 @@ export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type UserPreferences = z.infer<typeof UserPreferencesSchema>;
+export type UserPreferencesUpdate = z.infer<typeof UserPreferencesUpdateSchema>;

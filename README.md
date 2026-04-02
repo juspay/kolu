@@ -155,9 +155,9 @@ flowchart TB
 
 [^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
 
-**Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
+**Persistence** — sessions and user preferences auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf)[^persistence]. Preferences (color scheme, random theme, scroll lock, activity alerts, tips) are fetched by the client as a TanStack Query and updated via partial-set mutations — shared across browsers, survives cache clears.
 
-[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
+[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, parent relationships per terminal, and user preferences.
 
 [PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; server restarts are detected via a `processId` probe.
 

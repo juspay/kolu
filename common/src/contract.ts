@@ -26,6 +26,8 @@ import {
   WorktreeRemoveInputSchema,
   RecentRepoSchema,
   SavedSessionSchema,
+  UserPreferencesSchema,
+  UserPreferencesUpdateSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -75,6 +77,10 @@ export const contract = oc.router({
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
     recentRepos: oc.output(z.array(RecentRepoSchema)),
+  },
+  preferences: {
+    get: oc.output(UserPreferencesSchema),
+    set: oc.input(UserPreferencesUpdateSchema).output(UserPreferencesSchema),
   },
   session: {
     get: oc.output(SavedSessionSchema.nullable()),

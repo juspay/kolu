@@ -36,16 +36,38 @@ import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 import { useRecentRepos } from "./useRecentRepos";
+import {
+  collectLocalPreferences,
+  clearLocalPreferences,
+} from "./migrateLocalPreferences";
 
 const App: Component = () => {
   const {
+    query: prefsQuery,
     randomTheme,
     setRandomTheme,
     scrollLock,
     setScrollLock,
     activityAlerts,
     setActivityAlerts,
+    update: updatePrefs,
   } = usePreferences();
+
+  // One-time migration: move localStorage preferences to server conf.
+  // Only applies if server still has defaults (no prior migration from another browser).
+  let migrated = false;
+  createEffect(() => {
+    if (migrated || prefsQuery.isLoading) return;
+    migrated = true;
+    const patch = collectLocalPreferences();
+    if (!patch) return;
+    // Only migrate if server preferences haven't been customized yet
+    const server = prefsQuery.data;
+    if (server && server.seenTips.length === 0) {
+      updatePrefs(patch);
+    }
+    clearLocalPreferences();
+  });
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
