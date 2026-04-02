@@ -93,9 +93,11 @@ apm-audit:
     uvx --from git+https://github.com/microsoft/apm apm audit --ci
 
 # Remove APM-deployed files and compiled CLAUDE.md
+# TODO: replace with `apm uninstall ./PERL` once https://github.com/microsoft/apm/issues/553 is fixed
 apm-clean:
-    uvx --from git+https://github.com/microsoft/apm apm uninstall PERL
-    uvx --from git+https://github.com/microsoft/apm apm compile --clean
+    rm -f CLAUDE.md client/src/CLAUDE.md server/src/CLAUDE.md
+    rm -rf .claude/commands .claude/skills .claude/rules .claude/settings.json .claude/hooks
+    rm -rf apm_modules apm.lock.yaml
 
 # Format all files in-place
 fmt:
