@@ -35,10 +35,12 @@ export function useWorktreeOps(deps: {
     invalidateRepos();
   }
 
-  async function handleKillWorktree() {
-    const id = store.activeId();
+  /** Kill a terminal and remove its worktree.
+   *  Accepts an explicit ID so callers can snapshot it before confirming. */
+  async function handleKillWorktree(targetId?: TerminalId) {
+    const id = targetId ?? store.activeId();
     if (!id) return;
-    const meta = store.activeMeta();
+    const meta = store.getMetadata(id);
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await deps.handleKill(subId);
