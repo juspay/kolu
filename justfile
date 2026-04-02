@@ -98,8 +98,8 @@ do-results-check:
     expected=".do-results.expected.json"
     actual=".do-results.json"
     if [[ ! -f "$actual" ]]; then
-        echo "SKIP: $actual not found (workflow has not been run)" >&2
-        exit 0
+        echo "FAIL: $actual not found — /do workflow has not been run" >&2
+        exit 1
     fi
     # Check overall status
     status=$(jq -r '.status' "$actual")
