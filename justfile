@@ -85,7 +85,7 @@ test-quick *args: install
 
 # Compile instructions + deploy primitives via APM
 apm:
-    uvx --from git+https://github.com/microsoft/apm apm compile --target all
+    uvx --from git+https://github.com/microsoft/apm apm compile --target claude
     uvx --from git+https://github.com/microsoft/apm apm install --target claude
 
 # Format all files in-place

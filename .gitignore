@@ -4,9 +4,7 @@ result
 .direnv/
 # APM generated output (regenerate with: apm compile && apm install)
 CLAUDE.md
-AGENTS.md
 **/CLAUDE.md
-**/AGENTS.md
 apm.lock.yaml
 .claude/commands/
 .claude/skills/
