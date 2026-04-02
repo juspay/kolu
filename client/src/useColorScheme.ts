@@ -7,27 +7,26 @@
 
 import { createEffect } from "solid-js";
 import { usePrefersDark } from "@solid-primitives/media";
-import { usePrefsQuery } from "./usePreferences";
-import type { ColorScheme } from "kolu-common";
+import { colorScheme, setColorSchemePref } from "./usePreferences";
 
 export type { ColorScheme } from "kolu-common";
 
+let initialized = false;
+
 export function useColorScheme() {
-  const { query, update } = usePrefsQuery();
-
-  const colorScheme = (): ColorScheme => query.data?.colorScheme ?? "dark";
-
-  function setColorScheme(scheme: ColorScheme) {
-    update({ colorScheme: scheme });
+  if (!initialized) {
+    initialized = true;
+    const prefersDark = usePrefersDark();
+    createEffect(() => {
+      const dark =
+        colorScheme() === "dark" ||
+        (colorScheme() === "system" && prefersDark());
+      document.documentElement.classList.toggle("dark", dark);
+    });
   }
 
-  // Toggle .dark on <html> reactively
-  const prefersDark = usePrefersDark();
-  createEffect(() => {
-    const dark =
-      colorScheme() === "dark" || (colorScheme() === "system" && prefersDark());
-    document.documentElement.classList.toggle("dark", dark);
-  });
-
-  return { colorScheme, setColorScheme } as const;
+  return {
+    colorScheme,
+    setColorScheme: setColorSchemePref,
+  } as const;
 }
