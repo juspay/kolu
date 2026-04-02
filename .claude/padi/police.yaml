@@ -1,0 +1,25 @@
+# Code quality gate. Reusable across projects.
+# Parent creates the fix→re-review loop by wiring :fix back to police.
+#
+# Ports:
+#   done — review passed, no violations
+#   fix  — violations found; parent handles fmt/commit, then re-enters police
+
+ports:
+  done:
+  fix:
+
+nodes:
+  police:
+    skill: code-police
+    max_visits: 3
+    description: Code review
+    on:
+      "violations or issues found": police-fix
+      default: :done
+
+  police-fix:
+    prompt: Fix the violations/issues found by code-police.
+    description: Fix police violations
+    on:
+      default: :fix

@@ -6,7 +6,11 @@
 version: 1
 
 include:
-  - path: ./ci-loop.yaml
+  - path: ./police.yaml
+    on:
+      done: fmt
+      fix: police # re-review after fix (pre-commit loop)
+  - path: ./ci.yaml
     on:
       done: update-pr
 
@@ -70,7 +74,10 @@ nodes:
       Run just test-quick to verify they pass.
     description: Add/update e2e tests
     on:
-      default: fmt
+      default: police
+
+  # police and police-fix are included from ./police.yaml
+  # police reviews uncommitted changes; fix loop stays pre-commit
 
   fmt:
     prompt: "Run: just fmt"
@@ -84,26 +91,7 @@ nodes:
       Push to the PR branch.
     description: Commit and push
     on:
-      default: police
-
-  police:
-    prompt: |
-      Run code-police: review for quality, fact-check for correctness,
-      and evaluate for elegance. Scope to changes in the current branch only.
-    max_visits: 3
-    description: Code quality + fact-check + elegance review
-    on:
-      "violations or issues found": police-fix
       default: test
-
-  police-fix:
-    prompt: |
-      Fix the violations/issues found by code-police.
-      Run just fmt. Create a NEW commit. Push.
-    max_visits: 3
-    description: Fix police violations
-    on:
-      default: police
 
   test:
     prompt: |
@@ -128,7 +116,7 @@ nodes:
     on:
       default: test
 
-  # ci and ci-fix nodes are included from ./ci-loop.yaml
+  # ci and ci-fix are included from ./ci.yaml
 
   update-pr:
     prompt: |
