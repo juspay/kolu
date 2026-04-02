@@ -69,7 +69,7 @@ nodes:
 
       Run three passes in order:
       1. Rule checklist — present a table for every rule
-      2. Fact-check — audit for correctness and rigor
+      2. Fact-check — invoke the /fact-check skill
       3. Elegance — invoke the /elegance skill
 
       Rules:
