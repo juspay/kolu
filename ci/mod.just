@@ -19,7 +19,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::unit || true
+    just ci::fmt ci::typecheck ci::unit ci::do-results || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
@@ -42,6 +42,10 @@ e2e: nix
 # Run vitest unit tests (server + client)
 unit:
     just ci::_run unit just test-unit
+
+# Validate /do workflow results against expected steps
+do-results:
+    just ci::_run do-results just do-results-check
 
 fmt:
     just ci::_run fmt just fmt-check
