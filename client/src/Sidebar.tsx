@@ -53,7 +53,7 @@ const SidebarEntry: Component<{
           props.displayInfo?.activityHistory.at(-1)?.[1] ? "active" : "sleeping"
         }
         data-alerting={props.alerting ? "" : undefined}
-        class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
+        class="group w-full py-2 pl-2 pr-6 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
         classList={{
           "border-l-4 bg-accent/10 text-fg": props.isActive,
           "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
