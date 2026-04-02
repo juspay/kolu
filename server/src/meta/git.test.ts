@@ -54,6 +54,19 @@ describe("gitInfoEqual", () => {
 describe("resolveGitInfo", () => {
   let tmpDir: string;
 
+  /** Create a git repo with one commit on a branch. */
+  async function initRepo(name: string, branch = "main") {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch(branch);
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir, git };
+  }
+
   beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "git-resolve-test-"));
   });
@@ -69,36 +82,19 @@ describe("resolveGitInfo", () => {
   });
 
   it("resolves a plain git repo", async () => {
-    const repoDir = path.join(tmpDir, "plain-repo");
-    fs.mkdirSync(repoDir, { recursive: true });
-    const git = simpleGit(repoDir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    // Need at least one commit for branch to exist
-    fs.writeFileSync(path.join(repoDir, "file.txt"), "hello");
-    await git.add(".");
-    await git.commit("initial");
+    const { dir } = await initRepo("plain-repo");
 
-    const info = await resolveGitInfo(repoDir);
+    const info = await resolveGitInfo(dir);
     expect(info).not.toBeNull();
-    expect(info!.repoRoot).toBe(fs.realpathSync(repoDir));
+    expect(info!.repoRoot).toBe(fs.realpathSync(dir));
     expect(info!.repoName).toBe("plain-repo");
     expect(info!.branch).toBe("main");
     expect(info!.isWorktree).toBe(false);
-    expect(info!.mainRepoRoot).toBe(fs.realpathSync(repoDir));
+    expect(info!.mainRepoRoot).toBe(fs.realpathSync(dir));
   });
 
   it("resolves a worktree", async () => {
-    const mainDir = path.join(tmpDir, "main-repo");
-    fs.mkdirSync(mainDir, { recursive: true });
-    const git = simpleGit(mainDir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    fs.writeFileSync(path.join(mainDir, "file.txt"), "hello");
-    await git.add(".");
-    await git.commit("initial");
-
-    // Create a worktree
+    const { dir: mainDir, git } = await initRepo("main-repo");
     const worktreeDir = path.join(tmpDir, "my-worktree");
     await git.raw(["worktree", "add", "-b", "feature", worktreeDir]);
 
@@ -112,38 +108,22 @@ describe("resolveGitInfo", () => {
   });
 
   it("resolves from a subdirectory", async () => {
-    const repoDir = path.join(tmpDir, "sub-repo");
-    fs.mkdirSync(repoDir, { recursive: true });
-    const git = simpleGit(repoDir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    fs.writeFileSync(path.join(repoDir, "file.txt"), "hello");
-    await git.add(".");
-    await git.commit("initial");
-
-    const subDir = path.join(repoDir, "src", "deep");
+    const { dir } = await initRepo("sub-repo");
+    const subDir = path.join(dir, "src", "deep");
     fs.mkdirSync(subDir, { recursive: true });
 
     const info = await resolveGitInfo(subDir);
     expect(info).not.toBeNull();
-    expect(info!.repoRoot).toBe(fs.realpathSync(repoDir));
+    expect(info!.repoRoot).toBe(fs.realpathSync(dir));
     expect(info!.branch).toBe("main");
   });
 
   it("detects detached HEAD", async () => {
-    const repoDir = path.join(tmpDir, "detached-repo");
-    fs.mkdirSync(repoDir, { recursive: true });
-    const git = simpleGit(repoDir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    fs.writeFileSync(path.join(repoDir, "file.txt"), "hello");
-    await git.add(".");
-    await git.commit("initial");
-    // Detach HEAD
+    const { dir, git } = await initRepo("detached-repo");
     const hash = (await git.revparse(["HEAD"])).trim();
     await git.checkout(hash);
 
-    const info = await resolveGitInfo(repoDir);
+    const info = await resolveGitInfo(dir);
     expect(info).not.toBeNull();
     expect(info!.branch).toBe("HEAD");
   });
