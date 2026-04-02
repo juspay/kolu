@@ -162,6 +162,16 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Close a terminal — shows worktree confirmation dialog if applicable. */
+  function closeTerminal(id: TerminalId) {
+    const meta = store.getMetadata(id);
+    if (meta?.git?.isWorktree) {
+      setWorktreeConfirmTarget({ id, meta });
+    } else {
+      void crud.handleKill(id);
+    }
+  }
+
   const commands = createCommands({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -184,13 +194,7 @@ const App: Component = () => {
       void worktree.handleCreateWorktree(repoPath),
     handleClose: () => {
       const id = store.activeId();
-      if (!id) return;
-      const meta = store.getMetadata(id);
-      if (meta?.git?.isWorktree) {
-        setWorktreeConfirmTarget({ id, meta });
-      } else {
-        void crud.handleKill(id);
-      }
+      if (id) closeTerminal(id);
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
@@ -352,14 +356,7 @@ const App: Component = () => {
           needsAttention={store.needsAttention}
           getDisplayInfo={store.getDisplayInfo}
           onSelect={store.setActiveId}
-          onCloseTerminal={(id) => {
-            const meta = store.getMetadata(id);
-            if (meta?.git?.isWorktree) {
-              setWorktreeConfirmTarget({ id, meta });
-            } else {
-              void crud.handleKill(id);
-            }
-          }}
+          onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
