@@ -112,9 +112,11 @@ function resolveIncludes(
 
   const declaredPorts = raw.ports ? Object.keys(raw.ports) : [];
 
-  // Validate that all declared ports are wired (unless this is the root file)
-  if (declaredPorts.length > 0) {
-    const unwired = declaredPorts.filter((p) => !portMap?.[p]);
+  // Only enforce port wiring when this file was included by a parent (portMap defined).
+  // Standalone loading (portMap undefined) skips this — unresolved :port targets
+  // will be caught later by validateEdgeTargets as dangling edges.
+  if (portMap && declaredPorts.length > 0) {
+    const unwired = declaredPorts.filter((p) => !portMap[p]);
     if (unwired.length > 0) {
       throw new Error(
         `Ports [${unwired.join(", ")}] declared in ${absPath} but not wired by includer`,
@@ -161,7 +163,12 @@ function resolveIncludes(
     const resolvedOn: Record<string, string> | undefined = inc.on
       ? Object.fromEntries(
           Object.entries(inc.on).map(([port, target]) => {
-            if (target.startsWith(":") && portMap) {
+            if (target.startsWith(":")) {
+              if (!portMap) {
+                throw new Error(
+                  `Port reference '${target}' in on: of include ${resolvedPath}, but ${absPath} has no port context`,
+                );
+              }
               const resolved = portMap[target.slice(1)];
               if (!resolved) {
                 throw new Error(
@@ -175,11 +182,13 @@ function resolveIncludes(
         )
       : undefined;
 
+    // Pass {} instead of undefined when no on: specified — distinguishes
+    // "included with no port wiring" from "loaded standalone (root file)"
     const includedNodes = resolveIncludes(
       resolvedPath,
       includedRaw,
       visited,
-      resolvedOn,
+      resolvedOn ?? {},
     );
 
     for (const [id, node] of Object.entries(includedNodes)) {

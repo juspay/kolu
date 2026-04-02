@@ -300,6 +300,29 @@ nodes: {}
     assert.throws(() => parseWorkflowFile(path, "main"), /not wired/);
   });
 
+  it("standalone file with ports gets dangling edge error", () => {
+    const dir = makeTempDir();
+    const path = writeYaml(
+      dir,
+      "standalone.yaml",
+      `
+ports:
+  done:
+entry_points:
+  default: step
+nodes:
+  step:
+    prompt: "do step"
+    on:
+      default: :done
+`,
+    );
+
+    // Standalone loading doesn't enforce port wiring — unresolved :done
+    // becomes a dangling edge instead
+    assert.throws(() => parseWorkflowFile(path, "standalone"), /Dangling edge/);
+  });
+
   it("errors when on: references undeclared port", () => {
     const dir = makeTempDir();
     writeYaml(
