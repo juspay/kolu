@@ -233,6 +233,98 @@ nodes:
   });
 });
 
+describe("template interpolation", () => {
+  it("replaces {{key}} with YAML-serialized top-level value", () => {
+    const dir = makeTempDir();
+    const path = writeYaml(
+      dir,
+      "tmpl.yaml",
+      `
+greeting: hello world
+entry_points:
+  default: a
+nodes:
+  a:
+    prompt: "say {{greeting}}"
+`,
+    );
+
+    const graph = parseWorkflowFile(path, "tmpl");
+    assert.equal(
+      (graph.nodes["a"].instruction as { text: string }).text,
+      "say hello world",
+    );
+  });
+
+  it("replaces {{key.subkey}} with dot-path traversal", () => {
+    const dir = makeTempDir();
+    const path = writeYaml(
+      dir,
+      "tmpl.yaml",
+      `
+config:
+  timeout: 30
+  retries: 3
+entry_points:
+  default: a
+nodes:
+  a:
+    prompt: "timeout is {{config.timeout}}"
+`,
+    );
+
+    const graph = parseWorkflowFile(path, "tmpl");
+    assert.equal(
+      (graph.nodes["a"].instruction as { text: string }).text,
+      "timeout is 30",
+    );
+  });
+
+  it("serializes arrays/objects as YAML text", () => {
+    const dir = makeTempDir();
+    const path = writeYaml(
+      dir,
+      "tmpl.yaml",
+      `
+rules:
+  - id: foo
+    rule: do foo
+  - id: bar
+    rule: do bar
+entry_points:
+  default: a
+nodes:
+  a:
+    prompt: |
+      check these:
+      {{rules}}
+`,
+    );
+
+    const graph = parseWorkflowFile(path, "tmpl");
+    const text = (graph.nodes["a"].instruction as { text: string }).text;
+    assert.ok(text.includes("- id: foo"));
+    assert.ok(text.includes("- id: bar"));
+  });
+
+  it("errors on missing template key", () => {
+    const dir = makeTempDir();
+    const path = writeYaml(
+      dir,
+      "tmpl.yaml",
+      `
+entry_points:
+  default: a
+nodes:
+  a:
+    prompt: "{{nonexistent}}"
+`,
+    );
+
+    assert.throws(() => parseWorkflowFile(path, "tmpl"), /not found/);
+  });
+});
+
 describe("ports", () => {
   it("rewrites :portname to the wired target", () => {
     const dir = makeTempDir();

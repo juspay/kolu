@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   Instruction,
   WorkflowEdge,
@@ -38,15 +38,54 @@ function parseInstruction(raw: RawYamlNode): Instruction {
   );
 }
 
+/** Walk a dot-separated keypath into a plain object. */
+function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  let current: unknown = obj;
+  for (const key of path.split(".")) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * Replace `{{keypath}}` references in a string with YAML-serialized values
+ * from the same file's raw YAML. Throws if a referenced key doesn't exist.
+ */
+function interpolate(
+  text: string,
+  raw: Record<string, unknown>,
+  sourceFile: string,
+): string {
+  return text.replace(/\{\{([^}]+)\}\}/g, (match, keypath: string) => {
+    const value = getByPath(raw, keypath.trim());
+    if (value === undefined) {
+      throw new Error(
+        `Template reference '{{${keypath.trim()}}}' not found in ${sourceFile}`,
+      );
+    }
+    return typeof value === "string" ? value : stringifyYaml(value).trimEnd();
+  });
+}
+
 /** Parse nodes from raw YAML, applying the given default max_visits. */
 function parseNodes(
   raw: RawYaml,
   defaultMaxVisits: number,
+  sourceFile: string,
 ): Record<string, WorkflowNode> {
+  const rawObj = raw as unknown as Record<string, unknown>;
   const nodes: Record<string, WorkflowNode> = {};
   for (const [id, rawNode] of Object.entries(raw.nodes ?? {})) {
-    const edges = rawNode.on
-      ? Object.entries(rawNode.on).map(([condition, target]) => ({
+    // Interpolate {{keypath}} references in instruction text
+    const resolved: RawYamlNode = { ...rawNode };
+    if (resolved.prompt)
+      resolved.prompt = interpolate(resolved.prompt, rawObj, sourceFile);
+    if (resolved.run)
+      resolved.run = interpolate(resolved.run, rawObj, sourceFile);
+
+    const edges = resolved.on
+      ? Object.entries(resolved.on).map(([condition, target]) => ({
           condition,
           target,
         }))
@@ -54,9 +93,9 @@ function parseNodes(
 
     nodes[id] = {
       id,
-      description: rawNode.description ?? id,
-      instruction: parseInstruction(rawNode),
-      maxVisits: rawNode.max_visits ?? defaultMaxVisits,
+      description: resolved.description ?? id,
+      instruction: parseInstruction(resolved),
+      maxVisits: resolved.max_visits ?? defaultMaxVisits,
       edges,
     };
   }
@@ -125,7 +164,7 @@ function resolveIncludes(
   }
 
   const defaultMaxVisits = raw.defaults?.max_visits ?? 1;
-  const nodes = parseNodes(raw, defaultMaxVisits);
+  const nodes = parseNodes(raw, defaultMaxVisits, absPath);
 
   // Rewrite :portname references in this file's nodes
   if (portMap) {
