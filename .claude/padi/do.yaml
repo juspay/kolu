@@ -17,8 +17,8 @@ entry_points:
 
 nodes:
   sync:
-    prompt: "Run: git fetch origin && git pull --ff-only"
-    description: Fast-forward to latest remote
+    prompt: "Run: git fetch origin"
+    description: Fetch latest remote refs
     on:
       default: understand
 
@@ -42,7 +42,7 @@ nodes:
 
   branch:
     prompt: |
-      Create a descriptive feature branch from master.
+      Create a descriptive feature branch from origin/master.
       Create an empty commit: git commit --allow-empty -m "chore: open PR"
       Push the branch. Open a draft PR with gh pr create --draft.
       Include a progress checklist in the PR body.
