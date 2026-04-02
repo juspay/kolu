@@ -43,10 +43,11 @@ export async function worktreeCreate(
 ): Promise<{ path: string; branch: string }> {
   const mainRoot = await resolveMainRepoRoot(repoPath);
   const git = simpleGit(mainRoot);
-  const defaultBranch = await detectDefaultBranch(mainRoot);
 
   log.info({ mainRoot }, "fetching origin");
   await git.fetch("origin");
+  await git.remote(["set-head", "origin", "--auto"]);
+  const defaultBranch = await detectDefaultBranch(mainRoot);
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const branch = randomName();
