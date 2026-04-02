@@ -2,10 +2,7 @@ node_modules/
 dist/
 result
 .direnv/
-# APM generated output (regenerate with: apm compile && apm install)
-/CLAUDE.md
-/client/src/CLAUDE.md
-/server/src/CLAUDE.md
+# APM generated output (regenerate with: just apm)
 apm.lock.yaml
 .claude/commands/
 .claude/skills/

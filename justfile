@@ -83,9 +83,8 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
-# Compile instructions + deploy primitives via APM
+# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
-    uvx --from git+https://github.com/microsoft/apm apm compile
     uvx --from git+https://github.com/microsoft/apm apm install
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)

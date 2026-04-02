@@ -6,7 +6,3 @@ type: hybrid
 dependencies:
   apm:
     - ./PERL
-
-compilation:
-  target: claude
-  strategy: distributed
