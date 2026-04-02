@@ -1,30 +1,25 @@
 # Workflow DAG
 
-Declarative YAML graphs that drive coding agents through a task. The orchestrator command (`/workflow`) reads a graph and follows it node-by-node — no external agent harness, stays entirely within Claude Code CLI.
+MCP-driven YAML graphs that drive coding agents through a task. The workflow server (`workflow-mcp/`) serves one step at a time as a state machine — Claude calls `workflow_complete(evidence)` to advance.
 
 ## How it works
 
-Three parts:
+Two parts:
 
 1. **YAML graph** (`.claude/workflows/*.yaml`) — nodes, transitions, loop limits
-2. **Orchestrator** (`.claude/commands/workflow.md`) — reads the graph, drives execution
-3. **Claude** — executes nodes, evaluates transitions, tracks visit counts
+2. **MCP server** (`workflow-mcp/`) — reads the graph, enforces step ordering, gates advancement on evidence
 
-### Node types
-
-| Type     | What it does                       | Example                         |
-| -------- | ---------------------------------- | ------------------------------- |
-| `skill`  | Invokes a skill via Skill tool     | `hickey`, `code-police`         |
-| `run`    | Executes a shell command via Bash  | `just ci`, `just fmt`           |
-| `prompt` | Claude follows inline instructions | "Implement the planned changes" |
+All nodes are `prompt` type — the server decides what runs, Claude executes the instruction.
 
 ### Transitions
 
-Each node has an `on:` map of `condition → next-node`. Conditions are natural language — Claude evaluates them against conversation context. `default` is the else branch.
+Each node has an `on:` map of `condition → next-node`. Conditions are natural language — Claude evaluates them against what happened. `default` is the else branch.
 
 ```yaml
 police:
-  skill: code-police
+  prompt: |
+    Run code-police: review for quality, fact-check for correctness,
+    and evaluate for elegance.
   max_visits: 3
   on:
     "violations or issues found": police-fix
@@ -33,21 +28,19 @@ police:
 
 ### Loop protection
 
-Each node has `max_visits` (default: 1). The orchestrator halts if exceeded.
+Each node has `max_visits` (default: 1). The server halts if exceeded.
 
 ### Entry points
 
 Start mid-graph with `--from`:
 
 ```
-/workflow do --from polish    # just the police→fix loop
-/workflow do --from ci-only   # just CI
-/workflow do --from post-implement  # skip research, start at fmt
+/workflow do --from polish        # just the police→fix loop
+/workflow do --from ci-only       # just CI
+/workflow do --from post-implement # skip research, start at fmt
 ```
 
 ## `do.yaml` — full execution workflow
-
-The default workflow replaces srid-do's 11 hardcoded steps.
 
 ```mermaid
 flowchart TD
@@ -63,7 +56,7 @@ flowchart TD
   police-fix["police-fix\n─────\nFix police violations\n⟲ max 3"]
   test["test\n─────\nQuick e2e tests\n⟲ max 4"]
   test-fix["test-fix\n─────\nFix or retry test failures\n⟲ max 3"]
-  ci["ci\n─────\nRun CI (background)\n⟲ max 20"]
+  ci["ci\n─────\nRun CI\n⟲ max 20"]
   ci-fix["ci-fix\n─────\nAnalyze and fix/retry CI failure\n⟲ max 5"]
   update-pr["update-pr\n─────\nUpdate PR if needed"]
   docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
@@ -93,15 +86,9 @@ flowchart TD
   docs --> done
   docs-fix --> docs
 
-  classDef skill fill:#6366f1,stroke:#4f46e5,color:#fff
-  classDef run fill:#0d9488,stroke:#0f766e,color:#fff
   classDef prompt fill:#64748b,stroke:#475569,color:#fff
-  class hickey,police skill
-  class sync,fmt,test,ci run
-  class understand,branch,implement,e2e,commit,police-fix,test-fix,ci-fix,update-pr,docs,docs-fix,done prompt
+  class sync,understand,hickey,branch,implement,e2e,fmt,commit,police,police-fix,test,test-fix,ci,ci-fix,update-pr,docs,docs-fix,done prompt
 ```
-
-**Legend:** 🟣 skill nodes — 🟢 run nodes — ⚫ prompt nodes — 🟡 fix loops
 
 ### Loop limits
 
@@ -110,30 +97,4 @@ flowchart TD
 | `police` / `police-fix` | 3          | Quality convergence         |
 | `test`                  | 4          | Covers flaky retries        |
 | `test-fix`              | 3          | Real fix attempts           |
-| `ci` / `ci-fix`         | 5          | CI can be slow to stabilize |
-
-## Writing your own workflow
-
-Create a YAML file in `.claude/workflows/` following this schema:
-
-```yaml
-version: 1
-
-defaults:
-  max_visits: 1 # default loop limit per node
-
-entry_points:
-  default: first-node # where /workflow starts
-  fast: some-node # named entry: /workflow name --from fast
-
-nodes:
-  first-node:
-    run: "some command" # or: skill: skill-name / prompt: |
-    description: What this does # printed before execution
-    max_visits: 3 # override default (for loop nodes)
-    on:
-      "condition text": next-node
-      default: fallback-node
-```
-
-Nodes with no `on:` map are terminal — the workflow ends there.
+| `ci` / `ci-fix`         | 5+         | CI can be slow to stabilize |

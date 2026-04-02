@@ -1,5 +1,8 @@
 # After editing this file, regenerate the mermaid graph:
 #   .claude/workflows/render-mermaid.sh do.yaml --update
+#
+# MCP-driven execution: the workflow server serves steps one at a time;
+# the agent calls workflow_complete(evidence) to advance.
 version: 1
 
 defaults:
@@ -13,7 +16,7 @@ entry_points:
 
 nodes:
   sync:
-    run: "git fetch origin && git pull --ff-only"
+    prompt: "Run: git fetch origin && git pull --ff-only"
     description: Fast-forward to latest remote
     on:
       default: understand
@@ -28,7 +31,10 @@ nodes:
       default: hickey
 
   hickey:
-    skill: hickey
+    prompt: |
+      Evaluate the planned approach for structural simplicity using
+      Rich Hickey's "Simple Made Easy" framework. Invoke the hickey skill.
+      Identify concerns, check for complecting, suggest simplifications.
     description: Evaluate approach for structural simplicity
     on:
       default: branch
@@ -36,16 +42,9 @@ nodes:
   branch:
     prompt: |
       Create a descriptive feature branch from master.
-      Push the branch. Load the github-pr skill via the Skill tool.
-      Open a draft PR with gh pr create --draft.
-      Include a progress checklist in the PR body — one `- [ ] <node-id>: <description>` line
-      per happy-path node (from the list computed in Setup step 5). Check off nodes that
-      are already complete (sync, understand, hickey, branch) with `- [x]`.
-      After PR creation, write artifacts to .workflow-runs/PR-<num>/:
-        mkdir -p .workflow-runs/PR-<num>
-        Write plan.md and summary.md (with retroactive entries for
-        sync, understand, hickey, and branch).
-      These files are gitignored — do NOT commit them.
+      Create an empty commit: git commit --allow-empty -m "chore: open PR"
+      Push the branch. Open a draft PR with gh pr create --draft.
+      Include a progress checklist in the PR body.
     description: Branch + draft PR
     on:
       default: implement
@@ -67,7 +66,7 @@ nodes:
       default: fmt
 
   fmt:
-    run: just fmt
+    prompt: "Run: just fmt"
     description: Auto-format
     on:
       default: commit
@@ -81,7 +80,9 @@ nodes:
       default: police
 
   police:
-    skill: code-police
+    prompt: |
+      Run code-police: review for quality, fact-check for correctness,
+      and evaluate for elegance. Scope to changes in the current branch only.
     max_visits: 3
     description: Code quality + fact-check + elegance review
     on:
@@ -98,7 +99,7 @@ nodes:
       default: police
 
   test:
-    run: just test-quick
+    prompt: "Run: just test-quick"
     max_visits: 4
     description: Quick e2e tests
     on:
@@ -107,8 +108,7 @@ nodes:
 
   test-fix:
     prompt: |
-      Analyze the test failure. If it looks flaky (non-deterministic,
-      timing-related), just re-run without changes.
+      Analyze the test failure. If flaky, re-run without changes.
       If real: fix the issue, run just fmt, create a NEW commit, push.
     max_visits: 3
     description: Fix or retry test failures
@@ -116,28 +116,17 @@ nodes:
       default: test
 
   ci:
-    run: just ci
+    prompt: "Run: just ci (in background)"
     max_visits: 20
-    description: Run CI (background)
+    description: Run CI
     on:
       "failed": ci-fix
       default: update-pr
 
   ci-fix:
     prompt: |
-      Read the CI failure output carefully. Identify which step(s) failed
-      by checking GitHub commit statuses or the CI summary output.
-
-      For each failing step, determine: is this a flaky failure (non-deterministic,
-      timing-related, pre-existing — no code change needed) or a real bug?
-
-      **Flaky failure:** Re-run just the failing step(s) with `just ci::<step>`
-      (e.g. `just ci::e2e`). For multi-system steps, target the failing system:
-      `CI_SYSTEM=x86_64-linux just ci::<step>`. Do NOT create a commit.
-      If the retry passes, report "retried successfully".
-
-      **Real bug:** Fix the issue, run just fmt, create a NEW commit, push.
-      Report "fixed with new commit".
+      Read CI failure output. For flaky failures, retry with just ci::<step>.
+      For real bugs: fix, run just fmt, create a NEW commit, push.
     max_visits: 5
     description: Analyze and fix/retry CI failure
     on:
@@ -147,19 +136,15 @@ nodes:
   update-pr:
     prompt: |
       Re-check the PR title/body against current scope.
-      If scope changed, load the github-pr skill and update via gh pr edit.
+      If scope changed, update via gh pr edit.
     description: Update PR if needed
     on:
       default: docs
 
   docs:
     prompt: |
-      Check if documentation is still accurate after the changes in this PR.
-      Read README.md (especially the Architecture section) and CLAUDE.md.
-      Compare against the files changed in this PR (use git diff master...HEAD --name-only).
-      If any structural changes were made (new modules, changed communication patterns,
-      new build steps, changed data flow), verify the docs reflect them.
-      Report whether docs are up to date or need changes.
+      Check if README.md and CLAUDE.md are still accurate.
+      Compare against files changed in this PR.
     max_visits: 3
     description: Verify docs are up to date
     on:
@@ -168,8 +153,7 @@ nodes:
 
   docs-fix:
     prompt: |
-      Update the outdated documentation to match the current code.
-      Only update sections that are actually stale — don't rewrite what's fine.
+      Update outdated documentation. Only fix stale sections.
       Run just fmt. Create a NEW commit. Push.
     max_visits: 3
     description: Fix outdated docs
