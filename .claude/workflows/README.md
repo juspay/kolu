@@ -35,9 +35,9 @@ Each node has `max_visits` (default: 1). The server halts if exceeded.
 Start mid-graph with `--from`:
 
 ```
-/workflow do --from polish        # just the police→fix loop
-/workflow do --from ci-only       # just CI
-/workflow do --from post-implement # skip research, start at fmt
+/padi do --from polish        # just the police→fix loop
+/padi do --from ci-only       # just CI
+/padi do --from post-implement # skip research, start at fmt
 ```
 
 ## `do.yaml` — full execution workflow

@@ -70,7 +70,7 @@ If `--review` was specified:
 ## Example
 
 ```
-/workflow do --review -- Fix the login timeout bug described in #42
+/padi do --review -- Fix the login timeout bug described in #42
 ```
 
 ARGUMENTS: $ARGUMENTS

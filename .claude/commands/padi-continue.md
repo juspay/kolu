@@ -6,4 +6,4 @@ Use this when you need to make additional changes after the initial workflow run
 
 ARGUMENTS: $ARGUMENTS
 
-Invoke: `/workflow do --from followup -- $ARGUMENTS`
+Invoke: `/padi do --from followup -- $ARGUMENTS`
