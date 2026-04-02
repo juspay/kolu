@@ -300,7 +300,12 @@ async function cmdListSessions(args: string[]): Promise<void> {
       console.log(
         evalFormat(
           fmt,
-          { id: "", pid: 0, tmuxPaneIndex: 0, meta: { cwd: "/", sortOrder: 0, git: null } },
+          {
+            id: "",
+            pid: 0,
+            tmuxPaneIndex: 0,
+            meta: { cwd: "/", sortOrder: 0, git: null },
+          },
           [],
         ),
       );
