@@ -18,16 +18,21 @@
         let
           lib = pkgs.callPackage ./default.nix { };
           wrapper = pkgs.writeShellApplication {
-            name = "workflow-mcp";
+            name = "padi";
             runtimeInputs = [ pkgs.nodejs pkgs.tsx ];
             text = ''
               exec tsx "${lib}/src/index.ts" "$@"
             '';
           };
+          render-mermaid = pkgs.writeShellApplication {
+            name = "render-mermaid";
+            runtimeInputs = [ pkgs.yq-go pkgs.jq pkgs.gawk pkgs.git ];
+            text = builtins.readFile ./render-mermaid.sh;
+          };
         in
         {
           default = wrapper;
-          lib = lib;
+          inherit lib render-mermaid;
         });
     };
 }

@@ -1,18 +1,22 @@
-#!/usr/bin/env -S nix shell nixpkgs#yq-go nixpkgs#jq --command bash
-# Render a workflow YAML as a mermaid flowchart.
+#!/usr/bin/env bash
+# Render a workflow YAML as a mermaid flowchart and optionally
+# update the mermaid block in .claude/padi/README.md.
 #
-# Usage: ./render-mermaid.sh do.yaml
-#   or:  ./render-mermaid.sh do.yaml --update  (rewrites README.md)
+# Usage: nix run ./padi#render-mermaid -- do.yaml
+#        nix run ./padi#render-mermaid -- do.yaml --update
 
 set -euo pipefail
-cd "$(dirname "$0")"
 
-FILE="${1:?Usage: render-mermaid.sh <workflow.yaml> [--update]}"
+PADI_DIR="$(git rev-parse --show-toplevel)/.claude/padi"
+FILE="${PADI_DIR}/${1:?Usage: render-mermaid <workflow.yaml> [--update]}"
 UPDATE="${2:-}"
 
 # Convert YAML to JSON once, then jq does all the work
 JSON=$(yq -o=json '.' "$FILE")
 DEFAULT_MAX=$(echo "$JSON" | jq '.defaults.max_visits // 1')
+
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
 
 # --- generate mermaid ---
 {
@@ -58,17 +62,17 @@ for TYPE in skill run prompt; do
   [ -n "$IDS" ] && echo "  class $IDS $TYPE"
 done
 
-} > /tmp/workflow-mermaid.out
+} > "$TMPFILE"
 
 if [ "$UPDATE" = "--update" ]; then
-  # Replace the first mermaid block in README.md
+  README="${PADI_DIR}/README.md"
   awk '
     /^```mermaid/ && !done { skip=1; print; next }
-    /^```/ && skip { skip=0; system("cat /tmp/workflow-mermaid.out"); print; done=1; next }
+    /^```/ && skip { skip=0; system("cat '"$TMPFILE"'"); print; done=1; next }
     !skip { print }
-  ' README.md > README.md.tmp
-  mv README.md.tmp README.md
-  echo "Updated README.md mermaid block"
+  ' "$README" > "${README}.tmp"
+  mv "${README}.tmp" "$README"
+  echo "Updated ${README}"
 else
-  cat /tmp/workflow-mermaid.out
+  cat "$TMPFILE"
 fi

@@ -14,7 +14,7 @@ let
   };
 
   pnpmDeps = pkgs.fetchPnpmDeps {
-    pname = "workflow-mcp";
+    pname = "padi";
     version = "0.1.0";
     inherit src;
     hash = "sha256-KGheMJeQMnyrwAVHvzqPEArBUSMPi/zUiLUwkhKvypw=";
@@ -22,7 +22,7 @@ let
   };
 in
 pkgs.stdenv.mkDerivation {
-  pname = "workflow-mcp";
+  pname = "padi";
   version = "0.1.0";
   inherit src;
 

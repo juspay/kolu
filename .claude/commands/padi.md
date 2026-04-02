@@ -6,7 +6,7 @@ Execute a workflow via the MCP workflow server. The server enforces step orderin
 
 Parse the arguments string: `<workflow-name> [--review] [--from <node>] [-- <task input>]`
 
-- `workflow-name`: Which workflow to run (e.g., `do-mcp`)
+- `workflow-name`: Which workflow to run (e.g., `do`)
 - `--review`: Pause before implementation for user plan approval
 - `--from <node>`: Start from a specific entry point
 - `-- <task input>`: Everything after `--` is the task description
@@ -70,7 +70,7 @@ If `--review` was specified:
 ## Example
 
 ```
-/workflow-mcp do-mcp --review -- Fix the login timeout bug described in #42
+/padi do --review -- Fix the login timeout bug described in #42
 ```
 
 ARGUMENTS: $ARGUMENTS

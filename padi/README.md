@@ -1,4 +1,4 @@
-# workflow-mcp
+# padi
 
 MCP server that drives workflow execution as a state machine. Reads YAML workflow definitions, manages sessions, gates step progression on evidence submission, and records results.
 
@@ -19,7 +19,7 @@ The server is generic — it knows nothing about kolu, skills, or CI. It parses 
 ### 1. Build
 
 ```sh
-cd workflow-mcp
+cd padi
 nix build
 ```
 
@@ -32,7 +32,7 @@ The repo's `.mcp.json` is already set up:
   "mcpServers": {
     "workflow": {
       "command": "nix",
-      "args": ["run", "./workflow-mcp"]
+      "args": ["run", "./padi"]
     }
   }
 }
@@ -46,7 +46,7 @@ Once the MCP server is connected, Claude Code can call the tools directly:
 
 ```
 > Use workflow_list to see available workflows
-> Use workflow_start with workflow "do-mcp" to begin
+> Use workflow_start with workflow "do" to begin
 > Use workflow_current to see what to do
 > Use workflow_complete with evidence "done" to advance
 > Use workflow_status to see progress
@@ -55,12 +55,12 @@ Once the MCP server is connected, Claude Code can call the tools directly:
 ### 4. Verify the server starts
 
 ```sh
-nix run ./workflow-mcp  # starts on stdio, ctrl-c to exit
+nix run ./padi  # starts on stdio, ctrl-c to exit
 ```
 
 ## How it works
 
-1. `workflow_start("do-mcp")` → parses `.claude/workflows/do-mcp.yaml`, creates an in-memory session, returns the first node's instruction
+1. `workflow_start("do")` → parses `.claude/padi/do.yaml`, creates an in-memory session, returns the first node's instruction
 2. Agent executes the instruction (run a command, write code, etc.)
 3. Agent calls `workflow_complete(evidence, edge?)` → server records evidence, resolves the next edge, checks visit limits, advances
 4. Repeat until terminal node or halt

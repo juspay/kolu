@@ -1,5 +1,7 @@
-# Workflow for MCP-driven execution.
-# The workflow-mcp server serves these steps one at a time;
+# After editing this file, regenerate the mermaid graph:
+#   nix run ./padi#render-mermaid -- do.yaml --update
+#
+# MCP-driven execution: the workflow server serves steps one at a time;
 # the agent calls workflow_complete(evidence) to advance.
 version: 1
 
@@ -41,6 +43,7 @@ nodes:
   branch:
     prompt: |
       Create a descriptive feature branch from master.
+      Create an empty commit: git commit --allow-empty -m "chore: open PR"
       Push the branch. Open a draft PR with gh pr create --draft.
       Include a progress checklist in the PR body.
     description: Branch + draft PR
