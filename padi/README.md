@@ -60,7 +60,7 @@ nix run ./padi  # starts on stdio, ctrl-c to exit
 
 ## How it works
 
-1. `workflow_start("do")` → parses `.claude/workflows/do.yaml`, creates an in-memory session, returns the first node's instruction
+1. `workflow_start("do")` → parses `.claude/padi/do.yaml`, creates an in-memory session, returns the first node's instruction
 2. Agent executes the instruction (run a command, write code, etc.)
 3. Agent calls `workflow_complete(evidence, edge?)` → server records evidence, resolves the next edge, checks visit limits, advances
 4. Repeat until terminal node or halt

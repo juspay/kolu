@@ -6,7 +6,7 @@ MCP-driven YAML graphs that drive coding agents through a task. The workflow ser
 
 Two parts:
 
-1. **YAML graph** (`.claude/workflows/*.yaml`) — nodes, transitions, loop limits
+1. **YAML graph** (`.claude/padi/*.yaml`) — nodes, transitions, loop limits
 2. **MCP server** (`padi/`) — reads the graph, enforces step ordering, gates advancement on evidence
 
 All nodes are `prompt` type — the server decides what runs, Claude executes the instruction.

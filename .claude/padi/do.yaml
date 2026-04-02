@@ -1,5 +1,5 @@
 # After editing this file, regenerate the mermaid graph:
-#   .claude/workflows/render-mermaid.sh do.yaml --update
+#   .claude/padi/render-mermaid.sh do.yaml --update
 #
 # MCP-driven execution: the workflow server serves steps one at a time;
 # the agent calls workflow_complete(evidence) to advance.

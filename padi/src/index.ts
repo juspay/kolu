@@ -16,7 +16,7 @@ import type { Session, WorkflowGraph } from "./schema.js";
 // Resolve paths relative to CWD (the project root)
 const cwd = process.cwd();
 const workflowsDir = resolve(
-  process.env["PADI_WORKFLOWS_DIR"] ?? join(cwd, ".claude/workflows"),
+  process.env["PADI_WORKFLOWS_DIR"] ?? join(cwd, ".claude/padi"),
 );
 const resultsDir = resolve(
   process.env["PADI_RESULTS_DIR"] ?? join(cwd, ".workflow-runs"),

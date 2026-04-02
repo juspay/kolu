@@ -2,7 +2,7 @@
 
 ## Workflow
 
-- Use `/padi do` to execute tasks end-to-end. It follows the DAG in `.claude/workflows/do.yaml`: sync → research → hickey → branch+PR → implement → e2e → fmt → commit → police → test → CI → done.
+- Use `/padi do` to execute tasks end-to-end. It follows the DAG in `.claude/padi/do.yaml`: sync → research → hickey → branch+PR → implement → e2e → fmt → commit → police → test → CI → done.
 - For standalone quality checks, run `/code-police` (includes fact-check + elegance passes).
 - Run `just fmt` (formatting) before declaring done.
 - **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
