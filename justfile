@@ -83,6 +83,18 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
+apm:
+    uvx --from git+https://github.com/microsoft/apm apm install
+
+# Audit APM packages for security issues (Unicode, lockfile consistency)
+apm-audit:
+    uvx --from git+https://github.com/microsoft/apm apm audit --ci
+
+# Remove all gitignored files (APM output, node_modules, build artifacts, etc.)
+clean:
+    git clean -fdX
+
 # Format all files in-place
 fmt:
     {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
