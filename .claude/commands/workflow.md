@@ -19,7 +19,7 @@ Execute a workflow defined in `.claude/workflows/<name>.yaml`.
 
 Default is autonomous (no user interaction). With `--review`:
 
-1. Run the **understand** and **hickey** nodes normally (research + simplicity check).
+1. Run the research/planning nodes normally (up to and including **branch**).
 2. Write the plan to `.workflow-runs/PR-<num>/plan.md`.
 3. **Enter plan mode** (via `EnterPlanMode` tool) and present the plan for user review.
 4. Wait for user approval via `ExitPlanMode`.
