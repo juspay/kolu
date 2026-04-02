@@ -22,8 +22,10 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import WorktreeRemoveConfirm from "./WorktreeRemoveConfirm";
 import { createCommands } from "./commands";
 
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { usePreferences } from "./usePreferences";
@@ -90,6 +92,13 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  // Worktree remove confirmation — snapshot ID + meta at open time to prevent
+  // stale-target bugs if the user switches terminals while the dialog is open.
+  const [worktreeConfirmTarget, setWorktreeConfirmTarget] = createSignal<{
+    id: TerminalId;
+    meta: TerminalMetadata;
+  } | null>(null);
 
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
@@ -174,7 +183,11 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
       void worktree.handleCreateWorktree(repoPath),
-    handleKillWorktree: () => void worktree.handleKillWorktree(),
+    handleKillWorktree: () => {
+      const id = store.activeId();
+      const meta = id ? store.getMetadata(id) : undefined;
+      if (id && meta) setWorktreeConfirmTarget({ id, meta });
+    },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
   });
@@ -287,6 +300,20 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <WorktreeRemoveConfirm
+        open={worktreeConfirmTarget() !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWorktreeConfirmTarget(null);
+            requestAnimationFrame(refocusTerminal);
+          }
+        }}
+        meta={worktreeConfirmTarget()?.meta ?? null}
+        onConfirm={() => {
+          const target = worktreeConfirmTarget();
+          if (target) void worktree.handleKillWorktree(target.id);
+        }}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
