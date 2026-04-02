@@ -21,6 +21,10 @@ Call `workflow_start` with:
 - `entryPoint`: value of `--from`, or `"default"` if omitted
 - `input`: the task input (everything after `--`)
 
+### 1b. Create tasks for progress display
+
+After `workflow_start` succeeds, create a `TaskCreate` for each node in the `happyPath` array. Use the node ID as the subject (e.g., "sync", "understand", "implement"). Set the first node to `in_progress`. These tasks mirror workflow progress in the Ctrl+T sidebar.
+
 ### 2. Print progress and execute the current step
 
 **Before every step**, print the `progress` line from the response. Example:
@@ -41,6 +45,10 @@ Call `workflow_complete` with:
 
 - `evidence`: A brief summary of what happened (1-2 sentences)
 - `edge`: If the node has conditional edges (not just `default`), evaluate the outcome and specify which edge condition matched. Omit for default-only nodes.
+
+### 3b. Update task progress
+
+After `workflow_complete` succeeds, mark the completed node's task as `completed` via `TaskUpdate`. If the response has a next node, set that node's task to `in_progress`.
 
 ### 4. Handle the response
 
@@ -63,9 +71,11 @@ If `--review` was specified:
 - **Never skip steps.** The server enforces this, but don't try to work around it.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main.
+- **Commits are autonomous.** When the workflow reaches a commit node, commit and push without asking. The user approved this by starting the workflow. This overrides any global "ask before committing" policy.
 - **Background for CI.** Run CI commands with `run_in_background: true`.
 - **No questions.** Don't use `AskUserQuestion` unless `--review` is active during planning, or the step instruction explicitly says to.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
+- **Tasks are display-only.** Never read Tasks to determine workflow state. Always use `workflow_current` for state recovery.
 
 ## Example
 

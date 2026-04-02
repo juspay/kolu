@@ -119,6 +119,7 @@ server.tool(
     return jsonResponse({
       sessionId: session.id,
       progress: line,
+      happyPath: session.happyPath,
       currentNode: nodeStatus(node, session),
     });
   },
