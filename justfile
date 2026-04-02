@@ -85,13 +85,26 @@ test-quick *args: install
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
+    rm -rf .claude/commands .claude/rules .claude/skills .claude/hooks .claude/settings.json
     uvx --from git+https://github.com/microsoft/apm apm install
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
 apm-audit:
     uvx --from git+https://github.com/microsoft/apm apm audit --ci
 
-# Remove all gitignored files (APM output, node_modules, build artifacts, etc.)
+# Verify vendored .claude/ matches PERL/ sources + security audit
+apm-sync:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just apm
+    just apm-audit
+    if [ -n "$(git status --porcelain .claude/)" ]; then
+        echo "ERROR: .claude/ out of sync with PERL/ — run: just apm"
+        git status .claude/
+        exit 1
+    fi
+
+# Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
     git clean -fdX
 

@@ -2,13 +2,9 @@ node_modules/
 dist/
 result
 .direnv/
-# APM generated output (regenerate with: just apm)
+# APM: generated metadata + per-user state (not vendored)
 apm.lock.yaml
-.claude/commands/
-.claude/skills/
-.claude/rules/
-.claude/settings.json
-.claude/hooks/
+apm_modules/
 .claude/worktrees/
 .claude/settings.local.json
 test-results/
@@ -17,4 +13,3 @@ client/public/fonts
 .worktrees
 .logs/
 .execute-results.json
-apm_modules/
