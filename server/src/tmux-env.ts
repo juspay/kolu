@@ -14,11 +14,23 @@ import { mkdirSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Path to tmux-shim.ts (co-located with this module). */
 const SHIM_SCRIPT = join(__dirname, "tmux-shim.ts");
+
+/** Resolve absolute path to tsx at startup — PTY shells may not have it on PATH
+ *  because NixOS shell init rebuilds PATH from scratch. */
+function resolveTsxPath(): string {
+  try {
+    return execFileSync("which", ["tsx"], { encoding: "utf-8" }).trim();
+  } catch {
+    // Fallback: assume tsx is on PATH (production Nix wrapper guarantees it)
+    return "tsx";
+  }
+}
 
 /** Temp directory containing the `tmux` wrapper. Created once at startup. */
 let shimBinDir: string | undefined;
@@ -32,9 +44,13 @@ export function initTmuxShim(): void {
   mkdirSync(dir, { recursive: true });
 
   // Write a tiny wrapper script that delegates to tsx + tmux-shim.ts.
-  // tsx is on PATH in both dev (devShell) and production (Nix wrapper runtimeInputs).
+  // Use absolute tsx path — PTY shells may not have it on PATH after shell init.
+  const tsxPath = resolveTsxPath();
   const wrapper = join(dir, "tmux");
-  writeFileSync(wrapper, `#!/bin/sh\nexec tsx "${SHIM_SCRIPT}" "$@"\n`);
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh\nexec "${tsxPath}" "${SHIM_SCRIPT}" "$@"\n`,
+  );
   chmodSync(wrapper, 0o755);
 
   shimBinDir = dir;

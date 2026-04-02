@@ -44,6 +44,8 @@ async function rpc<T>(
 interface TerminalInfo {
   id: string;
   pid: number;
+  /** Synthetic tmux pane index (%N in $TMUX_PANE). Monotonic, never reused. */
+  tmuxPaneIndex: number;
   meta: {
     cwd: string;
     parentId?: string;
@@ -77,16 +79,11 @@ function children(all: TerminalInfo[], parentId: string): TerminalInfo[] {
     .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
 }
 
-/** Build pane index → terminal ID map for the whole session. */
+/** Build pane index → terminal map using the server-assigned tmuxPaneIndex. */
 function buildPaneMap(all: TerminalInfo[]): Map<number, TerminalInfo> {
   const map = new Map<number, TerminalInfo>();
-  let idx = 0;
-  // Each terminal (top-level and children) gets a sequential pane index
-  for (const t of [...all].sort(
-    (a, b) => a.meta.sortOrder - b.meta.sortOrder,
-  )) {
-    map.set(idx, t);
-    idx++;
+  for (const t of all) {
+    map.set(t.tmuxPaneIndex, t);
   }
   return map;
 }
@@ -166,14 +163,7 @@ function evalFormat(
   const paneMap = buildPaneMap(all);
   const tops = topLevel(all);
 
-  // Find this terminal's pane index
-  let paneIndex = 0;
-  for (const [idx, t] of paneMap) {
-    if (t.id === terminal.id) {
-      paneIndex = idx;
-      break;
-    }
-  }
+  const paneIndex = terminal.tmuxPaneIndex;
 
   // Find window index (parent's position in top-level, or own position if top-level)
   const parentId = terminal.meta.parentId;
@@ -232,8 +222,6 @@ const VALUED_FLAGS = new Set([
   "-n",
   "-x",
   "-y",
-  "-l",
-  "-p",
   "-S",
   "-E",
   "-L",
@@ -378,19 +366,11 @@ async function cmdListPanes(args: string[]): Promise<void> {
     }
   }
 
-  const paneMap = buildPaneMap(all);
   for (const pane of panes) {
     if (fmt) {
       console.log(evalFormat(fmt, pane, all));
     } else {
-      let idx = 0;
-      for (const [i, t] of paneMap) {
-        if (t.id === pane.id) {
-          idx = i;
-          break;
-        }
-      }
-      console.log(`%${idx}: [80x24] ${pane.meta.cwd}`);
+      console.log(`%${pane.tmuxPaneIndex}: [80x24] ${pane.meta.cwd}`);
     }
   }
 }

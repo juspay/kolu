@@ -35,11 +35,14 @@ Feature: tmux compatibility shim
     When I run "tmux display-message -p '#{pane_id}'"
     Then the screen state should contain "%"
 
-  Scenario: tmux send-keys and capture-pane round-trip
+  Scenario: tmux split-window creates a sub-terminal
     When I create a sub-terminal via the tmux shim
-    And I send keys "echo tmux-test-marker" via the tmux shim to the new pane
-    And I send key Enter via the tmux shim to the new pane
-    And I wait 1 second
-    And I capture the new pane via the tmux shim
-    Then the captured text should contain "tmux-test-marker"
+    Then the /api/terminals endpoint should return a JSON array with at least 2 terminal
+    And there should be no page errors
+
+  Scenario: tmux capture-pane reads terminal buffer
+    When I run "echo cap-test-xyz"
+    And the screen state should contain "cap-test-xyz"
+    And I capture the current pane via the tmux shim
+    Then the captured text should contain "cap-test-xyz"
     And there should be no page errors

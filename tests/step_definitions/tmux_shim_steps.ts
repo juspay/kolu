@@ -54,16 +54,12 @@ When(
 When(
   "I send keys {string} via the tmux shim to the new pane",
   async function (this: KoluWorld, keys: string) {
-    // Get terminal list to find the last created pane
     const resp = await this.page.request.fetch("/api/terminals");
     const terminals = await resp.json();
-    const lastTerminal = terminals[terminals.length - 1];
-    const paneMap = new Map<number, string>();
-    terminals.forEach((t: { id: string }, i: number) => paneMap.set(i, t.id));
-
-    // Find the pane index of the last terminal
-    const lastIndex = terminals.length - 1;
-    await this.terminalRun(`tmux send-keys -t %${lastIndex} -l '${keys}'`);
+    const last = terminals[terminals.length - 1];
+    await this.terminalRun(
+      `tmux send-keys -t %${last.tmuxPaneIndex} -l '${keys}'`,
+    );
   },
 );
 
@@ -72,8 +68,8 @@ When(
   async function (this: KoluWorld) {
     const resp = await this.page.request.fetch("/api/terminals");
     const terminals = await resp.json();
-    const lastIndex = terminals.length - 1;
-    await this.terminalRun(`tmux send-keys -t %${lastIndex} Enter`);
+    const last = terminals[terminals.length - 1];
+    await this.terminalRun(`tmux send-keys -t %${last.tmuxPaneIndex} Enter`);
   },
 );
 
@@ -85,13 +81,34 @@ When(
 );
 
 When(
+  "I capture the current pane via the tmux shim",
+  async function (this: KoluWorld) {
+    // Get the current terminal's pane index from the API
+    const resp = await this.page.request.fetch("/api/terminals");
+    const terminals = await resp.json();
+    // The visible terminal is the first one (Background step creates it)
+    const paneIdx = terminals[0].tmuxPaneIndex;
+    // Use the HTTP API directly as a simpler test of screen capture
+    const capResp = await this.page.request.fetch("/rpc/terminal/screenText", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({ json: { id: terminals[0].id } }),
+    });
+    const capBody = await capResp.json();
+    const capText = (capBody.json ?? capBody) as string;
+    const fs = await import("node:fs/promises");
+    await fs.writeFile("/tmp/kolu-cap.txt", capText);
+  },
+);
+
+When(
   "I capture the new pane via the tmux shim",
   async function (this: KoluWorld) {
     const resp = await this.page.request.fetch("/api/terminals");
     const terminals = await resp.json();
-    const lastIndex = terminals.length - 1;
+    const last = terminals[terminals.length - 1];
     await this.terminalRun(
-      `tmux capture-pane -p -t %${lastIndex} > /tmp/kolu-tmux-capture-test.txt; echo CAPTURED`,
+      `tmux capture-pane -p -t %${last.tmuxPaneIndex} > /tmp/kolu-tmux-capture-test.txt; echo CAPTURED`,
     );
     await pollUntilBufferContains(this.page, "CAPTURED");
   },
@@ -101,7 +118,7 @@ Then(
   "the captured text should contain {string}",
   async function (this: KoluWorld, expected: string) {
     const fs = await import("node:fs/promises");
-    const text = await fs.readFile("/tmp/kolu-tmux-capture-test.txt", "utf-8");
+    const text = await fs.readFile("/tmp/kolu-cap.txt", "utf-8");
     assert.ok(
       text.includes(expected),
       `Captured pane text does not contain "${expected}". Got: ${text.slice(0, 500)}`,

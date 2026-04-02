@@ -13,7 +13,11 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { snapshotSession, listTerminals } from "./terminals.ts";
+import {
+  snapshotSession,
+  listTerminals,
+  listTerminalsWithPaneIndex,
+} from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
@@ -137,7 +141,8 @@ process.on("unhandledRejection", (reason) => {
 app.get("/api/health", (c) => c.text("kolu"));
 
 // --- Terminal list snapshot (non-streaming, for tmux shim) ---
-app.get("/api/terminals", (c) => c.json(listTerminals()));
+// Includes tmuxPaneIndex so the shim can map %N pane IDs to terminal UUIDs.
+app.get("/api/terminals", (c) => c.json(listTerminalsWithPaneIndex()));
 
 // --- Dynamic PWA manifest (includes hostname) ---
 // theme_color must match <meta name="theme-color"> in client/index.html

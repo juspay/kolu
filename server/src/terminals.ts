@@ -45,6 +45,8 @@ export interface TerminalProcess {
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
+  /** Synthetic tmux pane index (%N in $TMUX_PANE). Monotonic, never reused. */
+  tmuxPaneIndex: number;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();
@@ -191,6 +193,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     activityHistory: [[Date.now(), true] as ActivitySample],
     clipboardDir,
     stopProviders: () => {},
+    tmuxPaneIndex: paneIndex,
   };
   // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);
@@ -208,6 +211,15 @@ export function listTerminals(): TerminalInfo[] {
     .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
   log.debug({ count: list.length }, "terminal list");
   return list;
+}
+
+/** Terminal list with tmux pane indices — used by the tmux shim's /api/terminals endpoint. */
+export function listTerminalsWithPaneIndex(): (TerminalInfo & {
+  tmuxPaneIndex: number;
+})[] {
+  return [...terminals.values()]
+    .sort((a, b) => a.info.meta.sortOrder - b.info.meta.sortOrder)
+    .map((entry) => ({ ...entry.info, tmuxPaneIndex: entry.tmuxPaneIndex }));
 }
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
