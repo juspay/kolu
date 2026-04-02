@@ -13,6 +13,7 @@ include:
   - path: ./ci.yaml
     on:
       done: update-pr
+      fixed: ci-commit
 
 defaults:
   max_visits: 1
@@ -117,6 +118,12 @@ nodes:
       default: test
 
   # ci and ci-fix are included from ./ci.yaml
+
+  ci-commit:
+    prompt: "Run just fmt. Create a NEW commit. Push."
+    description: Commit CI fix
+    on:
+      default: ci
 
   update-pr:
     prompt: |

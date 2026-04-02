@@ -1,9 +1,11 @@
-# CI loop: run CI, fix failures, retry.
+# CI loop: run CI, analyze failures, retry or fix.
 # Reusable — include from any workflow that needs a CI gate.
 
 ports:
   # CI passed
   done:
+  # Real bug found and fixed — parent handles fmt/commit/push
+  fixed:
 
 nodes:
   ci:
@@ -11,15 +13,32 @@ nodes:
     max_visits: 20
     description: Run CI
     on:
-      "failed": ci-fix
+      "failed": ci-triage
       default: :done
 
-  ci-fix:
+  ci-triage:
     prompt: |
-      Read CI failure output. For flaky failures, retry with just ci::<step>.
-      For real bugs: fix, run just fmt, create a NEW commit, push.
+      Read the CI failure output. Determine: is this a flaky failure
+      (non-deterministic, timing-related, pre-existing) or a real bug?
     max_visits: 5
-    description: Analyze and fix/retry CI failure
+    description: Classify CI failure
     on:
-      "fixed with new commit": ci
-      default: :done
+      "flaky": ci-retry
+      "real bug": ci-fix
+      default: ci-retry
+
+  ci-retry:
+    prompt: |
+      Re-run just the failing step(s) with just ci::<step>.
+      Do NOT create a commit.
+    max_visits: 5
+    description: Retry flaky CI step
+    on:
+      default: ci
+
+  ci-fix:
+    prompt: Fix the bug causing the CI failure.
+    max_visits: 5
+    description: Fix real CI bug
+    on:
+      default: :fixed
