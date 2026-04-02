@@ -83,6 +83,11 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Compile instructions + deploy primitives via APM
+apm:
+    uvx --from git+https://github.com/microsoft/apm apm compile --target all
+    uvx --from git+https://github.com/microsoft/apm apm install --target claude
+
 # Format all files in-place
 fmt:
     {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'

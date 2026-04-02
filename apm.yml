@@ -1,0 +1,12 @@
+name: kolu
+version: 1.0.0
+description: Terminal multiplexer with AI-native development workflow
+type: hybrid
+
+dependencies:
+  apm:
+    - ./PERL
+
+compilation:
+  target: all
+  strategy: distributed
