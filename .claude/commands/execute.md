@@ -18,11 +18,11 @@ Parse the arguments string: `[--review] [--from <step-id>] <task description or 
 
 ## Results Tracking
 
-After each step's verification, write/update `.do-results.json`:
+After each step's verification, write/update `.execute-results.json`:
 
 ```json
 {
-  "workflow": "do",
+  "workflow": "execute",
   "startedAt": "<ISO timestamp>",
   "status": "running",
   "steps": [
@@ -169,7 +169,7 @@ Run: `just ci` (with `run_in_background: true` — CI takes several minutes).
 
 **Never pipe CI to `tail` or `head`** — broken pipes kill the process.
 
-**Verify**: CI passes (including do-results validation via `.do-results.expected.json`).
+**Verify**: CI passes.
 **If flaky failure** (max 20 retries): Retry just the failing step with `just ci::<step>`. If still failing after 20 retries, create/update a GitHub issue for flaky tests.
 **If real bug** (max 5 fixes): Fix the bug → go to **fmt**, then retry CI.
 
@@ -185,11 +185,26 @@ Re-check the PR title/body against current scope. If scope changed, update via `
 
 ### done
 
-Update `.do-results.json` with `status: "completed"`.
+Update `.execute-results.json` with `status: "completed"`.
 
 Present a summary of all steps with their verification status. If any step has a non-success status, retry it before finishing.
 
-Report the PR URL and update the PR description with the final step status table.
+Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment` with a markdown table of all steps and their status/verification. Format:
+
+```
+gh pr comment --body "$(cat <<'COMMENT'
+## Execute Results
+
+| Step | Status | Verification |
+|------|--------|-------------|
+| sync | ✓ | ... |
+| research | ✓ | ... |
+...
+
+Workflow completed at <timestamp>.
+COMMENT
+)"
+```
 
 ---
 
