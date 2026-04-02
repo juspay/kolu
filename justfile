@@ -88,11 +88,10 @@ apm:
     uvx --from git+https://github.com/microsoft/apm apm compile
     uvx --from git+https://github.com/microsoft/apm apm install
 
-# Remove APM-generated files (CLAUDE.md, .claude/commands, skills, rules, settings.json)
+# Remove APM-deployed files (.claude/commands, skills, rules, settings.json, CLAUDE.md)
 apm-clean:
-    rm -f CLAUDE.md client/src/CLAUDE.md server/src/CLAUDE.md
-    rm -rf .claude/commands .claude/skills .claude/rules .claude/settings.json
-    rm -rf apm_modules apm.lock.yaml
+    uvx --from git+https://github.com/microsoft/apm apm compile --clean
+    uvx --from git+https://github.com/microsoft/apm apm prune
 
 # Format all files in-place
 fmt:
