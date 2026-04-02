@@ -19,11 +19,12 @@ Execute a workflow defined in `.claude/workflows/<name>.yaml`.
 
 Default is autonomous (no user interaction). With `--review`:
 
-1. Run the research/planning nodes normally (up to and including **branch**).
-2. Write the plan to `.workflow-runs/PR-<num>/plan.md`.
-3. **Enter plan mode** (via `EnterPlanMode` tool) and present the plan for user review.
-4. Wait for user approval via `ExitPlanMode`.
-5. Once approved, proceed autonomously through the rest of the graph — no further user interaction.
+1. Run the **understand** and **hickey** nodes normally (research + simplicity evaluation).
+2. **Revise the plan** based on hickey's findings — simplify the approach, remove unnecessary complexity.
+3. Write the revised plan to `.workflow-runs/PR-<num>/plan.md`.
+4. **Enter plan mode** (via `EnterPlanMode` tool) and present the revised plan for user review.
+5. Wait for user approval via `ExitPlanMode`.
+6. Once approved, proceed autonomously through the rest of the graph — no further user interaction.
 
 Without `--review`, the entire graph runs autonomously end-to-end.
 

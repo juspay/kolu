@@ -52,10 +52,11 @@ Call `workflow_complete` with:
 
 If `--review` was specified:
 
-- After the research/planning steps complete (before implementation begins), **stop the loop**.
-- Present the plan for the task.
+- Run through `understand` and `hickey` normally (research + simplicity evaluation).
+- After `hickey` completes, **revise the plan** based on hickey's findings — simplify the approach, remove unnecessary complexity.
+- **Stop the loop.** Present the revised plan for the task.
 - Enter plan mode via `EnterPlanMode` for user approval.
-- After user approves via `ExitPlanMode`, resume the loop from the next step.
+- After user approves via `ExitPlanMode`, resume the loop autonomously from the next step.
 
 ## Rules
 
