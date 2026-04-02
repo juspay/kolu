@@ -28,7 +28,7 @@ import { createCommands } from "./commands";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
-import { usePreferences } from "./usePreferences";
+import { usePreferences, initPreferences } from "./usePreferences";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
@@ -346,6 +346,7 @@ const App: Component = () => {
         onActivityAlertsChange={setActivityAlerts}
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
+        onSettingsOpen={initPreferences}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile */}
       <div class="relative flex flex-1 min-h-0">

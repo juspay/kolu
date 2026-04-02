@@ -47,6 +47,7 @@ const Header: Component<{
   onStartupTipsChange?: (on: boolean) => void;
   activityAlerts?: boolean;
   onActivityAlertsChange?: (on: boolean) => void;
+  onSettingsOpen?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -160,7 +161,10 @@ const Header: Component<{
               ref={settingsTriggerRef}
               data-testid="settings-trigger"
               class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              onClick={() => setSettingsOpen(!settingsOpen())}
+              onClick={() => {
+                if (!settingsOpen()) props.onSettingsOpen?.();
+                setSettingsOpen(!settingsOpen());
+              }}
             >
               <SettingsIcon />
             </button>
