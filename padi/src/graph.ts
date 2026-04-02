@@ -79,8 +79,14 @@ function resolveIncludes(
 
   for (const includePath of raw.include ?? []) {
     const resolvedPath = resolve(dirname(filePath), includePath);
-    const content = readFileSync(resolvedPath, "utf-8");
-    const includedRaw = parseYaml(content) as RawYaml;
+    let includedRaw: RawYaml;
+    try {
+      includedRaw = parseYaml(readFileSync(resolvedPath, "utf-8")) as RawYaml;
+    } catch (err) {
+      throw new Error(
+        `Failed to include '${includePath}' from ${absPath}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
     const includedNodes = resolveIncludes(resolvedPath, includedRaw, visited);
 
     for (const [id, node] of Object.entries(includedNodes)) {
