@@ -13,6 +13,7 @@ entry_points:
   polish: police
   ci-only: ci
   post-implement: fmt
+  followup: implement
 
 nodes:
   sync:
