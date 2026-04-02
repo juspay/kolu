@@ -13,7 +13,7 @@ include:
   - path: ./ci.yaml
     on:
       done: update-pr
-      fixed: ci-commit
+      fixed: fmt
 
 defaults:
   max_visits: 1
@@ -111,19 +111,14 @@ nodes:
   test-fix:
     prompt: |
       Analyze the test failure. If flaky, re-run without changes.
-      If real: fix the issue, run just fmt, create a NEW commit, push.
+      If real: fix the issue.
     max_visits: 3
     description: Fix or retry test failures
     on:
+      "fixed": fmt
       default: test
 
   # ci and ci-fix are included from ./ci.yaml
-
-  ci-commit:
-    prompt: "Run just fmt. Create a NEW commit. Push."
-    description: Commit CI fix
-    on:
-      default: ci
 
   update-pr:
     prompt: |

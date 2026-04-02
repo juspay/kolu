@@ -72,37 +72,58 @@ Sessions are ephemeral (in-memory). Results are written to `.workflow-runs/<sess
 Workflows can include nodes from external YAML files via `include:`. Fragments declare exit **ports** — named boundary points that the includer wires to its own nodes.
 
 ```yaml
-# ci-loop.yaml — reusable fragment
+# ci.yaml — reusable CI gate
 ports:
-  done: # exit port (includer must wire this)
+  # CI passed
+  done:
+  # Real bug found and fixed
+  fixed:
 nodes:
   ci:
-    run: just ci
+    prompt: "Run: just ci (in background)"
     on:
-      failed: ci-fix
-      default: :done # port reference, not a node name
-  ci-fix:
-    on:
-      "fixed with new commit": ci
+      "failed": ci-triage
       default: :done
+  ci-triage:
+    prompt: Classify failure — flaky or real bug?
+    on:
+      "flaky": ci-retry
+      "real bug": ci-fix
+  ci-retry:
+    prompt: Re-run the failing step.
+    on:
+      default: ci
+  ci-fix:
+    prompt: Fix the bug.
+    on:
+      default: :fixed
 ```
 
 ```yaml
-# do.yaml — parent workflow
+# do.yaml — parent wires ports to its own nodes
 include:
-  - path: ./ci-loop.yaml
+  - path: ./ci.yaml
     on:
-      done: update-pr # wire the port to a real node
-nodes:
-  test:
-    on:
-      default: ci # enter the fragment directly
-  update-pr: ...
+      done: update-pr
+      fixed: fmt # fmt → commit → test → ci (natural loop)
 ```
 
-Bare string includes (no ports) also work for simple cases: `include: [./extra-nodes.yaml]`.
+Prompts support `{{keypath}}` interpolation — reference same-file YAML data:
 
-Parse-time validation catches: unwired ports, undeclared port references, name collisions, circular includes, and dangling edge targets.
+```yaml
+rules:
+  - id: no-dead-code
+    rule: Remove unused code.
+nodes:
+  review:
+    prompt: |
+      Check these rules:
+      {{rules}}
+```
+
+Bare string includes (no ports) also work: `include: [./extra-nodes.yaml]`.
+
+Parse-time validation catches: unwired ports, undeclared port references, name collisions, circular includes, dangling edge targets, and missing template keys.
 
 ## Design
 
