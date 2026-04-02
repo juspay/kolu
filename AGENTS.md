@@ -2,8 +2,8 @@
 
 ## Workflow
 
-- Use `/padi do` to execute tasks end-to-end. It follows the DAG in `.claude/padi/do.yaml`: sync → research → hickey → branch+PR → implement → e2e → fmt → commit → police → test → CI → done.
-- For standalone quality checks, run `/code-police` (includes fact-check + elegance passes).
+- Use `/do` to execute tasks end-to-end: sync → research → hickey → branch+PR → implement → docs → police → fmt → commit → test → CI → update-pr → done. Each step has a verification check.
+- For standalone quality checks, run `/code-police` (includes rules checklist + fact-check + elegance passes).
 - Run `just fmt` (formatting) before declaring done.
 - **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
