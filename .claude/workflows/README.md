@@ -97,4 +97,5 @@ flowchart TD
 | `police` / `police-fix` | 3          | Quality convergence         |
 | `test`                  | 4          | Covers flaky retries        |
 | `test-fix`              | 3          | Real fix attempts           |
-| `ci` / `ci-fix`         | 5+         | CI can be slow to stabilize |
+| `ci`                    | 20         | CI can be slow to stabilize |
+| `ci-fix`                | 5          | Fix attempts per CI cycle   |
