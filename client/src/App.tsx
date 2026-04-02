@@ -22,6 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import WorktreeRemoveConfirm from "./WorktreeRemoveConfirm";
 import { createCommands } from "./commands";
 
 import { wsStatus, serverRestarted } from "./rpc";
@@ -90,6 +91,9 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  // Worktree remove confirmation
+  const [worktreeConfirmOpen, setWorktreeConfirmOpen] = createSignal(false);
 
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
@@ -174,7 +178,7 @@ const App: Component = () => {
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
       void worktree.handleCreateWorktree(repoPath),
-    handleKillWorktree: () => void worktree.handleKillWorktree(),
+    handleKillWorktree: () => setWorktreeConfirmOpen(true),
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
   });
@@ -287,6 +291,12 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <WorktreeRemoveConfirm
+        open={worktreeConfirmOpen()}
+        onOpenChange={withRefocus(setWorktreeConfirmOpen)}
+        meta={store.activeMeta()}
+        onConfirm={() => void worktree.handleKillWorktree()}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
