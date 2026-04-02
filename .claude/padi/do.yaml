@@ -9,7 +9,7 @@ include:
   - path: ./police.yaml
     on:
       done: fmt
-      fix: police # re-review after fix (pre-commit loop)
+      fix: fmt
   - path: ./ci.yaml
     on:
       done: update-pr
