@@ -21,7 +21,12 @@ Call `workflow_start` with:
 - `entryPoint`: value of `--from`, or `"default"` if omitted
 - `input`: the task input (everything after `--`)
 
-### 2. Execute the current step
+### 2. Print progress and execute the current step
+
+**Before every step**, print the `progress` line from the response. Example:
+```
+[workflow] ✓sync ✓understand ▸hickey · branch · implement · e2e · fmt · commit · police · test · ci · update-pr · docs · done
+```
 
 Read the `currentNode` from the response:
 
