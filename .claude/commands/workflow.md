@@ -88,5 +88,5 @@ For the current node:
 - **Feature branches only.** Never commit to master/main.
 - **Background for CI.** Always run CI commands with `run_in_background: true`.
 - **No questions.** Do NOT use `AskUserQuestion` unless `--review` is active during the planning phase, or a node's prompt explicitly says to. Make sensible default choices.
-- **Never stop between nodes.** After a node completes (including `skill` nodes), immediately proceed to the next node. Do not wait for user input, do not pause to summarize, do not treat a skill return as a stopping point. The workflow runs end-to-end without interruption.
+- **Never stop between nodes.** After a node completes (including `skill` nodes), immediately proceed to the next node. Do not wait for user input, do not pause to summarize, do not treat a skill return as a stopping point. The workflow runs end-to-end without interruption (unless `--review` is active during the planning phase).
 - **Transparency.** Always print the progress line before executing each node.
