@@ -6,7 +6,9 @@
 version: 1
 
 include:
-  - ./ci-loop.yaml
+  - path: ./ci-loop.yaml
+    on:
+      done: update-pr
 
 defaults:
   max_visits: 1

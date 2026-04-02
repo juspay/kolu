@@ -17,9 +17,13 @@ interface RawYamlNode {
   on?: Record<string, string>;
 }
 
+/** An include directive — either a bare path or an object with port wiring. */
+type RawInclude = string | { path: string; on?: Record<string, string> };
+
 interface RawYaml {
   version?: number;
-  include?: string[];
+  include?: RawInclude[];
+  ports?: Record<string, never>; // port names declared by fragments (values unused)
   defaults?: { max_visits?: number };
   entry_points?: Record<string, string>;
   nodes?: Record<string, RawYamlNode>;
@@ -59,14 +63,46 @@ function parseNodes(
   return nodes;
 }
 
+/** Rewrite `:portname` edge targets using the port→node mapping. */
+function wirePortEdges(
+  nodes: Record<string, WorkflowNode>,
+  portMap: Record<string, string>,
+  sourceFile: string,
+): void {
+  for (const node of Object.values(nodes)) {
+    for (const edge of node.edges) {
+      if (!edge.target.startsWith(":")) continue;
+      const portName = edge.target.slice(1);
+      const target = portMap[portName];
+      if (!target) {
+        throw new Error(
+          `Port ':${portName}' used in node '${node.id}' but not wired by includer of ${sourceFile}`,
+        );
+      }
+      edge.target = target;
+    }
+  }
+}
+
+/** Normalize bare string includes to the object form. */
+function normalizeInclude(inc: RawInclude): {
+  path: string;
+  on?: Record<string, string>;
+} {
+  return typeof inc === "string" ? { path: inc } : inc;
+}
+
 /**
  * Recursively resolve `include:` directives, merging nodes into a flat namespace.
  * Detects circular includes via visited set; errors on node name collisions.
+ * Rewrites `:portname` edge targets using the port wiring from the include site.
  */
 function resolveIncludes(
   filePath: string,
   raw: RawYaml,
   visited: Set<string>,
+  /** Port wiring passed by the parent's include directive. */
+  portMap?: Record<string, string>,
 ): Record<string, WorkflowNode> {
   const absPath = resolve(filePath);
   if (visited.has(absPath)) {
@@ -74,20 +110,77 @@ function resolveIncludes(
   }
   visited.add(absPath);
 
+  const declaredPorts = raw.ports ? Object.keys(raw.ports) : [];
+
+  // Validate that all declared ports are wired (unless this is the root file)
+  if (declaredPorts.length > 0) {
+    const unwired = declaredPorts.filter((p) => !portMap?.[p]);
+    if (unwired.length > 0) {
+      throw new Error(
+        `Ports [${unwired.join(", ")}] declared in ${absPath} but not wired by includer`,
+      );
+    }
+  }
+
   const defaultMaxVisits = raw.defaults?.max_visits ?? 1;
   const nodes = parseNodes(raw, defaultMaxVisits);
 
-  for (const includePath of raw.include ?? []) {
-    const resolvedPath = resolve(dirname(filePath), includePath);
+  // Rewrite :portname references in this file's nodes
+  if (portMap) {
+    wirePortEdges(nodes, portMap, absPath);
+  }
+
+  for (const rawInc of raw.include ?? []) {
+    const inc = normalizeInclude(rawInc);
+    const resolvedPath = resolve(dirname(filePath), inc.path);
     let includedRaw: RawYaml;
     try {
       includedRaw = parseYaml(readFileSync(resolvedPath, "utf-8")) as RawYaml;
     } catch (err) {
       throw new Error(
-        `Failed to include '${includePath}' from ${absPath}: ${err instanceof Error ? err.message : err}`,
+        `Failed to include '${inc.path}' from ${absPath}: ${err instanceof Error ? err.message : err}`,
       );
     }
-    const includedNodes = resolveIncludes(resolvedPath, includedRaw, visited);
+
+    // Validate that on: keys match declared ports in the included file
+    const includedPorts = includedRaw.ports
+      ? Object.keys(includedRaw.ports)
+      : [];
+    if (inc.on) {
+      for (const key of Object.keys(inc.on)) {
+        if (!includedPorts.includes(key)) {
+          throw new Error(
+            `Port '${key}' wired in include of ${resolvedPath} but not declared in its ports`,
+          );
+        }
+      }
+    }
+
+    // Resolve :portname references in on: values through our own portMap.
+    // e.g. outer wires inner's "out" to ":done" — resolve ":done" via outer's portMap.
+    const resolvedOn: Record<string, string> | undefined = inc.on
+      ? Object.fromEntries(
+          Object.entries(inc.on).map(([port, target]) => {
+            if (target.startsWith(":") && portMap) {
+              const resolved = portMap[target.slice(1)];
+              if (!resolved) {
+                throw new Error(
+                  `Port '${target}' used in on: of include ${resolvedPath} but not wired by includer of ${absPath}`,
+                );
+              }
+              return [port, resolved];
+            }
+            return [port, target];
+          }),
+        )
+      : undefined;
+
+    const includedNodes = resolveIncludes(
+      resolvedPath,
+      includedRaw,
+      visited,
+      resolvedOn,
+    );
 
     for (const [id, node] of Object.entries(includedNodes)) {
       if (nodes[id]) {
