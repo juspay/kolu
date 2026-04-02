@@ -17,7 +17,6 @@ export interface CommandDeps {
   activeMeta: Accessor<TerminalMetadata | null>;
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  handleKill: (id: TerminalId) => void;
   handleCopyTerminalText: () => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   toggleSubPanel: (parentId: TerminalId) => void;
@@ -32,7 +31,7 @@ export interface CommandDeps {
   setAboutOpen: (open: boolean) => void;
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
-  handleKillWorktree: () => void;
+  handleClose: () => void;
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
@@ -69,19 +68,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         }));
       },
     },
-    ...(deps.activeMeta()?.git?.isWorktree
-      ? [
-          {
-            name: "Close terminal and remove worktree",
-            onSelect: () => deps.handleKillWorktree(),
-          },
-        ]
-      : []),
     ...(deps.activeId() !== null
       ? [
           {
             name: "Close terminal",
-            onSelect: () => deps.handleKill(deps.activeId()!),
+            onSelect: () => deps.handleClose(),
           },
           {
             name: "Toggle sub-panel",

@@ -1,5 +1,5 @@
-/** Confirmation dialog for "Close terminal and remove worktree".
- *  Shows branch + PR info so the user sees what they're about to destroy. */
+/** Confirmation dialog shown when closing a worktree terminal.
+ *  Offers three choices: cancel, close only, or close and remove worktree. */
 
 import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
@@ -12,28 +12,27 @@ const WorktreeRemoveConfirm: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   meta: TerminalMetadata | null;
-  onConfirm: () => void;
+  onCloseOnly: () => void;
+  onCloseAndRemove: () => void;
 }> = (props) => {
-  let confirmRef!: HTMLButtonElement;
+  let removeRef!: HTMLButtonElement;
 
   return (
     <ModalDialog
       open={props.open}
       onOpenChange={props.onOpenChange}
-      initialFocusEl={confirmRef}
+      initialFocusEl={removeRef}
     >
       <Dialog.Content
         class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-sm text-sm space-y-4"
         data-testid="worktree-remove-confirm"
       >
         <Dialog.Label class="font-semibold text-fg">
-          Remove worktree?
+          Remove worktree too?
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
-          <p>
-            This will close the terminal and permanently delete the worktree.
-          </p>
+          <p>This terminal is in a git worktree.</p>
 
           <Show when={props.meta?.git}>
             {(git) => (
@@ -74,15 +73,25 @@ const WorktreeRemoveConfirm: Component<{
             Cancel
           </button>
           <button
-            ref={confirmRef}
-            data-testid="worktree-confirm-remove"
-            class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+            class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+            data-testid="worktree-confirm-close-only"
             onClick={() => {
-              props.onConfirm();
+              props.onCloseOnly();
               props.onOpenChange(false);
             }}
           >
-            Remove worktree
+            Close only
+          </button>
+          <button
+            ref={removeRef}
+            data-testid="worktree-confirm-remove"
+            class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+            onClick={() => {
+              props.onCloseAndRemove();
+              props.onOpenChange(false);
+            }}
+          >
+            Close and remove worktree
           </button>
         </div>
       </Dialog.Content>
