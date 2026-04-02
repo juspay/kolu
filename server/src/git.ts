@@ -46,7 +46,13 @@ export async function worktreeCreate(
 
   log.info({ mainRoot }, "fetching origin");
   await git.fetch("origin");
-  await git.remote(["set-head", "origin", "--auto"]);
+  // Best-effort: update origin/HEAD to match remote's actual default branch.
+  // Non-fatal — detectDefaultBranch has its own fallback chain.
+  try {
+    await git.remote(["set-head", "origin", "--auto"]);
+  } catch {
+    // Network hiccup after successful fetch — fall through to detection
+  }
   const defaultBranch = await detectDefaultBranch(mainRoot);
 
   for (let attempt = 0; attempt < 5; attempt++) {
