@@ -138,7 +138,31 @@ nodes:
       If scope changed, load the github-pr skill and update via gh pr edit.
     description: Update PR if needed
     on:
+      default: docs
+
+  docs:
+    prompt: |
+      Check if documentation is still accurate after the changes in this PR.
+      Read README.md (especially the Architecture section) and CLAUDE.md.
+      Compare against the files changed in this PR (use git diff master...HEAD --name-only).
+      If any structural changes were made (new modules, changed communication patterns,
+      new build steps, changed data flow), verify the docs reflect them.
+      Report whether docs are up to date or need changes.
+    max_visits: 3
+    description: Verify docs are up to date
+    on:
+      "docs outdated": docs-fix
       default: done
+
+  docs-fix:
+    prompt: |
+      Update the outdated documentation to match the current code.
+      Only update sections that are actually stale — don't rewrite what's fine.
+      Run just fmt. Create a NEW commit. Push.
+    max_visits: 3
+    description: Fix outdated docs
+    on:
+      default: docs
 
   done:
     prompt: Report the PR URL and a brief summary of what was delivered.

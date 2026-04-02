@@ -54,7 +54,7 @@ flowchart TD
   sync["sync\n─────\nFast-forward to latest remote"]
   understand["understand\n─────\nResearch task and codebase"]
   hickey["hickey\n─────\nEvaluate approach for structural simplicity"]
-  branch["branch\n─────\nBranch + commit plan + draft PR"]
+  branch["branch\n─────\nBranch + draft PR"]
   implement["implement\n─────\nWrite the code"]
   e2e["e2e\n─────\nAdd/update e2e tests"]
   fmt["fmt\n─────\nAuto-format"]
@@ -66,6 +66,8 @@ flowchart TD
   ci["ci\n─────\nRun CI (background)\n⟲ max 5"]
   ci-fix["ci-fix\n─────\nFix CI failure\n⟲ max 5"]
   update-pr["update-pr\n─────\nUpdate PR if needed"]
+  docs["docs\n─────\nVerify docs are up to date\n⟲ max 3"]
+  docs-fix["docs-fix\n─────\nFix outdated docs\n⟲ max 3"]
   done["done\n─────\nReport completion"]
 
   sync --> understand
@@ -85,14 +87,17 @@ flowchart TD
   ci -->|"failed"| ci-fix
   ci --> update-pr
   ci-fix --> ci
-  update-pr --> done
+  update-pr --> docs
+  docs -->|"docs outdated"| docs-fix
+  docs --> done
+  docs-fix --> docs
 
   classDef skill fill:#6366f1,stroke:#4f46e5,color:#fff
   classDef run fill:#0d9488,stroke:#0f766e,color:#fff
   classDef prompt fill:#64748b,stroke:#475569,color:#fff
   class hickey,police skill
   class sync,fmt,test,ci run
-  class understand,branch,implement,e2e,commit,police-fix,test-fix,ci-fix,update-pr,done prompt
+  class understand,branch,implement,e2e,commit,police-fix,test-fix,ci-fix,update-pr,docs,docs-fix,done prompt
 ```
 
 **Legend:** 🟣 skill nodes — 🟢 run nodes — ⚫ prompt nodes — 🟡 fix loops
