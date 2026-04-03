@@ -1,37 +1,36 @@
 /**
- * Tip state — singleton module. Persists seen tips in localStorage.
+ * Tip state — singleton module. Persists seen tips in server state.
  * Owns all tip timing: state-driven triggers live here, not in consuming components.
  */
 
-import { type Accessor, createEffect, createSignal } from "solid-js";
-import { makePersisted } from "@solid-primitives/storage";
+import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
 import type { TerminalId } from "kolu-common";
+import { useServerState } from "./useServerState";
 
-const [seenJson, setSeenJson] = makePersisted(createSignal("[]"), {
-  name: "kolu-seen-tips",
-});
+// Module-level references, set on first useTips() call.
+let _prefs: ReturnType<typeof useServerState>;
+let _initialized = false;
 
-const [startupTips, setStartupTips] = makePersisted(createSignal(true), {
-  name: "kolu-startup-tips",
-});
+function ensureInit() {
+  if (_initialized) return;
+  _initialized = true;
+  _prefs = useServerState();
+}
 
 function seen(): Set<TipId> {
-  try {
-    return new Set(JSON.parse(seenJson()));
-  } catch {
-    return new Set();
-  }
+  ensureInit();
+  return new Set(_prefs.preferences().seenTips);
 }
 
 function markSeen(id: TipId) {
   const s = seen();
   s.add(id);
-  setSeenJson(JSON.stringify([...s]));
+  _prefs.updatePreferences({ seenTips: [...s] });
 }
 
-const TIP_PREFIX = "💡 ";
+const TIP_PREFIX = "\u{1F4A1} ";
 
 /** Show a contextual tip toast if the user hasn't seen it yet. */
 function showTipOnce(tip: Tip) {
@@ -51,11 +50,11 @@ function randomAmbientTip(): string {
 
 /** Show a random tip as a toast (for startup). Respects the startup-tips setting. */
 function showStartupTip() {
-  if (!startupTips()) return;
+  if (!_prefs.preferences().startupTips) return;
   const text = randomAmbientTip();
   toast(TIP_PREFIX + text, {
     duration: 4000,
-    description: "Startup tip · disable in Settings",
+    description: "Startup tip \u00B7 disable in Settings",
   });
 }
 
@@ -81,11 +80,13 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
 }
 
 export function useTips() {
+  ensureInit();
   return {
     showTipOnce,
     randomAmbientTip,
     initTipTriggers,
-    startupTips,
-    setStartupTips,
+    startupTips: () => _prefs.preferences().startupTips,
+    setStartupTips: (on: boolean) =>
+      _prefs.updatePreferences({ startupTips: on }),
   } as const;
 }

@@ -1,10 +1,8 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import { createSignal, createEffect } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
-import { client } from "./rpc";
-import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
+import { useServerState } from "./useServerState";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -19,8 +17,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
-
-  const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
+  const serverState = useServerState();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -30,12 +27,12 @@ export function useSessionRestore(deps: {
   let hydrated = false;
   createEffect(() => {
     const existing = store.listQuery.data;
-    const session = sessionQuery.data;
-    if (existing === undefined || session === undefined) return;
+    const state = serverState.state();
+    if (existing === undefined || state === undefined) return;
     if (hydrated) return;
     hydrated = true;
     if (existing.length === 0) {
-      setSavedSession(session);
+      setSavedSession(state.session);
       return;
     }
     hydrateFromTerminals(existing);
@@ -76,9 +73,10 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
+  // The live query keeps state fresh — just read from it.
   createEffect(() => {
     if (store.terminalIds().length === 0 && hydrated) {
-      client.session.get().then(setSavedSession);
+      setSavedSession(serverState.savedSession());
     }
   });
 

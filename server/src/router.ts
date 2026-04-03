@@ -23,12 +23,7 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos } from "./state.ts";
-import {
-  getSavedSession,
-  clearSavedSession,
-  setSavedSession,
-} from "./session.ts";
+import { getServerState, updateServerState } from "./state.ts";
 
 const t = implement(contract);
 
@@ -176,15 +171,19 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       await worktreeRemove(input.worktreePath);
     }),
-    recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
   },
-  session: {
-    get: t.session.get.handler(async () => getSavedSession()),
-    clear: t.session.clear.handler(async () => {
-      clearSavedSession();
+  state: {
+    get: t.state.get.handler(async function* ({ signal }) {
+      yield getServerState();
+      for await (const state of subscribeSystem_("state:changed", signal)) {
+        yield state;
+      }
     }),
-    test__set: t.session.test__set.handler(async ({ input }) => {
-      setSavedSession(input);
+    update: t.state.update.handler(async ({ input }) => {
+      updateServerState(input);
+    }),
+    test__set: t.state.test__set.handler(async ({ input }) => {
+      updateServerState(input);
     }),
   },
 });

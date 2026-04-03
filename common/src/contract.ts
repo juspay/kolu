@@ -24,8 +24,8 @@ import {
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
-  RecentRepoSchema,
-  SavedSessionSchema,
+  ServerStateSchema,
+  ServerStatePatchSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -74,13 +74,13 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-    recentRepos: oc.output(z.array(RecentRepoSchema)),
   },
-  session: {
-    get: oc.output(SavedSessionSchema.nullable()),
-    // Clear saved session (test-only: reset state between scenarios)
-    clear: oc.output(z.void()),
-    // Set saved session (test-only: seed state for scenarios)
-    test__set: oc.input(SavedSessionSchema).output(z.void()),
+  state: {
+    // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
+    get: oc.output(eventIterator(ServerStateSchema)),
+    // Partial update — merge into current state
+    update: oc.input(ServerStatePatchSchema).output(z.void()),
+    // Reset state (test-only: seed/clear state between scenarios)
+    test__set: oc.input(ServerStatePatchSchema).output(z.void()),
   },
 });
