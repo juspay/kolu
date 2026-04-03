@@ -137,22 +137,26 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to return to a terminal (Corvu's focus trap release is async)
+    // Wait for focus to land specifically in a main terminal (not sub-terminal).
+    // [data-visible] alone is too broad — matches any visible element.
+    // Corvu's focus trap release is async; fall back to clicking the canvas.
     try {
       await this.page.waitForFunction(
-        () => !!document.activeElement?.closest("[data-visible]"),
+        () =>
+          !!document.activeElement?.closest(
+            "[data-terminal-id][data-visible]:not([data-sub-terminal])",
+          ),
         { timeout: 5000 },
       );
     } catch {
-      // If focus didn't auto-return, click the canvas to force it
       await this.canvas.click();
     }
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
     await pollUntilBufferContains(this.page, marker, {
-      selector: "[data-terminal-id][data-visible]",
-      attempts: 20,
+      selector: "[data-terminal-id][data-visible]:not([data-sub-terminal])",
+      attempts: 50,
       intervalMs: 100,
     });
   },
