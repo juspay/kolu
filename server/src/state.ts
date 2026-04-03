@@ -11,6 +11,7 @@ import Conf from "conf";
 import type {
   RecentRepo,
   Preferences,
+  PersistedState,
   ServerState,
   ServerStatePatch,
 } from "kolu-common";
@@ -32,7 +33,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   colorScheme: "dark",
 };
 
-export const store = new Conf<ServerState>({
+export const store = new Conf<PersistedState>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
@@ -48,7 +49,7 @@ export const store = new Conf<ServerState>({
     "1.1.0": () => {},
     // Preferences added — old state files don't have them.
     // conf auto-merges defaults, but explicit migration ensures clean shape.
-    "1.2.0": (store: Conf<ServerState>) => {
+    "1.2.0": (store: Conf<PersistedState>) => {
       if (!store.has("preferences")) {
         store.set("preferences", DEFAULT_PREFERENCES);
       }

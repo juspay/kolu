@@ -190,13 +190,18 @@ export const PreferencesSchema = z.object({
   colorScheme: ColorSchemeSchema,
 });
 
-// --- Unified server state ---
+// --- Server state ---
 
-export const ServerStateSchema = z.object({
+/** What conf stores to disk — survives server restart. */
+export const PersistedStateSchema = z.object({
   recentRepos: z.array(RecentRepoSchema),
   session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
 });
+
+/** What the client receives — currently same as persisted.
+ *  #333 will extend with runtime fields (terminals, terminalMeta). */
+export const ServerStateSchema = PersistedStateSchema.extend({});
 
 /** Partial patch for state updates — all fields optional, preferences partially mergeable. */
 export const ServerStatePatchSchema = z.object({
@@ -219,5 +224,6 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
+export type PersistedState = z.infer<typeof PersistedStateSchema>;
 export type ServerState = z.infer<typeof ServerStateSchema>;
 export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;
