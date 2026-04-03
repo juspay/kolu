@@ -32,7 +32,7 @@ export const CONTEXTUAL_TIPS = {
   },
   worktree: {
     id: "worktree",
-    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New terminal → worktree for parallel sessions`,
   },
 } as const satisfies Record<string, Tip>;
 

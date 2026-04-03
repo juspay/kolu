@@ -1,6 +1,6 @@
 Feature: Git worktree management
-  Users can create terminals in new git worktrees via the command palette,
-  and close terminals while optionally removing the worktree.
+  Users can create terminals in new git worktrees via "New terminal" in the
+  command palette, and close terminals while optionally removing the worktree.
 
   Background:
     Given the terminal is ready
@@ -11,7 +11,7 @@ Feature: Git worktree management
     Then the header CWD should show "/tmp/kolu-wt-test"
     And the header should show a branch name
     When I open the command palette
-    And I select "New worktree" in the palette
+    And I select "New terminal" in the palette
     And I select "kolu-wt-test" in the palette
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
@@ -22,7 +22,7 @@ Feature: Git worktree management
     And I run "cd /tmp/kolu-wt-remove"
     And the header should show a branch name
     When I open the command palette
-    And I select "New worktree" in the palette
+    And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
@@ -38,7 +38,7 @@ Feature: Git worktree management
     And I run "cd /tmp/kolu-wt-cancel"
     And the header should show a branch name
     When I open the command palette
-    And I select "New worktree" in the palette
+    And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
@@ -54,7 +54,7 @@ Feature: Git worktree management
     And I run "cd /tmp/kolu-wt-close-only"
     And the header should show a branch name
     When I open the command palette
-    And I select "New worktree" in the palette
+    And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count

@@ -135,7 +135,7 @@ Feature: Command Palette
 
   Scenario: Keyboard shortcut hints shown on commands
     When I open the command palette
-    Then palette item "Create new terminal" should show shortcut "T"
+    Then palette item "Keyboard shortcuts" should show shortcut "/"
     And there should be no page errors
 
   Scenario: Shortcut hints shown in nested group
