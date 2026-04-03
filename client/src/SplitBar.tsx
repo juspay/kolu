@@ -5,7 +5,7 @@ import { SHORTCUTS, formatKeybind } from "./keyboard";
 import SplitBadge from "./SplitBadge";
 
 const SplitBar: Component<{ onClick: () => void }> = (props) => (
-  <div class="absolute bottom-2 left-0 right-0 z-10 flex justify-center pointer-events-none">
+  <div class="absolute bottom-2 left-0 right-0 z-20 flex justify-center pointer-events-none">
     <div class="pointer-events-auto">
       <SplitBadge
         data-testid="split-bar"
