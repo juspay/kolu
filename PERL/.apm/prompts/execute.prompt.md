@@ -31,6 +31,7 @@ After each step's verification, write/update `.execute-results.json`:
       "name": "sync",
       "status": "passed",
       "verification": "...",
+      "startedAt": "...",
       "completedAt": "..."
     }
   ]
@@ -40,6 +41,7 @@ After each step's verification, write/update `.execute-results.json`:
 - Set `active` to `true` when the workflow starts (**sync**), and `false` when it ends (**done**). The stop hook uses this field to block premature exits.
 - Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
 - Use the Write tool to update the file after each step.
+- Capture timestamps via Bash: `date -u +%Y-%m-%dT%H:%M:%SZ`. Do not guess or hallucinate timestamps.
 
 ## Steps
 
@@ -202,17 +204,36 @@ Present a summary of all steps with their verification status. If any step has a
 
 `"completed"` requires **all steps passed**. No redefining "passed," no footnote caveats. Update `.execute-results.json` accordingly.
 
-Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment` with a markdown table of all steps and their status/verification. Format:
+#### Timing summary
+
+Compute duration for each step from its `startedAt`/`completedAt` timestamps. Print a table to the user showing each step's duration and the total wall-clock time (`startedAt` of first step → `completedAt` of last step). Highlight the **slowest step** and any step that took >30% of total time.
+
+#### Optimization suggestions
+
+After the timing table, print 2–4 concrete suggestions for reducing time-to-completion in future runs. Base these on the actual timing data — for example:
+
+- If **ci** dominates: suggest `--from ci-only` for re-runs, or note which CI sub-step was slowest
+- If **research** was slow: suggest pre-reading relevant code before invoking `/execute`
+- If **test** had retries: note the flaky test and suggest hardening it
+- If **police** required fix iterations: note which pass caught issues (rules/fact-check/elegance)
+- If **implement** was the bottleneck: suggest breaking the task into smaller PRs
+
+Be specific to this run's data, not generic advice.
+
+#### PR comment & wrap-up
+
+Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment` with a markdown table including durations. Format:
 
 ```
 gh pr comment --body "$(cat <<'COMMENT'
 ## Execute Results
 
-| Step | Status | Verification |
-|------|--------|-------------|
-| sync | ✓ | ... |
-| research | ✓ | ... |
+| Step | Status | Duration | Verification |
+|------|--------|----------|-------------|
+| sync | ✓ | 3s | ... |
+| research | ✓ | 45s | ... |
 ...
+| **Total** | | **4m 32s** | |
 
 Workflow completed at <timestamp>.
 COMMENT
