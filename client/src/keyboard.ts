@@ -86,6 +86,10 @@ export const SHORTCUTS = {
     keybind: { key: "Enter", mod: true },
     label: "New terminal",
   },
+  newTerminalMenu: {
+    keybind: { key: "Enter", mod: true, shift: true },
+    label: "New terminal menu",
+  },
   nextTerminal: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
     label: "Next terminal",
