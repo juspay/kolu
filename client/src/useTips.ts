@@ -9,31 +9,25 @@ import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
 import type { TerminalId } from "kolu-common";
 import { useServerState } from "./useServerState";
 
-let _seen: () => string[];
-let _updateSeen: (ids: string[]) => void;
-let _startupTips: () => boolean;
-let _setStartupTips: (on: boolean) => void;
+// Module-level references, set on first useTips() call.
+let _prefs: ReturnType<typeof useServerState>;
 let _initialized = false;
 
 function ensureInit() {
   if (_initialized) return;
   _initialized = true;
-  const { preferences, updatePreferences } = useServerState();
-  _seen = () => preferences().seenTips;
-  _updateSeen = (ids: string[]) => updatePreferences({ seenTips: ids });
-  _startupTips = () => preferences().startupTips;
-  _setStartupTips = (on: boolean) => updatePreferences({ startupTips: on });
+  _prefs = useServerState();
 }
 
 function seen(): Set<TipId> {
   ensureInit();
-  return new Set(_seen());
+  return new Set(_prefs.preferences().seenTips);
 }
 
 function markSeen(id: TipId) {
   const s = seen();
   s.add(id);
-  _updateSeen([...s]);
+  _prefs.updatePreferences({ seenTips: [...s] });
 }
 
 const TIP_PREFIX = "\u{1F4A1} ";
@@ -56,7 +50,7 @@ function randomAmbientTip(): string {
 
 /** Show a random tip as a toast (for startup). Respects the startup-tips setting. */
 function showStartupTip() {
-  if (!_startupTips()) return;
+  if (!_prefs.preferences().startupTips) return;
   const text = randomAmbientTip();
   toast(TIP_PREFIX + text, {
     duration: 4000,
@@ -91,7 +85,8 @@ export function useTips() {
     showTipOnce,
     randomAmbientTip,
     initTipTriggers,
-    startupTips: _startupTips!,
-    setStartupTips: _setStartupTips!,
+    startupTips: () => _prefs.preferences().startupTips,
+    setStartupTips: (on: boolean) =>
+      _prefs.updatePreferences({ startupTips: on }),
   } as const;
 }

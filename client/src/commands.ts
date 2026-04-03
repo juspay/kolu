@@ -7,7 +7,7 @@ import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { useRecentRepos } from "./useRecentRepos";
+import { useServerState } from "./useServerState";
 import { client } from "./rpc";
 
 export interface CommandDeps {
@@ -38,7 +38,7 @@ export interface CommandDeps {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos } = useRecentRepos();
+  const { recentRepos } = useServerState();
 
   return createMemo((): PaletteCommand[] => [
     {

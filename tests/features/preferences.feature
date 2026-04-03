@@ -10,6 +10,7 @@ Feature: Server-side preferences
     When I click the "light" color scheme button
     Then the color scheme should be "light"
     When I reload the page and wait for ready
+    When I click the settings button
     Then the color scheme should be "light"
     And there should be no page errors
 

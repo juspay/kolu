@@ -28,24 +28,23 @@ import { createCommands } from "./commands";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
-import { usePreferences } from "./usePreferences";
+import { useServerState } from "./useServerState";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
-import { useRecentRepos } from "./useRecentRepos";
 
 const App: Component = () => {
   const {
-    randomTheme,
-    setRandomTheme,
-    scrollLock,
-    setScrollLock,
-    activityAlerts,
-    setActivityAlerts,
-  } = usePreferences();
+    preferences,
+    updatePreferences,
+    invalidate: invalidateState,
+  } = useServerState();
+  const randomTheme = () => preferences().randomTheme;
+  const scrollLock = () => preferences().scrollLock;
+  const activityAlerts = () => preferences().activityAlerts;
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -136,12 +135,10 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
 
-  const { refetch: refetchRecentRepos } = useRecentRepos();
-
-  // Refetch recent repos whenever the palette opens, regardless of how (Ctrl+K, header click, etc.)
+  // Refetch server state (includes recent repos) whenever the palette opens
   createEffect(
     on(paletteOpen, (open) => {
-      if (open) refetchRecentRepos();
+      if (open) invalidateState();
     }),
   );
 
@@ -338,13 +335,15 @@ const App: Component = () => {
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         randomTheme={randomTheme()}
-        onRandomThemeChange={setRandomTheme}
+        onRandomThemeChange={(on) => updatePreferences({ randomTheme: on })}
         scrollLock={scrollLock()}
-        onScrollLockChange={setScrollLock}
+        onScrollLockChange={(on) => updatePreferences({ scrollLock: on })}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
         activityAlerts={activityAlerts()}
-        onActivityAlertsChange={setActivityAlerts}
+        onActivityAlertsChange={(on) =>
+          updatePreferences({ activityAlerts: on })
+        }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
