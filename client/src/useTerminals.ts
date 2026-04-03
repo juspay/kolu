@@ -41,11 +41,11 @@ export function useTerminals(deps: {
         const stream = await client.terminal.onExit({ id });
         for await (const code of stream) {
           const label = store.terminalLabel(id);
-          toast(
-            code === 0
-              ? `${label} exited`
-              : `${label} exited with code ${code}`,
-          );
+          if (code === 0) {
+            toast(`${label} exited`);
+          } else {
+            toast.warning(`${label} exited with code ${code}`);
+          }
           crud.removeAndAutoSwitch(id);
         }
       } catch {

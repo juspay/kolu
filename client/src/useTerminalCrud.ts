@@ -173,7 +173,7 @@ export function useTerminalCrud(deps: {
     try {
       const text = await client.terminal.screenText({ id });
       await navigator.clipboard.writeText(text);
-      toast("Copied terminal text to clipboard");
+      toast.success("Copied terminal text to clipboard");
     } catch (err) {
       console.error("Failed to copy terminal text:", err);
       toast.error("Failed to copy terminal text");

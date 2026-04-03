@@ -234,9 +234,9 @@ const App: Component = () => {
       <Toaster
         position="bottom-right"
         theme="dark"
+        richColors
         toastOptions={{
           style: {
-            background: "var(--color-surface-1)",
             color: "var(--color-fg)",
             border: "1px solid var(--color-edge-bright)",
           },
