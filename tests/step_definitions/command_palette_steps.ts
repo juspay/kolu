@@ -83,13 +83,13 @@ Then(
 Then(
   "palette item {int} should be selected",
   async function (this: KoluWorld, index: number) {
-    const items = this.page.locator(`${PALETTE_SELECTOR} li`);
-    const item = items.nth(index - 1);
-    await item.waitFor({ state: "visible", timeout: 3000 });
-    const selected = await item.getAttribute("data-selected");
-    assert.ok(
-      selected !== null,
-      `Palette item ${index} is not selected (missing data-selected)`,
+    await this.page.waitForFunction(
+      ([sel, idx]) => {
+        const items = document.querySelectorAll(`${sel} li`);
+        return items[idx]?.hasAttribute("data-selected") ?? false;
+      },
+      [PALETTE_SELECTOR, index - 1] as const,
+      { timeout: 3000 },
     );
   },
 );
@@ -97,13 +97,14 @@ Then(
 Then(
   "the last palette item should be selected",
   async function (this: KoluWorld) {
-    const items = this.page.locator(`${PALETTE_SELECTOR} li`);
-    const count = await items.count();
-    const last = items.nth(count - 1);
-    const selected = await last.getAttribute("data-selected");
-    assert.ok(
-      selected !== null,
-      `Last palette item is not selected (missing data-selected)`,
+    await this.page.waitForFunction(
+      (sel) => {
+        const items = document.querySelectorAll(`${sel} li`);
+        if (items.length === 0) return false;
+        return items[items.length - 1]?.hasAttribute("data-selected") ?? false;
+      },
+      PALETTE_SELECTOR,
+      { timeout: 3000 },
     );
   },
 );
