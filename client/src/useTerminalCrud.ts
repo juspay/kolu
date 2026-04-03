@@ -40,9 +40,11 @@ export function useTerminalCrud(deps: {
     onError: () => toast.error("Failed to set parent"),
   }));
 
-  const createMut = createMutation(() =>
-    orpc.terminal.create.mutationOptions(),
-  );
+  const createMut = createMutation(() => ({
+    ...orpc.terminal.create.mutationOptions(),
+    onError: (err: Error) =>
+      toast.error(`Failed to create terminal: ${err.message}`),
+  }));
 
   const killMut = createMutation(() => ({
     ...orpc.terminal.kill.mutationOptions(),
@@ -135,13 +137,7 @@ export function useTerminalCrud(deps: {
   async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    const promise = createMut.mutateAsync({ cwd });
-    toast.promise(promise, {
-      loading: "Creating terminal…",
-      success: "Terminal created",
-      error: (e) => `Failed to create terminal: ${e.message}`,
-    });
-    const info = await promise;
+    const info = await createMut.mutateAsync({ cwd });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
@@ -154,13 +150,7 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const promise = createMut.mutateAsync({ cwd, parentId });
-    toast.promise(promise, {
-      loading: "Creating sub-terminal…",
-      success: "Sub-terminal created",
-      error: (e) => `Failed to create sub-terminal: ${e.message}`,
-    });
-    const info = await promise;
+    const info = await createMut.mutateAsync({ cwd, parentId });
     addToList(info);
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
