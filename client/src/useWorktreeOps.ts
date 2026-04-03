@@ -30,7 +30,7 @@ export function useWorktreeOps(deps: {
 
   async function handleCreateWorktree(repoPath: string) {
     const result = await worktreeCreateMut.mutateAsync({ repoPath });
-    toast(`Created worktree at ${result.path}`);
+    toast.success(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
     invalidateRepos();
   }
@@ -47,7 +47,7 @@ export function useWorktreeOps(deps: {
     await deps.handleKill(id);
     if (worktreePath) {
       await worktreeRemoveMut.mutateAsync({ worktreePath });
-      toast(`Removed worktree at ${worktreePath}`);
+      toast.success(`Removed worktree at ${worktreePath}`);
       invalidateRepos();
     }
   }
