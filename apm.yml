@@ -6,4 +6,5 @@ type: hybrid
 dependencies:
   apm:
     - ./PERL
+    - srid/agency#19f94db7bde300100dd3407b764507a41fd85bfc
     - anthropics/skills/skills/frontend-design
