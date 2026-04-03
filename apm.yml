@@ -7,4 +7,6 @@ dependencies:
   apm:
     - ./PERL
     - srid/agency#19f94db7bde300100dd3407b764507a41fd85bfc
+    - juspay/skills/skills/nix-justfile
+    - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
