@@ -24,6 +24,7 @@ After each step's verification, write/update `.execute-results.json`:
 {
   "workflow": "execute",
   "startedAt": "<ISO timestamp>",
+  "active": true,
   "status": "running",
   "steps": [
     {
@@ -36,7 +37,9 @@ After each step's verification, write/update `.execute-results.json`:
 }
 ```
 
-Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. Use the Write tool to update the file after each step.
+- Set `active` to `true` when the workflow starts (**sync**), and `false` when it ends (**done**). The stop hook uses this field to block premature exits.
+- Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
+- Use the Write tool to update the file after each step.
 
 ## Steps
 
