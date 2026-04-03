@@ -167,11 +167,21 @@ If changes are purely server-internal with no UI impact, unit tests may suffice 
 
 Run: `just ci` (with `run_in_background: true` — CI takes several minutes).
 
-**Never pipe CI to `tail` or `head`** — broken pipes kill the process.
+**Never pipe CI to `tail`/`head`**, and **never append `2>&1`** — background mode captures both streams.
 
-**Verify**: CI passes.
-**If flaky failure** (max 20 retries): Retry just the failing step with `just ci::<step>`. If still failing after 20 retries, create/update a GitHub issue for flaky tests.
-**If real bug** (max 5 fixes): Fix the bug → go to **fmt**, then retry CI.
+**Verify**: Check GitHub commit statuses for **every** context from `just ci::_contexts`. Each must have a `ci/<context>` status of `success`:
+
+```
+gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
+```
+
+**On failure** — read the log file (path is in the commit status description) to diagnose.
+
+**Flaky vs real**: A test is flaky only if it **passes on a subsequent retry**. Consistent failure = real bug. Before retrying, read the failing test code to judge if the failure pattern is inherently flaky (race conditions, timing, async waits).
+
+**If flaky** (max 20 retries): Retry just the failing step with `just ci::<step>`.
+**If real bug** (max 5 fixes): Fix → **fmt** → **commit** → retry `just ci`.
+**If retries exhausted**: Set workflow status to `"failed"`, skip to **done**.
 
 ---
 
@@ -185,9 +195,9 @@ Re-check the PR title/body against current scope. If scope changed, update via `
 
 ### done
 
-Update `.execute-results.json` with `status: "completed"`.
+Present a summary of all steps with their verification status. If any step has a non-success status, retry it (max 3 attempts from done). If still failing after retries, set `status: "failed"`.
 
-Present a summary of all steps with their verification status. If any step has a non-success status, retry it before finishing.
+`"completed"` requires **all steps passed**. No redefining "passed," no footnote caveats. Update `.execute-results.json` accordingly.
 
 Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment` with a markdown table of all steps and their status/verification. Format:
 
@@ -227,5 +237,6 @@ COMMENT
 - **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey pause.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
 - **Complete the full workflow.** Implementing code is one step of many. The task is not done until a PR URL is reported.
+- **Exhausted retries = halt.** If `ci` or `test` retries are exhausted, set status to `"failed"` and skip to **done**. Do not proceed to `update-pr` as if nothing happened.
 
 ARGUMENTS: $ARGUMENTS
