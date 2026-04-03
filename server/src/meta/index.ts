@@ -7,12 +7,12 @@
  *   claude provider (polling)  ──────────────→  metadata:<id>
  *
  * Each provider calls updateMetadata() to atomically mutate+publish.
- * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
+ * Metadata changes are published via emitStateChanged() to the unified state stream.
  */
 
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { publishForTerminal } from "../publisher.ts";
+import { emitStateChanged } from "../state.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -48,7 +48,7 @@ export function updateMetadata(
     },
     "metadata publish",
   );
-  publishForTerminal("metadata", terminalId, { ...m });
+  emitStateChanged();
 }
 
 /**

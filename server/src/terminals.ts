@@ -25,6 +25,7 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { emitStateChanged, setListTerminalsFn } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -47,6 +48,9 @@ export interface TerminalProcess {
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();
+
+// Inject listTerminals into state.ts (avoids circular import — state.ts doesn't import terminals.ts)
+setListTerminalsFn(() => listTerminals());
 
 const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 const SORT_GAP = 1000;
@@ -117,10 +121,10 @@ function emitChanged(): void {
   publishSystem("session:changed", {});
 }
 
-/** Notify that terminal membership changed (create/kill/reorder).
- *  Drives the live terminal.list stream to clients. */
+/** Notify that terminal membership or metadata changed.
+ *  Drives the unified state.get live stream to clients. */
 function emitListChanged(): void {
-  publishSystem("terminal-list", listTerminals());
+  emitStateChanged();
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */

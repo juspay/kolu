@@ -1,18 +1,13 @@
-/** Terminal metadata — TanStack queries for server-derived state.
+/** Terminal metadata — derived from unified state stream + per-terminal activity queries.
  *
- *  Two query types per terminal:
- *  - Metadata (liveOptions): slow-changing state (CWD, git, PR, claude).
- *    Each event replaces the previous — only current state matters.
- *  - Activity (streamedOptions): high-frequency busy/idle transitions.
- *    Events accumulate into an array for sparkline rendering. Server yields
- *    a history snapshot on connect, then individual [epochMs, boolean] samples.
- *    maxChunks caps the source array; select trims to the display window.
+ *  Metadata (CWD, git, PR, claude) comes from the terminals array in state.get.
+ *  Activity (high-frequency busy/idle transitions) stays as per-terminal streamed queries
+ *  since it's not state — it's a continuous event stream for sparkline rendering.
  *
- *  Terminal IDs are derived from the live list query data.
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
 import { type Accessor, createMemo } from "solid-js";
-import { createQueries, type CreateQueryResult } from "@tanstack/solid-query";
+import { createQueries } from "@tanstack/solid-query";
 import type {
   TerminalId,
   TerminalInfo,
@@ -32,27 +27,27 @@ import {
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  listQuery: CreateQueryResult<TerminalInfo[]>;
+  terminals: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  /** Terminal IDs derived from the live list query. */
+  /** Terminal IDs derived from the live terminal list. */
   const terminalIdList = createMemo(
-    () => deps.listQuery.data?.map((t) => t.id) ?? [],
+    () => deps.terminals()?.map((t) => t.id) ?? [],
   );
 
-  // --- Metadata (slow-changing) — each event replaces the previous ---
+  // --- Metadata from unified state (no per-terminal queries needed) ---
 
-  const metadataQueries = createQueries(() => ({
-    queries: terminalIdList().map((id) =>
-      orpc.terminal.onMetadataChange.experimental_liveOptions({
-        input: { id },
-      }),
-    ),
-  }));
+  /** Build a lookup map from terminals array for O(1) access. */
+  const metadataMap = createMemo(() => {
+    const map = new Map<TerminalId, TerminalMetadata>();
+    for (const t of deps.terminals() ?? []) {
+      map.set(t.id, t.meta);
+    }
+    return map;
+  });
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const idx = terminalIdList().indexOf(id);
-    return idx >= 0 ? metadataQueries[idx]?.data : undefined;
+    return metadataMap().get(id);
   }
 
   // --- Activity (high-frequency) — events accumulate for sparkline ---
@@ -88,8 +83,7 @@ export function useTerminalMetadata(deps: {
   const bySortOrder = (a: TerminalId, b: TerminalId) =>
     (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0);
 
-  /** Top-level terminal IDs sorted by sortOrder.
-   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
+  /** Top-level terminal IDs sorted by sortOrder. */
   const terminalIds = createMemo(() =>
     terminalIdList()
       .filter((id) => {

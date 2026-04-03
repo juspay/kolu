@@ -84,15 +84,15 @@ pnpm monorepo, three packages:
 
 All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three query patterns[^orpc-patterns]:
 
-| Pattern            | Semantics                         | TanStack integration           | Used for                                                      |
-| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------------- |
-| Request / response | one-shot                          | `createMutation`[^rr]          | `terminal.create`, `terminal.kill`, `terminal.reorder`        |
-| Live query         | each push replaces previous value | `experimental_liveOptions`     | Terminal list, terminal metadata (CWD, git, PR, Claude state) |
-| Streamed query     | pushes accumulate into an array   | `experimental_streamedOptions` | Activity sparklines                                           |
+| Pattern            | Semantics                         | TanStack integration           | Used for                                                                 |
+| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------------------------ |
+| Request / response | one-shot                          | `createMutation`[^rr]          | `terminal.create`, `terminal.kill`, `terminal.reorder`                   |
+| Live query         | each push replaces previous value | `experimental_liveOptions`     | Unified server state (preferences, session, terminal list with metadata) |
+| Streamed query     | pushes accumulate into an array   | `experimental_streamedOptions` | Activity sparklines                                                      |
 
 All three are wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
 
-[^rr]: Mutations update the TanStack cache on success — optimistically via `qc.setQueryData` (reorder, theme, create, kill). The terminal list itself is a live query pushed by the server on create/kill/reorder. A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
+[^rr]: Mutations update the TanStack cache on success — optimistically via `qc.setQueryData` (reorder, theme, create, kill). The terminal list and metadata are part of the unified `state.get` live query pushed by the server on any state change. A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
 
 ### Data flow
 
@@ -123,12 +123,9 @@ flowchart TB
 
   %% Metadata loop
   PTY -.->|"OSC 7\n(CWD change)"| Providers
-  Providers -.->|"metadata stream\n(live query)"| TQ
+  Providers -.->|"unified state stream\n(live query)"| TQ
   Pub -.->|"activity stream\n(streamed query)"| TQ
   TQ -.-> UI
-
-  %% Terminal list (server-pushed on create/kill/reorder)
-  Pub -.->|"terminal list stream\n(live query)"| TQ
 
   %% User actions
   UI -->|"create · kill · reorder\n(request/response)"| PTY
@@ -147,7 +144,7 @@ flowchart TB
 
 **Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers feed a single metadata channel streamed to the client as a live query[^providers].
 
-**User actions** — command palette and sidebar dispatch mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) via `createMutation` + `orpc.*.mutationOptions()`. Mutations write optimistically to the TanStack cache for instant UI; the server's live list push arrives moments later with authoritative data. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) manages a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array that derives terminal IDs from the live list query and reactively resizes as terminals come and go[^client-state].
+**User actions** — command palette and sidebar dispatch mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) via `createMutation` + `orpc.*.mutationOptions()`. Mutations write optimistically to the TanStack cache for instant UI; the server's live push arrives moments later with authoritative data. A single `state.get` live query delivers the terminal list with embedded metadata — [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) derives IDs, ordering, and display info from this unified stream. Per-terminal activity queries remain separate for sparkline rendering[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 

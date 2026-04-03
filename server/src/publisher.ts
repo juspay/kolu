@@ -6,19 +6,11 @@
  *  System events ("session:changed") are broadcast channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import type {
-  TerminalInfo,
-  TerminalMetadata,
-  GitInfo,
-  ActivitySample,
-  ServerState,
-} from "kolu-common";
+import type { GitInfo, ActivitySample, ServerState } from "kolu-common";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
 type TerminalChannels = {
-  /** All server-derived terminal state — client-facing aggregated channel */
-  metadata: TerminalMetadata;
   /** Activity transition [epochMs, isActive] — high frequency, separate from metadata */
   activity: ActivitySample;
   /** CWD changed (OSC 7 from PTY) — triggers git provider */
@@ -35,9 +27,7 @@ type TerminalChannels = {
 type SystemChannels = {
   /** Terminal state changed — triggers debounced session auto-save */
   "session:changed": Record<string, never>;
-  /** Terminal list changed (create/kill/reorder) — drives live list query */
-  "terminal-list": TerminalInfo[];
-  /** Server state changed (preferences, session, repos) — drives live state query */
+  /** Server state changed (preferences, session, repos, terminals) — drives live state query */
   "state:changed": ServerState;
 };
 

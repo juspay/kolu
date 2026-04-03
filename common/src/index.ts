@@ -199,9 +199,11 @@ export const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
 });
 
-/** What the client receives — currently same as persisted.
- *  #333 will extend with runtime fields (terminals, terminalMeta). */
-export const ServerStateSchema = PersistedStateSchema.extend({});
+/** What the client receives — persisted state + runtime terminal state. */
+export const ServerStateSchema = PersistedStateSchema.extend({
+  /** Live terminal list with embedded metadata (runtime — not persisted). */
+  terminals: z.array(TerminalInfoSchema),
+});
 
 /** Partial patch for state updates — all fields optional, preferences partially mergeable. */
 export const ServerStatePatchSchema = z.object({
