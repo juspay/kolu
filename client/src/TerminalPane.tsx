@@ -103,33 +103,34 @@ const TerminalPane: Component<{
             />
           </Resizable.Panel>
 
-          {/* Handle: resize bar when expanded, split count strip when collapsed */}
+          {/* Resize handle — only visible when expanded */}
           <Resizable.Handle
-            data-testid={isExpanded() ? "resize-handle" : "collapsed-indicator"}
+            data-testid="resize-handle"
             class="shrink-0 transition-all"
             classList={{
-              "h-1 bg-edge hover:bg-accent-bright cursor-row-resize":
-                isExpanded(),
-              "h-6 bg-surface-1 border-t border-accent cursor-pointer! flex items-center justify-center gap-3 text-[11px] font-mono hover:brightness-110":
-                !isExpanded(),
+              "h-1 bg-edge hover:bg-accent-bright": isExpanded(),
+              "h-0": !isExpanded(),
             }}
-            aria-label={
-              isExpanded()
-                ? "Resize terminal split"
-                : `${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
-            }
-            onClick={() => {
-              if (!isExpanded()) subPanel.expandPanel(props.terminalId);
-            }}
-          >
-            <Show when={!isExpanded()}>
+            aria-label="Resize terminal split"
+          />
+
+          {/* Collapsed strip — plain button, no Corvu resize interference */}
+          <Show when={!isExpanded()}>
+            <button
+              data-testid="collapsed-indicator"
+              class="shrink-0 h-6 bg-surface-1 border-t border-accent cursor-pointer
+                     flex items-center justify-center gap-3 text-[11px] font-mono
+                     hover:brightness-110 transition-all"
+              aria-label={`${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`}
+              onClick={() => subPanel.expandPanel(props.terminalId)}
+            >
               <span class="text-accent font-medium">
                 ▸ {props.subTerminalIds.length} split
                 {props.subTerminalIds.length > 1 ? "s" : ""}
               </span>
               <Kbd>{formatKeybind(SHORTCUTS.toggleSubPanel.keybind)}</Kbd>
-            </Show>
-          </Resizable.Handle>
+            </button>
+          </Show>
 
           <Resizable.Panel
             as="div"
