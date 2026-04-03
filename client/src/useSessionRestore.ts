@@ -1,7 +1,6 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import { createSignal, createEffect } from "solid-js";
-import { client } from "./rpc";
 import { useSubPanel } from "./useSubPanel";
 import { useServerState } from "./useServerState";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
@@ -74,9 +73,10 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
+  // The live query keeps state fresh — just read from it.
   createEffect(() => {
     if (store.terminalIds().length === 0 && hydrated) {
-      client.state.get().then((s) => setSavedSession(s.session));
+      setSavedSession(serverState.savedSession());
     }
   });
 

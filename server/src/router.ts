@@ -173,7 +173,12 @@ export const appRouter = t.router({
     }),
   },
   state: {
-    get: t.state.get.handler(async () => getServerState()),
+    get: t.state.get.handler(async function* ({ signal }) {
+      yield getServerState();
+      for await (const state of subscribeSystem_("state:changed", signal)) {
+        yield state;
+      }
+    }),
     update: t.state.update.handler(async ({ input }) => {
       updateServerState(input);
     }),

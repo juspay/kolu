@@ -11,6 +11,7 @@ import type {
   TerminalMetadata,
   GitInfo,
   ActivitySample,
+  ServerState,
 } from "kolu-common";
 import { log } from "./log.ts";
 
@@ -36,6 +37,8 @@ type SystemChannels = {
   "session:changed": Record<string, never>;
   /** Terminal list changed (create/kill/reorder) — drives live list query */
   "terminal-list": TerminalInfo[];
+  /** Server state changed (preferences, session, repos) — drives live state query */
+  "state:changed": ServerState;
 };
 
 // The publisher accepts any string channel at runtime.

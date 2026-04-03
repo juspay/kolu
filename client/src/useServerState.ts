@@ -1,8 +1,15 @@
 /**
- * Unified server state — single query for loading, local store for instant reactivity.
+ * Unified server state — live query for server sync, local store for instant UI reactivity.
  *
- * Preferences use a singleton SolidJS store shared across all callers.
- * Mutations fire to the server in the background; the store is the UI source of truth.
+ * Architecture:
+ * - Live query (experimental_liveOptions): server pushes state changes over WebSocket
+ * - Singleton SolidJS store: synchronous UI updates for preferences
+ * - reconcile effect: syncs live query → local store on every server push
+ * - updatePreferences: instant local store update + async server mutation
+ *
+ * Why both? TanStack Query's setQueryData notifications go through setTimeout(0),
+ * which is too slow for instant toggle feedback. The local store handles synchronous
+ * reactivity; the live query handles server sync.
  */
 
 import { createEffect, on } from "solid-js";
@@ -15,7 +22,6 @@ import {
 import { orpc } from "./orpc";
 import type {
   ServerState,
-  ServerStatePatch,
   Preferences,
   RecentRepo,
   SavedSession,
@@ -30,15 +36,15 @@ const DEFAULT_PREFERENCES: Preferences = {
   colorScheme: "dark",
 };
 
-// Singleton store — all callers share one reactive source of truth.
+// Singleton store — all callers share one reactive source of truth for preferences.
 const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
 let storeInitialized = false;
 
 export function useServerState() {
   const qc = useQueryClient();
-  const query = createQuery(() => orpc.state.get.queryOptions());
+  const query = createQuery(() => orpc.state.get.experimental_liveOptions());
 
-  // Sync singleton store from query — only the first caller wires this up.
+  // Sync singleton store from live query — only the first caller wires this up.
   if (!storeInitialized) {
     storeInitialized = true;
     createEffect(
@@ -57,7 +63,7 @@ export function useServerState() {
   function updatePreferences(patch: Partial<Preferences>) {
     // Synchronous local update — UI reacts immediately (singleton store)
     setPrefs(patch);
-    // Async server persist
+    // Server persist — live stream will push authoritative state back via reconcile
     updateMut.mutate({ preferences: patch });
   }
 
@@ -72,7 +78,7 @@ export function useServerState() {
     query,
     /** Full server state (undefined while loading). */
     state: () => query.data as ServerState | undefined,
-    /** Preferences — singleton store, synced from server on load. */
+    /** Preferences — singleton store, synced from live query on every server push. */
     preferences: () => prefs,
     recentRepos: () => (query.data?.recentRepos ?? []) as RecentRepo[],
     savedSession: () => (query.data?.session ?? null) as SavedSession | null,

@@ -76,8 +76,8 @@ export const contract = oc.router({
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
   },
   state: {
-    // Full server state — preferences, recent repos, saved session
-    get: oc.output(ServerStateSchema),
+    // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
+    get: oc.output(eventIterator(ServerStateSchema)),
     // Partial update — merge into current state
     update: oc.input(ServerStatePatchSchema).output(z.void()),
     // Reset state (test-only: seed/clear state between scenarios)

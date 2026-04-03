@@ -14,6 +14,7 @@ import type {
   ServerState,
   ServerStatePatch,
 } from "kolu-common";
+import { publishSystem } from "./publisher.ts";
 
 /**
  * Schema version — bump this when adding migrations.
@@ -116,4 +117,6 @@ export function updateServerState(patch: ServerStatePatch): void {
       ...patch.preferences,
     });
   }
+  // Notify live query subscribers
+  publishSystem("state:changed", getServerState());
 }
