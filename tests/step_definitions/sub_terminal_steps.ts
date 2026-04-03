@@ -51,13 +51,25 @@ async function paletteCommand(world: KoluWorld, query: string) {
     PALETTE,
     { timeout: 5000 },
   );
-  await world.waitForFrame();
+  // Wait for focus to land in a terminal — Corvu's focus trap release is async
+  // and waitForFrame (2x rAF) is insufficient on loaded CI.
+  await world.page.waitForFunction(
+    () => !!document.activeElement?.closest("[data-terminal-id]"),
+    { timeout: 5000 },
+  );
 }
 
 When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
     await paletteCommand(this, "Toggle terminal split");
+    // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
+    // Wait for the sub-terminal to actually exist before proceeding — otherwise
+    // the next "toggle" command may see no subs and create again instead.
+    await this.page.waitForFunction(
+      () => document.querySelector("[data-sub-terminal]") !== null,
+      { timeout: 10_000 },
+    );
   },
 );
 
@@ -77,12 +89,9 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Wait for focus to be in a sub-terminal (not the main one)
+    // Wait for focus to be specifically in a sub-terminal, not the main one
     await this.page.waitForFunction(
-      () => {
-        const active = document.activeElement;
-        return active && !!active.closest("[data-terminal-id]");
-      },
+      () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: 5000 },
     );
     await this.page.keyboard.type(command);
@@ -104,29 +113,26 @@ Then("the sub-panel should not be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
+    // Wait for focus to land inside a [data-sub-terminal] container directly —
+    // no indirect ID comparison with the sidebar's active entry.
     const result = await pollUntil(
       this.page,
       () =>
         this.page.evaluate(() => {
           const active = document.activeElement;
           if (!active) return { focused: false, reason: "no activeElement" };
+          const sub = active.closest("[data-sub-terminal]");
+          if (sub) return { focused: true, reason: "focus in sub-terminal" };
           const container = active.closest("[data-terminal-id]");
-          if (!container)
-            return { focused: false, reason: "focus not in terminal" };
-          const focusedId = container.getAttribute("data-terminal-id");
-          const activeEntry = document.querySelector(
-            '[data-testid="sidebar"] button[data-active]',
-          );
-          const mainId = activeEntry
-            ?.closest("[data-terminal-id]")
-            ?.getAttribute("data-terminal-id");
           return {
-            focused: focusedId !== mainId,
-            reason: `focused=${focusedId} main=${mainId}`,
+            focused: false,
+            reason: container
+              ? `focus in main terminal (${container.getAttribute("data-terminal-id")})`
+              : "focus not in any terminal",
           };
         }),
       (val) => val.focused,
-      { attempts: 30, intervalMs: 100 },
+      { attempts: 50, intervalMs: 100 },
     );
     assert.ok(
       result.focused,
@@ -138,22 +144,26 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to return to a terminal (Corvu's focus trap release is async)
+    // Wait for focus to land specifically in a main terminal (not sub-terminal).
+    // [data-visible] alone is too broad — matches any visible element.
+    // Corvu's focus trap release is async; fall back to clicking the canvas.
     try {
       await this.page.waitForFunction(
-        () => !!document.activeElement?.closest("[data-visible]"),
-        { timeout: 3000 },
+        () =>
+          !!document.activeElement?.closest(
+            "[data-terminal-id][data-visible]:not([data-sub-terminal])",
+          ),
+        { timeout: 5000 },
       );
     } catch {
-      // If focus didn't auto-return, click the canvas to force it
       await this.canvas.click();
     }
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
     await pollUntilBufferContains(this.page, marker, {
-      selector: "[data-terminal-id][data-visible]",
-      attempts: 20,
+      selector: "[data-terminal-id][data-visible]:not([data-sub-terminal])",
+      attempts: 50,
       intervalMs: 100,
     });
   },
@@ -173,7 +183,15 @@ Then(
 When(
   "I create another sub-terminal via command palette",
   async function (this: KoluWorld) {
+    const countBefore = await this.page.locator("[data-sub-terminal]").count();
     await paletteCommand(this, "Split terminal");
+    // Wait for the new sub-terminal to mount (async RPC creation)
+    await this.page.waitForFunction(
+      (expected) =>
+        document.querySelectorAll("[data-sub-terminal]").length >= expected,
+      countBefore + 1,
+      { timeout: 10_000 },
+    );
   },
 );
 
@@ -239,8 +257,13 @@ Then(
 Then(
   "the collapsed indicator should be visible",
   async function (this: KoluWorld) {
+    // First wait for the tab bar to disappear (confirms collapse state settled)
+    await this.page
+      .locator('[data-testid="sub-panel-tab-bar"]')
+      .waitFor({ state: "hidden", timeout: 10_000 });
+    // Then wait for the collapsed strip to mount and be visible
     const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
-    await indicator.waitFor({ state: "visible", timeout: 5000 });
+    await indicator.waitFor({ state: "visible", timeout: 10_000 });
   },
 );
 
