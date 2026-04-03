@@ -6,7 +6,7 @@ type: hybrid
 dependencies:
   apm:
     - ./PERL
-    - srid/agency#f9621c9cee9f3d4a6ccef0ee87738f04989c1018
+    - srid/agency#931ea564221d7bdc082442b179e91bc3c340cc5e
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design

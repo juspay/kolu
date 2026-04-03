@@ -1,6 +1,6 @@
 ---
 paths:
-  - "client/**"
+  - "**/*.tsx"
 ---
 
 ## Additional Code Police Rules

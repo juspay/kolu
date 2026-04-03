@@ -5,7 +5,7 @@ description: Review code for quality, simplicity, and common mistakes before dec
 
 # Code Police
 
-Review the current changes (scoped to the current branch/PR) against the rules below, then run three passes in order.
+Review the current changes (scoped to the current branch/PR) against the rules below **and any additional code-police rules from project instructions**, then run three passes in order.
 
 ## Rules
 

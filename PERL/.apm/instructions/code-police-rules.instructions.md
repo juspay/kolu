@@ -1,6 +1,6 @@
 ---
 description: Kolu-specific code-police rules — TanStack Query and SolidJS patterns
-applyTo: "client/**"
+applyTo: "**/*.tsx"
 ---
 
 ## Additional Code Police Rules
