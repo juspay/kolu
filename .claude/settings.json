@@ -20,6 +20,16 @@
           }
         ],
         "_apm_source": "agency"
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/agency/scripts/execute-stop-guard.sh"
+          }
+        ],
+        "_apm_source": "agency"
       }
     ]
   }
