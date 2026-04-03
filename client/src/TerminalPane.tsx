@@ -110,7 +110,7 @@ const TerminalPane: Component<{
             classList={{
               "h-1 bg-edge hover:bg-accent-bright cursor-row-resize":
                 isExpanded(),
-              "h-6 bg-surface-1 border-t border-accent cursor-pointer flex items-center justify-center gap-3 text-[11px] font-mono hover:brightness-110":
+              "h-6 bg-surface-1 border-t border-accent cursor-pointer! flex items-center justify-center gap-3 text-[11px] font-mono hover:brightness-110":
                 !isExpanded(),
             }}
             aria-label={
