@@ -42,30 +42,20 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
 
   return createMemo((): PaletteCommand[] => [
     {
-      name: "Create new terminal",
-      keybind: [
-        SHORTCUTS.createTerminal.keybind,
-        SHORTCUTS.createTerminalAlt.keybind,
-      ],
-      onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
-    },
-    {
-      name: "New worktree\u2026",
+      name: "New terminal",
       children: () => {
         const repos = recentRepos();
-        if (repos.length === 0) {
-          return [
-            {
-              name: "No recent repos",
-              description: "cd into a git repo first",
-            },
-          ];
-        }
-        return repos.map((r) => ({
-          name: r.repoName,
-          description: r.repoRoot,
-          onSelect: () => deps.handleCreateWorktree(r.repoRoot),
-        }));
+        return [
+          {
+            name: "In current directory",
+            onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
+          },
+          ...repos.map((r) => ({
+            name: r.repoName,
+            description: `New worktree in ${r.repoRoot}`,
+            onSelect: () => deps.handleCreateWorktree(r.repoRoot),
+          })),
+        ];
       },
     },
     ...(deps.activeId() !== null

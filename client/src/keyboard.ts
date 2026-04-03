@@ -80,11 +80,15 @@ export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
   createTerminal: {
     keybind: { key: "t", mod: true },
-    label: "Create new terminal",
+    label: "New terminal",
   },
   createTerminalAlt: {
     keybind: { key: "Enter", mod: true },
-    label: "Create new terminal",
+    label: "New terminal",
+  },
+  newTerminalMenu: {
+    keybind: { key: "Enter", mod: true, shift: true },
+    label: "New terminal menu",
   },
   nextTerminal: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },

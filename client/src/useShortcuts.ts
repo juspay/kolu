@@ -12,6 +12,7 @@ interface ShortcutDeps {
   setActiveId: Setter<TerminalId | null>;
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  openNewTerminalMenu: () => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
@@ -53,6 +54,11 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
     if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.newTerminalMenu.keybind)) {
+    deps.openNewTerminalMenu();
     return true;
   }
 
