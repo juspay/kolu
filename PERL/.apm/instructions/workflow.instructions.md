@@ -1,5 +1,5 @@
 ---
-description: Core workflow conventions — execute pipeline, CI, formatting, git, feature discoverability, external libraries
+description: Core workflow conventions — execute pipeline commands, CI, formatting, testing, git, feature discoverability, external libraries
 applyTo: "**"
 ---
 
@@ -10,6 +10,34 @@ applyTo: "**"
 - Run `just fmt` (formatting) before declaring done.
 - **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
+
+## Execute Pipeline Commands
+
+These commands are used by the `/execute` workflow's fmt, test, and ci steps.
+
+### Format command
+
+`just fmt`
+
+### Test command
+
+Run `just test-quick` with only the `.feature` files relevant to the changed code paths (e.g., `just test-quick features/worktree.feature`). Use `git diff master...HEAD --name-only` to identify changed files and match them to feature files.
+
+If changes are purely server-internal with no UI impact, unit tests may suffice — skip e2e if no relevant scenarios exist.
+
+### CI command
+
+Run: `just ci` (with `run_in_background: true` — builds take several minutes).
+
+**Verification**: Check GitHub commit statuses for **every** context from `just ci::_contexts`. Each must have a `ci/<context>` status of `success`:
+
+```
+gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
+```
+
+**On failure** — read the log file (path is in the commit status description) to diagnose.
+
+**Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`).
 
 ## Local CI
 

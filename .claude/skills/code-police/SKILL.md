@@ -9,16 +9,6 @@ Review the current changes (scoped to the current branch/PR) against the rules b
 
 ## Rules
 
-### tanstack-use-loading-state
-
-Never check `.data === undefined` as a proxy for loading — use TanStack Query's `.isLoading` or `.isPending`.
-_Rationale_: Conflates "loading" with "no data" and misses error states.
-
-### no-query-wrapper-accessors
-
-Don't wrap query properties in accessor functions — export the query object directly.
-_Rationale_: Wrapper accessors like `() => query.isLoading` add indirection without value; the query object is already reactive in SolidJS.
-
 ### dry-rule-of-three
 
 Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction. But identical content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count. Versions, ports, paths — define once, reference everywhere.
@@ -109,10 +99,6 @@ Simple means _not interleaved_. Each module does one thing. Data flows through a
 - No "for future use" code. Build what's needed now.
 - Prefer plain data over objects with behavior.
 
-### Styling
-
-- Tailwind utilities only in markup. No custom CSS unless truly impossible with Tailwind.
-
 ### Completeness
 
 - Implement the full spec. Read the plan/requirements and check every deliverable.
@@ -128,7 +114,6 @@ Simple means _not interleaved_. Each module does one thing. Data flows through a
 Group code by _rate of change_, not by technical layer. Things that change together live together; things that change independently get separate modules.
 
 - Each module should own one volatility zone.
-- UI components get their own file (`client/src/Header.tsx`, not inlined in `App.tsx`).
 - Shared constants used by multiple modules get their own file.
 
 ### Readability

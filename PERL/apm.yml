@@ -2,3 +2,7 @@ name: kolu-agents
 version: 1.0.0
 description: AI agent configuration for Kolu
 type: hybrid
+
+dependencies:
+  apm:
+    - srid/agency#19f94db7bde300100dd3407b764507a41fd85bfc

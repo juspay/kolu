@@ -141,9 +141,11 @@ When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
 ### fmt
 
-Run: `just fmt`
+Read the project's instructions to find the format command (typically documented in a workflow instruction). Run it.
 
-**Verify**: `just fmt` ran without error.
+If no format command is documented, skip this step with a note.
+
+**Verify**: Format command ran without error, or no command configured.
 
 ---
 
@@ -157,11 +159,11 @@ Create a NEW commit (never amend) with a conventional commit message. Push to th
 
 ### test
 
-Run only the e2e tests relevant to the code paths changed in this PR.
+Read the project's instructions to find the test command and strategy. Run only the tests relevant to the code paths changed in this PR.
 
-Use `git diff master...HEAD --name-only` to identify changed files, then run `just test-quick` with only the matching `.feature` files (e.g., `just test-quick features/worktree.feature`).
+Use `git diff <default-branch>...HEAD --name-only` to identify changed files and determine which tests are relevant.
 
-If changes are purely server-internal with no UI impact, unit tests may suffice — skip e2e if no relevant scenarios exist.
+If changes are purely internal with no user-facing impact, unit tests may suffice — skip e2e if no relevant scenarios exist. If no test command is documented, skip with a note.
 
 **Verify**: Tests pass (exit code 0), or no relevant tests to run.
 **If failed** (max 4 attempts): Analyze the failure. If flaky, re-run. If real: fix → go to **fmt**, then retry.
@@ -170,22 +172,18 @@ If changes are purely server-internal with no UI impact, unit tests may suffice 
 
 ### ci
 
-Run: `just ci` (with `run_in_background: true` — CI takes several minutes).
+Read the project's instructions to find the CI command and verification method. Run CI with `run_in_background: true` if the command takes more than a few seconds.
 
 **Never pipe CI to `tail`/`head`**, and **never append `2>&1`** — background mode captures both streams.
 
-**Verify**: Check GitHub commit statuses for **every** context from `just ci::_contexts`. Each must have a `ci/<context>` status of `success`:
+**Verify**: Use the verification method described in the project's instructions (e.g., checking commit statuses, reading CI output). If no CI command is documented, skip with a note.
 
-```
-gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
-```
-
-**On failure** — read the log file (path is in the commit status description) to diagnose.
+**On failure** — read logs or output to diagnose.
 
 **Flaky vs real**: A test is flaky only if it **passes on a subsequent retry**. Consistent failure = real bug. Before retrying, read the failing test code to judge if the failure pattern is inherently flaky (race conditions, timing, async waits).
 
-**If flaky** (max 3 retries): Retry just the failing step with `just ci::<step>`.
-**If real bug** (max 5 fixes): Fix → **fmt** → **commit** → retry `just ci`.
+**If flaky** (max 3 retries): Retry just the failing step.
+**If real bug** (max 5 fixes): Fix → **fmt** → **commit** → retry CI.
 **If retries exhausted**: Set workflow status to `"failed"`, skip to **done**.
 
 ---
