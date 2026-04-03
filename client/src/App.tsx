@@ -369,6 +369,7 @@ const App: Component = () => {
           <div
             class="h-full overflow-hidden"
             style={{ "background-color": activeTheme().background }}
+            data-testid="terminal-viewport"
           >
             <Show
               when={!session.isLoading()}
