@@ -1,10 +1,11 @@
-/** TerminalPane — wraps a main terminal + optional resizable sub-panel below. */
+/** TerminalPane — wraps a main terminal + optional resizable split panel below. */
 
 import { type Component, Show, For } from "solid-js";
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
+import SplitBar from "./SplitBar";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -45,20 +46,32 @@ const TerminalPane: Component<{
   return (
     <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
       {/*
-        No subs: plain terminal. With subs: Resizable split.
-        Sub-terminals mount once via Show+For and stay alive across collapse.
+        No splits: terminal + split bar affordance.
+        With splits: Resizable split. Terminals mount once via Show+For and stay alive across collapse.
       */}
       <Show
         when={hasSubs()}
         fallback={
-          <Terminal
-            terminalId={props.terminalId}
-            visible={props.visible}
-            theme={props.theme}
-            searchOpen={props.searchOpen}
-            onSearchOpenChange={props.onSearchOpenChange}
-            scrollLockEnabled={props.scrollLockEnabled}
-          />
+          <div class="flex flex-col h-full">
+            <div class="flex-1 min-h-0">
+              <Terminal
+                terminalId={props.terminalId}
+                visible={props.visible}
+                theme={props.theme}
+                searchOpen={props.searchOpen}
+                onSearchOpenChange={props.onSearchOpenChange}
+                scrollLockEnabled={props.scrollLockEnabled}
+              />
+            </div>
+            <SplitBar
+              onClick={() =>
+                props.onCreateSubTerminal(
+                  props.terminalId,
+                  props.activeMeta?.cwd,
+                )
+              }
+            />
+          </div>
         }
       >
         <Resizable
@@ -88,23 +101,30 @@ const TerminalPane: Component<{
             />
           </Resizable.Panel>
 
-          {/* Handle + collapsed indicator: always visible when subs exist */}
+          {/* Handle + collapsed indicator: always visible when splits exist */}
           <Resizable.Handle
             data-testid={isExpanded() ? "resize-handle" : "collapsed-indicator"}
             class={`shrink-0 transition-colors ${
               isExpanded()
                 ? "h-1 bg-edge hover:bg-accent-bright cursor-row-resize"
-                : "h-1 bg-accent/60 hover:bg-accent cursor-pointer"
+                : "h-6 bg-surface-0 border-t border-edge hover:bg-surface-1 cursor-pointer flex items-center justify-center"
             }`}
             aria-label={
               isExpanded()
-                ? "Resize sub-panel"
-                : `${props.subTerminalIds.length} sub-terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
+                ? "Resize split"
+                : `${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} — click to expand (Ctrl+\`)`
             }
             onClick={() => {
               if (!isExpanded()) subPanel.expandPanel(props.terminalId);
             }}
-          />
+          >
+            <Show when={!isExpanded()}>
+              <span class="text-xs text-fg-3">
+                +{props.subTerminalIds.length} split terminal
+                {props.subTerminalIds.length > 1 ? "s" : ""}
+              </span>
+            </Show>
+          </Resizable.Handle>
 
           <Resizable.Panel
             as="div"

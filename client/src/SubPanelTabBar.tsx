@@ -1,4 +1,4 @@
-/** Tab bar for sub-terminals within a parent's sub-panel. */
+/** Tab bar for split terminals within a parent terminal. */
 
 import { type Component, For } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -43,7 +43,7 @@ const SubPanelTabBar: Component<{
       <button
         class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
-        title="New sub-terminal"
+        title="Split terminal"
       >
         +
       </button>

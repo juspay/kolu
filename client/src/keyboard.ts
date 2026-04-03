@@ -120,19 +120,19 @@ export const SHORTCUTS = {
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
   toggleSubPanel: {
     keybind: { key: "`", code: "Backquote", ctrl: true },
-    label: "Toggle sub-panel",
+    label: "Toggle terminal split",
   },
   createSubTerminal: {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
-    label: "New sub-terminal",
+    label: "Split terminal",
   },
   nextSubTab: {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    label: "Next sub-tab",
+    label: "Next split tab",
   },
   prevSubTab: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    label: "Previous sub-tab",
+    label: "Previous split tab",
   },
   missionControl: {
     keybind: { key: ".", mod: true },

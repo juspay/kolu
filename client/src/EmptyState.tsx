@@ -51,7 +51,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 </For>
                 <Show when={subCount() > 0}>
                   <div class="text-xs text-fg-3/50">
-                    +{subCount()} sub-terminal{subCount() > 1 ? "s" : ""}
+                    +{subCount()} split terminal{subCount() > 1 ? "s" : ""}
                   </div>
                 </Show>
               </div>
