@@ -63,6 +63,13 @@ When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
     await paletteCommand(this, "Toggle terminal split");
+    // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
+    // Wait for the sub-terminal to actually exist before proceeding — otherwise
+    // the next "toggle" command may see no subs and create again instead.
+    await this.page.waitForFunction(
+      () => document.querySelector("[data-sub-terminal]") !== null,
+      { timeout: 10_000 },
+    );
   },
 );
 
@@ -176,7 +183,15 @@ Then(
 When(
   "I create another sub-terminal via command palette",
   async function (this: KoluWorld) {
+    const countBefore = await this.page.locator("[data-sub-terminal]").count();
     await paletteCommand(this, "Split terminal");
+    // Wait for the new sub-terminal to mount (async RPC creation)
+    await this.page.waitForFunction(
+      (expected) =>
+        document.querySelectorAll("[data-sub-terminal]").length >= expected,
+      countBefore + 1,
+      { timeout: 10_000 },
+    );
   },
 );
 
@@ -242,8 +257,13 @@ Then(
 Then(
   "the collapsed indicator should be visible",
   async function (this: KoluWorld) {
+    // First wait for the tab bar to disappear (confirms collapse state settled)
+    await this.page
+      .locator('[data-testid="sub-panel-tab-bar"]')
+      .waitFor({ state: "hidden", timeout: 10_000 });
+    // Then wait for the collapsed strip to mount and be visible
     const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
-    await indicator.waitFor({ state: "visible", timeout: 5000 });
+    await indicator.waitFor({ state: "visible", timeout: 10_000 });
   },
 );
 
