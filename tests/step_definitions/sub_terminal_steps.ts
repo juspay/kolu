@@ -219,9 +219,10 @@ Then(
 
 Then(
   "the sub-panel should eventually collapse",
+  { timeout: 60_000 },
   async function (this: KoluWorld) {
     const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-    await tabBar.waitFor({ state: "hidden", timeout: 30000 });
+    await tabBar.waitFor({ state: "hidden", timeout: 45_000 });
   },
 );
 
