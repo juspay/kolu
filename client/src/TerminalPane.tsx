@@ -6,7 +6,9 @@ import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
 import SplitPrompt from "./SplitPrompt";
+import Kbd from "./Kbd";
 import { useSubPanel } from "./useSubPanel";
+import { SHORTCUTS, formatKeybind } from "./keyboard";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const TerminalPane: Component<{
@@ -125,7 +127,7 @@ const TerminalPane: Component<{
                 ▸ {props.subTerminalIds.length} split
                 {props.subTerminalIds.length > 1 ? "s" : ""}
               </span>
-              <span class="text-fg-3">click to expand</span>
+              <Kbd>{formatKeybind(SHORTCUTS.toggleSubPanel.keybind)}</Kbd>
             </Show>
           </Resizable.Handle>
 
