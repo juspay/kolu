@@ -170,7 +170,7 @@ const Sidebar: Component<{
               data-testid="new-terminal-menu"
               class="px-2 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
               onClick={props.onNewTerminalMenu}
-              title="New terminal in worktree…"
+              title="More options"
             >
               <svg
                 class="w-3 h-3"
