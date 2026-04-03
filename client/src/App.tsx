@@ -358,6 +358,7 @@ const App: Component = () => {
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
+          onNewTerminalMenu={() => openPaletteGroup("New terminal")}
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}

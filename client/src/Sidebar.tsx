@@ -101,6 +101,7 @@ const Sidebar: Component<{
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
+  onNewTerminalMenu: () => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
@@ -155,13 +156,23 @@ const Sidebar: Component<{
         }}
       >
         <Tip label="New terminal" class="w-full">
-          <button
-            data-testid="create-terminal"
-            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
-            onClick={props.onCreate}
-          >
-            + New terminal
-          </button>
+          <div class="flex border-b border-edge">
+            <button
+              data-testid="create-terminal"
+              class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onCreate}
+            >
+              + New terminal
+            </button>
+            <button
+              data-testid="new-terminal-menu"
+              class="px-1.5 text-sm text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onNewTerminalMenu}
+              title="More options…"
+            >
+              ▾
+            </button>
+          </div>
         </Tip>
         <nav class="flex-1 overflow-y-auto">
           <DragDropProvider
