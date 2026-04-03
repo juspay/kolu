@@ -77,6 +77,8 @@ const Terminal: Component<{
   onFocus?: () => void;
   /** When true, viewport freezes when user scrolls up (default: true). */
   scrollLockEnabled?: boolean;
+  /** Whether this terminal lives in a sub-panel (used for e2e test selectors). */
+  isSub?: boolean;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
@@ -384,6 +386,7 @@ const Terminal: Component<{
         class="w-full h-full overflow-hidden touch-manipulation"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
+        data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
         onClick={() => terminal?.focus()}
       />

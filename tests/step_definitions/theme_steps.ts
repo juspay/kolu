@@ -30,15 +30,16 @@ When(
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The terminal area's parent container div has inline background-color.
+    // The terminal viewport div has inline background-color set by the active theme.
     // Poll since theme change involves async reset + screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
     const bgColor = await pollUntil(
       this.page,
       () =>
         this.page.evaluate(() => {
-          const el = document.querySelector("[data-visible]");
-          const container = el?.parentElement?.closest("[style]");
+          const container = document.querySelector(
+            '[data-testid="terminal-viewport"]',
+          );
           return container ? getComputedStyle(container).backgroundColor : "";
         }),
       (bg) => bg === expectedRgb,

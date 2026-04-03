@@ -147,6 +147,7 @@ const TerminalPane: Component<{
                       subPanel.setFocusTarget(props.terminalId, "sub")
                     }
                     scrollLockEnabled={props.scrollLockEnabled}
+                    isSub
                   />
                 )}
               </For>

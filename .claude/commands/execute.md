@@ -179,7 +179,7 @@ gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | star
 
 **Flaky vs real**: A test is flaky only if it **passes on a subsequent retry**. Consistent failure = real bug. Before retrying, read the failing test code to judge if the failure pattern is inherently flaky (race conditions, timing, async waits).
 
-**If flaky** (max 20 retries): Retry just the failing step with `just ci::<step>`.
+**If flaky** (max 3 retries): Retry just the failing step with `just ci::<step>`.
 **If real bug** (max 5 fixes): Fix → **fmt** → **commit** → retry `just ci`.
 **If retries exhausted**: Set workflow status to `"failed"`, skip to **done**.
 
