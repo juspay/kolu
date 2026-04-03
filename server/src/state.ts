@@ -8,21 +8,30 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import type { RecentRepo, SavedSession } from "kolu-common";
-
-interface StateSchema {
-  recentRepos: RecentRepo[];
-  session: SavedSession | null;
-}
+import type {
+  RecentRepo,
+  Preferences,
+  ServerState,
+  ServerStatePatch,
+} from "kolu-common";
 
 /**
  * Schema version — bump this when adding migrations.
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.1.0";
+const SCHEMA_VERSION = "1.2.0";
 
-export const store = new Conf<StateSchema>({
+const DEFAULT_PREFERENCES: Preferences = {
+  seenTips: [],
+  startupTips: true,
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  colorScheme: "dark",
+};
+
+export const store = new Conf<ServerState>({
   projectName: "kolu",
   // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
   projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
@@ -30,11 +39,19 @@ export const store = new Conf<StateSchema>({
   defaults: {
     recentRepos: [],
     session: null,
+    preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
     // sortOrder added to SavedTerminal — old sessions don't have it.
     // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
     "1.1.0": () => {},
+    // Preferences added — old state files don't have them.
+    // conf auto-merges defaults, but explicit migration ensures clean shape.
+    "1.2.0": (store: Conf<ServerState>) => {
+      if (!store.has("preferences")) {
+        store.set("preferences", DEFAULT_PREFERENCES);
+      }
+    },
   },
 });
 
@@ -74,4 +91,31 @@ export function getRecentRepos(): RecentRepo[] {
   const live = repos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < repos.length) store.set("recentRepos", live);
   return live;
+}
+
+// --- Server state ---
+
+/** Get the full server state. */
+export function getServerState(): ServerState {
+  return {
+    recentRepos: getRecentRepos(),
+    session: store.get("session"),
+    preferences: store.get("preferences"),
+  };
+}
+
+/** Merge a partial update into the current state. */
+export function updateServerState(patch: ServerStatePatch): void {
+  if (patch.recentRepos !== undefined) {
+    store.set("recentRepos", patch.recentRepos);
+  }
+  if (patch.session !== undefined) {
+    store.set("session", patch.session);
+  }
+  if (patch.preferences !== undefined) {
+    store.set("preferences", {
+      ...store.get("preferences"),
+      ...patch.preferences,
+    });
+  }
 }

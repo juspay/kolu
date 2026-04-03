@@ -8,13 +8,15 @@ Given(
   async function (this: KoluWorld, count: number) {
     // Use paths guaranteed to exist on all platforms (no mkdir needed)
     const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
-    const resp = await this.page.request.fetch("/rpc/session/test__set", {
+    const resp = await this.page.request.fetch("/rpc/state/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       data: JSON.stringify({
         json: {
-          terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
-          savedAt: Date.now(),
+          session: {
+            terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
+            savedAt: Date.now(),
+          },
         },
       }),
     });

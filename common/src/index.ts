@@ -177,6 +177,34 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
+// --- User preferences (server-side, shared with client) ---
+
+export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+
+export const PreferencesSchema = z.object({
+  seenTips: z.array(z.string()),
+  startupTips: z.boolean(),
+  randomTheme: z.boolean(),
+  scrollLock: z.boolean(),
+  activityAlerts: z.boolean(),
+  colorScheme: ColorSchemeSchema,
+});
+
+// --- Unified server state ---
+
+export const ServerStateSchema = z.object({
+  recentRepos: z.array(RecentRepoSchema),
+  session: SavedSessionSchema.nullable(),
+  preferences: PreferencesSchema,
+});
+
+/** Partial patch for state updates — all fields optional, preferences partially mergeable. */
+export const ServerStatePatchSchema = z.object({
+  recentRepos: z.array(RecentRepoSchema).optional(),
+  session: SavedSessionSchema.nullable().optional(),
+  preferences: PreferencesSchema.partial().optional(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
@@ -189,3 +217,7 @@ export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type Preferences = z.infer<typeof PreferencesSchema>;
+export type ServerState = z.infer<typeof ServerStateSchema>;
+export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;

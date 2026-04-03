@@ -1,33 +1,17 @@
-/** User preferences — persisted booleans independent of terminal state. */
+/** User preferences — reads from server state, writes via mutation. */
 
-import { createSignal } from "solid-js";
-import { makePersisted } from "@solid-primitives/storage";
-
-const [randomTheme, setRandomTheme] = makePersisted(createSignal(true), {
-  name: "kolu-random-theme",
-  serialize: String,
-  deserialize: (s) => s !== "false",
-});
-
-const [scrollLock, setScrollLock] = makePersisted(createSignal(true), {
-  name: "kolu-scroll-lock",
-  serialize: String,
-  deserialize: (s) => s !== "false",
-});
-
-const [activityAlerts, setActivityAlerts] = makePersisted(createSignal(true), {
-  name: "kolu-activity-alerts",
-  serialize: String,
-  deserialize: (s) => s !== "false",
-});
+import { useServerState } from "./useServerState";
 
 export function usePreferences() {
+  const { preferences, updatePreferences } = useServerState();
+
   return {
-    randomTheme,
-    setRandomTheme,
-    scrollLock,
-    setScrollLock,
-    activityAlerts,
-    setActivityAlerts,
+    randomTheme: () => preferences().randomTheme,
+    setRandomTheme: (on: boolean) => updatePreferences({ randomTheme: on }),
+    scrollLock: () => preferences().scrollLock,
+    setScrollLock: (on: boolean) => updatePreferences({ scrollLock: on }),
+    activityAlerts: () => preferences().activityAlerts,
+    setActivityAlerts: (on: boolean) =>
+      updatePreferences({ activityAlerts: on }),
   } as const;
 }

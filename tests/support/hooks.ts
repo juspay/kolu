@@ -103,17 +103,30 @@ AfterAll(async function () {
 });
 
 Before(async function (this: KoluWorld) {
-  // Kill leftover terminals and clear saved session so each scenario starts clean
+  // Kill leftover terminals and reset state so each scenario starts clean
   await Promise.all([
     fetch(`${baseUrl}/rpc/terminal/killAll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     }),
-    fetch(`${baseUrl}/rpc/session/clear`, {
+    fetch(`${baseUrl}/rpc/state/test__set`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        json: {
+          session: null,
+          // Reset all preferences to defaults (randomTheme off for deterministic tests)
+          preferences: {
+            seenTips: [],
+            startupTips: true,
+            randomTheme: false,
+            scrollLock: true,
+            activityAlerts: true,
+            colorScheme: "dark",
+          },
+        },
+      }),
     }),
   ]);
 
@@ -139,10 +152,6 @@ Before(async function (this: KoluWorld) {
       document.head.appendChild(style);
     });
   `);
-  // Disable random theme so tests get deterministic default theme
-  await this.page.addInitScript(() =>
-    localStorage.setItem("kolu-random-theme", "false"),
-  );
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
 });

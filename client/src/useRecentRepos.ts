@@ -1,13 +1,11 @@
-/** Recent repos — fetched from server for worktree creation without needing an active git terminal. */
+/** Recent repos — reads from unified server state. */
 
-import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./orpc";
-import type { RecentRepo } from "kolu-common";
+import { useServerState } from "./useServerState";
 
 export function useRecentRepos() {
-  const query = createQuery(() => orpc.git.recentRepos.queryOptions());
+  const { recentRepos, invalidate } = useServerState();
   return {
-    recentRepos: () => (query.data ?? []) as RecentRepo[],
-    refetch: () => query.refetch(),
+    recentRepos,
+    refetch: invalidate,
   };
 }
