@@ -1,6 +1,6 @@
 ---
 argument-hint: <github-issue-url | prompt> [--review] [--from <step>]
-description: Execute a task end-to-end — implement, PR, CI loop, ship
+description: Do a task end-to-end — implement, PR, CI loop, ship
 ---
 
 # Execute Workflow
