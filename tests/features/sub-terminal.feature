@@ -97,6 +97,23 @@ Feature: Sub-terminals
     Then the sub-terminal should have keyboard focus
     And there should be no page errors
 
+  Scenario: Close sub-terminal via tab close button
+    When I create a sub-terminal via command palette
+    And I create another sub-terminal via command palette
+    Then the sub-panel tab bar should have 2 tabs
+    When I close sub-terminal tab 1
+    Then the sub-panel tab bar should have 1 tab
+    And the sub-terminal should have keyboard focus
+    And the sidebar entry should show sub-terminal count 1
+    And there should be no page errors
+
+  Scenario: Close last sub-terminal collapses panel
+    When I create a sub-terminal via command palette
+    When I close sub-terminal tab 1
+    Then the sub-panel should eventually collapse
+    And the sidebar entry should not show a sub-terminal count
+    And there should be no page errors
+
   Scenario: Resize handle visible when expanded
     When I create a sub-terminal via command palette
     Then the resize handle should be visible

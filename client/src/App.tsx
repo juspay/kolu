@@ -397,6 +397,7 @@ const App: Component = () => {
                     onCreateSubTerminal={(parentId, cwd) =>
                       void crud.handleCreateSubTerminal(parentId, cwd)
                     }
+                    onCloseTerminal={closeTerminal}
                     activeMeta={store.activeMeta()}
                     scrollLockEnabled={scrollLock()}
                   />

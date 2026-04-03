@@ -234,6 +234,21 @@ Then(
   },
 );
 
+When(
+  "I close sub-terminal tab {int}",
+  async function (this: KoluWorld, index: number) {
+    const tab = this.page
+      .locator(
+        '[data-testid="sub-panel-tab-bar"] [data-testid="sub-tab-close"]',
+      )
+      .nth(index - 1);
+    // Hover the parent to reveal the close button
+    await tab.locator("..").hover();
+    await tab.click();
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the sub-panel should eventually collapse",
   { timeout: 60_000 },
