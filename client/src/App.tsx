@@ -230,7 +230,7 @@ const App: Component = () => {
       </Show>
       <Toaster
         position="bottom-right"
-        theme="dark"
+        theme={colorScheme()}
         richColors
         toastOptions={{
           style: {
