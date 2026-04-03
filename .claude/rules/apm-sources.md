@@ -5,11 +5,11 @@ paths:
 
 ## Generated Files — Do Not Edit Directly
 
-Everything under `.claude/` (except `launch.json`) is **generated** from `PERL/.apm/` by APM. Direct edits will be overwritten on the next `just apm` run.
+Everything under `.claude/` (except `launch.json`) is **generated** from `.apm/` sources by APM. Direct edits will be overwritten on the next `apm install` run.
 
-**To modify agent configuration, edit the source files in `PERL/.apm/`:**
+**To modify agent configuration, edit the source files in `.apm/`:**
 
-| `.claude/` output | Source in `PERL/.apm/`             |
+| `.claude/` output | Source in `.apm/`                  |
 | ----------------- | ---------------------------------- |
 | `rules/*.md`      | `instructions/*.instructions.md`   |
 | `commands/*.md`   | `prompts/*.prompt.md`              |
@@ -17,4 +17,4 @@ Everything under `.claude/` (except `launch.json`) is **generated** from `PERL/.
 | `hooks/`          | `hooks/`                           |
 | `settings.json`   | Hook definitions in `hooks/*.json` |
 
-After editing, run `just apm` to regenerate `.claude/` from sources. CI enforces sync via `just apm-sync`.
+After editing, run `apm install` to regenerate `.claude/` from sources.

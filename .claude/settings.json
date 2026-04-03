@@ -6,10 +6,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/PERL/scripts/execute-stop-guard.sh"
+            "command": ".claude/hooks/agency/scripts/execute-stop-guard.sh"
           }
         ],
-        "_apm_source": "PERL"
+        "_apm_source": "agency"
       }
     ]
   }
