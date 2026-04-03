@@ -1,6 +1,3 @@
 npins/default.nix linguist-generated
-.claude/commands/** linguist-generated
-.claude/rules/** linguist-generated
-.claude/skills/** linguist-generated
-.claude/hooks/** linguist-generated
-.claude/settings.json linguist-generated
+.claude/** linguist-generated
+.claude/launch.json -linguist-generated
