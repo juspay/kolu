@@ -40,20 +40,17 @@ export function useTerminalCrud(deps: {
     onError: () => toast.error("Failed to set parent"),
   }));
 
-  const createMut = createMutation(() => ({
-    ...orpc.terminal.create.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to create terminal: ${err.message}`),
-  }));
+  const createMut = createMutation(() =>
+    orpc.terminal.create.mutationOptions(),
+  );
 
   const killMut = createMutation(() => ({
     ...orpc.terminal.kill.mutationOptions(),
   }));
 
-  const killAllMut = createMutation(() => ({
-    ...orpc.terminal.killAll.mutationOptions(),
-    onError: () => toast.error("Failed to close all terminals"),
-  }));
+  const killAllMut = createMutation(() =>
+    orpc.terminal.killAll.mutationOptions(),
+  );
 
   const reorderMut = createMutation(() => ({
     ...orpc.terminal.reorder.mutationOptions(),
@@ -138,7 +135,13 @@ export function useTerminalCrud(deps: {
   async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    const info = await createMut.mutateAsync({ cwd });
+    const promise = createMut.mutateAsync({ cwd });
+    toast.promise(promise, {
+      loading: "Creating terminal…",
+      success: "Terminal created",
+      error: (e) => `Failed to create terminal: ${e.message}`,
+    });
+    const info = await promise;
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
@@ -151,7 +154,13 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const info = await createMut.mutateAsync({ cwd, parentId });
+    const promise = createMut.mutateAsync({ cwd, parentId });
+    toast.promise(promise, {
+      loading: "Creating sub-terminal…",
+      success: "Sub-terminal created",
+      error: (e) => `Failed to create sub-terminal: ${e.message}`,
+    });
+    const info = await promise;
     addToList(info);
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
@@ -181,7 +190,13 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCloseAll() {
-    await killAllMut.mutateAsync(undefined);
+    const promise = killAllMut.mutateAsync(undefined);
+    toast.promise(promise, {
+      loading: "Closing all terminals…",
+      success: "All terminals closed",
+      error: "Failed to close all terminals",
+    });
+    await promise;
     qc.setQueryData(listKey, []);
     store.reset();
   }
