@@ -51,7 +51,12 @@ async function paletteCommand(world: KoluWorld, query: string) {
     PALETTE,
     { timeout: 5000 },
   );
-  await world.waitForFrame();
+  // Wait for focus to land in a terminal — Corvu's focus trap release is async
+  // and waitForFrame (2x rAF) is insufficient on loaded CI.
+  await world.page.waitForFunction(
+    () => !!document.activeElement?.closest("[data-terminal-id]"),
+    { timeout: 5000 },
+  );
 }
 
 When(
@@ -77,12 +82,9 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Wait for focus to be in a sub-terminal (not the main one)
+    // Wait for focus to be specifically in a sub-terminal, not the main one
     await this.page.waitForFunction(
-      () => {
-        const active = document.activeElement;
-        return active && !!active.closest("[data-terminal-id]");
-      },
+      () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: 5000 },
     );
     await this.page.keyboard.type(command);
@@ -104,29 +106,26 @@ Then("the sub-panel should not be visible", async function (this: KoluWorld) {
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
+    // Wait for focus to land inside a [data-sub-terminal] container directly —
+    // no indirect ID comparison with the sidebar's active entry.
     const result = await pollUntil(
       this.page,
       () =>
         this.page.evaluate(() => {
           const active = document.activeElement;
           if (!active) return { focused: false, reason: "no activeElement" };
+          const sub = active.closest("[data-sub-terminal]");
+          if (sub) return { focused: true, reason: "focus in sub-terminal" };
           const container = active.closest("[data-terminal-id]");
-          if (!container)
-            return { focused: false, reason: "focus not in terminal" };
-          const focusedId = container.getAttribute("data-terminal-id");
-          const activeEntry = document.querySelector(
-            '[data-testid="sidebar"] button[data-active]',
-          );
-          const mainId = activeEntry
-            ?.closest("[data-terminal-id]")
-            ?.getAttribute("data-terminal-id");
           return {
-            focused: focusedId !== mainId,
-            reason: `focused=${focusedId} main=${mainId}`,
+            focused: false,
+            reason: container
+              ? `focus in main terminal (${container.getAttribute("data-terminal-id")})`
+              : "focus not in any terminal",
           };
         }),
       (val) => val.focused,
-      { attempts: 30, intervalMs: 100 },
+      { attempts: 50, intervalMs: 100 },
     );
     assert.ok(
       result.focused,
@@ -142,7 +141,7 @@ Then(
     try {
       await this.page.waitForFunction(
         () => !!document.activeElement?.closest("[data-visible]"),
-        { timeout: 3000 },
+        { timeout: 5000 },
       );
     } catch {
       // If focus didn't auto-return, click the canvas to force it
