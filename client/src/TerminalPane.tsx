@@ -5,10 +5,8 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
-import SplitPrompt from "./SplitPrompt";
-import Kbd from "./Kbd";
+import SplitStrip from "./SplitStrip";
 import { useSubPanel } from "./useSubPanel";
-import { SHORTCUTS, formatKeybind } from "./keyboard";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const TerminalPane: Component<{
@@ -65,8 +63,9 @@ const TerminalPane: Component<{
                 scrollLockEnabled={props.scrollLockEnabled}
               />
             </div>
-            <SplitPrompt
-              onCreate={() =>
+            <SplitStrip
+              variant="prompt"
+              onClick={() =>
                 props.onCreateSubTerminal(
                   props.terminalId,
                   props.activeMeta?.cwd,
@@ -116,20 +115,11 @@ const TerminalPane: Component<{
 
           {/* Collapsed strip — plain button, no Corvu resize interference */}
           <Show when={!isExpanded()}>
-            <button
-              data-testid="collapsed-indicator"
-              class="shrink-0 h-6 bg-surface-1 border-t border-accent cursor-pointer
-                     flex items-center justify-center gap-3 text-[11px] font-mono
-                     hover:brightness-110 transition-all"
-              aria-label={`${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`}
+            <SplitStrip
+              variant="collapsed"
+              count={props.subTerminalIds.length}
               onClick={() => subPanel.expandPanel(props.terminalId)}
-            >
-              <span class="text-accent font-medium">
-                ▸ {props.subTerminalIds.length} split
-                {props.subTerminalIds.length > 1 ? "s" : ""}
-              </span>
-              <Kbd>{formatKeybind(SHORTCUTS.toggleSubPanel.keybind)}</Kbd>
-            </button>
+            />
           </Show>
 
           <Resizable.Panel
