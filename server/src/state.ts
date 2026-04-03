@@ -104,11 +104,9 @@ export function getServerState(): ServerState {
   };
 }
 
-/** Merge a partial update into the current state. */
+/** Merge a partial update into the current state.
+ *  recentRepos is server-managed (tracked on terminal create) — ignored in patches. */
 export function updateServerState(patch: ServerStatePatch): void {
-  if (patch.recentRepos !== undefined) {
-    store.set("recentRepos", patch.recentRepos);
-  }
   if (patch.session !== undefined) {
     store.set("session", patch.session);
   }

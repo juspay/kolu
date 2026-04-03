@@ -1,7 +1,7 @@
 /**
  * Unified server state — single query for loading, local store for instant reactivity.
  *
- * Preferences use a SolidJS store for synchronous UI updates.
+ * Preferences use a singleton SolidJS store shared across all callers.
  * Mutations fire to the server in the background; the store is the UI source of truth.
  */
 
@@ -30,28 +30,32 @@ const DEFAULT_PREFERENCES: Preferences = {
   colorScheme: "dark",
 };
 
+// Singleton store — all callers share one reactive source of truth.
+const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
+let storeInitialized = false;
+
 export function useServerState() {
   const qc = useQueryClient();
   const query = createQuery(() => orpc.state.get.queryOptions());
 
-  // Local reactive store — synced from query, updated directly on mutations.
-  const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
-
-  // Sync store from query on initial load and refetch
-  createEffect(
-    on(
-      () => query.data?.preferences,
-      (serverPrefs) => {
-        if (serverPrefs) setPrefs(reconcile(serverPrefs));
-      },
-    ),
-  );
+  // Sync singleton store from query — only the first caller wires this up.
+  if (!storeInitialized) {
+    storeInitialized = true;
+    createEffect(
+      on(
+        () => query.data?.preferences,
+        (serverPrefs) => {
+          if (serverPrefs) setPrefs(reconcile(serverPrefs));
+        },
+      ),
+    );
+  }
 
   const updateMut = createMutation(() => orpc.state.update.mutationOptions());
 
   /** Update one or more preferences. Instant local update + async server persist. */
   function updatePreferences(patch: Partial<Preferences>) {
-    // Synchronous local update — UI reacts immediately
+    // Synchronous local update — UI reacts immediately (singleton store)
     setPrefs(patch);
     // Async server persist
     updateMut.mutate({ preferences: patch });
@@ -68,7 +72,7 @@ export function useServerState() {
     query,
     /** Full server state (undefined while loading). */
     state: () => query.data as ServerState | undefined,
-    /** Preferences — local store, synced from server on load. */
+    /** Preferences — singleton store, synced from server on load. */
     preferences: () => prefs,
     recentRepos: () => (query.data?.recentRepos ?? []) as RecentRepo[],
     savedSession: () => (query.data?.session ?? null) as SavedSession | null,
