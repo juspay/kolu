@@ -65,7 +65,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             onSelect: () => deps.handleClose(),
           },
           {
-            name: "Toggle sub-panel",
+            name: "Toggle terminal split",
             keybind: SHORTCUTS.toggleSubPanel.keybind,
             onSelect: () => {
               const id = deps.activeId()!;
@@ -77,7 +77,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             },
           },
           {
-            name: "New sub-terminal",
+            name: "Split terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
               deps.handleCreateSubTerminal(

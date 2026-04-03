@@ -5,6 +5,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
+import SplitStrip from "./SplitStrip";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -51,14 +52,27 @@ const TerminalPane: Component<{
       <Show
         when={hasSubs()}
         fallback={
-          <Terminal
-            terminalId={props.terminalId}
-            visible={props.visible}
-            theme={props.theme}
-            searchOpen={props.searchOpen}
-            onSearchOpenChange={props.onSearchOpenChange}
-            scrollLockEnabled={props.scrollLockEnabled}
-          />
+          <div class="flex flex-col h-full">
+            <div class="flex-1 min-h-0">
+              <Terminal
+                terminalId={props.terminalId}
+                visible={props.visible}
+                theme={props.theme}
+                searchOpen={props.searchOpen}
+                onSearchOpenChange={props.onSearchOpenChange}
+                scrollLockEnabled={props.scrollLockEnabled}
+              />
+            </div>
+            <SplitStrip
+              variant="prompt"
+              onClick={() =>
+                props.onCreateSubTerminal(
+                  props.terminalId,
+                  props.activeMeta?.cwd,
+                )
+              }
+            />
+          </div>
         }
       >
         <Resizable
@@ -88,23 +102,25 @@ const TerminalPane: Component<{
             />
           </Resizable.Panel>
 
-          {/* Handle + collapsed indicator: always visible when subs exist */}
+          {/* Resize handle — only visible when expanded */}
           <Resizable.Handle
-            data-testid={isExpanded() ? "resize-handle" : "collapsed-indicator"}
-            class={`shrink-0 transition-colors ${
-              isExpanded()
-                ? "h-1 bg-edge hover:bg-accent-bright cursor-row-resize"
-                : "h-1 bg-accent/60 hover:bg-accent cursor-pointer"
-            }`}
-            aria-label={
-              isExpanded()
-                ? "Resize sub-panel"
-                : `${props.subTerminalIds.length} sub-terminal${props.subTerminalIds.length > 1 ? "s" : ""} (Ctrl+\`)`
-            }
-            onClick={() => {
-              if (!isExpanded()) subPanel.expandPanel(props.terminalId);
+            data-testid="resize-handle"
+            class="shrink-0 transition-all"
+            classList={{
+              "h-1 bg-edge hover:bg-accent-bright": isExpanded(),
+              "h-0": !isExpanded(),
             }}
+            aria-label="Resize terminal split"
           />
+
+          {/* Collapsed strip — plain button, no Corvu resize interference */}
+          <Show when={!isExpanded()}>
+            <SplitStrip
+              variant="collapsed"
+              count={props.subTerminalIds.length}
+              onClick={() => subPanel.expandPanel(props.terminalId)}
+            />
+          </Show>
 
           <Resizable.Panel
             as="div"
@@ -123,6 +139,7 @@ const TerminalPane: Component<{
                 onSelect={(id) =>
                   subPanel.setActiveSubTab(props.terminalId, id)
                 }
+                onCollapse={() => subPanel.collapsePanel(props.terminalId)}
                 onCreate={() =>
                   props.onCreateSubTerminal(
                     props.terminalId,

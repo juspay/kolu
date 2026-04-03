@@ -57,7 +57,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
 When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal split");
   },
 );
 
@@ -70,7 +70,7 @@ When("I click the main terminal", async function (this: KoluWorld) {
 When(
   "I toggle the sub-panel via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle sub");
+    await paletteCommand(this, "Toggle terminal split");
   },
 );
 
@@ -173,7 +173,7 @@ Then(
 When(
   "I create another sub-terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "New sub-terminal");
+    await paletteCommand(this, "Split terminal");
   },
 );
 
@@ -181,7 +181,7 @@ When(
   "I click sub-panel tab {int}",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title])',
     );
     await tabs.nth(index - 1).click();
     await this.waitForFrame();
@@ -191,8 +191,7 @@ When(
 Then(
   "the sub-panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
-    const sel =
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])';
+    const sel = '[data-testid="sub-panel-tab-bar"] button:not([title])';
     // Poll — the second sub-terminal may still be initializing
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
@@ -206,7 +205,7 @@ Then(
   "sub-panel tab {int} should be active",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title="New sub-terminal"])',
+      '[data-testid="sub-panel-tab-bar"] button:not([title])',
     );
     const tab = tabs.nth(index - 1);
     const active = await tab.getAttribute("data-active");

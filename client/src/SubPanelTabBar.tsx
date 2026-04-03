@@ -10,6 +10,7 @@ const SubPanelTabBar: Component<{
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
+  onCollapse: () => void;
 }> = (props) => {
   return (
     <div
@@ -43,9 +44,17 @@ const SubPanelTabBar: Component<{
       <button
         class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
         onClick={props.onCreate}
-        title="New sub-terminal"
+        title="Split terminal"
       >
         +
+      </button>
+      <div class="flex-1" />
+      <button
+        class="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-mono text-fg-3 hover:text-fg-2 hover:bg-surface-2 transition-colors cursor-pointer"
+        onClick={props.onCollapse}
+        title="Hide terminal split"
+      >
+        <span class="text-[10px]">▾</span> Hide
       </button>
     </div>
   );
