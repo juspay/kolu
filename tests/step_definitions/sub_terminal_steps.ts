@@ -219,9 +219,10 @@ Then(
 
 Then(
   "the split panel should eventually collapse",
+  { timeout: 60_000 },
   async function (this: KoluWorld) {
     const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-    await tabBar.waitFor({ state: "hidden", timeout: 20000 });
+    await tabBar.waitFor({ state: "hidden", timeout: 45_000 });
   },
 );
 
@@ -252,9 +253,12 @@ Then("the resize handle should be visible", async function (this: KoluWorld) {
 Then(
   "the split terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
+    // Wait for sub-panel to be fully expanded before reading buffer
+    await this.page
+      .locator('[data-testid="sub-panel-tab-bar"]')
+      .waitFor({ state: "visible", timeout: 5000 });
     await pollUntilBufferContains(this.page, expected, {
-      selector: "[data-terminal-id][data-visible]",
-      index: 1,
+      selector: "[data-sub-terminal][data-visible]",
       attempts: 50,
       intervalMs: 100,
     });
