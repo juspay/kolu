@@ -6,7 +6,7 @@ Feature: Sub-terminals
 
   Scenario: Create sub-terminal via command palette
     When I open the command palette
-    And I type "Toggle sub" in the palette
+    And I type "Toggle terminal split" in the palette
     And I press Enter
     Then the sub-panel should be visible
     And the sub-terminal should have keyboard focus
