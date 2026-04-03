@@ -1,5 +1,5 @@
-# PERL
+# agents
 
-AI agent configuration package for Kolu, managed by [APM](https://github.com/microsoft/apm). See [srid.ca/ai](https://srid.ca/ai) for context.
+Kolu-specific agent configuration, managed by [APM](https://microsoft.github.io/apm/). Shared workflow and skills come from [srid/agency](https://github.com/srid/agency).
 
 `just apm` deploys primitives from `.apm/` to `.claude/` (rules, commands, skills, hooks). Vendored output is committed; CI runs `just apm-sync` to verify it stays in sync.
