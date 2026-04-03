@@ -3,6 +3,8 @@
 import { type Component, For } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { cwdBasename } from "./path";
+import SplitBadge from "./SplitBadge";
+import { SHORTCUTS, formatKeybind } from "./keyboard";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -10,6 +12,7 @@ const SubPanelTabBar: Component<{
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onSelect: (id: TerminalId) => void;
   onCreate: () => void;
+  onCollapse: () => void;
 }> = (props) => {
   return (
     <div
@@ -47,6 +50,12 @@ const SubPanelTabBar: Component<{
       >
         +
       </button>
+      <SplitBadge
+        onClick={props.onCollapse}
+        title={`Hide split (${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)})`}
+      >
+        ▾ Hide
+      </SplitBadge>
     </div>
   );
 };

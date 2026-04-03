@@ -6,6 +6,7 @@ import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
 import SplitBar from "./SplitBar";
+import SplitBadge from "./SplitBadge";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -52,17 +53,15 @@ const TerminalPane: Component<{
       <Show
         when={hasSubs()}
         fallback={
-          <div class="flex flex-col h-full">
-            <div class="flex-1 min-h-0">
-              <Terminal
-                terminalId={props.terminalId}
-                visible={props.visible}
-                theme={props.theme}
-                searchOpen={props.searchOpen}
-                onSearchOpenChange={props.onSearchOpenChange}
-                scrollLockEnabled={props.scrollLockEnabled}
-              />
-            </div>
+          <>
+            <Terminal
+              terminalId={props.terminalId}
+              visible={props.visible}
+              theme={props.theme}
+              searchOpen={props.searchOpen}
+              onSearchOpenChange={props.onSearchOpenChange}
+              scrollLockEnabled={props.scrollLockEnabled}
+            />
             <SplitBar
               onClick={() =>
                 props.onCreateSubTerminal(
@@ -71,7 +70,7 @@ const TerminalPane: Component<{
                 )
               }
             />
-          </div>
+          </>
         }
       >
         <Resizable
@@ -104,25 +103,26 @@ const TerminalPane: Component<{
           {/* Handle + collapsed indicator: always visible when splits exist */}
           <Resizable.Handle
             data-testid={isExpanded() ? "resize-handle" : "collapsed-indicator"}
+            disabled={!isExpanded()}
             class={`shrink-0 transition-colors ${
               isExpanded()
                 ? "h-1 bg-edge hover:bg-accent-bright cursor-row-resize"
-                : "h-6 bg-surface-0 border-t border-edge hover:bg-surface-1 cursor-pointer flex items-center justify-center"
+                : "h-8 flex items-center justify-center"
             }`}
             aria-label={
               isExpanded()
                 ? "Resize split"
                 : `${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} — click to expand (Ctrl+\`)`
             }
-            onClick={() => {
-              if (!isExpanded()) subPanel.expandPanel(props.terminalId);
-            }}
           >
             <Show when={!isExpanded()}>
-              <span class="text-xs text-fg-3">
+              <SplitBadge
+                onClick={() => subPanel.expandPanel(props.terminalId)}
+                title={`${props.subTerminalIds.length} split terminal${props.subTerminalIds.length > 1 ? "s" : ""} — click to expand (Ctrl+\`)`}
+              >
                 +{props.subTerminalIds.length} split terminal
                 {props.subTerminalIds.length > 1 ? "s" : ""}
-              </span>
+              </SplitBadge>
             </Show>
           </Resizable.Handle>
 
@@ -149,6 +149,7 @@ const TerminalPane: Component<{
                     props.activeMeta?.cwd,
                   )
                 }
+                onCollapse={() => subPanel.collapsePanel(props.terminalId)}
               />
             </Show>
             <div class="flex-1 min-h-0">
