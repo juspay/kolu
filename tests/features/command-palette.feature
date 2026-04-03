@@ -77,9 +77,8 @@ Feature: Command Palette
   Scenario: Create terminal via command palette
     Given I note the sidebar entry count
     When I open the command palette
-    And I type "Create new" in the palette
-    Then the command palette should show 1 result
-    When I press Enter
+    And I select "New terminal" in the palette
+    And I select "In current directory" in the palette
     Then the command palette should not be visible
     And the sidebar should have 1 more terminal entry
     And the terminal canvas should be visible
