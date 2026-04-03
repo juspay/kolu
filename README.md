@@ -20,7 +20,7 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 ### Terminals
 
 - Create, switch, kill, and drag-to-reorder terminals from a collapsible sidebar
-- Sub-terminals — `Ctrl+`` splits a bottom panel per terminal; `Ctrl+Shift+``adds tabs,`Ctrl+PageDown/Up` cycles
+- Split terminals — `Ctrl+`` splits a bottom pane per terminal; `Ctrl+Shift+``adds tabs,`Ctrl+PageDown/Up` cycles
 - Font zoom (`Cmd/Ctrl +/-`), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
 - Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
