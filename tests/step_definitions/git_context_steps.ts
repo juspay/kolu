@@ -1,6 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 import { pollUntil } from "../support/poll.ts";
 
@@ -107,7 +107,7 @@ Then(
     await this.page
       .locator('[data-testid="worktree-indicator"]')
       .first()
-      .waitFor({ state: "visible", timeout: 5000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

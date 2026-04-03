@@ -1,5 +1,9 @@
 import { Given, When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 import * as assert from "node:assert";
 import * as os from "node:os";
 
@@ -43,7 +47,7 @@ Then(
   "the restore button should mention {string}",
   async function (this: KoluWorld, text: string) {
     const btn = this.page.locator('[data-testid="restore-session"]');
-    await btn.waitFor({ state: "visible", timeout: 5000 });
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await btn.textContent();
     assert.ok(
       content?.includes(text),

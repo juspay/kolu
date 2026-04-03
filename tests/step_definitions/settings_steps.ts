@@ -1,6 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 When("I click the settings button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="settings-trigger"]');
@@ -11,7 +11,7 @@ Then(
   "the settings popover should be visible",
   async function (this: KoluWorld) {
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    await popover.waitFor({ state: "visible", timeout: 3000 });
+    await popover.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -19,7 +19,7 @@ Then(
   "the settings popover should not be visible",
   async function (this: KoluWorld) {
     const popover = this.page.locator('[data-testid="settings-popover"]');
-    await popover.waitFor({ state: "hidden", timeout: 3000 });
+    await popover.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -74,6 +74,6 @@ Then(
       );
     }
     // Verify the button is rendered (scheme option exists)
-    await active.waitFor({ state: "visible", timeout: 3000 });
+    await active.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

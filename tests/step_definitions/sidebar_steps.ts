@@ -1,5 +1,9 @@
 import { Given, When, Then } from "@cucumber/cucumber";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
@@ -20,7 +24,7 @@ When(
     // Wait for the selected terminal to become active (data-visible attribute appears)
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
-      .waitFor({ state: "attached", timeout: 5000 });
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
     // Let Terminal.tsx visibility effect fire (auto-focus + remeasure)
     await this.waitForFrame();
   },
@@ -48,7 +52,7 @@ Then(
     const buttons = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     await buttons
       .nth(expected - 1)
-      .waitFor({ state: "visible", timeout: 5000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const current = await buttons.count();
     const baseline = this.savedSidebarCount ?? 0;
     assert.strictEqual(
@@ -67,7 +71,7 @@ Then(
     // Poll — Corvu's focus trap release is async and can be slow under load.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

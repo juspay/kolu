@@ -1,5 +1,5 @@
 import { Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 Then(
   "a toast should appear with text {string}",
@@ -8,6 +8,6 @@ Then(
     const toast = this.page.locator(`[data-sonner-toaster] li`).filter({
       hasText: expected,
     });
-    await toast.first().waitFor({ state: "visible", timeout: 5000 });
+    await toast.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

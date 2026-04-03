@@ -13,6 +13,8 @@ import type { Browser, BrowserContext, Page, Locator } from "playwright";
 setDefaultTimeout(30_000);
 
 const READY_TIMEOUT = 10_000;
+/** Shared timeout for element polling (waitFor / waitForFunction). Generous for darwin CI under load. */
+export const POLL_TIMEOUT = 10_000;
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
@@ -77,7 +79,7 @@ export class KoluWorld extends World {
     // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
     return rawId;
   }
