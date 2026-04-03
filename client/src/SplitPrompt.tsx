@@ -12,9 +12,8 @@ const SplitPrompt: Component<{
     <button
       data-testid="split-prompt"
       class="flex items-center justify-center gap-3 w-full h-6 shrink-0
-             bg-surface-1 border-t border-edge text-[11px] font-mono
-             opacity-50 hover:opacity-100 hover:border-edge-bright
-             transition-all cursor-pointer"
+             bg-surface-2 border-t border-edge-bright text-[11px] font-mono
+             hover:bg-surface-3 transition-all cursor-pointer"
       onClick={props.onCreate}
     >
       <span>
