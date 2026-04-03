@@ -92,14 +92,14 @@ apm:
 apm-audit:
     uvx --from git+https://github.com/microsoft/apm apm audit --ci
 
-# Verify vendored .claude/ matches PERL/ sources + security audit
+# Verify vendored .claude/ matches .apm/ sources + security audit
 apm-sync:
     #!/usr/bin/env bash
     set -euo pipefail
     just apm
     just apm-audit
     if [ -n "$(git status --porcelain .claude/)" ]; then
-        echo "ERROR: .claude/ out of sync with PERL/ — run: just apm"
+        echo "ERROR: .claude/ out of sync with .apm/ — run: just apm"
         git status .claude/
         exit 1
     fi
