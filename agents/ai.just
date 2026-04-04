@@ -12,7 +12,6 @@ apm-audit:
 
 # Install APM config and launch coding agent (AI_AGENT overrides default)
 [default]
-agent *args:
+agent *args: apm
     just prepare
-    just ai::apm
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
