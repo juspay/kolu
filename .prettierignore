@@ -1,5 +1,5 @@
 pnpm-lock.yaml
-# APM-generated output (managed by `just apm`, not prettier)
+# APM-generated output (managed by `just ai::apm`, not prettier)
 .claude/commands/
 .claude/rules/
 .claude/skills/

@@ -6,7 +6,7 @@ type: hybrid
 dependencies:
   apm:
     - ./agents
-    - srid/agency#8d8f011
+    - srid/agency#master
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design

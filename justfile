@@ -2,11 +2,15 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
+mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 
 # List available recipes
 default:
     @just --list
+
+# Prepare repo for development — install deps and cache so future workflows run faster
+prepare: install
 
 # Install pnpm dependencies
 install:
@@ -82,27 +86,6 @@ test-quick *args: install
         {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
-
-# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
-apm:
-    rm -rf .claude/commands .claude/rules .claude/skills .claude/hooks .claude/settings.json
-    uvx --from git+https://github.com/microsoft/apm apm install
-
-# Audit APM packages for security issues (Unicode, lockfile consistency)
-apm-audit:
-    uvx --from git+https://github.com/microsoft/apm apm audit --ci
-
-# Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just apm
-    just apm-audit
-    if [ -n "$(git status --porcelain .claude/)" ]; then
-        echo "ERROR: .claude/ out of sync with .apm/ — run: just apm"
-        git status .claude/
-        exit 1
-    fi
 
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
