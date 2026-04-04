@@ -3,7 +3,6 @@ dist/
 result
 .direnv/
 # APM: generated metadata + per-user state (not vendored)
-apm.lock.yaml
 apm_modules/
 .claude/worktrees/
 .claude/settings.local.json
