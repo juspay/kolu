@@ -5,6 +5,8 @@ apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
+    # APM hook integration is additive — it doesn't deduplicate _apm_source
+    # entries on re-install, causing duplicate hooks. Pre-clean as workaround.
     rm -f .claude/settings.json
     {{ apm_cmd }} install
 
