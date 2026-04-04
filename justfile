@@ -2,6 +2,7 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
+mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 
 # List available recipes
@@ -82,20 +83,6 @@ test-quick *args: install
         {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
-
-# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
-apm:
-    rm -rf .claude/commands .claude/rules .claude/skills .claude/hooks .claude/settings.json
-    uvx --from git+https://github.com/microsoft/apm apm install
-
-# Audit APM packages for security issues (Unicode, lockfile consistency)
-apm-audit:
-    uvx --from git+https://github.com/microsoft/apm apm audit --ci
-
-# Install APM config and launch Claude Code agent
-agent *args:
-    just apm
-    claude --dangerously-skip-permissions {{ args }}
 
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
