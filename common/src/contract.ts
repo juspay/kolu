@@ -16,7 +16,6 @@ import {
   TerminalOnExitOutputSchema,
   TerminalReorderInputSchema,
   TerminalSetParentInputSchema,
-  TerminalMetadataSchema,
   ActivitySampleSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
@@ -35,8 +34,6 @@ export const contract = oc.router({
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
-    // Stream terminal list changes (create/kill/reorder). Yields current list immediately.
-    list: oc.output(eventIterator(z.array(TerminalInfoSchema))),
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
@@ -50,10 +47,6 @@ export const contract = oc.router({
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
     // Plain text content of the terminal buffer (scrollback + viewport)
     screenText: oc.input(TerminalScreenTextInputSchema).output(z.string()),
-    // Stream terminal metadata changes (CWD, git, PR, etc.). Yields current state immediately.
-    onMetadataChange: oc
-      .input(TerminalAttachInputSchema)
-      .output(eventIterator(TerminalMetadataSchema)),
     // Stream activity transitions [epochMs, isActive]. Snapshot on connect, then live samples.
     onActivityChange: oc
       .input(TerminalAttachInputSchema)

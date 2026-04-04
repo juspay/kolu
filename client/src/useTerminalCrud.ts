@@ -1,11 +1,11 @@
 /** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
  *
- *  Mutations use optimistic cache writes on the live list query so the UI
- *  updates instantly. The server's live push arrives moments later and
+ *  Optimistic updates use TanStack DB direct writes (writeInsert/writeUpdate/writeDelete)
+ *  on the terminals collection. The server's state push arrives moments later and
  *  replaces with authoritative data. */
 
 import type { Accessor } from "solid-js";
-import { createMutation, useQueryClient } from "@tanstack/solid-query";
+import { createMutation } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
@@ -13,7 +13,8 @@ import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import { terminalsCollection } from "./collections";
+import type { TerminalId, TerminalInfo } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -24,9 +25,6 @@ export function useTerminalCrud(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
-  const qc = useQueryClient();
-
-  const listKey = orpc.terminal.list.key();
 
   // --- Mutations ---
 
@@ -60,40 +58,41 @@ export function useTerminalCrud(deps: {
     onError: () => toast.error("Failed to reorder terminals"),
   }));
 
-  // --- Optimistic list helpers ---
+  // --- Optimistic list helpers (direct writes to terminals collection) ---
 
   function addToList(info: TerminalInfo) {
-    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) => [
-      ...(old ?? []),
-      info,
-    ]);
+    terminalsCollection.utils.writeInsert(info);
   }
 
   function removeFromList(id: TerminalId) {
-    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) =>
-      old ? old.filter((t) => t.id !== id) : old,
-    );
+    terminalsCollection.utils.writeDelete(id);
   }
 
   // --- Handlers ---
 
   /** Set a terminal's theme name locally (optimistic) and on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-    qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-      old ? { ...old, themeName: name } : old,
-    );
+    const existing = terminalsCollection.get(id);
+    if (existing) {
+      terminalsCollection.utils.writeUpdate({
+        ...existing,
+        meta: { ...existing.meta, themeName: name },
+      });
+    }
     setThemeMut.mutate({ id, themeName: name });
   }
 
-  /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
+  /** Optimistic reorder — write sortOrder values to collection, then mutate. */
   function reorderTerminals(ids: TerminalId[]) {
     const SORT_GAP = 1000;
     ids.forEach((id, i) => {
-      const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-      qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-        old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
-      );
+      const existing = terminalsCollection.get(id);
+      if (existing) {
+        terminalsCollection.utils.writeUpdate({
+          ...existing,
+          meta: { ...existing.meta, sortOrder: (i + 1) * SORT_GAP },
+        });
+      }
     });
     reorderMut.mutate({ ids });
   }
@@ -133,7 +132,7 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Create a new terminal on the server, add to list cache, and make it active.
+  /** Create a new terminal on the server, add to list, and make it active.
    *  Returns the new terminal ID (for session restore mapping). */
   async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
@@ -182,7 +181,10 @@ export function useTerminalCrud(deps: {
 
   async function handleCloseAll() {
     await killAllMut.mutateAsync(undefined);
-    qc.setQueryData(listKey, []);
+    // Clear the collection optimistically
+    for (const id of terminalsCollection.keys()) {
+      terminalsCollection.utils.writeDelete(id);
+    }
     store.reset();
   }
 
