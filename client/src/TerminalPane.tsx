@@ -18,6 +18,7 @@ const TerminalPane: Component<{
   subTerminalIds: TerminalId[];
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  onCloseTerminal: (id: TerminalId) => void;
   activeMeta: TerminalMetadata | null;
   scrollLockEnabled?: boolean;
 }> = (props) => {
@@ -139,6 +140,7 @@ const TerminalPane: Component<{
                 onSelect={(id) =>
                   subPanel.setActiveSubTab(props.terminalId, id)
                 }
+                onClose={props.onCloseTerminal}
                 onCollapse={() => subPanel.collapsePanel(props.terminalId)}
                 onCreate={() =>
                   props.onCreateSubTerminal(

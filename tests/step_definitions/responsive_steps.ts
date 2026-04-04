@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
 When("I click the sidebar toggle", async function (this: KoluWorld) {
@@ -34,7 +34,7 @@ Then("the sidebar should not be visible", async function (this: KoluWorld) {
       // Hidden: either display:none (no box) or translated off-screen
       return box.width === 0 || box.x + box.width <= 0;
     },
-    { timeout: 3000 },
+    { timeout: POLL_TIMEOUT },
   );
 });
 

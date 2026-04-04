@@ -9,6 +9,7 @@ const SubPanelTabBar: Component<{
   activeSubTab: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   onSelect: (id: TerminalId) => void;
+  onClose: (id: TerminalId) => void;
   onCreate: () => void;
   onCollapse: () => void;
 }> = (props) => {
@@ -28,16 +29,29 @@ const SubPanelTabBar: Component<{
           };
           const isActive = () => props.activeSubTab === id;
           return (
-            <button
-              class="px-3 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
-              classList={{
-                "bg-surface-2 text-fg font-medium": isActive(),
-              }}
-              data-active={isActive() || undefined}
-              onClick={() => props.onSelect(id)}
-            >
-              {label()}
-            </button>
+            <div class="group relative">
+              <button
+                class="px-3 pr-6 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
+                classList={{
+                  "bg-surface-2 text-fg font-medium": isActive(),
+                }}
+                data-active={isActive() || undefined}
+                onClick={() => props.onSelect(id)}
+              >
+                {label()}
+              </button>
+              <span
+                data-testid="sub-tab-close"
+                class="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer text-xs"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onClose(id);
+                }}
+                title="Close sub-terminal"
+              >
+                ×
+              </span>
+            </div>
           );
         }}
       </For>

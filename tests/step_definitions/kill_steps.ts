@@ -3,6 +3,7 @@ import {
   KoluWorld,
   SIDEBAR_ENTRY_SELECTOR,
   MOD_KEY,
+  POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
 
@@ -18,7 +19,7 @@ When(
     await entry.hover();
     await entry.locator('[data-testid="sidebar-close"]').click();
     // Wait for removal from DOM
-    await entry.waitFor({ state: "detached", timeout: 5000 });
+    await entry.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -27,11 +28,13 @@ When(
   async function (this: KoluWorld) {
     await this.page.keyboard.press(`${MOD_KEY}+k`);
     const palette = this.page.locator('[data-testid="command-palette"]');
-    await palette.locator("input").waitFor({ state: "visible", timeout: 3000 });
+    await palette
+      .locator("input")
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await palette.locator("input").fill("Close terminal");
     await palette
       .locator("li", { hasText: "Close terminal" })
-      .waitFor({ state: "visible", timeout: 3000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await palette.locator("li", { hasText: "Close terminal" }).click();
     await this.waitForFrame();
   },
@@ -44,14 +47,14 @@ Then(
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
 
 Then("the empty state tip should be visible", async function (this: KoluWorld) {
   const tip = this.page.locator('[data-testid="empty-state"]');
-  await tip.waitFor({ state: "visible", timeout: 5000 });
+  await tip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(

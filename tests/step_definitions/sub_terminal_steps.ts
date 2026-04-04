@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
@@ -21,7 +21,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) !== null,
     PALETTE,
-    { timeout: 5000 },
+    { timeout: POLL_TIMEOUT },
   );
   await world.page.evaluate(
     ({ sel, q }) => {
@@ -44,18 +44,18 @@ async function paletteCommand(world: KoluWorld, query: string) {
       return true;
     },
     PALETTE,
-    { timeout: 5000 },
+    { timeout: POLL_TIMEOUT },
   );
   await world.page.waitForFunction(
     (sel) => document.querySelector(`${sel}[data-open]`) === null,
     PALETTE,
-    { timeout: 5000 },
+    { timeout: POLL_TIMEOUT },
   );
   // Wait for focus to land in a terminal — Corvu's focus trap release is async
   // and waitForFrame (2x rAF) is insufficient on loaded CI.
   await world.page.waitForFunction(
     () => !!document.activeElement?.closest("[data-terminal-id]"),
-    { timeout: 5000 },
+    { timeout: POLL_TIMEOUT },
   );
 }
 
@@ -92,7 +92,7 @@ When(
     // Wait for focus to be specifically in a sub-terminal, not the main one
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
@@ -102,12 +102,12 @@ When(
 
 Then("the sub-panel should be visible", async function (this: KoluWorld) {
   const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-  await tabBar.waitFor({ state: "visible", timeout: 5000 });
+  await tabBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the sub-panel should not be visible", async function (this: KoluWorld) {
   const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
-  await tabBar.waitFor({ state: "hidden", timeout: 5000 });
+  await tabBar.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
 Then(
@@ -153,7 +153,7 @@ Then(
           !!document.activeElement?.closest(
             "[data-terminal-id][data-visible]:not([data-sub-terminal])",
           ),
-        { timeout: 5000 },
+        { timeout: POLL_TIMEOUT },
       );
     } catch {
       await this.canvas.click();
@@ -175,7 +175,7 @@ Then(
     const badge = this.page.locator(
       '[data-testid="sidebar"] button[data-active] [data-testid="sub-count"]',
     );
-    const text = await badge.textContent({ timeout: 5000 });
+    const text = await badge.textContent({ timeout: POLL_TIMEOUT });
     assert.strictEqual(text, `+${expected}`);
   },
 );
@@ -214,7 +214,7 @@ Then(
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -231,6 +231,21 @@ Then(
       active !== null,
       `Expected tab ${index} to be active (have data-active attribute)`,
     );
+  },
+);
+
+When(
+  "I close sub-terminal tab {int}",
+  async function (this: KoluWorld, index: number) {
+    const tab = this.page
+      .locator(
+        '[data-testid="sub-panel-tab-bar"] [data-testid="sub-tab-close"]',
+      )
+      .nth(index - 1);
+    // Hover the parent to reveal the close button
+    await tab.locator("..").hover();
+    await tab.click();
+    await this.waitForFrame();
   },
 );
 
@@ -269,7 +284,7 @@ Then(
 
 Then("the resize handle should be visible", async function (this: KoluWorld) {
   const handle = this.page.locator('[data-testid="resize-handle"]');
-  await handle.waitFor({ state: "visible", timeout: 5000 });
+  await handle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(
@@ -278,7 +293,7 @@ Then(
     // Wait for sub-panel to be fully expanded before reading buffer
     await this.page
       .locator('[data-testid="sub-panel-tab-bar"]')
-      .waitFor({ state: "visible", timeout: 5000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await pollUntilBufferContains(this.page, expected, {
       selector: "[data-sub-terminal][data-visible]",
       attempts: 50,

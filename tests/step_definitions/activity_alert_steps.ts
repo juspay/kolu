@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
 When("I click the activity alerts toggle", async function (this: KoluWorld) {
@@ -18,7 +18,7 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
 
 Then("a sidebar entry should be notified", async function (this: KoluWorld) {
   const notified = this.page.locator('[data-testid="sidebar"] [data-alerting]');
-  await notified.first().waitFor({ state: "visible", timeout: 3000 });
+  await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("no sidebar entry should be notified", async function (this: KoluWorld) {
@@ -33,7 +33,7 @@ Then("no sidebar entry should be notified", async function (this: KoluWorld) {
 
 When("I click the notified sidebar entry", async function (this: KoluWorld) {
   const notified = this.page.locator('[data-testid="sidebar"] [data-alerting]');
-  await notified.first().waitFor({ state: "visible", timeout: 3000 });
+  await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await notified.first().click();
   await this.waitForFrame();
 });

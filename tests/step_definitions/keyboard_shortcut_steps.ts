@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
 When("I press the shortcuts help shortcut", async function (this: KoluWorld) {
@@ -45,7 +45,7 @@ When("I press the create terminal shortcut", async function (this: KoluWorld) {
   await this.page
     .locator('[data-testid="sidebar"] [data-terminal-id]')
     .nth(countBefore)
-    .waitFor({ state: "visible", timeout: 5000 });
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 When("I click outside the shortcuts help", async function (this: KoluWorld) {
@@ -54,13 +54,13 @@ When("I click outside the shortcuts help", async function (this: KoluWorld) {
 
 Then("the shortcuts help should be visible", async function (this: KoluWorld) {
   const help = this.page.locator(SHORTCUTS_HELP_SELECTOR);
-  await help.waitFor({ state: "visible", timeout: 3000 });
+  await help.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(
   "the shortcuts help should not be visible",
   async function (this: KoluWorld) {
     const help = this.page.locator(SHORTCUTS_HELP_SELECTOR);
-    await help.waitFor({ state: "hidden", timeout: 3000 });
+    await help.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );

@@ -1,6 +1,10 @@
 import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 import * as assert from "node:assert";
 
 When(
@@ -31,7 +35,7 @@ Then(
   async function (this: KoluWorld) {
     await this.page
       .locator('[data-testid="worktree-remove-confirm"]')
-      .waitFor({ state: "visible", timeout: 5000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -55,7 +59,7 @@ When(
     await this.page.keyboard.press("Escape");
     await this.page
       .locator('[data-testid="worktree-remove-confirm"]')
-      .waitFor({ state: "hidden", timeout: 5000 });
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -87,7 +91,7 @@ Then(
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
-      { timeout: 5000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

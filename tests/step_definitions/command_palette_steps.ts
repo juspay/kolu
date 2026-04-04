@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 
@@ -22,14 +22,14 @@ When(
   "I type {string} in the palette",
   async function (this: KoluWorld, text: string) {
     const input = this.page.locator(`${PALETTE_SELECTOR} input`);
-    await input.waitFor({ state: "visible", timeout: 3000 });
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await input.fill(text);
     // Wait for at least one result to appear (filter is synchronous in SolidJS)
     if (text.length > 0) {
       await this.page
         .locator(`${PALETTE_SELECTOR} li`)
         .first()
-        .waitFor({ state: "visible", timeout: 3000 })
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT })
         .catch(() => {}); // Some filters may yield zero results
     }
   },
@@ -37,7 +37,7 @@ When(
 
 When("I clear the palette input", async function (this: KoluWorld) {
   const input = this.page.locator(`${PALETTE_SELECTOR} input`);
-  await input.waitFor({ state: "visible", timeout: 3000 });
+  await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await input.fill("");
 });
 
@@ -49,21 +49,21 @@ When(
     const item = palette
       .locator("li")
       .filter({ hasText: new RegExp(`^${text}`) });
-    await item.first().waitFor({ state: "visible", timeout: 3000 });
+    await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await item.first().click();
   },
 );
 
 Then("the command palette should be visible", async function (this: KoluWorld) {
   const palette = this.page.locator(PALETTE_SELECTOR);
-  await palette.waitFor({ state: "visible", timeout: 3000 });
+  await palette.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(
   "the command palette should not be visible",
   async function (this: KoluWorld) {
     const palette = this.page.locator(PALETTE_SELECTOR);
-    await palette.waitFor({ state: "hidden", timeout: 3000 });
+    await palette.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -89,7 +89,7 @@ Then(
         return items[idx]?.hasAttribute("data-selected") ?? false;
       },
       [PALETTE_SELECTOR, index - 1] as const,
-      { timeout: 3000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -104,7 +104,7 @@ Then(
         return items[items.length - 1]?.hasAttribute("data-selected") ?? false;
       },
       PALETTE_SELECTOR,
-      { timeout: 3000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -114,13 +114,13 @@ When(
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
     const breadcrumb = palette.locator("nav button", { hasText: text });
-    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
+    await breadcrumb.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await breadcrumb.click();
     // Wait for the palette items to refresh after navigating back
     await this.page
       .locator(`${PALETTE_SELECTOR} li`)
       .first()
-      .waitFor({ state: "visible", timeout: 3000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -128,7 +128,7 @@ Then(
   "the palette breadcrumb should show {string}",
   async function (this: KoluWorld, expected: string) {
     const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
-    await breadcrumb.waitFor({ state: "visible", timeout: 3000 });
+    await breadcrumb.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await breadcrumb.textContent();
     assert.ok(
       text?.includes(expected),
@@ -141,7 +141,7 @@ Then(
   "the palette breadcrumb should not be visible",
   async function (this: KoluWorld) {
     const breadcrumb = this.page.locator(`${PALETTE_SELECTOR} nav`);
-    await breadcrumb.waitFor({ state: "hidden", timeout: 3000 });
+    await breadcrumb.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -151,7 +151,7 @@ Then(
     const palette = this.page.locator(PALETTE_SELECTOR);
     // Anchor to start of text to avoid substring matches (e.g. "Theme" vs "Random theme")
     const item = palette.locator("li", { hasText: new RegExp(`^${text}`) });
-    await item.waitFor({ state: "visible", timeout: 3000 });
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await item.textContent();
     assert.ok(
       content?.includes("→"),
@@ -165,7 +165,7 @@ Then(
   async function (this: KoluWorld, text: string, shortcut: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);
     const item = palette.locator("li", { hasText: text });
-    await item.waitFor({ state: "visible", timeout: 3000 });
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const kbd = item.locator("kbd").first();
     const kbdText = await kbd.textContent();
     assert.ok(
@@ -179,7 +179,7 @@ Then(
   "the palette search input should be focused",
   async function (this: KoluWorld) {
     const input = this.page.locator(`${PALETTE_SELECTOR} input`);
-    await input.waitFor({ state: "visible", timeout: 3000 });
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     // Focus arrives after a double-rAF; use waitForFunction instead of polling
     await this.page.waitForFunction(
       (sel) => {
@@ -187,7 +187,7 @@ Then(
         return el && document.activeElement === el;
       },
       PALETTE_SELECTOR,
-      { timeout: 3000 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -199,7 +199,7 @@ Then(
     const item = palette
       .locator("li")
       .filter({ hasText: new RegExp(`^${text}`) });
-    await item.first().waitFor({ state: "visible", timeout: 3000 });
+    await item.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
