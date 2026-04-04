@@ -1,11 +1,11 @@
 /** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
  *
- *  Optimistic updates use TanStack DB direct writes (writeInsert/writeUpdate/writeDelete)
- *  on the terminals collection. The server's state push arrives moments later and
+ *  Optimistic updates modify the unified state.get TQ cache so the UI
+ *  updates instantly. The server's state push arrives moments later and
  *  replaces with authoritative data. */
 
 import type { Accessor } from "solid-js";
-import { createMutation } from "@tanstack/solid-query";
+import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
@@ -13,8 +13,7 @@ import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import { terminalsCollection } from "./collections";
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo, ServerState } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -25,6 +24,9 @@ export function useTerminalCrud(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
+  const qc = useQueryClient();
+
+  const stateKey = orpc.state.get.key();
 
   // --- Mutations ---
 
@@ -58,42 +60,54 @@ export function useTerminalCrud(deps: {
     onError: () => toast.error("Failed to reorder terminals"),
   }));
 
-  // --- Optimistic list helpers (direct writes to terminals collection) ---
+  // --- Optimistic helpers (modify unified state cache) ---
+
+  function updateTerminals(
+    updater: (terminals: TerminalInfo[]) => TerminalInfo[],
+  ) {
+    qc.setQueryData(stateKey, (old: ServerState | undefined) =>
+      old ? { ...old, terminals: updater(old.terminals) } : old,
+    );
+  }
 
   function addToList(info: TerminalInfo) {
-    terminalsCollection.utils.writeInsert(info);
+    updateTerminals((ts) => [...ts, info]);
   }
 
   function removeFromList(id: TerminalId) {
-    terminalsCollection.utils.writeDelete(id);
+    updateTerminals((ts) => ts.filter((t) => t.id !== id));
+  }
+
+  function updateTerminalMeta(
+    id: TerminalId,
+    patch: Partial<TerminalInfo["meta"]>,
+  ) {
+    updateTerminals((ts) =>
+      ts.map((t) =>
+        t.id === id ? { ...t, meta: { ...t.meta, ...patch } } : t,
+      ),
+    );
   }
 
   // --- Handlers ---
 
   /** Set a terminal's theme name locally (optimistic) and on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    const existing = terminalsCollection.get(id);
-    if (existing) {
-      terminalsCollection.utils.writeUpdate({
-        ...existing,
-        meta: { ...existing.meta, themeName: name },
-      });
-    }
+    updateTerminalMeta(id, { themeName: name });
     setThemeMut.mutate({ id, themeName: name });
   }
 
-  /** Optimistic reorder — write sortOrder values to collection, then mutate. */
+  /** Optimistic reorder — write sortOrder values to cache, then mutate. */
   function reorderTerminals(ids: TerminalId[]) {
     const SORT_GAP = 1000;
-    ids.forEach((id, i) => {
-      const existing = terminalsCollection.get(id);
-      if (existing) {
-        terminalsCollection.utils.writeUpdate({
-          ...existing,
-          meta: { ...existing.meta, sortOrder: (i + 1) * SORT_GAP },
-        });
-      }
-    });
+    updateTerminals((ts) =>
+      ts.map((t) => {
+        const idx = ids.indexOf(t.id);
+        return idx >= 0
+          ? { ...t, meta: { ...t.meta, sortOrder: (idx + 1) * SORT_GAP } }
+          : t;
+      }),
+    );
     reorderMut.mutate({ ids });
   }
 
@@ -181,10 +195,7 @@ export function useTerminalCrud(deps: {
 
   async function handleCloseAll() {
     await killAllMut.mutateAsync(undefined);
-    // Clear the collection optimistically
-    for (const id of terminalsCollection.keys()) {
-      terminalsCollection.utils.writeDelete(id);
-    }
+    updateTerminals(() => []);
     store.reset();
   }
 

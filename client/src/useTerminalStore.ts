@@ -1,29 +1,18 @@
 /** Terminal store — composes view state and metadata modules.
- *  Terminal list comes from TanStack DB collection (synced via state.get stream).
+ *  Terminal list comes from the unified state.get live query.
  *  Client view state (activeId, attention, mruOrder) lives in local signals.
  *
- *  The terminal list is reactive via useLiveQuery — the server pushes updates on
+ *  The terminal list is reactive — the server pushes updates on
  *  create/kill/reorder/metadata change through the unified state stream. */
 
-import { createMemo } from "solid-js";
-import { useLiveQuery } from "@tanstack/solid-db";
-import { terminalsCollection } from "./collections";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
-import type { TerminalInfo } from "kolu-common";
+import { useTerminals } from "./collections";
+import { useServerState } from "./useServerState";
 
 export function useTerminalStore() {
-  const terminalsQuery = useLiveQuery((q) =>
-    q.from({ t: terminalsCollection }),
-  );
-
-  /** All terminals as a plain reactive array. */
-  const allTerminals = createMemo(
-    (): TerminalInfo[] => (terminalsQuery() as TerminalInfo[]) ?? [],
-  );
-
-  /** Whether the initial terminal list has loaded. */
-  const isReady = () => terminalsQuery.isReady;
+  const allTerminals = useTerminals();
+  const { isReady } = useServerState();
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
@@ -32,7 +21,7 @@ export function useTerminalStore() {
   });
 
   return {
-    // Reactive terminal list from collection
+    // Reactive terminal list from server
     allTerminals,
     isReady,
     // View state

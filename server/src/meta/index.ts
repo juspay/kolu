@@ -14,6 +14,16 @@ import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal } from "../publisher.ts";
 import { publishStateChanged } from "../state.ts";
+
+/** Debounced state publish — batches rapid metadata updates into one push. */
+let metadataPublishTimer: ReturnType<typeof setTimeout> | undefined;
+function debouncedPublishState(): void {
+  if (metadataPublishTimer) return;
+  metadataPublishTimer = setTimeout(() => {
+    metadataPublishTimer = undefined;
+    publishStateChanged();
+  }, 50);
+}
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -50,7 +60,7 @@ export function updateMetadata(
     "metadata publish",
   );
   publishForTerminal("metadata", terminalId, { ...m });
-  publishStateChanged();
+  debouncedPublishState();
 }
 
 /**
