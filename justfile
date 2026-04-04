@@ -9,6 +9,9 @@ mod ci 'ci/mod.just'
 default:
     @just --list
 
+# Prepare repo for development — install deps and cache so future workflows run faster
+prepare: install
+
 # Install pnpm dependencies
 install:
     {{ nix_shell }} pnpm install
