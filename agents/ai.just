@@ -12,11 +12,9 @@ apm-audit:
     {{ apm_cmd }} audit --ci
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync:
+apm-sync: apm apm-audit
     #!/usr/bin/env bash
     set -euo pipefail
-    just ai::apm
-    just ai::apm-audit
     if [ -n "$(git status --porcelain .claude/)" ]; then
         echo "ERROR: .claude/ out of sync with .apm/ — run: just ai::apm"
         git status .claude/
