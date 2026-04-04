@@ -19,7 +19,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
+    just ci::fmt ci::typecheck ci::unit || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
@@ -42,10 +42,6 @@ e2e: nix
 # Run vitest unit tests (server + client)
 unit:
     just ci::_run unit just test-unit
-
-# Verify vendored .claude/ matches PERL/ sources + security audit
-apm-sync:
-    just ci::_run apm-sync just apm-sync
 
 fmt:
     just ci::_run fmt just fmt-check

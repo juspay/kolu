@@ -2,10 +2,10 @@ node_modules/
 dist/
 result
 .direnv/
-# APM: generated metadata + per-user state (not vendored)
+# APM: generated output + per-user state (not vendored)
+.claude/
+!.claude/launch.json
 apm_modules/
-.claude/worktrees/
-.claude/settings.local.json
 test-results/
 tests/reports/
 client/public/fonts

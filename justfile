@@ -92,17 +92,10 @@ apm:
 apm-audit:
     uvx --from git+https://github.com/microsoft/apm apm audit --ci
 
-# Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync:
-    #!/usr/bin/env bash
-    set -euo pipefail
+# Install APM config and launch Claude Code agent
+agent *args:
     just apm
-    just apm-audit
-    if [ -n "$(git status --porcelain .claude/)" ]; then
-        echo "ERROR: .claude/ out of sync with .apm/ — run: just apm"
-        git status .claude/
-        exit 1
-    fi
+    claude --dangerously-skip-permissions {{ args }}
 
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
