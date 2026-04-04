@@ -5,6 +5,7 @@ apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
+    rm -f .claude/settings.json
     {{ apm_cmd }} install
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
