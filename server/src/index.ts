@@ -13,10 +13,15 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { snapshotSession } from "./terminals.ts";
+import {
+  snapshotSession,
+  listTerminals,
+  listTerminalsWithPaneIndex,
+} from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
+import { initTmuxShim, cleanupTmuxShim } from "./tmux-env.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -62,6 +67,9 @@ const argv = cli({
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 initSessionAutoSave(snapshotSession);
+initTmuxShim();
+// Expose server port to PTY shells so the tmux shim can find the server
+process.env.KOLU_PORT = String(argv.flags.port);
 if (argv.flags.verbose) log.level = "debug";
 
 const app = new Hono();
@@ -116,6 +124,7 @@ app.use("/rpc/*", async (c, next) => {
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
+    cleanupTmuxShim();
     process.exit(0);
   });
 }
@@ -130,6 +139,10 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Terminal list snapshot (non-streaming, for tmux shim) ---
+// Includes tmuxPaneIndex so the shim can map %N pane IDs to terminal UUIDs.
+app.get("/api/terminals", (c) => c.json(listTerminalsWithPaneIndex()));
 
 // --- Dynamic PWA manifest (includes hostname) ---
 // theme_color must match <meta name="theme-color"> in client/index.html
