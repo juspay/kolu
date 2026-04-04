@@ -7,6 +7,7 @@ apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
 apm:
     # APM hook integration is additive — it doesn't deduplicate _apm_source
     # entries on re-install, causing duplicate hooks. Pre-clean as workaround.
+    # https://github.com/microsoft/apm/issues/561
     rm -f .claude/settings.json
     {{ apm_cmd }} install
 
