@@ -43,9 +43,9 @@ e2e: nix
 unit:
     just ci::_run unit just test-unit
 
-# Verify vendored .claude/ matches PERL/ sources + security audit
+# Verify vendored .claude/ matches .apm/ sources + security audit
 apm-sync:
-    just ci::_run apm-sync just apm-sync
+    just ci::_run apm-sync just ai::apm-sync
 
 fmt:
     just ci::_run fmt just fmt-check
