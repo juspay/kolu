@@ -1,11 +1,11 @@
-/** Terminal metadata — derived from TanStack DB terminals collection.
+/** Terminal metadata — per-terminal live queries + activity streams.
  *
- *  Metadata (CWD, git, PR, claude) is embedded in TerminalInfo.meta,
- *  synced via the unified state stream into the terminals collection.
+ *  Terminal list comes from the unified state.get stream (via collections.ts).
+ *  Metadata (CWD, git, PR, claude) uses per-terminal onMetadataChange streams
+ *  for O(1) updates without publishing the full state.
  *
  *  Activity (high-frequency busy/idle transitions) stays as a separate
- *  oRPC streamed query — it accumulates samples for sparkline rendering
- *  and doesn't fit the entity-per-row collection model.
+ *  oRPC streamed query — it accumulates samples for sparkline rendering.
  *
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
@@ -24,9 +24,7 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Max samples retained in TanStack cache per terminal.
- *  At ~20 samples/min during active use, 200 covers ~10 min — well beyond
- *  the 5-min display window. Prevents unbounded growth in long sessions. */
+/** Max samples retained in TanStack cache per terminal. */
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
@@ -36,9 +34,19 @@ export function useTerminalMetadata(deps: {
   /** Terminal IDs derived from the collection. */
   const terminalIdList = createMemo(() => deps.allTerminals().map((t) => t.id));
 
-  /** Lookup metadata by terminal ID from the collection. */
+  // --- Metadata (slow-changing) — per-terminal live queries ---
+
+  const metadataQueries = createQueries(() => ({
+    queries: terminalIdList().map((id) =>
+      orpc.terminal.onMetadataChange.experimental_liveOptions({
+        input: { id },
+      }),
+    ),
+  }));
+
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return deps.allTerminals().find((t) => t.id === id)?.meta;
+    const idx = terminalIdList().indexOf(id);
+    return idx >= 0 ? metadataQueries[idx]?.data : undefined;
   }
 
   // --- Activity (high-frequency) — events accumulate for sparkline ---
@@ -49,13 +57,8 @@ export function useTerminalMetadata(deps: {
         input: { id },
         queryFnOptions: {
           maxChunks: MAX_ACTIVITY_CHUNKS,
-          // On reconnect, server yields fresh history — discard stale client cache
           refetchMode: "reset" as const,
         },
-        // Trim to display window on read. The source array may hold samples
-        // slightly older than the window (up to maxChunks), but consumers
-        // only see the 5-min slice. This runs on every access — cheap for
-        // small arrays (~50-200 items).
         select: (samples: ActivitySample[]) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
           return samples.filter(([t]) => t >= cutoff);
@@ -74,7 +77,8 @@ export function useTerminalMetadata(deps: {
   const bySortOrder = (a: TerminalId, b: TerminalId) =>
     (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0);
 
-  /** Top-level terminal IDs sorted by sortOrder. */
+  /** Top-level terminal IDs sorted by sortOrder.
+   *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
     terminalIdList()
       .filter((id) => {

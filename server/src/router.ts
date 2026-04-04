@@ -113,6 +113,21 @@ export const appRouter = t.router({
       killAllTerminals();
     }),
 
+    onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = requireTerminal(input.id);
+      yield { ...entry.info.meta };
+      for await (const meta of subscribeForTerminal_(
+        "metadata",
+        input.id,
+        signal,
+      )) {
+        yield meta;
+      }
+    }),
+
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({
       input,
       signal,

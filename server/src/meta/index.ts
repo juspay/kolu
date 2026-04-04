@@ -13,17 +13,6 @@
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal } from "../publisher.ts";
-import { publishStateChanged } from "../state.ts";
-
-/** Debounced state publish — batches rapid metadata updates into one push. */
-let metadataPublishTimer: ReturnType<typeof setTimeout> | undefined;
-function debouncedPublishState(): void {
-  if (metadataPublishTimer) return;
-  metadataPublishTimer = setTimeout(() => {
-    metadataPublishTimer = undefined;
-    publishStateChanged();
-  }, 50);
-}
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -38,7 +27,11 @@ export function createMetadata(
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
- *  Single place to audit — impossible to forget the publish. */
+ *  Single place to audit — impossible to forget the publish.
+ *
+ *  Publishes to the per-terminal "metadata" channel only. The unified
+ *  state.get stream picks up metadata via the embedded TerminalInfo.meta
+ *  on the next list-level state push (create/kill/reorder). */
 export function updateMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -60,7 +53,6 @@ export function updateMetadata(
     "metadata publish",
   );
   publishForTerminal("metadata", terminalId, { ...m });
-  debouncedPublishState();
 }
 
 /**
