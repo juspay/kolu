@@ -79,7 +79,7 @@ export class KoluWorld extends World {
     // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
-      { timeout: POLL_TIMEOUT },
+      { timeout },
     );
     return rawId;
   }
