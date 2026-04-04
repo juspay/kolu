@@ -1,7 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
-import { KoluWorld } from "../support/world.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { pollUntilBufferContains } from "../support/buffer.ts";
 
 /** Per-scenario FIFO path (avoids collisions when CI runs parallel workers). */
@@ -36,7 +36,7 @@ When(
     if (await btn.isVisible()) {
       await this.page
         .locator('[data-testid="scroll-to-bottom"][data-active]')
-        .waitFor({ state: "visible", timeout: 5000 });
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     } else {
       await pollUntilBufferContains(this.page, `extra-line-${count}`);
     }
@@ -77,7 +77,7 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // When scroll-locked, data is buffered — wait for the activity indicator
   await this.page
     .locator('[data-testid="scroll-to-bottom"][data-active]')
-    .waitFor({ state: "visible", timeout: 5000 });
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 When(
@@ -88,7 +88,7 @@ When(
     // When scroll-locked, data is buffered — wait for the activity indicator
     await this.page
       .locator('[data-testid="scroll-to-bottom"][data-active]')
-      .waitFor({ state: "visible", timeout: 5000 });
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -123,7 +123,7 @@ Then(
   "the scroll-to-bottom button should be visible",
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
-    await btn.waitFor({ state: "visible", timeout: 3000 });
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -133,7 +133,7 @@ Then(
     const btn = this.page.locator(
       '[data-testid="scroll-to-bottom"][data-active]',
     );
-    await btn.waitFor({ state: "visible", timeout: 3000 });
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -141,7 +141,7 @@ Then(
   "the scroll-to-bottom button should not be active",
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
-    await btn.waitFor({ state: "visible", timeout: 3000 });
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const active = await btn.getAttribute("data-active");
     assert.strictEqual(active, null, "Expected button to not be active");
   },
@@ -151,7 +151,7 @@ Then(
   "the scroll-to-bottom button should not be visible",
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
-    await btn.waitFor({ state: "hidden", timeout: 3000 });
+    await btn.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 

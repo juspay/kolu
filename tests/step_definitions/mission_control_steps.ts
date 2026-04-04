@@ -1,5 +1,5 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 import { readBufferText } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
@@ -20,19 +20,21 @@ When(
 
 Then("Mission Control should be visible", async function (this: KoluWorld) {
   const mc = this.page.locator(MC_SELECTOR);
-  await mc.waitFor({ state: "visible", timeout: 3000 });
+  await mc.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("Mission Control should not be visible", async function (this: KoluWorld) {
   const mc = this.page.locator(MC_SELECTOR);
-  await mc.waitFor({ state: "hidden", timeout: 3000 });
+  await mc.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
 Then(
   "Mission Control should show {int} terminal card(s)",
   async function (this: KoluWorld, expected: number) {
     const cards = this.page.locator(MC_CARD_SELECTOR);
-    await cards.nth(expected - 1).waitFor({ state: "visible", timeout: 5000 });
+    await cards
+      .nth(expected - 1)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const count = await cards.count();
     assert.strictEqual(
       count,
@@ -46,7 +48,7 @@ Then(
   "Mission Control should have an active card",
   async function (this: KoluWorld) {
     const activeCard = this.page.locator(`${MC_CARD_SELECTOR}[data-active]`);
-    await activeCard.waitFor({ state: "visible", timeout: 3000 });
+    await activeCard.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -54,7 +56,7 @@ Then(
   "Mission Control should show terminal previews",
   async function (this: KoluWorld) {
     const previews = this.page.locator('[data-testid="terminal-preview"]');
-    await previews.first().waitFor({ state: "visible", timeout: 5000 });
+    await previews.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const count = await previews.count();
     assert.ok(count > 0, "Expected at least one terminal preview");
   },
@@ -65,7 +67,7 @@ Then(
   async function (this: KoluWorld, index: number, expected: string) {
     const card = this.page.locator(MC_CARD_SELECTOR).nth(index - 1);
     const badge = card.locator('[data-testid="card-number"]');
-    await badge.waitFor({ state: "visible", timeout: 3000 });
+    await badge.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await badge.textContent();
     assert.strictEqual(
       text?.trim(),
@@ -102,7 +104,7 @@ Then("the active card should have focus", async function (this: KoluWorld) {
     () =>
       document.activeElement?.getAttribute("data-testid") ===
       "mission-control-card",
-    { timeout: 3000 },
+    { timeout: POLL_TIMEOUT },
   );
 });
 
