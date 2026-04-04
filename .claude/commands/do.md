@@ -18,7 +18,7 @@ Parse the arguments string: `[--review] [--from <step-id>] <task description or 
 
 ## Results Tracking
 
-After each step's verification, write/update `.execute-results.json`:
+After each step's verification, write/update `.do-results.json`:
 
 ```json
 {
@@ -200,7 +200,7 @@ Re-check the PR title/body against current scope. If scope changed, update via `
 
 Present a summary of all steps with their verification status. If any step has a non-success status, retry it (max 3 attempts from done). If still failing after retries, set `status: "failed"`.
 
-`"completed"` requires **all steps passed**. No redefining "passed," no footnote caveats. Update `.execute-results.json` accordingly.
+`"completed"` requires **all steps passed**. No redefining "passed," no footnote caveats. Update `.do-results.json` accordingly.
 
 #### Timing summary
 

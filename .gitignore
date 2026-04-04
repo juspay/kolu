@@ -12,4 +12,4 @@ tests/reports/
 client/public/fonts
 .worktrees
 .logs/
-.execute-results.json
+.do-results.json
