@@ -204,8 +204,11 @@ const CommandPalette: Component<{
     ),
   );
 
-  // Reset selection when filter results change (defer: skip initial run)
-  createEffect(on(filtered, () => setSelectedIndex(0), { defer: true }));
+  // Reset selection when the user types (defer: skip initial run).
+  // Intentionally tracks `query`, not `filtered` — filtered returns a new array
+  // reference on every recomputation, so tracking it would reset the index whenever
+  // upstream data (commands memo) recomputes in the background.
+  createEffect(on(query, () => setSelectedIndex(0), { defer: true }));
 
   // Notify highlighted item when selection changes.
   // Uses on() for stable dependency tracking — bare createEffect would drop
