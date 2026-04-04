@@ -1,59 +1,59 @@
-lockfile_version: '1'
-generated_at: '2026-04-04T17:54:47.950594+00:00'
+lockfile_version: "1"
+generated_at: "2026-04-04T17:54:47.950594+00:00"
 apm_version: 0.8.10
 dependencies:
-- repo_url: _local/agents
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/whatchanged.md
-  - .claude/rules/architecture.md
-  - .claude/rules/code-police-rules.md
-  - .claude/rules/e2e-testing.md
-  - .claude/rules/nix.md
-  - .claude/rules/solidjs.md
-  - .claude/rules/state.md
-  - .claude/rules/toast-conventions.md
-  - .claude/rules/workflow.md
-  source: local
-  local_path: ./agents
-- repo_url: anthropics/skills
-  host: github.com
-  resolved_commit: 98669c11ca63e9c81c11501e1437e5c47b556621
-  virtual_path: skills/frontend-design
-  is_virtual: true
-  package_type: claude_skill
-  deployed_files:
-  - .claude/skills/frontend-design
-  content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
-- repo_url: juspay/skills
-  host: github.com
-  resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
-  virtual_path: skills/nix-justfile
-  is_virtual: true
-  package_type: claude_skill
-  deployed_files:
-  - .claude/skills/nix-justfile
-  content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
-- repo_url: juspay/skills
-  host: github.com
-  resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
-  virtual_path: skills/nix-typescript
-  is_virtual: true
-  package_type: claude_skill
-  deployed_files:
-  - .claude/skills/nix-typescript
-  content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
-- repo_url: srid/agency
-  host: github.com
-  resolved_commit: 3705906f55698abd08af962ce28f619114b2471c
-  resolved_ref: master
-  package_type: apm_package
-  deployed_files:
-  - .claude/commands/do.md
-  - .claude/commands/talk.md
-  - .claude/hooks/agency/scripts/execute-stop-guard.sh
-  - .claude/rules/apm-sources.md
-  - .claude/skills/code-police
-  - .claude/skills/github-pr
-  - .claude/skills/hickey
-  content_hash: sha256:549db5385933f98ea46b589d8af5d984b1a8f98fcea86f369cc5b2b48a37413d
+  - repo_url: _local/agents
+    package_type: apm_package
+    deployed_files:
+      - .claude/commands/whatchanged.md
+      - .claude/rules/architecture.md
+      - .claude/rules/code-police-rules.md
+      - .claude/rules/e2e-testing.md
+      - .claude/rules/nix.md
+      - .claude/rules/solidjs.md
+      - .claude/rules/state.md
+      - .claude/rules/toast-conventions.md
+      - .claude/rules/workflow.md
+    source: local
+    local_path: ./agents
+  - repo_url: anthropics/skills
+    host: github.com
+    resolved_commit: 98669c11ca63e9c81c11501e1437e5c47b556621
+    virtual_path: skills/frontend-design
+    is_virtual: true
+    package_type: claude_skill
+    deployed_files:
+      - .claude/skills/frontend-design
+    content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+  - repo_url: juspay/skills
+    host: github.com
+    resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
+    virtual_path: skills/nix-justfile
+    is_virtual: true
+    package_type: claude_skill
+    deployed_files:
+      - .claude/skills/nix-justfile
+    content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
+  - repo_url: juspay/skills
+    host: github.com
+    resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
+    virtual_path: skills/nix-typescript
+    is_virtual: true
+    package_type: claude_skill
+    deployed_files:
+      - .claude/skills/nix-typescript
+    content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
+  - repo_url: srid/agency
+    host: github.com
+    resolved_commit: 3705906f55698abd08af962ce28f619114b2471c
+    resolved_ref: master
+    package_type: apm_package
+    deployed_files:
+      - .claude/commands/do.md
+      - .claude/commands/talk.md
+      - .claude/hooks/agency/scripts/execute-stop-guard.sh
+      - .claude/rules/apm-sources.md
+      - .claude/skills/code-police
+      - .claude/skills/github-pr
+      - .claude/skills/hickey
+    content_hash: sha256:549db5385933f98ea46b589d8af5d984b1a8f98fcea86f369cc5b2b48a37413d
