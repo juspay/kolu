@@ -1,8 +1,8 @@
 /** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
  *
- *  Mutations use optimistic cache writes on the live list query so the UI
- *  updates instantly. The server's live push arrives moments later and
- *  replaces with authoritative data. */
+ *  Mutations use optimistic cache writes on the unified state.get live query
+ *  so the UI updates instantly. The server's live push arrives moments later
+ *  and replaces with authoritative data. */
 
 import type { Accessor } from "solid-js";
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
@@ -13,7 +13,7 @@ import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalInfo, ServerState } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -26,7 +26,7 @@ export function useTerminalCrud(deps: {
   const { showTipOnce } = useTips();
   const qc = useQueryClient();
 
-  const listKey = orpc.terminal.list.key();
+  const stateKey = orpc.state.get.key();
 
   // --- Mutations ---
 
@@ -60,41 +60,49 @@ export function useTerminalCrud(deps: {
     onError: () => toast.error("Failed to reorder terminals"),
   }));
 
-  // --- Optimistic list helpers ---
+  // --- Optimistic state helpers ---
+
+  /** Update the terminals array inside the unified state cache. */
+  function updateTerminals(
+    updater: (terminals: TerminalInfo[]) => TerminalInfo[],
+  ) {
+    qc.setQueryData(stateKey, (old: ServerState | undefined) =>
+      old ? { ...old, terminals: updater(old.terminals) } : old,
+    );
+  }
 
   function addToList(info: TerminalInfo) {
-    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) => [
-      ...(old ?? []),
-      info,
-    ]);
+    updateTerminals((ts) => [...ts, info]);
   }
 
   function removeFromList(id: TerminalId) {
-    qc.setQueryData(listKey, (old: TerminalInfo[] | undefined) =>
-      old ? old.filter((t) => t.id !== id) : old,
-    );
+    updateTerminals((ts) => ts.filter((t) => t.id !== id));
   }
 
   // --- Handlers ---
 
   /** Set a terminal's theme name locally (optimistic) and on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-    qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-      old ? { ...old, themeName: name } : old,
+    updateTerminals((ts) =>
+      ts.map((t) =>
+        t.id === id ? { ...t, meta: { ...t.meta, themeName: name } } : t,
+      ),
     );
     setThemeMut.mutate({ id, themeName: name });
   }
 
-  /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
+  /** Optimistic reorder — write sortOrder values to state cache, then mutate. */
   function reorderTerminals(ids: TerminalId[]) {
     const SORT_GAP = 1000;
-    ids.forEach((id, i) => {
-      const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-      qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-        old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
-      );
-    });
+    const orderMap = new Map(ids.map((id, i) => [id, (i + 1) * SORT_GAP]));
+    updateTerminals((ts) =>
+      ts.map((t) => {
+        const newOrder = orderMap.get(t.id);
+        return newOrder !== undefined
+          ? { ...t, meta: { ...t.meta, sortOrder: newOrder } }
+          : t;
+      }),
+    );
     reorderMut.mutate({ ids });
   }
 
@@ -182,7 +190,7 @@ export function useTerminalCrud(deps: {
 
   async function handleCloseAll() {
     await killAllMut.mutateAsync(undefined);
-    qc.setQueryData(listKey, []);
+    updateTerminals(() => []);
     store.reset();
   }
 

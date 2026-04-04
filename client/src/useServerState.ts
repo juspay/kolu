@@ -25,6 +25,7 @@ import type {
   Preferences,
   RecentRepo,
   SavedSession,
+  TerminalInfo,
 } from "kolu-common";
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -82,6 +83,9 @@ export function useServerState() {
     preferences: () => prefs,
     recentRepos: () => (query.data?.recentRepos ?? []) as RecentRepo[],
     savedSession: () => (query.data?.session ?? null) as SavedSession | null,
+    /** Live terminal list with embedded metadata (from unified state stream).
+     *  Returns undefined while loading — use stateQuery.isLoading for explicit check. */
+    terminals: () => query.data?.terminals as TerminalInfo[] | undefined,
     updatePreferences,
     invalidate,
   };

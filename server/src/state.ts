@@ -14,8 +14,15 @@ import type {
   PersistedState,
   ServerState,
   ServerStatePatch,
+  TerminalInfo,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
+
+/** Injected by terminals.ts to avoid circular imports. */
+let listTerminalsFn: () => TerminalInfo[] = () => [];
+export function setListTerminalsFn(fn: () => TerminalInfo[]): void {
+  listTerminalsFn = fn;
+}
 
 /**
  * Schema version — bump this when adding migrations.
@@ -97,13 +104,19 @@ export function getRecentRepos(): RecentRepo[] {
 
 // --- Server state ---
 
-/** Get the full server state. */
+/** Get the full server state (persisted + runtime terminals). */
 export function getServerState(): ServerState {
   return {
     recentRepos: getRecentRepos(),
     session: store.get("session"),
     preferences: store.get("preferences"),
+    terminals: listTerminalsFn(),
   };
+}
+
+/** Notify live query subscribers that server state changed (terminal list or metadata). */
+export function emitStateChanged(): void {
+  publishSystem("state:changed", getServerState());
 }
 
 /** Merge a partial update into the current state.

@@ -1,29 +1,25 @@
 /** Terminal store — composes view state and metadata modules.
- *  Server-derived state (including ordering) lives in TanStack cache.
- *  Client view state (activeId, attention, mruOrder) lives in local signals.
- *
- *  The terminal list is a live query — the server pushes updates on
- *  create/kill/reorder. No manual client-side bookkeeping needed. */
+ *  Server-derived state (list, metadata, ordering) comes from the unified
+ *  state.get live query via useServerState.
+ *  Client view state (activeId, attention, mruOrder) lives in local signals. */
 
-import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./orpc";
+import { useServerState } from "./useServerState";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  const listQuery = createQuery(() =>
-    orpc.terminal.list.experimental_liveOptions(),
-  );
-
+  const serverState = useServerState();
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    listQuery,
+    terminals: serverState.terminals,
     activeId: view.activeId,
   });
 
   return {
-    // Live terminal list from server
-    listQuery,
+    /** Server state query (for loading/data checks). */
+    stateQuery: serverState.query,
+    /** Terminal list from server state (undefined while loading). */
+    terminalList: serverState.terminals,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
