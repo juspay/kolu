@@ -27,7 +27,11 @@ export function createMetadata(
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
- *  Single place to audit — impossible to forget the publish. */
+ *  Single place to audit — impossible to forget the publish.
+ *
+ *  Publishes to the per-terminal "metadata" channel only. The unified
+ *  state.get stream picks up metadata via the embedded TerminalInfo.meta
+ *  on the next list-level state push (create/kill/reorder). */
 export function updateMetadata(
   entry: TerminalProcess,
   terminalId: string,

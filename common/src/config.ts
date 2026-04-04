@@ -23,3 +23,14 @@ export const ACTIVITY_IDLE_THRESHOLD_S = 5;
 
 /** Rolling window for activity history (ms). Both server and client use this. */
 export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Default user preferences — shared by server (conf defaults) and client (loading fallback). */
+import type { Preferences } from "./index";
+export const DEFAULT_PREFERENCES: Preferences = {
+  seenTips: [],
+  startupTips: true,
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  colorScheme: "dark",
+};

@@ -4,7 +4,6 @@ import {
   type Component,
   createSignal,
   createEffect,
-  createMemo,
   on,
   Show,
   For,
@@ -37,11 +36,7 @@ import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
-  const {
-    preferences,
-    updatePreferences,
-    invalidate: invalidateState,
-  } = useServerState();
+  const { preferences, updatePreferences } = useServerState();
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
@@ -134,13 +129,6 @@ const App: Component = () => {
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
-
-  // Refetch server state (includes recent repos) whenever the palette opens
-  createEffect(
-    on(paletteOpen, (open) => {
-      if (open) invalidateState();
-    }),
-  );
 
   function openPalette() {
     setPaletteInitialGroup(undefined);

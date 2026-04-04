@@ -65,4 +65,13 @@ ws.addEventListener("close", () => {
   if (wasConnected) toast.error("Disconnected from server");
 });
 
+/** Returns a promise that resolves when the WebSocket is open.
+ *  Resolves immediately if already open. */
+export function onWsOpen(): Promise<void> {
+  if (ws.readyState === WebSocket.OPEN) return Promise.resolve();
+  return new Promise((resolve) => {
+    ws.addEventListener("open", () => resolve(), { once: true });
+  });
+}
+
 export { wsStatus, serverRestarted };

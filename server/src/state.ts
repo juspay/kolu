@@ -15,7 +15,11 @@ import type {
   ServerState,
   ServerStatePatch,
 } from "kolu-common";
+import type { TerminalInfo } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
+
+/** Late-bound terminal lister — registered at startup to break circular import. */
+let _listTerminals: () => TerminalInfo[] = () => [];
 
 /**
  * Schema version — bump this when adding migrations.
@@ -24,14 +28,7 @@ import { publishSystem } from "./publisher.ts";
  */
 const SCHEMA_VERSION = "1.2.0";
 
-const DEFAULT_PREFERENCES: Preferences = {
-  seenTips: [],
-  startupTips: true,
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  colorScheme: "dark",
-};
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -97,13 +94,24 @@ export function getRecentRepos(): RecentRepo[] {
 
 // --- Server state ---
 
-/** Get the full server state. */
+/** Register the terminal list function — called once at startup. */
+export function registerTerminalLister(fn: () => TerminalInfo[]): void {
+  _listTerminals = fn;
+}
+
+/** Get the full server state (persisted + runtime). */
 export function getServerState(): ServerState {
   return {
     recentRepos: getRecentRepos(),
     session: store.get("session"),
     preferences: store.get("preferences"),
+    terminals: _listTerminals(),
   };
+}
+
+/** Publish the full server state to all live query subscribers. */
+export function publishStateChanged(): void {
+  publishSystem("state:changed", getServerState());
 }
 
 /** Merge a partial update into the current state.
@@ -118,6 +126,5 @@ export function updateServerState(patch: ServerStatePatch): void {
       ...patch.preferences,
     });
   }
-  // Notify live query subscribers
-  publishSystem("state:changed", getServerState());
+  publishStateChanged();
 }
