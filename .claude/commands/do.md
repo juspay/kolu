@@ -121,7 +121,9 @@ Otherwise: implement the planned changes. Prefer simplicity. Do the boring obvio
 
 ### docs
 
-Check if README.md and CLAUDE.md are still accurate. Compare against files changed in this PR.
+Read the project's instructions to find which documentation files to keep in sync (e.g., README.md). Compare those files against changes in this PR.
+
+If no documentation files are documented, skip this step with a note.
 
 **Verify**: Docs match current code.
 **If outdated** (max 3 attempts): Fix the outdated sections and re-verify.
