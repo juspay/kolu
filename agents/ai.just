@@ -1,3 +1,6 @@
+# Run recipes from project root, not agents/
+set working-directory := '..'
+
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
     rm -rf .claude/commands .claude/rules .claude/skills .claude/hooks .claude/settings.json
