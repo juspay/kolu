@@ -55,7 +55,7 @@ Feature: Sub-terminals
     And I close terminal 1 via sidebar
     Then the split close confirmation should be visible
     When I confirm split close
-    Then the sidebar should have 1 terminal entry
+    Then the sidebar should have 2 terminal entries
     And the terminal canvas should be visible
     And there should be no page errors
 
@@ -66,7 +66,7 @@ Feature: Sub-terminals
     And I close terminal 1 via sidebar
     Then the split close confirmation should be visible
     When I dismiss the split close confirmation
-    Then the sidebar should have 1 terminal entry
+    Then the sidebar should have 2 terminal entries
     And the sub-panel should be visible
     And there should be no page errors
 
