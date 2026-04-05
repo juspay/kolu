@@ -1,17 +1,19 @@
 # live
 
-End-to-end reactive streams — typed pub/sub on the server, SolidJS signals on the client.
+End-to-end reactive streams — signals on the server, SolidJS signals on the client, AsyncIterable on the wire.
 
 ## The problem
 
 Server-pushed state routed through a request-response cache (TanStack Query) introduces accidental complexity: experimental streaming APIs, parallel store workarounds for synchronous reactivity, and cache key management for data that's already being pushed to you.
 
+Imperative pub/sub (`channel.publish(value)`) is the manual version of what reactive signals do automatically.
+
 ## The idea
 
-Two primitives per side, nothing shared between them:
+Signals on both sides, wire in the middle:
 
-- **Server** (`live/server`): `createChannel` + `liveQuery`
-- **Client** (`live/solid`): `createLive` + `createAction`
+- **Server** (`@solidjs/signals` + `kolu-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable, `events()` for discrete events
+- **Client** (`kolu-live/solid`): `createLive` + `createAction`
 
 The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `live` only cares about `AsyncIterable<T>` — the universal streaming interface.
 
@@ -26,46 +28,73 @@ cd live/example && just dev
 # Open http://localhost:5173
 ```
 
-### Create a channel and publish to it
+### Define state as signals on the server
 
-We start on the server. A channel is how we push data to connected clients. Let's create one for the worker list:
+We model server state with signals from `@solidjs/signals`. A signal holds a value that can change over time — and anything that depends on it recomputes automatically.
 
 ```ts
-import { createChannel } from "kolu-live/server";
+import { createSignal, createMemo } from "@solidjs/signals";
 
-const workerList = createChannel<WorkerInfo[]>();
+const [tickCount, setTickCount] = createSignal(0);
+const [status, setStatus] = createSignal<"running" | "paused">("running");
+
+// Derived — recomputes when tickCount or status changes
+const meta = createMemo(() => ({
+  name: "alpha",
+  tickCount: tickCount(),
+  status: status(),
+}));
 ```
 
-Whenever our worker list changes, we publish:
+We mutate state by calling the setter. No `channel.publish()` — the signal graph handles notification.
 
 ```ts
-workers.set(id, entry);
-workerList.publish(listWorkers());
+setInterval(() => setTickCount((c) => c + 1), 1000);
 ```
 
-Every subscriber receives the new list. We haven't defined any subscribers yet — that comes next.
+### Bridge signals to the wire with `live()`
 
-### Expose the channel as a streaming endpoint
-
-We need to turn our channel into something clients can connect to. `liveQuery` does this — it subscribes to the channel, then yields a snapshot of the current state, then yields live updates. The subscribe-before-snapshot ordering guarantees nothing is lost.
+`live()` watches a reactive expression and yields a new value whenever its dependencies change. The first yield is the snapshot (current state). Subsequent yields are live updates.
 
 ```ts
-import { liveQuery } from "kolu-live/server";
+import { live } from "kolu-live/server";
 
 // In our oRPC router:
 list: t.worker.list.handler(async function* ({ signal }) {
-  yield* liveQuery(
-    (s) => workerList.subscribe(s),
-    () => listWorkers(),
-  )(signal);
+  yield* live(() => workerList())(signal);
+}),
+
+onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ input, signal }) {
+  yield* live(() => worker.meta())(signal);
 }),
 ```
 
-We can verify this works by running the server and connecting with a WebSocket client. The first message is the snapshot (current worker list), then each subsequent message is a live update.
+One line per handler. The signal graph tracks dependencies. When `workerList` or `worker.meta()` changes, the generator yields the new value automatically.
 
-### Consume the stream on the client
+### Use `events()` for discrete events
 
-On the client, oRPC gives us `Promise<AsyncIterable<T>>` for streaming endpoints. We feed that directly to `createLive`:
+Not everything is state. Activity samples, log lines, and exit codes are things that _happen_ — they don't have a "current value." We use `events()` for these:
+
+```ts
+import { events } from "kolu-live/server";
+
+const [pushActivity, iterateActivity] = events<ActivitySample>();
+
+// Push from domain logic:
+pushActivity([Date.now(), true]);
+
+// In a router handler — snapshot then live:
+onActivityChange: async function* ({ input, signal }) {
+  for (const sample of worker.activityHistory) yield sample;
+  for await (const sample of worker.iterateActivity(signal)) yield sample;
+},
+```
+
+Two lines in the handler: yield the history, then yield live events. Each line does one thing.
+
+### Consume streams on the client with `createLive`
+
+The client side is unchanged from before. oRPC gives us `Promise<AsyncIterable<T>>` for streaming endpoints. We feed that to `createLive`:
 
 ```tsx
 import { createLive } from "kolu-live/solid";
@@ -73,7 +102,7 @@ import { createLive } from "kolu-live/solid";
 const list = createLive(() => client.worker.list());
 ```
 
-`list` now has three signals: `value()`, `pending()`, `error()`. We render the list:
+`list` has three signals: `value()`, `pending()`, `error()`. We render:
 
 ```tsx
 <Show when={list.pending()}>Connecting...</Show>
@@ -82,66 +111,9 @@ const list = createLive(() => client.worker.list());
 </For>
 ```
 
-When we create a worker on the server, `workerList.publish(...)` fires, the stream pushes the new list, and `list.value()` updates. The `<For>` renders the new card. No polling, no refetch, no cache invalidation.
-
-### Add per-entity streams with keyed channels
-
-Each worker has its own metadata (tick count, status). We use a keyed channel — one channel per worker ID:
-
-```ts
-import { createKeyedChannel } from "kolu-live/server";
-
-const metadata = createKeyedChannel<string, WorkerMeta>();
-
-// In our tick function:
-metadata.publish(id, entry.meta);
-```
-
-The router handler follows the same pattern:
-
-```ts
-onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ input, signal }) {
-  yield* liveQuery(
-    (s) => metadata.subscribe(input.id, s),
-    () => getMetadata(input.id),
-  )(signal);
-}),
-```
-
-On the client, we subscribe per worker. Because `createLive` uses `createStore` + `reconcile` internally, accessing individual fields like `tickCount` only re-renders when that field actually changes:
-
-```tsx
-const meta = createLive(() => client.worker.onMetadataChange({ id: props.id }));
-
-const name = () => meta.value()?.name;
-const ticks = () => meta.value()?.tickCount ?? 0;
-```
-
-### Accumulate stream events with a reducer
-
-Some streams produce events that build up over time — activity samples, chat messages, log lines. We pass a `reduce` option to `createLive`:
-
-```tsx
-const samples = createLive(
-  () => client.worker.onActivityChange({ id: props.id }),
-  {
-    reduce: (acc, sample) => [...acc, sample].slice(-50),
-    initial: [],
-  },
-);
-```
-
-`samples.value()` is now the last 50 activity samples. Each new event from the server folds into the array. We can render a sparkline from it:
-
-```tsx
-const sparkline = createMemo(() =>
-  (samples.value() ?? []).map(([, active]) => (active ? "▓" : "░")).join(""),
-);
-```
+Because `createLive` uses `createStore` + `reconcile` internally, accessing `meta.value()?.tickCount` only re-renders when `tickCount` actually changes.
 
 ### Track mutations with `createAction`
-
-We wrap server calls with `createAction` to get reactive pending/error/value signals:
 
 ```tsx
 const [create, creating] = createAction(() => client.worker.create());
@@ -153,85 +125,48 @@ const [create, creating] = createAction(() => client.worker.create());
 </button>
 ```
 
-We don't need to update the list manually after creating — the server publishes to `workerList`, and our `createLive` subscription picks it up automatically.
+We don't update the list manually — the server's `workerList` signal changes, `live()` pushes the new list, and the client's `createLive` updates automatically.
 
 ### What we built
 
-The dashboard now has:
-
-- A live worker list that updates when workers are created or killed
-- Per-worker metadata that ticks in real time
-- An activity sparkline accumulating samples over time
-- Create/kill buttons with loading state
-
-All of this with four primitives: `createChannel` and `liveQuery` on the server, `createLive` and `createAction` on the client.
+- Server state as signals — `setTickCount(c => c + 1)` is the entire mutation
+- `live()` bridges signals to AsyncIterable — one line per handler, no manual publish
+- `events()` for discrete occurrences — push/iterate pair
+- Client renders with `createLive` — fine-grained reactivity, no cache layer
 
 ## Reference
 
-### Server (`kolu-live/server`)
+### Server
 
-#### `createChannel<T>()`
+Server state uses `@solidjs/signals` (`createSignal`, `createMemo`, `createRoot`, `flush`). Import those directly from `@solidjs/signals`. The `kolu-live/server` module exports the bridging primitives:
 
-Typed in-memory pub/sub. Publish values; subscribers get `AsyncIterable<T>`.
+#### `live(fn)`
 
-```ts
-import { createChannel } from "kolu-live/server";
-
-const counter = createChannel<number>();
-
-// Publish from anywhere
-counter.publish(42);
-
-// Subscribe in a handler
-for await (const n of counter.subscribe(signal)) {
-  console.log(n);
-}
-```
-
-#### `createKeyedChannel<K, T>()`
-
-Same thing, multiplexed by key. Each key gets an independent channel.
+Bridges a reactive expression to an AsyncGenerator. Tracks all signal reads inside `fn`. When any dependency changes, re-evaluates and yields the new value.
 
 ```ts
-import { createKeyedChannel } from "kolu-live/server";
+import { live } from "kolu-live/server";
 
-const metadata = createKeyedChannel<string, TerminalMetadata>();
-
-// Publish to a specific key
-metadata.publish(terminalId, { cwd: "/home", ... });
-
-// Subscribe to a specific key
-for await (const meta of metadata.subscribe(terminalId, signal)) { ... }
+yield * live(() => count())(signal);
 ```
 
-#### `liveQuery(subscribe, snapshot)`
+First yield is the snapshot. Subsequent yields are live updates. The signal graph handles dependency tracking — no manual subscribe/publish.
 
-Snapshot-first async generator. Subscribes before computing the snapshot, so no events are lost between the two. Returns a function that takes an `AbortSignal`.
+#### `events()`
+
+Creates a push/iterate pair for discrete events.
 
 ```ts
-import { liveQuery } from "kolu-live/server";
+import { events } from "kolu-live/server";
 
-// In a router handler:
-const handler = liveQuery(
-  (signal) => metadata.subscribe(id, signal),
-  () => getCurrentMetadata(id),
-);
+const [push, iterate] = events<ActivitySample>();
 
-// Usage: yield* handler(signal)
+push([Date.now(), true]);
+
+for await (const sample of iterate(signal)) { ... }
 ```
 
-#### `liveQueryMany(subscribe, snapshot)`
-
-Same pattern, but the snapshot yields multiple items (e.g., a history array).
-
-```ts
-import { liveQueryMany } from "kolu-live/server";
-
-const handler = liveQueryMany(
-  (signal) => activity.subscribe(id, signal),
-  () => getActivityHistory(id), // Iterable<ActivitySample>
-);
-```
+Events are buffered from the moment `iterate()` is called, not when `for-await` starts.
 
 ### Client (`kolu-live/solid`)
 
@@ -244,29 +179,24 @@ Returns `{ value, error, pending, mutate }` — three independent signals, not a
 ```tsx
 import { createLive } from "kolu-live/solid";
 
-// Replacing stream (default) — each event replaces the value:
 const meta = createLive(() => client.terminal.onMetadataChange({ id }));
-meta.value(); // TerminalMetadata | undefined
+meta.value(); // T | undefined
 meta.pending(); // true until first event
 meta.error(); // Error | undefined
 
-// Fine-grained subfield access — only re-renders when cwd changes:
+// Fine-grained — only re-renders when cwd changes:
 const cwd = () => meta.value()?.cwd;
-const branch = () => meta.value()?.git?.branch;
 
-// Accumulating stream — events fold via reducer:
+// Accumulating — events fold via reducer:
 const samples = createLive(() => client.terminal.onActivityChange({ id }), {
   reduce: (acc, item) => [...acc, item].slice(-200),
   initial: [],
 });
-samples.value(); // ActivitySample[]
 ```
 
 #### Optimistic updates
 
 ```tsx
-// Instant local write + fire-and-forget server call.
-// Next server push overwrites (confirms or corrects).
 meta.mutate(
   (current) => ({ ...current, themeName: "dracula" }),
   () => client.terminal.setTheme({ id, themeName: "dracula" }),
@@ -281,34 +211,19 @@ Wraps an async function with reactive lifecycle tracking.
 import { createAction } from "kolu-live/solid";
 
 const [create, creating] = createAction(client.terminal.create);
-
-// Fire:
-const info = await create({ cwd: "/home" });
-
-// React to lifecycle:
 creating.pending(); // true while in flight
 creating.value(); // result of last successful call
 creating.error(); // error from last failed call
 ```
 
-## What this replaces
-
-| Before                                | After                          |
-| ------------------------------------- | ------------------------------ |
-| `@orpc/experimental-publisher/memory` | `createChannel` (~50 LOC)      |
-| `experimental_liveOptions()`          | `createLive()`                 |
-| `experimental_streamedOptions()`      | `createLive()` with `reduce`   |
-| Parallel SolidJS store workaround     | Gone — signals are synchronous |
-| Hand-written snapshot-first generators | `liveQuery()`                 |
-| TanStack Query for subscriptions      | Gone                           |
-| `select()` / `Live<T>` sum type       | Plain derived accessors        |
-
 ## Design decisions
 
-**Separate signals, not a sum type.** `{ value, error, pending }` instead of `Live<T> = pending | ok | error`. Each concern is an independent signal — composition is just `() => meta.value()?.git`. No wrapper to unwrap.
+**Signals on the server.** State is `createSignal` / `createMemo` from `@solidjs/signals`. Mutations are signal writes. `live()` bridges the reactive graph to AsyncIterable. No manual publish — the signal graph IS the notification system.
 
-**`createStore` + `reconcile` for objects.** Ensures `() => meta.value()?.cwd` only triggers when `cwd` actually changes, not on every metadata update. This is what makes `select()` unnecessary.
+**State vs events.** `live()` is for values that change (metadata, lists, preferences). `events()` is for things that happen (activity samples, log lines). Different concerns, different primitives.
 
-**Reducer for accumulation.** `createStreamed` was merged into `createLive` with an optional `reduce` parameter. Replacing is the default (identity reducer). Accumulating is `reduce: (acc, item) => [...acc, item]`.
+**Separate signals on the client, not a sum type.** `{ value, error, pending }` instead of `Live<T> = pending | ok | error`. Composition is just `() => meta.value()?.git`.
 
-**Source is `() => Promise<AsyncIterable<T>>`.** Matches what oRPC returns for `eventIterator` endpoints. The factory function (not a raw iterable) allows re-subscription on reconnect.
+**`createStore` + `reconcile` for objects.** Ensures `() => meta.value()?.cwd` only triggers when `cwd` actually changes.
+
+**`@solidjs/signals` as the reactive runtime.** Beta (v0.13.x), but the coupling is bounded: 4 functions (`createRoot`, `createEffect`, `onCleanup`, `flush`), 1 file (~30 LOC). Works on Node.js with no hacks.

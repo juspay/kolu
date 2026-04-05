@@ -133,6 +133,10 @@ importers:
         version: 5.9.3
 
   live:
+    dependencies:
+      '@solidjs/signals':
+        specifier: ^0.13.9
+        version: 0.13.9
     devDependencies:
       '@orpc/client':
         specifier: ^1.13.13
@@ -1590,6 +1594,9 @@ packages:
     resolution: {integrity: sha512-zdIWBGpR9zGx1p1bzIPqF5Gs+Ks/BH8R6fWhmUa/dcK1L2rUC8BAcZJzNRYBQv74kScf1TSOs0EY//Vd/I0V8g==}
     peerDependencies:
       solid-js: '>=1.8.4'
+
+  '@solidjs/signals@0.13.9':
+    resolution: {integrity: sha512-+w+ShIB3hunVM0HZcXnhUhfLQvSdKlZflTQ0q3P9B/IfDOS8GPelY28wGouGt/6QzfJ1ueqx8bOg1TFQutPuaQ==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -5158,6 +5165,8 @@ snapshots:
   '@solidjs/meta@0.29.4(solid-js@1.9.11)':
     dependencies:
       solid-js: 1.9.11
+
+  '@solidjs/signals@0.13.9': {}
 
   '@standard-schema/spec@1.1.0': {}
 

@@ -1,12 +1,9 @@
 /**
- * Example server: a worker manager demonstrating all live primitives.
+ * Example server: a worker manager using signals for state.
  *
- * Workers tick at random intervals. Each worker has:
- *  - Live metadata (name, tickCount, status) — replacing stream
- *  - Activity samples — accumulating stream
- *  - Tick output — raw stream
- *
- * Uses oRPC for typed WebSocket RPC (same as Kolu).
+ * Workers tick at random intervals. State is reactive signals —
+ * no manual publish calls. `live()` bridges signals to the wire.
+ * Activity samples use `events()` (discrete events, not state).
  */
 
 import { RPCHandler } from "@orpc/server/ws";
@@ -14,15 +11,11 @@ import { implement } from "@orpc/server";
 import { WebSocketServer } from "ws";
 import { oc, eventIterator } from "@orpc/contract";
 import { z } from "zod";
-import {
-  createChannel,
-  createKeyedChannel,
-  liveQuery,
-  liveQueryMany,
-} from "../src/server.ts";
+import { createSignal, createMemo, flush } from "@solidjs/signals";
+import { live, events } from "../src/server.ts";
 
 // ---------------------------------------------------------------------------
-// Contract (shared types — in a real app, this lives in a common/ package)
+// Contract
 // ---------------------------------------------------------------------------
 
 const WorkerInfoSchema = z.object({
@@ -58,74 +51,104 @@ const contract = oc.router({
 export type { contract };
 
 // ---------------------------------------------------------------------------
-// Channels
+// Worker entity — reactive state via signals
 // ---------------------------------------------------------------------------
 
 type WorkerId = string;
 type ActivitySample = [epochMs: number, isActive: boolean];
 
-const workerList = createChannel<z.infer<typeof WorkerInfoSchema>[]>();
-const metadataCh = createKeyedChannel<
-  WorkerId,
-  z.infer<typeof WorkerMetaSchema>
->();
-const activityCh = createKeyedChannel<WorkerId, ActivitySample>();
-const ticksCh = createKeyedChannel<WorkerId, string>();
-
-// ---------------------------------------------------------------------------
-// Worker state
-// ---------------------------------------------------------------------------
-
-type WorkerEntry = {
+type Worker = {
   info: z.infer<typeof WorkerInfoSchema>;
-  meta: z.infer<typeof WorkerMetaSchema>;
-  activityHistory: ActivitySample[];
+  tickCount: ReturnType<typeof createSignal<number>>;
+  status: ReturnType<typeof createSignal<"running" | "paused">>;
+  meta: () => z.infer<typeof WorkerMetaSchema>;
+  intervalMs: number;
   timer: ReturnType<typeof setInterval> | null;
+  activityHistory: ActivitySample[];
+  pushActivity: (sample: ActivitySample) => void;
+  iterateActivity: (signal?: AbortSignal) => AsyncIterable<ActivitySample>;
+  pushTick: (msg: string) => void;
+  iterateTicks: (signal?: AbortSignal) => AsyncIterable<string>;
 };
 
-const workers = new Map<WorkerId, WorkerEntry>();
+// ---------------------------------------------------------------------------
+// Worker list — reactive signal
+// ---------------------------------------------------------------------------
+
+const workerMap = new Map<WorkerId, Worker>();
+const [workerList, setWorkerList] = createSignal<
+  z.infer<typeof WorkerInfoSchema>[]
+>([]);
+
+function syncWorkerList() {
+  setWorkerList([...workerMap.values()].map((w) => w.info));
+  flush();
+}
+
+// ---------------------------------------------------------------------------
+// Worker lifecycle
+// ---------------------------------------------------------------------------
+
 let nextId = 1;
 const names = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
 
-function listWorkers() {
-  return [...workers.values()].map((w) => w.info);
-}
-
-function tick(entry: WorkerEntry) {
-  entry.meta = { ...entry.meta, tickCount: entry.meta.tickCount + 1 };
-  metadataCh.publish(entry.info.id, entry.meta);
-  ticksCh.publish(
-    entry.info.id,
-    `[${entry.info.name}] tick #${entry.meta.tickCount}`,
-  );
-  const sample: ActivitySample = [Date.now(), true];
-  entry.activityHistory.push(sample);
-  if (entry.activityHistory.length > 100)
-    entry.activityHistory = entry.activityHistory.slice(-100);
-  activityCh.publish(entry.info.id, sample);
-}
-
-function createWorker() {
+function createWorker(): z.infer<typeof WorkerInfoSchema> {
   const id = String(nextId++);
   const name = names[(nextId - 2) % names.length]!;
   const intervalMs = 500 + Math.floor(Math.random() * 1500);
-  const entry: WorkerEntry = {
+
+  const [tickCount, setTickCount] = createSignal(0);
+  const [status, setStatus] = createSignal<"running" | "paused">("running");
+  const meta = createMemo(() => ({
+    name,
+    tickCount: tickCount(),
+    status: status(),
+    intervalMs,
+  }));
+
+  const [pushActivity, iterateActivity] = events<ActivitySample>();
+  const [pushTick, iterateTicks] = events<string>();
+
+  const worker: Worker = {
     info: { id, name, createdAt: Date.now() },
-    meta: { name, tickCount: 0, status: "running", intervalMs },
-    activityHistory: [],
+    tickCount: [tickCount, setTickCount],
+    status: [status, setStatus],
+    meta,
+    intervalMs,
     timer: null,
+    activityHistory: [],
+    pushActivity,
+    iterateActivity,
+    pushTick,
+    iterateTicks,
   };
-  entry.timer = setInterval(() => tick(entry), intervalMs);
-  workers.set(id, entry);
-  workerList.publish(listWorkers());
+
+  worker.timer = setInterval(() => tick(worker), intervalMs);
+  workerMap.set(id, worker);
+  syncWorkerList();
   console.log(`+ worker ${id} (${name}) every ${intervalMs}ms`);
-  return entry.info;
+  return worker.info;
 }
 
-function require(id: WorkerId): WorkerEntry {
-  const entry = workers.get(id);
-  if (!entry) throw new Error(`worker ${id} not found`);
-  return entry;
+function tick(worker: Worker) {
+  const [, setTickCount] = worker.tickCount;
+  setTickCount((c) => c + 1);
+  flush();
+
+  const count = worker.tickCount[0]();
+  worker.pushTick(`[${worker.info.name}] tick #${count}`);
+
+  const sample: ActivitySample = [Date.now(), true];
+  worker.activityHistory.push(sample);
+  if (worker.activityHistory.length > 100)
+    worker.activityHistory = worker.activityHistory.slice(-100);
+  worker.pushActivity(sample);
+}
+
+function requireWorker(id: WorkerId): Worker {
+  const worker = workerMap.get(id);
+  if (!worker) throw new Error(`worker ${id} not found`);
+  return worker;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,69 +159,67 @@ const t = implement(contract);
 
 const router = t.router({
   worker: {
+    // State streams — powered by live() + signals
     list: t.worker.list.handler(async function* ({ signal }) {
-      yield* liveQuery(
-        (s) => workerList.subscribe(s),
-        () => listWorkers(),
-      )(signal);
+      yield* live(() => workerList())(signal);
     }),
 
     onMetadataChange: t.worker.onMetadataChange.handler(async function* ({
       input,
       signal,
     }) {
-      const entry = require(input.id);
-      yield* liveQuery(
-        (s) => metadataCh.subscribe(input.id, s),
-        () => ({ ...entry.meta }),
-      )(signal);
+      const worker = requireWorker(input.id);
+      yield* live(() => worker.meta())(signal);
     }),
 
+    // Event streams — snapshot then live events
     onActivityChange: t.worker.onActivityChange.handler(async function* ({
       input,
       signal,
     }) {
-      const entry = require(input.id);
-      yield* liveQueryMany(
-        (s) => activityCh.subscribe(input.id, s),
-        () => [...entry.activityHistory],
-      )(signal);
+      const worker = requireWorker(input.id);
+      for (const sample of worker.activityHistory) yield sample;
+      for await (const sample of worker.iterateActivity(signal)) yield sample;
     }),
 
     attach: t.worker.attach.handler(async function* ({ input, signal }) {
-      require(input.id);
-      for await (const msg of ticksCh.subscribe(input.id, signal)) yield msg;
+      const worker = requireWorker(input.id);
+      for await (const msg of worker.iterateTicks(signal)) yield msg;
     }),
 
+    // Mutations
     create: t.worker.create.handler(async () => createWorker()),
 
     kill: t.worker.kill.handler(async ({ input }) => {
-      const entry = require(input.id);
-      if (entry.timer) clearInterval(entry.timer);
-      workers.delete(input.id);
-      workerList.publish(listWorkers());
-      console.log(`- worker ${input.id} (${entry.info.name})`);
+      const worker = requireWorker(input.id);
+      if (worker.timer) clearInterval(worker.timer);
+      workerMap.delete(input.id);
+      syncWorkerList();
+      console.log(`- worker ${input.id} (${worker.info.name})`);
     }),
 
     toggle: t.worker.toggle.handler(async ({ input }) => {
-      const entry = require(input.id);
-      if (entry.meta.status === "running") {
-        if (entry.timer) clearInterval(entry.timer);
-        entry.timer = null;
-        entry.meta = { ...entry.meta, status: "paused" };
-        activityCh.publish(input.id, [Date.now(), false]);
+      const worker = requireWorker(input.id);
+      const [, setStatus] = worker.status;
+      const [status] = worker.status;
+      if (status() === "running") {
+        if (worker.timer) clearInterval(worker.timer);
+        worker.timer = null;
+        setStatus("paused");
+        flush();
+        worker.pushActivity([Date.now(), false]);
       } else {
-        entry.meta = { ...entry.meta, status: "running" };
-        entry.timer = setInterval(() => tick(entry), entry.meta.intervalMs);
-        activityCh.publish(input.id, [Date.now(), true]);
+        setStatus("running");
+        flush();
+        worker.timer = setInterval(() => tick(worker), worker.intervalMs);
+        worker.pushActivity([Date.now(), true]);
       }
-      metadataCh.publish(input.id, entry.meta);
     }),
   },
 });
 
 // ---------------------------------------------------------------------------
-// WebSocket server (same pattern as Kolu's server/src/index.ts)
+// WebSocket server
 // ---------------------------------------------------------------------------
 
 const PORT = 3123;

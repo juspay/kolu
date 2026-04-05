@@ -20,6 +20,9 @@
       "optional": true
     }
   },
+  "dependencies": {
+    "@solidjs/signals": "^0.13.9"
+  },
   "devDependencies": {
     "@orpc/client": "^1.13.13",
     "@types/ws": "^8.18.1",
