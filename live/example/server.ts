@@ -1,15 +1,19 @@
 /**
- * Example server: a counter that broadcasts ticks to all connected clients.
+ * Example server: a worker manager demonstrating all live primitives.
  *
- * Demonstrates:
- *  - createChannel for a broadcast channel
- *  - createKeyedChannel for per-room channels
- *  - liveQuery for snapshot-first streaming
+ * Workers tick at random intervals. Each worker has:
+ *  - Live metadata (name, tickCount, status) — replacing stream
+ *  - Activity samples — accumulating stream
+ *  - Tick output — raw stream
  *
- * This is a conceptual example — it shows how the primitives compose
- * with any async-generator-based RPC framework (oRPC, gRPC, etc.).
+ * Uses oRPC for typed WebSocket RPC (same as Kolu).
  */
 
+import { RPCHandler } from "@orpc/server/ws";
+import { implement } from "@orpc/server";
+import { WebSocketServer } from "ws";
+import { oc, eventIterator } from "@orpc/contract";
+import { z } from "zod";
 import {
   createChannel,
   createKeyedChannel,
@@ -18,113 +22,194 @@ import {
 } from "../src/server.ts";
 
 // ---------------------------------------------------------------------------
-// 1. Broadcast channel: global counter
+// Contract (shared types — in a real app, this lives in a common/ package)
 // ---------------------------------------------------------------------------
 
-const counter = createChannel<number>();
-let count = 0;
+const WorkerInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.number(),
+});
 
-// Tick every second
-setInterval(() => {
-  count++;
-  counter.publish(count);
-}, 1000);
+const WorkerMetaSchema = z.object({
+  name: z.string(),
+  tickCount: z.number(),
+  status: z.enum(["running", "paused"]),
+  intervalMs: z.number(),
+});
 
-/**
- * Handler for a "counter.live" streaming endpoint.
- *
- * A client connecting to this endpoint gets the current count immediately,
- * then receives every subsequent tick in real time.
- *
- * Usage in an oRPC router:
- *   counter: {
- *     live: handler(async function* ({ signal }) {
- *       yield* counterLive(signal);
- *     }),
- *   }
- */
-export const counterLive = liveQuery(
-  (signal) => counter.subscribe(signal),
-  () => count,
-);
+const ActivitySampleSchema = z.tuple([z.number(), z.boolean()]);
+const IdInput = z.object({ id: z.string() });
+
+const contract = oc.router({
+  worker: {
+    list: oc.output(eventIterator(z.array(WorkerInfoSchema))),
+    onMetadataChange: oc.input(IdInput).output(eventIterator(WorkerMetaSchema)),
+    onActivityChange: oc
+      .input(IdInput)
+      .output(eventIterator(ActivitySampleSchema)),
+    attach: oc.input(IdInput).output(eventIterator(z.string())),
+    create: oc.output(WorkerInfoSchema),
+    kill: oc.input(IdInput).output(z.void()),
+    toggle: oc.input(IdInput).output(z.void()),
+  },
+});
+
+export type { contract };
 
 // ---------------------------------------------------------------------------
-// 2. Keyed channel: per-room chat
+// Channels
 // ---------------------------------------------------------------------------
 
-type ChatMessage = { user: string; text: string; timestamp: number };
+type WorkerId = string;
+type ActivitySample = [epochMs: number, isActive: boolean];
 
-const chatMessages = createKeyedChannel<string, ChatMessage>();
-const chatHistory = new Map<string, ChatMessage[]>();
+const workerList = createChannel<z.infer<typeof WorkerInfoSchema>[]>();
+const metadataCh = createKeyedChannel<
+  WorkerId,
+  z.infer<typeof WorkerMetaSchema>
+>();
+const activityCh = createKeyedChannel<WorkerId, ActivitySample>();
+const ticksCh = createKeyedChannel<WorkerId, string>();
 
-/** Send a message to a room. */
-export function sendMessage(room: string, user: string, text: string): void {
-  const msg: ChatMessage = { user, text, timestamp: Date.now() };
-  const history = chatHistory.get(room) ?? [];
-  history.push(msg);
-  chatHistory.set(room, history);
-  chatMessages.publish(room, msg);
+// ---------------------------------------------------------------------------
+// Worker state
+// ---------------------------------------------------------------------------
+
+type WorkerEntry = {
+  info: z.infer<typeof WorkerInfoSchema>;
+  meta: z.infer<typeof WorkerMetaSchema>;
+  activityHistory: ActivitySample[];
+  timer: ReturnType<typeof setInterval> | null;
+};
+
+const workers = new Map<WorkerId, WorkerEntry>();
+let nextId = 1;
+const names = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"];
+
+function listWorkers() {
+  return [...workers.values()].map((w) => w.info);
 }
 
-/**
- * Handler for a "chat.messages" streaming endpoint.
- *
- * Yields the full message history for the room, then streams new messages.
- * Uses liveQueryMany because the snapshot is multiple items (history array).
- */
-export function chatLive(room: string) {
-  return liveQueryMany(
-    (signal) => chatMessages.subscribe(room, signal),
-    () => chatHistory.get(room) ?? [],
+function tick(entry: WorkerEntry) {
+  entry.meta = { ...entry.meta, tickCount: entry.meta.tickCount + 1 };
+  metadataCh.publish(entry.info.id, entry.meta);
+  ticksCh.publish(
+    entry.info.id,
+    `[${entry.info.name}] tick #${entry.meta.tickCount}`,
   );
+  const sample: ActivitySample = [Date.now(), true];
+  entry.activityHistory.push(sample);
+  if (entry.activityHistory.length > 100)
+    entry.activityHistory = entry.activityHistory.slice(-100);
+  activityCh.publish(entry.info.id, sample);
+}
+
+function createWorker() {
+  const id = String(nextId++);
+  const name = names[(nextId - 2) % names.length]!;
+  const intervalMs = 500 + Math.floor(Math.random() * 1500);
+  const entry: WorkerEntry = {
+    info: { id, name, createdAt: Date.now() },
+    meta: { name, tickCount: 0, status: "running", intervalMs },
+    activityHistory: [],
+    timer: null,
+  };
+  entry.timer = setInterval(() => tick(entry), intervalMs);
+  workers.set(id, entry);
+  workerList.publish(listWorkers());
+  console.log(`+ worker ${id} (${name}) every ${intervalMs}ms`);
+  return entry.info;
+}
+
+function require(id: WorkerId): WorkerEntry {
+  const entry = workers.get(id);
+  if (!entry) throw new Error(`worker ${id} not found`);
+  return entry;
 }
 
 // ---------------------------------------------------------------------------
-// 3. Demo: consume the streams (simulating two clients)
+// Router
 // ---------------------------------------------------------------------------
 
-async function demo() {
-  console.log("=== Counter demo ===");
+const t = implement(contract);
 
-  const c1 = new AbortController();
-  // Client 1 connects to counter
-  void (async () => {
-    for await (const n of counterLive(c1.signal)) {
-      console.log(`[client-1] counter = ${n}`);
-      if (n >= 3) c1.abort(); // disconnect after 3
-    }
-    console.log("[client-1] disconnected");
-  })();
+const router = t.router({
+  worker: {
+    list: t.worker.list.handler(async function* ({ signal }) {
+      yield* liveQuery(
+        (s) => workerList.subscribe(s),
+        () => listWorkers(),
+      )(signal);
+    }),
 
-  // Wait for counter to tick a few times
-  await new Promise((r) => setTimeout(r, 3500));
+    onMetadataChange: t.worker.onMetadataChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = require(input.id);
+      yield* liveQuery(
+        (s) => metadataCh.subscribe(input.id, s),
+        () => ({ ...entry.meta }),
+      )(signal);
+    }),
 
-  console.log("\n=== Chat demo ===");
+    onActivityChange: t.worker.onActivityChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      const entry = require(input.id);
+      yield* liveQueryMany(
+        (s) => activityCh.subscribe(input.id, s),
+        () => [...entry.activityHistory],
+      )(signal);
+    }),
 
-  const c2 = new AbortController();
+    attach: t.worker.attach.handler(async function* ({ input, signal }) {
+      require(input.id);
+      for await (const msg of ticksCh.subscribe(input.id, signal)) yield msg;
+    }),
 
-  // Seed some history
-  sendMessage("general", "alice", "hello!");
-  sendMessage("general", "bob", "hey alice");
+    create: t.worker.create.handler(async () => createWorker()),
 
-  // Client 2 connects to chat — gets history then live messages
-  void (async () => {
-    for await (const msg of chatLive("general")(c2.signal)) {
-      console.log(`[client-2] ${msg.user}: ${msg.text}`);
-    }
-  })();
+    kill: t.worker.kill.handler(async ({ input }) => {
+      const entry = require(input.id);
+      if (entry.timer) clearInterval(entry.timer);
+      workers.delete(input.id);
+      workerList.publish(listWorkers());
+      console.log(`- worker ${input.id} (${entry.info.name})`);
+    }),
 
-  // Give the async iterator a tick to start consuming
-  await new Promise((r) => setTimeout(r, 10));
+    toggle: t.worker.toggle.handler(async ({ input }) => {
+      const entry = require(input.id);
+      if (entry.meta.status === "running") {
+        if (entry.timer) clearInterval(entry.timer);
+        entry.timer = null;
+        entry.meta = { ...entry.meta, status: "paused" };
+        activityCh.publish(input.id, [Date.now(), false]);
+      } else {
+        entry.meta = { ...entry.meta, status: "running" };
+        entry.timer = setInterval(() => tick(entry), entry.meta.intervalMs);
+        activityCh.publish(input.id, [Date.now(), true]);
+      }
+      metadataCh.publish(input.id, entry.meta);
+    }),
+  },
+});
 
-  // New message arrives after client connected
-  sendMessage("general", "charlie", "what's up?");
+// ---------------------------------------------------------------------------
+// WebSocket server (same pattern as Kolu's server/src/index.ts)
+// ---------------------------------------------------------------------------
 
-  await new Promise((r) => setTimeout(r, 10));
-  c2.abort();
+const PORT = 3123;
+const wss = new WebSocketServer({ port: PORT });
+const rpcHandler = new RPCHandler(router);
 
-  console.log("\nDone.");
-  process.exit(0);
-}
+wss.on("connection", (ws) => {
+  rpcHandler.upgrade(ws, { context: {} });
+});
 
-demo();
+console.log(`Worker manager: ws://localhost:${PORT}`);
+
+// Seed one worker
+createWorker();

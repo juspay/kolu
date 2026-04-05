@@ -172,10 +172,10 @@ export function createKeyedChannel<
  * ```
  */
 export function liveQuery<T>(
-  subscribe: (signal: AbortSignal) => AsyncIterable<T>,
+  subscribe: (signal?: AbortSignal) => AsyncIterable<T>,
   snapshot: () => T | Promise<T>,
-): (signal: AbortSignal) => AsyncGenerator<T> {
-  return async function* (signal: AbortSignal): AsyncGenerator<T> {
+): (signal?: AbortSignal) => AsyncGenerator<T> {
+  return async function* (signal?: AbortSignal): AsyncGenerator<T> {
     // Subscribe FIRST — any publishes between here and the yield are queued
     const live = subscribe(signal);
     // Then compute and yield the snapshot
@@ -201,10 +201,10 @@ export function liveQuery<T>(
  * ```
  */
 export function liveQueryMany<T>(
-  subscribe: (signal: AbortSignal) => AsyncIterable<T>,
+  subscribe: (signal?: AbortSignal) => AsyncIterable<T>,
   snapshot: () => Iterable<T> | Promise<Iterable<T>>,
-): (signal: AbortSignal) => AsyncGenerator<T> {
-  return async function* (signal: AbortSignal): AsyncGenerator<T> {
+): (signal?: AbortSignal) => AsyncGenerator<T> {
+  return async function* (signal?: AbortSignal): AsyncGenerator<T> {
     const live = subscribe(signal);
     for (const item of await snapshot()) {
       yield item;

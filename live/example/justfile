@@ -1,0 +1,18 @@
+# Prefix for commands that need a Nix devshell; empty if already inside one.
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + '/../.. -c' }
+
+# Run server + client in parallel
+dev:
+    {{ nix_shell }} just _dev
+
+[private]
+[parallel]
+_dev: server client
+
+# Run WebSocket server (worker manager)
+server:
+    npx tsx server.ts
+
+# Run Vite dev server (SolidJS client)
+client:
+    npx vite
