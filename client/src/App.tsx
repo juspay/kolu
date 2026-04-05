@@ -22,10 +22,10 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
-import WorktreeRemoveConfirm from "./WorktreeRemoveConfirm";
+import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId } from "kolu-common";
 import { wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { useServerState } from "./useServerState";
@@ -92,12 +92,10 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
-  // Worktree remove confirmation — snapshot ID + meta at open time to prevent
+  // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
-  const [worktreeConfirmTarget, setWorktreeConfirmTarget] = createSignal<{
-    id: TerminalId;
-    meta: TerminalMetadata;
-  } | null>(null);
+  const [closeConfirmTarget, setCloseConfirmTarget] =
+    createSignal<CloseConfirmTarget | null>(null);
 
   // Mission Control state — single discriminated union, no impossible states
   const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
@@ -160,11 +158,13 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Close a terminal — shows worktree confirmation dialog if applicable. */
+  /** Close a terminal — shows confirmation if it has splits or is a worktree. */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
-    if (meta?.git?.isWorktree) {
-      setWorktreeConfirmTarget({ id, meta });
+    if (!meta) return;
+    const splitCount = store.getSubTerminalIds(id).length;
+    if (splitCount > 0 || meta.git?.isWorktree) {
+      setCloseConfirmTarget({ id, meta, splitCount });
     } else {
       void crud.handleKill(id);
     }
@@ -306,21 +306,20 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
-      <WorktreeRemoveConfirm
-        open={worktreeConfirmTarget() !== null}
+      <CloseConfirm
+        target={closeConfirmTarget()}
         onOpenChange={(open) => {
           if (!open) {
-            setWorktreeConfirmTarget(null);
+            setCloseConfirmTarget(null);
             requestAnimationFrame(refocusTerminal);
           }
         }}
-        meta={worktreeConfirmTarget()?.meta ?? null}
-        onCloseOnly={() => {
-          const target = worktreeConfirmTarget();
-          if (target) void crud.handleKill(target.id);
+        onClose={() => {
+          const target = closeConfirmTarget();
+          if (target) void crud.handleKillWithSubs(target.id);
         }}
         onCloseAndRemove={() => {
-          const target = worktreeConfirmTarget();
+          const target = closeConfirmTarget();
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />

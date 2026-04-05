@@ -28,7 +28,7 @@ Feature: Git worktree management
     Given I note the sidebar entry count
     When I open the command palette
     And I select "Close terminal" in the palette
-    Then the worktree remove confirmation should be visible
+    Then the close confirmation should be visible
     When I confirm worktree removal
     Then the sidebar should have 1 fewer terminal entry
     And there should be no page errors
@@ -44,8 +44,8 @@ Feature: Git worktree management
     Given I note the sidebar entry count
     When I open the command palette
     And I select "Close terminal" in the palette
-    Then the worktree remove confirmation should be visible
-    When I dismiss the worktree remove confirmation
+    Then the close confirmation should be visible
+    When I dismiss the close confirmation
     Then the sidebar entry count should be unchanged
     And there should be no page errors
 
@@ -60,7 +60,7 @@ Feature: Git worktree management
     Given I note the sidebar entry count
     When I open the command palette
     And I select "Close terminal" in the palette
-    Then the worktree remove confirmation should be visible
-    When I click close only in the worktree confirmation
+    Then the close confirmation should be visible
+    When I click close only in the close confirmation
     Then the sidebar should have 1 fewer terminal entry
     And there should be no page errors
