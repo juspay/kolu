@@ -62,6 +62,7 @@ let
       ./common
       ./server
       ./client
+      ./solid-live
     ];
   };
 
@@ -69,7 +70,7 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-9N87IzLRX/HyO8iHD4cv70Qi77b+RHwSjPd6jZdOZ1Q=";
+    hash = "sha256-Y2x0hsDbESx8DPqwzVA1HqFO47Ey1K296J8UsIh0rlw=";
     fetcherVersion = 3;
   };
 
