@@ -104,7 +104,11 @@ const WorkspaceConfirm: Component<{
             Cancel
           </button>
           <button
-            class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+            class={
+              isWorktree()
+                ? "px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+                : "px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+            }
             data-testid={
               isWorktree()
                 ? "worktree-confirm-close-only"
