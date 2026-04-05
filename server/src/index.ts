@@ -13,8 +13,7 @@ import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { snapshotSession, listTerminals } from "./terminals.ts";
-import { registerTerminalLister } from "./state.ts";
+import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
@@ -62,7 +61,6 @@ const argv = cli({
 });
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
-registerTerminalLister(listTerminals);
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 

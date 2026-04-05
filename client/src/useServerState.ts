@@ -1,9 +1,8 @@
-/** Unified server state — singleton live query for all server-synced data.
+/** Unified server state — singleton live query for preferences, session, repos.
  *
- *  One state.get stream replaces the old fragmented queries (terminal.list,
- *  onMetadataChange, separate state.get). Preferences are derived directly
- *  from the query data — no dual-state hack needed since live queries
- *  drive SolidJS reactivity synchronously. */
+ *  Terminal list uses a separate terminal.list stream for low-latency updates.
+ *  Preferences are derived from the state.get query — live queries drive
+ *  SolidJS reactivity synchronously, no dual-state hack needed. */
 
 import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { orpc } from "./orpc";
@@ -32,6 +31,13 @@ export function useServerState() {
     updateMut.mutate({ preferences: patch });
   }
 
+  /** Invalidate state query (e.g. after worktree create changes recent repos). */
+  function invalidate() {
+    void qc.invalidateQueries({
+      queryKey: orpc.state.get.key(),
+    });
+  }
+
   return {
     /** Full server state (undefined while loading). */
     state: () => query.data as ServerState | undefined,
@@ -40,6 +46,6 @@ export function useServerState() {
     recentRepos: () => (query.data?.recentRepos ?? []) as RecentRepo[],
     savedSession: () => (query.data?.session ?? null) as SavedSession | null,
     updatePreferences,
-    isReady: () => !query.isLoading,
+    invalidate,
   };
 }

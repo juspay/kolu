@@ -23,15 +23,14 @@ export function useSessionRestore(deps: {
     null,
   );
 
-  // Hydrate from server state on initial load (wait for both collections to be ready).
+  // Hydrate from server state on initial load.
   let hydrated = false;
   createEffect(() => {
-    if (!store.isReady() || !serverState.isReady()) return;
+    const existing = store.listQuery.data;
+    const state = serverState.state();
+    if (existing === undefined || state === undefined) return;
     if (hydrated) return;
     hydrated = true;
-    const existing = store.allTerminals();
-    const state = serverState.state();
-    if (!state) return;
     if (existing.length === 0) {
       setSavedSession(state.session);
       return;
@@ -98,7 +97,7 @@ export function useSessionRestore(deps: {
   }
 
   return {
-    isLoading: () => !store.isReady(),
+    isLoading: () => store.listQuery.isLoading,
     savedSession,
     handleRestoreSession,
   };

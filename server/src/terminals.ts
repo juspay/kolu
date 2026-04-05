@@ -25,7 +25,6 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import { publishStateChanged } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -118,10 +117,10 @@ function emitChanged(): void {
   publishSystem("session:changed", {});
 }
 
-/** Notify that terminal state changed (membership or metadata).
- *  Drives the unified state.get stream to clients. */
+/** Notify that terminal membership changed (create/kill/reorder).
+ *  Drives the live terminal.list stream to clients. */
 function emitListChanged(): void {
-  publishStateChanged();
+  publishSystem("terminal-list", listTerminals());
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */

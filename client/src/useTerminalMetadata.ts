@@ -1,16 +1,18 @@
-/** Terminal metadata — per-terminal live queries + activity streams.
+/** Terminal metadata — TanStack queries for server-derived state.
  *
- *  Terminal list comes from the unified state.get stream (via collections.ts).
- *  Metadata (CWD, git, PR, claude) uses per-terminal onMetadataChange streams
- *  for O(1) updates without publishing the full state.
+ *  Two query types per terminal:
+ *  - Metadata (liveOptions): slow-changing state (CWD, git, PR, claude).
+ *    Each event replaces the previous — only current state matters.
+ *  - Activity (streamedOptions): high-frequency busy/idle transitions.
+ *    Events accumulate into an array for sparkline rendering. Server yields
+ *    a history snapshot on connect, then individual [epochMs, boolean] samples.
+ *    maxChunks caps the source array; select trims to the display window.
  *
- *  Activity (high-frequency busy/idle transitions) stays as a separate
- *  oRPC streamed query — it accumulates samples for sparkline rendering.
- *
+ *  Terminal IDs are derived from the live list query data.
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
 import { type Accessor, createMemo } from "solid-js";
-import { createQueries } from "@tanstack/solid-query";
+import { createQueries, type CreateQueryResult } from "@tanstack/solid-query";
 import type {
   TerminalId,
   TerminalInfo,
@@ -24,17 +26,21 @@ import {
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Max samples retained in TanStack cache per terminal. */
+/** Max samples retained in TanStack cache per terminal.
+ *  At ~20 samples/min during active use, 200 covers ~10 min — well beyond
+ *  the 5-min display window. Prevents unbounded growth in long sessions. */
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  allTerminals: () => TerminalInfo[];
+  listQuery: CreateQueryResult<TerminalInfo[]>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  /** Terminal IDs derived from the collection. */
-  const terminalIdList = createMemo(() => deps.allTerminals().map((t) => t.id));
+  /** Terminal IDs derived from the live list query. */
+  const terminalIdList = createMemo(
+    () => deps.listQuery.data?.map((t) => t.id) ?? [],
+  );
 
-  // --- Metadata (slow-changing) — per-terminal live queries ---
+  // --- Metadata (slow-changing) — each event replaces the previous ---
 
   const metadataQueries = createQueries(() => ({
     queries: terminalIdList().map((id) =>
@@ -57,8 +63,13 @@ export function useTerminalMetadata(deps: {
         input: { id },
         queryFnOptions: {
           maxChunks: MAX_ACTIVITY_CHUNKS,
+          // On reconnect, server yields fresh history — discard stale client cache
           refetchMode: "reset" as const,
         },
+        // Trim to display window on read. The source array may hold samples
+        // slightly older than the window (up to maxChunks), but consumers
+        // only see the 5-min slice. This runs on every access — cheap for
+        // small arrays (~50-200 items).
         select: (samples: ActivitySample[]) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
           return samples.filter(([t]) => t >= cutoff);

@@ -1,16 +1,15 @@
-/** Server state collections — wraps the unified state.get live query.
+/** Server state accessors — singleton live query for persisted state.
  *
- *  The state.get stream (managed by TanStack Query) pushes full ServerState.
- *  This module provides reactive accessors for derived slices (terminals,
- *  preferences) without N+1 queries or manual cache key construction.
+ *  The state.get stream pushes ServerState (preferences, session, repos).
+ *  Terminal list uses a separate terminal.list stream (dedicated channel
+ *  for low-latency list updates without full-state serialization).
  *
- *  TODO: Migrate to TanStack DB collections once sync-function reactivity
- *  is verified with the oRPC WebSocket transport. */
+ *  This module provides reactive accessors for the persisted state slices.
+ *  Terminal list is managed directly by useTerminalStore via terminal.list. */
 
 import { createMemo } from "solid-js";
 import { createQuery, type CreateQueryResult } from "@tanstack/solid-query";
 import type {
-  TerminalInfo,
   ServerState,
   Preferences,
   RecentRepo,
@@ -35,28 +34,10 @@ export function getStateQuery(): StateQuery {
 
 // --- Reactive accessors ---
 
-/** All terminals from the unified state stream. */
-export function useTerminals() {
-  const query = getStateQuery();
-  return createMemo((): TerminalInfo[] => query.data?.terminals ?? []);
-}
-
-/** Preferences from the unified state stream. */
+/** Preferences from the state stream. */
 export function usePreferences() {
   const query = getStateQuery();
   return createMemo(
     (): Preferences => query.data?.preferences ?? DEFAULT_PREFERENCES,
   );
-}
-
-/** Recent repos from the unified state stream. */
-export function useRecentRepos() {
-  const query = getStateQuery();
-  return createMemo((): RecentRepo[] => query.data?.recentRepos ?? []);
-}
-
-/** Saved session from the unified state stream. */
-export function useSavedSession() {
-  const query = getStateQuery();
-  return createMemo((): SavedSession | null => query.data?.session ?? null);
 }

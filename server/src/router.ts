@@ -11,6 +11,7 @@ import { TerminalNotFoundError } from "kolu-common/errors";
 import {
   createTerminal,
   getTerminal,
+  listTerminals,
   killTerminal,
   killAllTerminals,
   setTerminalTheme,
@@ -44,6 +45,12 @@ export const appRouter = t.router({
     create: t.terminal.create.handler(async ({ input }) =>
       createTerminal(input.cwd, input.parentId),
     ),
+    list: t.terminal.list.handler(async function* ({ signal }) {
+      yield listTerminals();
+      for await (const list of subscribeSystem_("terminal-list", signal)) {
+        yield list;
+      }
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);

@@ -15,11 +15,7 @@ import type {
   ServerState,
   ServerStatePatch,
 } from "kolu-common";
-import type { TerminalInfo } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
-
-/** Late-bound terminal lister — registered at startup to break circular import. */
-let _listTerminals: () => TerminalInfo[] = () => [];
 
 /**
  * Schema version — bump this when adding migrations.
@@ -94,18 +90,12 @@ export function getRecentRepos(): RecentRepo[] {
 
 // --- Server state ---
 
-/** Register the terminal list function — called once at startup. */
-export function registerTerminalLister(fn: () => TerminalInfo[]): void {
-  _listTerminals = fn;
-}
-
-/** Get the full server state (persisted + runtime). */
+/** Get the full server state. */
 export function getServerState(): ServerState {
   return {
     recentRepos: getRecentRepos(),
     session: store.get("session"),
     preferences: store.get("preferences"),
-    terminals: _listTerminals(),
   };
 }
 

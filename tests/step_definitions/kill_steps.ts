@@ -24,6 +24,19 @@ When(
 );
 
 When(
+  "I click the sidebar close button for terminal {int}",
+  async function (this: KoluWorld, index: number) {
+    const id = this.createdTerminalIds[index - 1];
+    assert.ok(id, `No terminal created at index ${index}`);
+    const entry = this.page.locator(
+      `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+    );
+    await entry.hover();
+    await entry.locator('[data-testid="sidebar-close"]').click();
+  },
+);
+
+When(
   "I close the active terminal via command palette",
   async function (this: KoluWorld) {
     await this.page.keyboard.press(`${MOD_KEY}+k`);

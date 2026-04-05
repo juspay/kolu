@@ -31,37 +31,39 @@ When(
 );
 
 Then(
-  "the worktree remove confirmation should be visible",
+  "the close confirmation should be visible",
   async function (this: KoluWorld) {
     await this.page
-      .locator('[data-testid="worktree-remove-confirm"]')
+      .locator('[data-testid="close-confirm"]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
+When(
+  "I confirm close all in the close confirmation",
+  async function (this: KoluWorld) {
+    await this.page.locator('[data-testid="close-confirm-close-all"]').click();
+  },
+);
+
 When("I confirm worktree removal", async function (this: KoluWorld) {
-  await this.page.locator('[data-testid="worktree-confirm-remove"]').click();
+  await this.page.locator('[data-testid="close-confirm-remove"]').click();
 });
 
 When(
-  "I click close only in the worktree confirmation",
+  "I click close only in the close confirmation",
   async function (this: KoluWorld) {
-    await this.page
-      .locator('[data-testid="worktree-confirm-close-only"]')
-      .click();
+    await this.page.locator('[data-testid="close-confirm-close-only"]').click();
   },
 );
 
-When(
-  "I dismiss the worktree remove confirmation",
-  async function (this: KoluWorld) {
-    // Press Escape to close the dialog
-    await this.page.keyboard.press("Escape");
-    await this.page
-      .locator('[data-testid="worktree-remove-confirm"]')
-      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
-  },
-);
+When("I dismiss the close confirmation", async function (this: KoluWorld) {
+  // Press Escape to close the dialog
+  await this.page.keyboard.press("Escape");
+  await this.page
+    .locator('[data-testid="close-confirm"]')
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+});
 
 Then(
   "the sidebar entry count should be unchanged",

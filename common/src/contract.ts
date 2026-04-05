@@ -35,6 +35,8 @@ export const contract = oc.router({
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
+    // Stream terminal list changes (create/kill/reorder). Yields current list immediately.
+    list: oc.output(eventIterator(z.array(TerminalInfoSchema))),
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),

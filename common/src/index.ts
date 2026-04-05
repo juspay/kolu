@@ -200,10 +200,8 @@ export const PersistedStateSchema = z.object({
 });
 
 /** What the client receives — persisted state + runtime state.
- *  Runtime fields (terminals) are in-memory only, not written to disk. */
-export const ServerStateSchema = PersistedStateSchema.extend({
-  terminals: z.array(TerminalInfoSchema),
-});
+ *  Terminal list uses a dedicated terminal.list stream for low latency. */
+export const ServerStateSchema = PersistedStateSchema.extend({});
 
 /** Partial patch for state updates — all fields optional, preferences partially mergeable. */
 export const ServerStatePatchSchema = z.object({

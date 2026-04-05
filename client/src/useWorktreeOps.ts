@@ -3,6 +3,7 @@
 import { createMutation } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { orpc } from "./orpc";
+import { useServerState } from "./useServerState";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -12,6 +13,7 @@ export function useWorktreeOps(deps: {
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
+  const { invalidate: invalidateState } = useServerState();
 
   const worktreeCreateMut = createMutation(() => ({
     ...orpc.git.worktreeCreate.mutationOptions(),
@@ -29,7 +31,7 @@ export function useWorktreeOps(deps: {
     const result = await worktreeCreateMut.mutateAsync({ repoPath });
     toast.success(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
-    // No invalidation needed — state stream pushes updated recentRepos automatically
+    invalidateState();
   }
 
   /** Kill a terminal and remove its worktree.
@@ -45,6 +47,7 @@ export function useWorktreeOps(deps: {
     if (worktreePath) {
       await worktreeRemoveMut.mutateAsync({ worktreePath });
       toast.success(`Removed worktree at ${worktreePath}`);
+      invalidateState();
     }
   }
 

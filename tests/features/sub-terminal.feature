@@ -46,14 +46,16 @@ Feature: Sub-terminals
     Then sub-panel tab 1 should be active
     And there should be no page errors
 
-  Scenario: Kill parent promotes sub-terminals to sidebar
+  Scenario: Kill parent with splits shows confirmation and closes all
     When I open the app
     And I create a terminal
     And I select terminal 1 in the sidebar
     And I create a sub-terminal via command palette
     And I run "echo orphan-marker" in the sub-terminal
-    And I close terminal 1 via sidebar
-    Then the sidebar should have 2 terminal entries
+    And I click the sidebar close button for terminal 1
+    Then the close confirmation should be visible
+    When I confirm close all in the close confirmation
+    Then the sidebar should have 1 terminal entry
     And the terminal canvas should be visible
     And there should be no page errors
 

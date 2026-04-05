@@ -7,6 +7,7 @@
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type {
+  TerminalInfo,
   TerminalMetadata,
   GitInfo,
   ActivitySample,
@@ -34,7 +35,9 @@ type TerminalChannels = {
 type SystemChannels = {
   /** Terminal state changed — triggers debounced session auto-save */
   "session:changed": Record<string, never>;
-  /** Server state changed (terminals, preferences, session, repos) — drives unified live state query */
+  /** Terminal list changed (create/kill/reorder) — drives live list query */
+  "terminal-list": TerminalInfo[];
+  /** Server state changed (preferences, session, repos) — drives live state query */
   "state:changed": ServerState;
 };
 
