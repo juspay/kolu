@@ -12,7 +12,7 @@ import { WebSocketServer } from "ws";
 import { oc, eventIterator } from "@orpc/contract";
 import { z } from "zod";
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live, events } from "../src/server.ts";
+import { live, events } from "../../src/server.ts";
 
 // ---------------------------------------------------------------------------
 // Contract

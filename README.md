@@ -74,12 +74,12 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 pnpm monorepo, four packages:
 
-| Package   | Stack                                                                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
-| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
-| `client/` | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
-| `live/`   | End-to-end reactive streams — typed pub/sub channels (server) + AsyncIterable→Signal bridging (SolidJS client)                                                      |
+| Package       | Stack                                                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common/`     | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
+| `server/`     | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
+| `client/`     | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
+| `solid-live/` | End-to-end reactive signals — `@solidjs/signals` on server, SolidJS `Accessor` on client, `AsyncIterable` on the wire                                               |
 
 ### Communication
 

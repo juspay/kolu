@@ -14,15 +14,14 @@ import { createStore, reconcile } from "solid-js/store";
 // ---------------------------------------------------------------------------
 
 /**
- * A SolidJS signal backed by a server stream.
+ * A SolidJS Accessor backed by a server stream.
  *
- * Callable as an accessor — `signal()` returns T | undefined.
- * Additional properties for error, pending, and optimistic mutation,
- * following the same pattern as SolidJS's `createResource`.
+ * Extends `Accessor<T | undefined>` — calling it is a real SolidJS
+ * reactive read, just like any signal from `createSignal`. Additional
+ * properties for error, pending, and optimistic mutation follow the
+ * same pattern as SolidJS's `createResource`.
  */
-export interface LiveSignal<T> {
-  /** Read the current value. This IS a SolidJS reactive read. */
-  (): T | undefined;
+export interface LiveSignal<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */

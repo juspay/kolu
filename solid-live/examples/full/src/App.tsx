@@ -8,7 +8,7 @@
  */
 
 import { Show, For, createMemo } from "solid-js";
-import { createLive, createAction } from "../../src/solid.ts";
+import { createLive, createAction } from "../../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 // ---------------------------------------------------------------------------
