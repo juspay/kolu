@@ -167,6 +167,15 @@ export function useTerminalCrud(deps: {
     removeAndAutoSwitch(id);
   }
 
+  /** Kill a terminal and all its sub-terminals. */
+  async function handleCascadeKill(id: TerminalId) {
+    const subIds = store.getSubTerminalIds(id);
+    for (const subId of subIds) {
+      await handleKill(subId);
+    }
+    await handleKill(id);
+  }
+
   async function handleCopyTerminalText() {
     const id = store.activeId();
     if (id === null) return;
@@ -193,6 +202,7 @@ export function useTerminalCrud(deps: {
     handleCreate,
     handleCreateSubTerminal,
     handleKill,
+    handleCascadeKill,
     handleCopyTerminalText,
     handleCloseAll,
   };

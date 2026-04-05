@@ -18,8 +18,17 @@ When(
     // Hover to reveal the close button, then click it
     await entry.hover();
     await entry.locator('[data-testid="sidebar-close"]').click();
-    // Wait for removal from DOM
-    await entry.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+    // If the terminal has no sub-terminals, wait for removal from DOM.
+    // If it does, a confirmation dialog appears — let the scenario handle it.
+    const confirm = this.page.locator('[data-testid="split-close-confirm"]');
+    // Timeout (500ms) is the only expected error — means no dialog appeared
+    const dialogVisible = await confirm
+      .waitFor({ state: "visible", timeout: 500 })
+      .then(() => true)
+      .catch(() => false);
+    if (!dialogVisible) {
+      await entry.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+    }
   },
 );
 
