@@ -10,7 +10,13 @@
  *  Terminal IDs are derived from the live list subscription data.
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
-import { type Accessor, createMemo, createEffect, onCleanup } from "solid-js";
+import {
+  type Accessor,
+  createSignal,
+  createMemo,
+  createEffect,
+  onCleanup,
+} from "solid-js";
 import { createSubscription, type Subscription } from "solid-live/solid";
 import { client } from "./rpc";
 import type {
@@ -52,20 +58,30 @@ export function useTerminalMetadata(deps: {
     { sub: Subscription<ActivitySample[]>; abort: AbortController }
   >();
 
+  // Bumped when subscriptions are added/removed. Memos that read subscription
+  // values via getMetadata/getActivityHistory track this signal so they re-run
+  // and establish dependencies on the new subscription's reactive store.
+  // Without this, the optional chaining (metaSubs.get(id)?.sub()) short-circuits
+  // when the subscription doesn't exist yet, and SolidJS never tracks the store.
+  const [subVersion, setSubVersion] = createSignal(0);
+
   createEffect(() => {
     const current = new Set(terminalIdList());
+    let changed = false;
 
     // Teardown removed terminals
     for (const [id, entry] of metaSubs) {
       if (!current.has(id)) {
         entry.abort.abort();
         metaSubs.delete(id);
+        changed = true;
       }
     }
     for (const [id, entry] of activitySubs) {
       if (!current.has(id)) {
         entry.abort.abort();
         activitySubs.delete(id);
+        changed = true;
       }
     }
 
@@ -78,6 +94,7 @@ export function useTerminalMetadata(deps: {
           { signal: abort.signal },
         );
         metaSubs.set(id, { sub, abort });
+        changed = true;
       }
       if (!activitySubs.has(id)) {
         const abort = new AbortController();
@@ -95,8 +112,11 @@ export function useTerminalMetadata(deps: {
           },
         );
         activitySubs.set(id, { sub, abort });
+        changed = true;
       }
     }
+
+    if (changed) setSubVersion((v) => v + 1);
   });
 
   // Cleanup all subscriptions when the parent owner is disposed
@@ -108,10 +128,16 @@ export function useTerminalMetadata(deps: {
   });
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    return metaSubs.get(id)?.sub();
+    subVersion(); // re-evaluate when subscriptions change
+    // Prefer live subscription value; fall back to list-embedded metadata
+    // so terminals appear in the sidebar immediately (before metadata sub connects).
+    return (
+      metaSubs.get(id)?.sub() ?? deps.listSub()?.find((t) => t.id === id)?.meta
+    );
   }
 
   function getActivityHistory(id: TerminalId): ActivitySample[] {
+    subVersion(); // re-evaluate when subscriptions change
     return activitySubs.get(id)?.sub() ?? [];
   }
 

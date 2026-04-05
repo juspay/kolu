@@ -130,7 +130,10 @@ export function startGitProvider(
 
   plog.info({ cwd: lastCwd }, "started");
 
-  // No explicit initial resolve — watch() fires the initial value synchronously.
+  // Resolve immediately for initial CWD. watch() also fires the initial value,
+  // but onCwdChange de-dupes (newCwd === lastCwd), so the watch's initial fire
+  // is a no-op. This explicit call is the one that actually resolves git info.
+  void resolve(meta.cwd);
 
   function onCwdChange(newCwd: string) {
     if (newCwd === lastCwd) {

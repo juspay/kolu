@@ -160,7 +160,12 @@ export function startGitHubPrProvider(
 
   plog.info({ branch: lastBranch }, "started");
 
-  // No explicit initial resolve — watch() fires the initial value synchronously.
+  // Resolve immediately if we have git context. watch() also fires the initial
+  // value, but onGitChange de-dupes (branch === lastBranch), so the watch's
+  // initial fire is a no-op. This explicit call triggers the first PR lookup.
+  if (lastBranch && lastRepoRoot) {
+    void resolve(lastRepoRoot);
+  }
 
   function onGitChange(git: GitInfo | null) {
     const branch = git?.branch;
