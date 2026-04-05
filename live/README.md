@@ -40,17 +40,23 @@ Open http://localhost:5173. We should see a dark dashboard with one worker alrea
 
 Now let's build it from scratch.
 
-### Server: hold state in signals
+### Part 1: State with signals and `live()`
+
+We'll get a single worker ticking on the server, display it in the browser, then scale to multiple workers with create/kill.
+
+#### Server: a worker that ticks
 
 We start on the server. Each worker has a tick count and a status. We model these as signals — reactive values that notify dependents when they change:
 
 ```ts
 // server.ts
 import { createSignal, createMemo, flush } from "@solidjs/signals";
+import { live } from "live/server";
 
 const [tickCount, setTickCount] = createSignal(0);
 const [status, setStatus] = createSignal<"running" | "paused">("running");
 
+// Derived — recomputes when tickCount or status changes
 const meta = createMemo(() => ({
   name: "alpha",
   tickCount: tickCount(),
@@ -58,7 +64,7 @@ const meta = createMemo(() => ({
 }));
 ```
 
-`meta` is a derived signal — it recomputes whenever `tickCount` or `status` changes. We make the worker tick with a plain `setInterval`:
+Now we make it tick:
 
 ```ts
 setInterval(() => {
@@ -67,112 +73,151 @@ setInterval(() => {
 }, 1000);
 ```
 
-No `channel.publish()`. We just write to the signal. Everything downstream reacts.
+No `channel.publish()`. We just call the setter. Everything downstream reacts.
 
-### Server: send state to the client with `live()`
+#### Server: stream `meta` to the client
 
-The client connects over WebSocket and subscribes to streaming endpoints (via oRPC). We need to turn our reactive signals into a stream of values the client can consume.
+The client will connect over WebSocket and subscribe to streaming endpoints via oRPC. We need to turn our reactive `meta` signal into a stream the client can consume.
 
-`live()` does exactly this — it watches a reactive expression and yields a new value each time its dependencies change:
+`live()` does this — it watches a reactive expression and yields a new value each time its dependencies change:
 
 ```ts
-// server.ts
-import { live } from "live/server";
-
-// oRPC handler — one line
-list: t.worker.list.handler(async function* ({ signal }) {
-  yield* live(() => workerList())(signal);
+onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ signal }) {
+  yield* live(() => meta())(signal);
 }),
 ```
 
-When a client connects, `live()` evaluates `workerList()` immediately (the snapshot), then yields again each time the signal changes. When the client disconnects, `signal` aborts and the generator cleans up.
+When a client connects, `live()` evaluates `meta()` immediately — that's the snapshot. Then each time `tickCount` changes, `meta` recomputes and `live()` yields the new value. When the client disconnects, `signal` aborts and the generator cleans up.
 
-We do the same for per-worker metadata:
+#### Client: render the ticking worker
 
-```ts
-onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ input, signal }) {
-  const worker = requireWorker(input.id);
-  yield* live(() => worker.meta())(signal);
-}),
-```
-
-### Server: push discrete events with `events()`
-
-Not everything is state. When a worker ticks, we also want to push the tick message as a log line, and record an activity sample. These are things that _happen_, not values that _are_ — they don't have a "current value" to snapshot.
-
-We use `events()` for these — a simple push/iterate pair:
-
-```ts
-// server.ts
-import { events } from "live/server";
-
-const [pushTick, iterateTicks] = events<string>();
-
-// In our tick function:
-pushTick(`[alpha] tick #${count}`);
-```
-
-The handler yields events as they arrive:
-
-```ts
-attach: t.worker.attach.handler(async function* ({ input, signal }) {
-  for await (const msg of worker.iterateTicks(signal)) yield msg;
-}),
-```
-
-For activity samples, we also have a history to catch up late-joining clients. We yield the history first, then live events:
-
-```ts
-onActivityChange: async function* ({ input, signal }) {
-  for (const sample of worker.activityHistory) yield sample;
-  for await (const sample of worker.iterateActivity(signal)) yield sample;
-},
-```
-
-### Client: render live state with `createLive`
-
-Now the client. oRPC streaming endpoints return `Promise<AsyncIterable<T>>`. We feed that to `createLive`, which turns it into a SolidJS reactive signal:
+Now the client. The oRPC client gives us `Promise<AsyncIterable<T>>` for streaming endpoints. We feed that to `createLive`, which turns it into a SolidJS reactive signal:
 
 ```tsx
 // App.tsx
 import { createLive } from "live/solid";
 import { client } from "./rpc";
 
-function WorkerDashboard() {
-  const list = createLive(() => client.worker.list());
+function WorkerCard() {
+  const meta = createLive(() => client.worker.onMetadataChange());
 
-  return (
-    <Show when={list.pending()}>Connecting...</Show>
-    <For each={list.value()}>
-      {(info) => <WorkerCard id={info.id} />}
-    </For>
-  );
-}
-```
-
-`list.value()` updates automatically when the server pushes a new worker list. No refetch, no cache key, no invalidation. We just render it.
-
-Each worker card subscribes to its own metadata stream:
-
-```tsx
-function WorkerCard(props: { id: string }) {
-  const meta = createLive(() =>
-    client.worker.onMetadataChange({ id: props.id }),
-  );
+  const name = () => meta.value()?.name;
+  const ticks = () => meta.value()?.tickCount ?? 0;
 
   return (
     <div>
-      {meta.value()?.name} — {meta.value()?.tickCount} ticks
+      {name()} — {ticks()} ticks
     </div>
   );
 }
 ```
 
-Because `createLive` uses `createStore` + `reconcile` internally, `meta.value()?.tickCount` only re-renders when `tickCount` actually changes — not on every metadata update.
+Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second. The server writes to a signal, `live()` streams it, `createLive` renders it. That's the whole loop.
 
-### Client: accumulate events with a reducer
+Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes — not on every metadata update.
 
-For activity samples, we want to build up an array over time. We pass a `reduce` option:
+#### Server: manage multiple workers
+
+Our dashboard needs to spawn and kill workers. We keep a Map of workers and a signal for the current list:
+
+```ts
+const workers = new Map<string, Worker>();
+const [workerList, setWorkerList] = createSignal<WorkerInfo[]>([]);
+
+function createWorker() {
+  const id = String(nextId++);
+  const [tickCount, setTickCount] = createSignal(0);
+  const meta = createMemo(() => ({
+    name: "alpha",
+    tickCount: tickCount(),
+    /* ... */
+  }));
+  workers.set(id, { meta, tickCount /* ... */ });
+
+  // Update the list signal — all subscribers see the new worker
+  setWorkerList([...workers.values()].map((w) => w.info));
+  flush();
+}
+```
+
+The list handler streams the `workerList` signal, and the metadata handler looks up a specific worker:
+
+```ts
+list: t.worker.list.handler(async function* ({ signal }) {
+  yield* live(() => workerList())(signal);
+}),
+
+onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ input, signal }) {
+  const worker = workers.get(input.id);
+  yield* live(() => worker.meta())(signal);
+}),
+```
+
+When we call `createWorker()`, `workerList` updates, and every connected client receives the new list automatically.
+
+#### Client: list + create
+
+```tsx
+import { createLive, createAction } from "live/solid";
+
+function WorkerDashboard() {
+  const list = createLive(() => client.worker.list());
+  const [create, creating] = createAction(() => client.worker.create());
+
+  return (
+    <>
+      <button onClick={() => create()} disabled={creating.pending()}>
+        {creating.pending() ? "Creating..." : "+ New Worker"}
+      </button>
+      <For each={list.value()}>{(info) => <WorkerCard id={info.id} />}</For>
+    </>
+  );
+}
+```
+
+Click "+ New Worker". The server creates a worker, `workerList` updates, `live()` pushes, `createLive` re-renders the list. We didn't touch the list ourselves — end-to-end reactivity did it.
+
+At this point we have a working dashboard: create workers, watch them tick, see the list update. All with `live()` on the server and `createLive` on the client.
+
+### Part 2: Events with `events()`
+
+State covers values that _are_ — the worker list, metadata. But workers also produce things that _happen_: tick log lines and activity samples. These don't have a "current value" — they're discrete events. We use a different primitive for these.
+
+#### Server: push events
+
+`events()` returns a push/iterate pair. We push from domain logic:
+
+```ts
+import { events } from "live/server";
+
+const [pushTick, iterateTicks] = events<string>();
+
+// In the tick function:
+pushTick(`[alpha] tick #${tickCount()}`);
+```
+
+The handler iterates:
+
+```ts
+attach: t.worker.attach.handler(async function* ({ input, signal }) {
+  const worker = workers.get(input.id);
+  for await (const msg of worker.iterateTicks(signal)) yield msg;
+}),
+```
+
+For activity samples, we also keep a history so late-joining clients catch up. We yield the history first, then live events:
+
+```ts
+onActivityChange: async function* ({ input, signal }) {
+  const worker = workers.get(input.id);
+  for (const sample of worker.activityHistory) yield sample;
+  for await (const sample of worker.iterateActivity(signal)) yield sample;
+},
+```
+
+#### Client: accumulate events with a reducer
+
+On the client, events need to accumulate into an array. We pass a `reduce` option to `createLive`:
 
 ```tsx
 const samples = createLive(
@@ -182,39 +227,24 @@ const samples = createLive(
     initial: [],
   },
 );
-```
 
-Each event from the server folds into the array. We render a sparkline:
-
-```tsx
+// Render a sparkline:
 const sparkline = () =>
   (samples.value() ?? []).map(([, active]) => (active ? "▓" : "░")).join("");
 ```
 
-### Client: fire mutations with `createAction`
-
-When the user clicks "+ New Worker", we call the server. `createAction` wraps the call with reactive lifecycle tracking:
-
-```tsx
-const [create, creating] = createAction(() => client.worker.create());
-
-<button onClick={() => create()} disabled={creating.pending()}>
-  {creating.pending() ? "Creating..." : "+ New Worker"}
-</button>;
-```
-
-We don't manually add the new worker to the list. The server creates the worker, the `workerList` signal updates, `live()` pushes the new list, and the client's `createLive` picks it up. End-to-end reactivity.
+Each event from the server folds into the array. The sparkline fills in as the worker ticks.
 
 ### What we built
 
-A server holding state in signals, a client rendering that state reactively, connected by a WebSocket that carries the signal changes as AsyncIterable streams. No manual pub/sub on the server, no cache layer on the client. Four primitives made the whole thing work:
+A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. No manual pub/sub on the server, no cache layer on the client. Four primitives:
 
 - **`live()`** — server signals → stream (for state)
 - **`events()`** — push/iterate (for things that happen)
 - **`createLive()`** — stream → SolidJS signal (for rendering)
 - **`createAction()`** — async call → pending/error/value (for mutations)
 
-The full code is in [`example/`](./example/).
+The full working code is in [`example/`](./example/).
 
 ## Reference
 
@@ -245,7 +275,9 @@ const [push, iterate] = events<ActivitySample>();
 
 push([Date.now(), true]);
 
-for await (const sample of iterate(signal)) { ... }
+for await (const sample of iterate(signal)) {
+  /* ... */
+}
 ```
 
 Events are buffered from the moment `iterate()` is called, not when `for-await` starts.
