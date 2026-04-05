@@ -1,10 +1,10 @@
 /**
  * Server-side primitive for end-to-end reactive streams.
  *
- * `live(fn)` — reactive expression ��� AsyncGenerator
+ * `toAsyncIterable(fn)` — reactive expression → AsyncGenerator
  *
- * State is modeled with signals from @solidjs/signals. `live()` bridges
- * the signal graph to AsyncIterable — the universal streaming interface
+ * State is modeled with signals from @solidjs/signals. `toAsyncIterable()`
+ * bridges the signal graph to AsyncIterable — the universal streaming interface
  * that oRPC (or any transport) can carry to the client.
  *
  * For discrete events (not state), use oRPC's `@orpc/experimental-publisher`
@@ -91,11 +91,11 @@ function watch<T>(fn: () => T, cb: (value: T) => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
-// live — reactive expression → AsyncGenerator
+// toAsyncIterable — reactive expression → AsyncGenerator
 // ---------------------------------------------------------------------------
 
 /**
- * Bridge a reactive expression to an AsyncGenerator.
+ * Convert a reactive expression to an AsyncGenerator.
  *
  * Tracks all signal reads inside `fn`. When any tracked signal changes,
  * re-evaluates `fn` and yields the new value. The first evaluation is
@@ -107,16 +107,16 @@ function watch<T>(fn: () => T, cb: (value: T) => void): () => void {
  *
  * ```ts
  * import { createSignal } from "@solidjs/signals";
- * import { live } from "solid-live/server";
+ * import { toAsyncIterable } from "solid-live/server";
  *
  * const [count, setCount] = createSignal(0);
  * setInterval(() => setCount(c => c + 1), 1000);
  *
  * // In a router handler:
- * yield* live(() => count())(signal);
+ * yield* toAsyncIterable(() => count())(signal);
  * ```
  */
-export function live<T>(
+export function toAsyncIterable<T>(
   fn: () => T,
 ): (signal?: AbortSignal) => AsyncGenerator<T> {
   return (abortSignal?: AbortSignal) => {

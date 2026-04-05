@@ -9,7 +9,7 @@ import { WebSocketServer } from "ws";
 import { oc, eventIterator } from "@orpc/contract";
 import { z } from "zod";
 import { createSignal, flush } from "@solidjs/signals";
-import { live } from "../../src/server.ts";
+import { toAsyncIterable } from "../../src/server.ts";
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -53,7 +53,7 @@ const t = implement(contract);
 const router = t.router({
   todos: {
     list: t.todos.list.handler(async function* ({ signal }) {
-      yield* live(() => todos())(signal);
+      yield* toAsyncIterable(() => todos())(signal);
     }),
 
     add: t.todos.add.handler(async ({ input }) => {

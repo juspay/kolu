@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live } from "./server.ts";
+import { toAsyncIterable } from "./server.ts";
 
-describe("live", () => {
+describe("toAsyncIterable", () => {
   it("yields the current value as snapshot", async () => {
     const [count] = createSignal(42);
-    const gen = live(() => count())(new AbortController().signal);
+    const gen = toAsyncIterable(() => count())(new AbortController().signal);
 
     const first = await gen.next();
     expect(first).toEqual({ done: false, value: 42 });
@@ -14,7 +14,7 @@ describe("live", () => {
   it("yields when signal changes", async () => {
     const [count, setCount] = createSignal(0);
     const controller = new AbortController();
-    const gen = live(() => count())(controller.signal);
+    const gen = toAsyncIterable(() => count())(controller.signal);
 
     expect(await gen.next()).toEqual({ done: false, value: 0 });
 
@@ -33,7 +33,7 @@ describe("live", () => {
     const [count, setCount] = createSignal(1);
     const doubled = createMemo(() => count() * 2);
     const controller = new AbortController();
-    const gen = live(() => doubled())(controller.signal);
+    const gen = toAsyncIterable(() => doubled())(controller.signal);
 
     expect(await gen.next()).toEqual({ done: false, value: 2 });
 
@@ -49,7 +49,7 @@ describe("live", () => {
     const [ticks, setTicks] = createSignal(0);
     const meta = createMemo(() => ({ name: name(), ticks: ticks() }));
     const controller = new AbortController();
-    const gen = live(() => meta())(controller.signal);
+    const gen = toAsyncIterable(() => meta())(controller.signal);
 
     expect(await gen.next()).toEqual({
       done: false,
@@ -69,7 +69,7 @@ describe("live", () => {
   it("stops when aborted", async () => {
     const [count] = createSignal(0);
     const controller = new AbortController();
-    const gen = live(() => count())(controller.signal);
+    const gen = toAsyncIterable(() => count())(controller.signal);
 
     expect(await gen.next()).toEqual({ done: false, value: 0 });
 

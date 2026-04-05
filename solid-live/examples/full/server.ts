@@ -13,7 +13,7 @@ import { WebSocketServer } from "ws";
 import { oc, eventIterator } from "@orpc/contract";
 import { z } from "zod";
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live } from "../../src/server.ts";
+import { toAsyncIterable } from "../../src/server.ts";
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -162,7 +162,7 @@ const router = t.router({
   worker: {
     // State streams — powered by live() + signals
     list: t.worker.list.handler(async function* ({ signal }) {
-      yield* live(() => workerList())(signal);
+      yield* toAsyncIterable(() => workerList())(signal);
     }),
 
     onMetadataChange: t.worker.onMetadataChange.handler(async function* ({
@@ -170,7 +170,7 @@ const router = t.router({
       signal,
     }) {
       const worker = requireWorker(input.id);
-      yield* live(() => worker.meta())(signal);
+      yield* toAsyncIterable(() => worker.meta())(signal);
     }),
 
     // Event streams — oRPC publisher, snapshot then live

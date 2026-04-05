@@ -8,7 +8,7 @@
  */
 
 import { Show, For, createMemo } from "solid-js";
-import { createLive } from "../../../src/solid.ts";
+import { createSubscription } from "../../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ import { client } from "./rpc.ts";
 // ---------------------------------------------------------------------------
 
 function WorkerDashboard() {
-  const list = createLive(() => client.worker.list());
+  const list = createSubscription(() => client.worker.list());
 
   return (
     <div
@@ -64,11 +64,11 @@ function WorkerDashboard() {
 // ---------------------------------------------------------------------------
 
 function WorkerCard(props: { id: string }) {
-  const meta = createLive(() =>
+  const meta = createSubscription(() =>
     client.worker.onMetadataChange({ id: props.id }),
   );
 
-  const samples = createLive(
+  const samples = createSubscription(
     () => client.worker.onActivityChange({ id: props.id }),
     {
       reduce: (acc: [number, boolean][], sample: [number, boolean]) =>
@@ -77,10 +77,13 @@ function WorkerCard(props: { id: string }) {
     },
   );
 
-  const output = createLive(() => client.worker.attach({ id: props.id }), {
-    reduce: (acc: string[], line: string) => [...acc, line].slice(-5),
-    initial: [] as string[],
-  });
+  const output = createSubscription(
+    () => client.worker.attach({ id: props.id }),
+    {
+      reduce: (acc: string[], line: string) => [...acc, line].slice(-5),
+      initial: [] as string[],
+    },
+  );
 
   const name = () => meta()?.name ?? "...";
   const tickCount = () => meta()?.tickCount ?? 0;

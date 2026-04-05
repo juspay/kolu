@@ -9,7 +9,7 @@
  */
 
 import { Show, For, createMemo, createSignal } from "solid-js";
-import { createLive } from "../../../src/solid.ts";
+import { createSubscription } from "../../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 type Todo = { id: string; text: string; done: boolean };
@@ -30,7 +30,7 @@ async function rpc<T>(fn: () => Promise<T>): Promise<T | undefined> {
 
 function TodoApp() {
   // Live stream — solid-live
-  const todos = createLive(() => client.todos.list());
+  const todos = createSubscription(() => client.todos.list());
   const [input, setInput] = createSignal("");
 
   // Derived counts — standard SolidJS

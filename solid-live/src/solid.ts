@@ -1,7 +1,7 @@
 /**
  * SolidJS primitive for consuming async streams as reactive signals.
  *
- * `createLive()` — AsyncIterable → SolidJS signal
+ * `createSubscription()` — AsyncIterable → SolidJS Accessor
  *
  * For mutations, call the server directly (plain RPC). If you need
  * loading/error tracking for a mutation, use SolidJS's `createResource`.
@@ -11,7 +11,7 @@ import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
 // ---------------------------------------------------------------------------
-// createLive — stream to SolidJS signal
+// createSubscription — stream to SolidJS signal
 // ---------------------------------------------------------------------------
 
 /**
@@ -22,15 +22,15 @@ import { createStore, reconcile } from "solid-js/store";
  * properties for error and pending follow the same pattern as
  * SolidJS's `createResource`.
  */
-export interface LiveSignal<T> extends Accessor<T | undefined> {
+export interface Subscription<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
 }
 
-/** Options for createLive. */
-export interface LiveOptions<T, R = T> {
+/** Options for createSubscription. */
+export interface SubscriptionOptions<T, R = T> {
   /**
    * Reducer for accumulating stream items.
    * When provided, each item is folded into the accumulator.
@@ -49,30 +49,32 @@ export interface LiveOptions<T, R = T> {
  * for fine-grained reactivity on nested object fields.
  *
  * ```tsx
- * const meta = createLive(() => client.worker.onMetadataChange({ id }));
+ * const meta = createSubscription(() => client.worker.onMetadataChange({ id }));
  * meta()?.tickCount  // reactive read — re-renders only when tickCount changes
  * meta.pending()     // true until first event
  * meta.error()       // stream error, if any
  * ```
  */
-export function createLive<T>(
+export function createSubscription<T>(
   source: () => Promise<AsyncIterable<T>>,
-): LiveSignal<T>;
-export function createLive<T, R>(
+): Subscription<T>;
+export function createSubscription<T, R>(
   source: () => Promise<AsyncIterable<T>>,
-  options: LiveOptions<T, R> & { initial: R },
-): LiveSignal<R>;
-export function createLive<T, R = T>(
+  options: SubscriptionOptions<T, R> & { initial: R },
+): Subscription<R>;
+export function createSubscription<T, R = T>(
   source: () => Promise<AsyncIterable<T>>,
-  options?: LiveOptions<T, R>,
-): LiveSignal<T | R> {
+  options?: SubscriptionOptions<T, R>,
+): Subscription<T | R> {
   const reduce = options?.reduce as
     | ((acc: T | R, item: T) => T | R)
     | undefined;
   const initial = options?.initial;
 
   if (reduce && initial === undefined) {
-    throw new Error("createLive: 'initial' is required when using 'reduce'");
+    throw new Error(
+      "createSubscription: 'initial' is required when using 'reduce'",
+    );
   }
 
   // Internal state as a store for fine-grained reactivity on object values.
@@ -128,5 +130,5 @@ export function createLive<T, R = T>(
   return Object.assign(() => store.v as (T | R) | undefined, {
     error,
     pending,
-  }) as LiveSignal<T | R>;
+  }) as Subscription<T | R>;
 }

@@ -4,25 +4,25 @@ End-to-end reactive signals — [`@solidjs/signals`](https://github.com/solidjs/
 
 `solid-live` supplements SolidJS with two primitives for server↔client reactivity:
 
-| Primitive            | Side   | What it does                                                                                                                                                                                                                                                    |
-| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `live(fn)`           | Server | Watches a reactive expression, yields an [`AsyncGenerator`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncGenerator) of its values                                                                                      |
-| `createLive(source)` | Client | Converts [`AsyncIterable`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator) into a SolidJS [`Accessor`](https://docs.solidjs.com/reference/basic-reactivity/create-signal#accessor) with `.pending` and `.error` |
+| Primitive                    | Side   | What it does                                                                                                                                                                                                                                                    |
+| ---------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `toAsyncIterable(fn)`        | Server | Watches a reactive expression, yields an [`AsyncGenerator`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncGenerator) of its values                                                                                      |
+| `createSubscription(source)` | Client | Converts [`AsyncIterable`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator) into a SolidJS [`Accessor`](https://docs.solidjs.com/reference/basic-reactivity/create-signal#accessor) with `.pending` and `.error` |
 
 Everything else uses standard SolidJS and oRPC: [`createSignal`](https://docs.solidjs.com/reference/basic-reactivity/create-signal) for state, [`createMemo`](https://docs.solidjs.com/reference/basic-reactivity/create-memo) for derivations, [`createResource`](https://docs.solidjs.com/reference/basic-reactivity/create-resource) for mutation lifecycle, [`@orpc/experimental-publisher`](https://orpc.dev/docs/helpers/publisher) for discrete events. `solid-live` doesn't reinvent these.
 
-## The problem
+## Motivation
 
-Server-pushed state routed through a request-response cache (TanStack Query) introduces accidental complexity: experimental streaming APIs, parallel store workarounds for synchronous reactivity, and cache key management for data that's already being pushed to you.
+SolidJS gives you reactive signals on the client. `@solidjs/signals` gives you the same signals on the server. But there's no built-in way to bridge them — when a server signal changes, how does the client know?
 
-Imperative pub/sub (`channel.publish(value)`) is the manual version of what reactive signals do automatically.
+You could wire it manually: `setInterval` → `channel.publish()` → WebSocket → `for await` → `setSignal()`. That's a lot of glue for something that should be automatic. `solid-live` replaces all of that with two functions.
 
 ## The idea
 
 Signals on both sides, wire in the middle:
 
-- **Server** (`@solidjs/signals` + `solid-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable
-- **Client** (`solid-live/solid`): `createLive` to turn the stream back into a SolidJS signal. Mutations are plain RPC calls.
+- **Server** (`@solidjs/signals` + `solid-live/server`): `createSignal` for state, `toAsyncIterable()` to bridge signals → AsyncIterable
+- **Client** (`solid-live/solid`): `createSubscription()` to turn the stream back into a SolidJS signal. Mutations are plain RPC calls.
 
 The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `solid-live` only cares about `AsyncIterable<T>` — the universal streaming interface.
 
@@ -49,7 +49,7 @@ Open http://localhost:5173. We should see a dark dashboard with one worker alrea
 
 Now let's build it from scratch.
 
-### Part 1: State with signals and `live()`
+### Part 1: State with signals and `toAsyncIterable`
 
 We'll get a single worker ticking on the server, display it in the browser, then scale to multiple workers with create/kill.
 
@@ -60,7 +60,7 @@ We start on the server. Each worker has a tick count and a status. We model thes
 ```ts
 // server.ts
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live } from "solid-live/server";
+import { toAsyncIterable } from "solid-live/server";
 
 const [tickCount, setTickCount] = createSignal(0);
 const [status, setStatus] = createSignal<"running" | "paused">("running");
@@ -88,33 +88,33 @@ No `channel.publish()`. We just call the setter. Everything downstream reacts.
 
 The client will connect over WebSocket and subscribe to streaming endpoints via oRPC. We need to turn our reactive `meta` signal into a stream the client can consume.
 
-`live()` does this — it watches a reactive expression and yields a new value each time its dependencies change:
+`toAsyncIterable()` does this — it watches a reactive expression and yields a new value each time its dependencies change:
 
 ```ts
 onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ signal }) {
-  yield* live(() => meta())(signal);
+  yield* toAsyncIterable(() => meta())(signal);
 }),
 ```
 
-When a client connects, `live()` evaluates `meta()` immediately — that's the snapshot. Then each time `tickCount` changes, `meta` recomputes and `live()` yields the new value. When the client disconnects, `signal` aborts and the generator cleans up.
+When a client connects, `toAsyncIterable()` evaluates `meta()` immediately — that's the snapshot. Then each time `tickCount` changes, `meta` recomputes and `toAsyncIterable()` yields the new value. When the client disconnects, `signal` aborts and the generator cleans up.
 
 #### Client: render the ticking worker
 
-Now the client. The oRPC client gives us `Promise<AsyncIterable<T>>` for streaming endpoints. We feed that to `createLive`, which turns it into a SolidJS reactive signal:
+Now the client. The oRPC client gives us `Promise<AsyncIterable<T>>` for streaming endpoints. We feed that to `createSubscription`, which turns it into a SolidJS reactive signal:
 
 ```tsx
 // App.tsx
 import { createEffect } from "solid-js";
-import { createLive, type LiveSignal } from "solid-live/solid";
+import { createSubscription, type Subscription } from "solid-live/solid";
 import { client } from "./rpc";
 
 type WorkerMeta = { name: string; tickCount: number; status: string };
 
 function WorkerCard() {
-  // LiveSignal<T> extends Accessor<T | undefined> — it's a real SolidJS signal.
+  // Subscription<T> extends Accessor<T | undefined> — it's a real SolidJS signal.
   // Call it to read the value, use it in JSX, pass it to createEffect — it works
   // everywhere a SolidJS signal works.
-  const meta: LiveSignal<WorkerMeta> = createLive(() =>
+  const meta: Subscription<WorkerMeta> = createSubscription(() =>
     client.worker.onMetadataChange(),
   );
 
@@ -136,9 +136,9 @@ function WorkerCard() {
 }
 ```
 
-Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second, with each change logged to the console by `createEffect`. The server writes to a signal, `live()` streams it, `createLive` turns it back into a SolidJS `Accessor`. End-to-end signals.
+Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second, with each change logged to the console by `createEffect`. The server writes to a signal, `toAsyncIterable()` streams it, `createSubscription` turns it back into a SolidJS `Accessor`. End-to-end signals.
 
-`meta()` returns `WorkerMeta | undefined` (undefined until the first event). `meta.pending()` and `meta.error()` are also SolidJS accessors for lifecycle state. Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes.
+`meta()` returns `WorkerMeta | undefined` (undefined until the first event). `meta.pending()` and `meta.error()` are also SolidJS accessors for lifecycle state. Because `createSubscription` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes.
 
 #### Server: manage multiple workers
 
@@ -168,12 +168,12 @@ The list handler streams the `workerList` signal, and the metadata handler looks
 
 ```ts
 list: t.worker.list.handler(async function* ({ signal }) {
-  yield* live(() => workerList())(signal);
+  yield* toAsyncIterable(() => workerList())(signal);
 }),
 
 onMetadataChange: t.worker.onMetadataChange.handler(async function* ({ input, signal }) {
   const worker = workers.get(input.id);
-  yield* live(() => worker.meta())(signal);
+  yield* toAsyncIterable(() => worker.meta())(signal);
 }),
 ```
 
@@ -182,10 +182,10 @@ When we call `createWorker()`, `workerList` updates, and every connected client 
 #### Client: list + create
 
 ```tsx
-import { createLive } from "solid-live/solid";
+import { createSubscription } from "solid-live/solid";
 
 function WorkerDashboard() {
-  const list = createLive(() => client.worker.list());
+  const list = createSubscription(() => client.worker.list());
 
   return (
     <>
@@ -196,13 +196,13 @@ function WorkerDashboard() {
 }
 ```
 
-Click "+ New Worker". The server creates a worker, `workerList` updates, `live()` pushes, `createLive` re-renders the list. We didn't touch the list ourselves — the mutation is a plain RPC call, the list update arrives through the signal.
+Click "+ New Worker". The server creates a worker, `workerList` updates, `toAsyncIterable()` pushes, `createSubscription` re-renders the list. We didn't touch the list ourselves — the mutation is a plain RPC call, the list update arrives through the signal.
 
-At this point we have a working dashboard: create workers, watch them tick, see the list update. All with `live()` on the server and `createLive` on the client.
+At this point we have a working dashboard: create workers, watch them tick, see the list update. All with `toAsyncIterable()` on the server and `createSubscription` on the client.
 
 ### Part 2: Discrete events with oRPC publisher
 
-State covers values that _are_ — the worker list, metadata. But workers also produce things that _happen_: tick log lines and activity samples. These don't have a "current value" — they're discrete events. `live()` is for state; for events, we use oRPC's `MemoryPublisher`:
+State covers values that _are_ — the worker list, metadata. But workers also produce things that _happen_: tick log lines and activity samples. These don't have a "current value" — they're discrete events. `toAsyncIterable()` is for state; for events, we use oRPC's `MemoryPublisher`:
 
 #### Server: push events
 
@@ -240,10 +240,10 @@ onActivityChange: async function* ({ input, signal }) {
 
 #### Client: accumulate events with a reducer
 
-On the client, events need to accumulate into an array. We pass a `reduce` option to `createLive`:
+On the client, events need to accumulate into an array. We pass a `reduce` option to `createSubscription`:
 
 ```tsx
-const samples = createLive(
+const samples = createSubscription(
   () => client.worker.onActivityChange({ id: props.id }),
   {
     reduce: (acc, sample) => [...acc, sample].slice(-50),
@@ -262,8 +262,8 @@ Each event from the server folds into the array. The sparkline fills in as the w
 
 A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. Two primitives from `solid-live`, everything else standard SolidJS and oRPC:
 
-- **`live()`** — server signals → stream (for state)
-- **`createLive()`** — stream → SolidJS signal (for rendering)
+- **`toAsyncIterable()`** — server signals → stream (for state)
+- **`createSubscription()`** — stream → SolidJS signal (for rendering)
 - **oRPC publisher** — for discrete events (not state)
 - Mutations are plain RPC calls
 
@@ -275,14 +275,14 @@ The full working code is in [`examples/full/`](./examples/full/).
 
 Server state uses `@solidjs/signals` (`createSignal`, `createMemo`, `createRoot`, `flush`). Import those directly from `@solidjs/signals`. The `solid-live/server` module exports the bridging primitives:
 
-#### `live(fn)`
+#### `toAsyncIterable(fn)`
 
 Bridges a reactive expression to an AsyncGenerator. Tracks all signal reads inside `fn`. When any dependency changes, re-evaluates and yields the new value.
 
 ```ts
-import { live } from "solid-live/server";
+import { toAsyncIterable } from "solid-live/server";
 
-yield * live(() => count())(signal);
+yield * toAsyncIterable(() => count())(signal);
 ```
 
 First yield is the snapshot. Subsequent yields are live updates. The signal graph handles dependency tracking — no manual subscribe/publish.
@@ -291,16 +291,16 @@ For discrete events (not state), use oRPC's [`@orpc/experimental-publisher`](htt
 
 ### Client (`solid-live/solid`)
 
-#### `createLive(source, options?)`
+#### `createSubscription(source, options?)`
 
 Converts `Promise<AsyncIterable<T>>` into a SolidJS signal.
 
 Returns a callable signal function (like `createResource`). Call it to read the value. `.error`, `.pending`, `.mutate` are properties on the function.
 
 ```tsx
-import { createLive } from "solid-live/solid";
+import { createSubscription } from "solid-live/solid";
 
-const meta = createLive(() => client.terminal.onMetadataChange({ id }));
+const meta = createSubscription(() => client.terminal.onMetadataChange({ id }));
 meta(); // T | undefined — this IS a SolidJS reactive read
 meta.pending(); // true until first event
 meta.error(); // Error | undefined
@@ -309,20 +309,23 @@ meta.error(); // Error | undefined
 const cwd = () => meta()?.cwd;
 
 // Accumulating — events fold via reducer:
-const samples = createLive(() => client.terminal.onActivityChange({ id }), {
-  reduce: (acc, item) => [...acc, item].slice(-200),
-  initial: [],
-});
+const samples = createSubscription(
+  () => client.terminal.onActivityChange({ id }),
+  {
+    reduce: (acc, item) => [...acc, item].slice(-200),
+    initial: [],
+  },
+);
 samples(); // ActivitySample[]
 ```
 
 ## Design decisions
 
-**Signals on the server.** State is `createSignal` / `createMemo` from `@solidjs/signals`. Mutations are signal writes. `live()` bridges the reactive graph to AsyncIterable. No manual publish — the signal graph IS the notification system.
+**Signals on the server.** State is `createSignal` / `createMemo` from `@solidjs/signals`. Mutations are signal writes. `toAsyncIterable()` bridges the reactive graph to AsyncIterable. No manual publish — the signal graph IS the notification system.
 
-**State vs events.** `live()` is for values that change (metadata, lists, preferences). For things that happen (activity samples, log lines), use oRPC's publisher or Node's EventEmitter — `solid-live` doesn't reinvent pub/sub.
+**State vs events.** `toAsyncIterable()` is for values that change (metadata, lists, preferences). For things that happen (activity samples, log lines), use oRPC's publisher or Node's EventEmitter — `solid-live` doesn't reinvent pub/sub.
 
-**`createLive` returns a SolidJS signal.** `meta()` reads the value — a real reactive read, not a wrapper. `.error`, `.pending`, `.mutate` are properties on the signal function, following SolidJS's `createResource` pattern. Composition is just `() => meta()?.git`.
+**`createSubscription` returns a SolidJS signal.** `meta()` reads the value — a real reactive read, not a wrapper. `.error` and `.pending` are properties on the signal function, following SolidJS's `createResource` pattern. Composition is just `() => meta()?.git`.
 
 **`createStore` + `reconcile` for objects.** Ensures `() => meta()?.cwd` only triggers when `cwd` actually changes.
 
