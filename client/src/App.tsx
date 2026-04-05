@@ -22,8 +22,7 @@ import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
-import WorktreeRemoveConfirm from "./WorktreeRemoveConfirm";
-import SubTerminalCloseConfirm from "./SubTerminalCloseConfirm";
+import WorkspaceConfirm from "./WorkspaceConfirm";
 import { createCommands } from "./commands";
 
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -93,16 +92,12 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
-  // Worktree remove confirmation — snapshot ID + meta at open time to prevent
+  // Close confirmation — snapshot ID + meta at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
-  const [worktreeConfirmTarget, setWorktreeConfirmTarget] = createSignal<{
+  // Shown for worktree terminals, terminals with splits, or both.
+  const [closeConfirmTarget, setCloseConfirmTarget] = createSignal<{
     id: TerminalId;
     meta: TerminalMetadata;
-  } | null>(null);
-
-  // Sub-terminal close confirmation — shown when closing a terminal with splits.
-  const [splitConfirmTarget, setSplitConfirmTarget] = createSignal<{
-    id: TerminalId;
     subCount: number;
   } | null>(null);
 
@@ -167,18 +162,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Close a terminal — shows confirmation dialogs for worktrees or splits. */
+  /** Close a terminal — shows confirmation for worktrees or splits. */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
-    if (meta?.git?.isWorktree) {
-      setWorktreeConfirmTarget({ id, meta });
+    const subCount = store.getSubTerminalIds(id).length;
+    if (meta?.git?.isWorktree || subCount > 0) {
+      setCloseConfirmTarget({ id, meta: meta!, subCount });
     } else {
-      const subIds = store.getSubTerminalIds(id);
-      if (subIds.length > 0) {
-        setSplitConfirmTarget({ id, subCount: subIds.length });
-      } else {
-        void crud.handleKill(id);
-      }
+      void crud.handleKill(id);
     }
   }
 
@@ -318,36 +309,23 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
-      <WorktreeRemoveConfirm
-        open={worktreeConfirmTarget() !== null}
+      <WorkspaceConfirm
+        open={closeConfirmTarget() !== null}
         onOpenChange={(open) => {
           if (!open) {
-            setWorktreeConfirmTarget(null);
+            setCloseConfirmTarget(null);
             requestAnimationFrame(refocusTerminal);
           }
         }}
-        meta={worktreeConfirmTarget()?.meta ?? null}
-        onCloseOnly={() => {
-          const target = worktreeConfirmTarget();
+        meta={closeConfirmTarget()?.meta ?? null}
+        subCount={closeConfirmTarget()?.subCount ?? 0}
+        onClose={() => {
+          const target = closeConfirmTarget();
           if (target) void crud.handleCascadeKill(target.id);
         }}
         onCloseAndRemove={() => {
-          const target = worktreeConfirmTarget();
+          const target = closeConfirmTarget();
           if (target) void worktree.handleKillWorktree(target.id);
-        }}
-      />
-      <SubTerminalCloseConfirm
-        open={splitConfirmTarget() !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSplitConfirmTarget(null);
-            requestAnimationFrame(refocusTerminal);
-          }
-        }}
-        subCount={splitConfirmTarget()?.subCount ?? 0}
-        onConfirm={() => {
-          const target = splitConfirmTarget();
-          if (target) void crud.handleCascadeKill(target.id);
         }}
       />
       <Header

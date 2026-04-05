@@ -1,5 +1,6 @@
-/** Confirmation dialog shown when closing a worktree terminal.
- *  Offers three choices: cancel, close only, or close and remove worktree. */
+/** Confirmation dialog shown when closing a terminal that has a worktree,
+ *  sub-terminal splits, or both. Adapts its title, body, and actions based
+ *  on which concerns are present. */
 
 import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
@@ -8,14 +9,18 @@ import { PrStateIcon, WorktreeIcon } from "./Icons";
 import ChecksIndicator from "./ChecksIndicator";
 import type { TerminalMetadata } from "kolu-common";
 
-const WorktreeRemoveConfirm: Component<{
+const WorkspaceConfirm: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   meta: TerminalMetadata | null;
-  onCloseOnly: () => void;
-  onCloseAndRemove: () => void;
+  subCount: number;
+  /** Close terminal (and cascade-kill subs), but keep worktree on disk. */
+  onClose: () => void;
+  /** Close terminal + remove worktree from disk. Only shown for worktrees. */
+  onCloseAndRemove?: () => void;
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
+  const isWorktree = () => !!props.meta?.git?.isWorktree;
 
   return (
     <ModalDialog
@@ -25,14 +30,20 @@ const WorktreeRemoveConfirm: Component<{
     >
       <Dialog.Content
         class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-sm text-sm space-y-4"
-        data-testid="worktree-remove-confirm"
+        data-testid={
+          isWorktree() ? "worktree-remove-confirm" : "split-close-confirm"
+        }
       >
         <Dialog.Label class="font-semibold text-fg">
-          Remove worktree too?
+          {isWorktree()
+            ? "Remove worktree too?"
+            : "Close terminal with splits?"}
         </Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
-          <p>This terminal is in a git worktree.</p>
+          <Show when={isWorktree()}>
+            <p>This terminal is in a git worktree.</p>
+          </Show>
 
           <Show when={props.meta?.git}>
             {(git) => (
@@ -72,6 +83,17 @@ const WorktreeRemoveConfirm: Component<{
               </a>
             )}
           </Show>
+
+          <Show when={props.subCount > 0}>
+            <p>
+              This will also close{" "}
+              <span class="font-medium text-fg">
+                {props.subCount} sub-terminal
+                {props.subCount > 1 ? "s" : ""}
+              </span>
+              .
+            </p>
+          </Show>
         </div>
 
         <div class="flex flex-wrap justify-end gap-2 pt-1">
@@ -84,28 +106,36 @@ const WorktreeRemoveConfirm: Component<{
           </button>
           <button
             class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
-            data-testid="worktree-confirm-close-only"
+            data-testid={
+              isWorktree()
+                ? "worktree-confirm-close-only"
+                : "split-close-confirm-yes"
+            }
             onClick={() => {
-              props.onCloseOnly();
+              props.onClose();
               props.onOpenChange(false);
             }}
           >
-            Close only
+            {isWorktree() ? "Close only" : "Close all"}
           </button>
-          <button
-            data-testid="worktree-confirm-remove"
-            class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
-            onClick={() => {
-              props.onCloseAndRemove();
-              props.onOpenChange(false);
-            }}
-          >
-            Remove worktree
-          </button>
+          <Show when={isWorktree() && props.onCloseAndRemove}>
+            {(handler) => (
+              <button
+                data-testid="worktree-confirm-remove"
+                class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+                onClick={() => {
+                  handler()();
+                  props.onOpenChange(false);
+                }}
+              >
+                Remove worktree
+              </button>
+            )}
+          </Show>
         </div>
       </Dialog.Content>
     </ModalDialog>
   );
 };
 
-export default WorktreeRemoveConfirm;
+export default WorkspaceConfirm;
