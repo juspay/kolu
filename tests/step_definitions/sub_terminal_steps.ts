@@ -301,3 +301,26 @@ Then(
     });
   },
 );
+
+Then(
+  "the split close confirmation should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="split-close-confirm"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I confirm split close", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="split-close-confirm-yes"]').click();
+});
+
+When(
+  "I dismiss the split close confirmation",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press("Escape");
+    await this.page
+      .locator('[data-testid="split-close-confirm"]')
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
