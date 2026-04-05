@@ -1,0 +1,28 @@
+{
+  "name": "kolu-live",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./solid": "./src/solid.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "solid-js": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "solid-js": "^1.9.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.1"
+  }
+}
