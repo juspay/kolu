@@ -318,9 +318,18 @@ When("I confirm split close", async function (this: KoluWorld) {
 When(
   "I dismiss the split close confirmation",
   async function (this: KoluWorld) {
+    // Wait for Corvu's focus trap to activate before pressing Escape —
+    // on darwin CI the trap can lag behind the dialog's visible transition.
+    const dialog = this.page.locator('[data-testid="split-close-confirm"]');
+    await this.page.waitForFunction(
+      (sel) => {
+        const el = document.querySelector(sel);
+        return el?.contains(document.activeElement) ?? false;
+      },
+      '[data-testid="split-close-confirm"]',
+      { timeout: POLL_TIMEOUT },
+    );
     await this.page.keyboard.press("Escape");
-    await this.page
-      .locator('[data-testid="split-close-confirm"]')
-      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+    await dialog.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
