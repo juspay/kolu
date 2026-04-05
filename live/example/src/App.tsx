@@ -1,10 +1,10 @@
 /**
  * Example client: a worker dashboard demonstrating all live/ primitives.
  *
- * - createLive (replacing): worker list, per-worker metadata
- * - createLive (accumulating): activity samples with reducer
- * - createAction: create/kill/toggle mutations with pending state
- * - Fine-grained reactivity: derived accessors like () => meta.value()?.tickCount
+ * - createLive returns a SolidJS signal: meta() reads the value
+ * - meta.pending(), meta.error() for lifecycle
+ * - createAction for mutations with pending state
+ * - Fine-grained reactivity: () => meta()?.tickCount
  */
 
 import { Show, For, createMemo } from "solid-js";
@@ -16,10 +16,7 @@ import { client } from "./rpc.ts";
 // ---------------------------------------------------------------------------
 
 function WorkerDashboard() {
-  // Live worker list (replacing — each event is the full list)
   const list = createLive(() => client.worker.list());
-
-  // Mutation with lifecycle tracking
   const [create, creating] = createAction(() => client.worker.create());
 
   return (
@@ -32,8 +29,7 @@ function WorkerDashboard() {
     >
       <h1>live/ example</h1>
       <p style={{ color: "#666", "margin-bottom": "16px" }}>
-        createLive (replacing + accumulating) · createAction · fine-grained
-        reactivity
+        createLive (signal) · createAction · fine-grained reactivity
       </p>
 
       <button
@@ -56,7 +52,7 @@ function WorkerDashboard() {
       </Show>
 
       <For
-        each={list.value()}
+        each={list()}
         fallback={<p style={{ color: "#666" }}>No workers yet.</p>}
       >
         {(info) => <WorkerCard id={info.id} />}
@@ -70,12 +66,12 @@ function WorkerDashboard() {
 // ---------------------------------------------------------------------------
 
 function WorkerCard(props: { id: string }) {
-  // Live metadata (replacing) — fine-grained: each field tracked independently
+  // meta() IS a SolidJS signal — reads the current value
   const meta = createLive(() =>
     client.worker.onMetadataChange({ id: props.id }),
   );
 
-  // Activity samples (accumulating via reducer, keep last 50)
+  // Accumulating via reducer
   const samples = createLive(
     () => client.worker.onActivityChange({ id: props.id }),
     {
@@ -85,27 +81,24 @@ function WorkerCard(props: { id: string }) {
     },
   );
 
-  // Live tick output (accumulating, keep last 5 lines)
   const output = createLive(() => client.worker.attach({ id: props.id }), {
     reduce: (acc: string[], line: string) => [...acc, line].slice(-5),
     initial: [] as string[],
   });
 
-  // Mutations
   const [kill, killing] = createAction(() =>
     client.worker.kill({ id: props.id }),
   );
   const [toggle] = createAction(() => client.worker.toggle({ id: props.id }));
 
-  // Derived accessors — only re-render when the specific field changes
-  const name = () => meta.value()?.name ?? "...";
-  const tickCount = () => meta.value()?.tickCount ?? 0;
-  const status = () => meta.value()?.status ?? "...";
-  const intervalMs = () => meta.value()?.intervalMs ?? 0;
+  // Derived — just read from the signal directly
+  const name = () => meta()?.name ?? "...";
+  const tickCount = () => meta()?.tickCount ?? 0;
+  const status = () => meta()?.status ?? "...";
+  const intervalMs = () => meta()?.intervalMs ?? 0;
 
-  // Activity sparkline
   const sparkline = createMemo(() => {
-    const s = samples.value() ?? [];
+    const s = samples() ?? [];
     return s.map(([, active]) => (active ? "▓" : "░")).join("");
   });
 
@@ -162,7 +155,7 @@ function WorkerCard(props: { id: string }) {
         {sparkline()}
       </div>
 
-      <Show when={(output.value()?.length ?? 0) > 0}>
+      <Show when={(output()?.length ?? 0) > 0}>
         <pre
           style={{
             "font-size": "11px",
@@ -174,7 +167,7 @@ function WorkerCard(props: { id: string }) {
             overflow: "hidden",
           }}
         >
-          {output.value()?.join("\n")}
+          {output()?.join("\n")}
         </pre>
       </Show>
     </div>

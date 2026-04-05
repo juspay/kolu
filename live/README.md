@@ -95,21 +95,15 @@ Now the client. The oRPC client gives us `Promise<AsyncIterable<T>>` for streami
 
 ```tsx
 // App.tsx
-import { createLive, type LiveSignal } from "live/solid";
+import { createLive } from "live/solid";
 import { client } from "./rpc";
 
-type WorkerMeta = { name: string; tickCount: number; status: string };
-
 function WorkerCard() {
-  // LiveSignal<WorkerMeta> — not a plain SolidJS signal.
-  // Has .value(), .error(), .pending(), and .mutate()
-  const meta: LiveSignal<WorkerMeta> = createLive(() =>
-    client.worker.onMetadataChange(),
-  );
+  // meta IS a SolidJS signal — call it to read the value
+  const meta = createLive(() => client.worker.onMetadataChange());
 
-  // Derived accessors — plain functions over meta.value()
-  const name = () => meta.value()?.name;
-  const ticks = () => meta.value()?.tickCount ?? 0;
+  const name = () => meta()?.name;
+  const ticks = () => meta()?.tickCount ?? 0;
 
   return (
     <div>
@@ -119,9 +113,9 @@ function WorkerCard() {
 }
 ```
 
-Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second. The server writes to a signal, `live()` streams it, `createLive` wraps it in a `LiveSignal`, and we render it. That's the whole loop.
+Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second. The server writes to a signal, `live()` streams it, `createLive` turns it back into a SolidJS signal. End-to-end signals.
 
-`meta.value()` returns `WorkerMeta | undefined` (undefined until the first event arrives). `meta.pending()` is true while waiting. `meta.error()` captures stream errors. Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes — not on every metadata update.
+`meta()` returns `WorkerMeta | undefined` (undefined until the first event arrives). `meta.pending()` is true while waiting. `meta.error()` captures stream errors. Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes — not on every metadata update.
 
 #### Server: manage multiple workers
 
@@ -176,7 +170,7 @@ function WorkerDashboard() {
       <button onClick={() => create()} disabled={creating.pending()}>
         {creating.pending() ? "Creating..." : "+ New Worker"}
       </button>
-      <For each={list.value()}>{(info) => <WorkerCard id={info.id} />}</For>
+      <For each={list()}>{(info) => <WorkerCard id={info.id} />}</For>
     </>
   );
 }
@@ -237,7 +231,7 @@ const samples = createLive(
 
 // Render a sparkline:
 const sparkline = () =>
-  (samples.value() ?? []).map(([, active]) => (active ? "▓" : "░")).join("");
+  (samples() ?? []).map(([, active]) => (active ? "▓" : "░")).join("");
 ```
 
 Each event from the server folds into the array. The sparkline fills in as the worker ticks.
@@ -293,26 +287,27 @@ Events are buffered from the moment `iterate()` is called, not when `for-await` 
 
 #### `createLive(source, options?)`
 
-Converts `Promise<AsyncIterable<T>>` into a reactive signal.
+Converts `Promise<AsyncIterable<T>>` into a SolidJS signal.
 
-Returns `{ value, error, pending, mutate }` — three independent signals, not a sum type. Uses `createStore` + `reconcile` internally for fine-grained reactivity on object fields.
+Returns a callable signal function (like `createResource`). Call it to read the value. `.error`, `.pending`, `.mutate` are properties on the function.
 
 ```tsx
 import { createLive } from "live/solid";
 
 const meta = createLive(() => client.terminal.onMetadataChange({ id }));
-meta.value(); // T | undefined
+meta(); // T | undefined — this IS a SolidJS reactive read
 meta.pending(); // true until first event
 meta.error(); // Error | undefined
 
 // Fine-grained — only re-renders when cwd changes:
-const cwd = () => meta.value()?.cwd;
+const cwd = () => meta()?.cwd;
 
 // Accumulating — events fold via reducer:
 const samples = createLive(() => client.terminal.onActivityChange({ id }), {
   reduce: (acc, item) => [...acc, item].slice(-200),
   initial: [],
 });
+samples(); // ActivitySample[]
 ```
 
 #### Optimistic updates
@@ -343,8 +338,8 @@ creating.error(); // error from last failed call
 
 **State vs events.** `live()` is for values that change (metadata, lists, preferences). `events()` is for things that happen (activity samples, log lines). Different concerns, different primitives.
 
-**Separate signals on the client, not a sum type.** `{ value, error, pending }` instead of `Live<T> = pending | ok | error`. Composition is just `() => meta.value()?.git`.
+**`createLive` returns a SolidJS signal.** `meta()` reads the value — a real reactive read, not a wrapper. `.error`, `.pending`, `.mutate` are properties on the signal function, following SolidJS's `createResource` pattern. Composition is just `() => meta()?.git`.
 
-**`createStore` + `reconcile` for objects.** Ensures `() => meta.value()?.cwd` only triggers when `cwd` actually changes.
+**`createStore` + `reconcile` for objects.** Ensures `() => meta()?.cwd` only triggers when `cwd` actually changes.
 
 **`@solidjs/signals` as the reactive runtime.** Beta (v0.13.x), but the coupling is bounded: 4 functions (`createRoot`, `createEffect`, `onCleanup`, `flush`), 1 file (~30 LOC). Works on Node.js with no hacks.

@@ -2,7 +2,7 @@
  * SolidJS primitives for consuming async streams as reactive signals.
  *
  * Two concepts:
- *  - `createLive()` — AsyncIterable → reactive store (fine-grained via reconcile)
+ *  - `createLive()` — AsyncIterable → SolidJS signal (callable, with .error/.pending/.mutate)
  *  - `createAction()` — async function → [trigger, { pending, value, error }]
  */
 
@@ -10,14 +10,20 @@ import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
 // ---------------------------------------------------------------------------
-// createLive — stream to reactive state
+// createLive — stream to SolidJS signal
 // ---------------------------------------------------------------------------
 
-/** Return shape of createLive. Callable as accessor (returns T | undefined). */
+/**
+ * A SolidJS signal backed by a server stream.
+ *
+ * Callable as an accessor — `signal()` returns T | undefined.
+ * Additional properties for error, pending, and optimistic mutation,
+ * following the same pattern as SolidJS's `createResource`.
+ */
 export interface LiveSignal<T> {
-  /** Current value (undefined until first event). */
-  readonly value: Accessor<T | undefined>;
-  /** Current error (undefined when healthy). */
+  /** Read the current value. This IS a SolidJS reactive read. */
+  (): T | undefined;
+  /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
@@ -44,22 +50,17 @@ export interface LiveOptions<T, R = T> {
 }
 
 /**
- * Convert an async stream into a SolidJS reactive signal.
+ * Convert an async stream into a SolidJS signal.
  *
- * Uses `createStore` + `reconcile` under the hood for object values,
- * giving fine-grained reactivity on nested fields.
+ * Returns a callable signal — `meta()` reads the value, triggering
+ * SolidJS reactivity. Uses `createStore` + `reconcile` under the hood
+ * for fine-grained reactivity on nested object fields.
  *
  * ```tsx
- * // Replacing (default) — each event replaces the value:
- * const meta = createLive(() => client.terminal.onMetadataChange({ id }));
- * // meta.value()?.cwd — only re-renders when cwd changes
- *
- * // Accumulating — events fold into an array:
- * const samples = createLive(
- *   () => client.terminal.onActivityChange({ id }),
- *   { reduce: (acc, item) => [...acc, item].slice(-200), initial: [] },
- * );
- * // samples.value() is ActivitySample[]
+ * const meta = createLive(() => client.worker.onMetadataChange({ id }));
+ * meta()?.tickCount  // reactive read — re-renders only when tickCount changes
+ * meta.pending()     // true until first event
+ * meta.error()       // stream error, if any
  * ```
  */
 export function createLive<T>(
@@ -132,11 +133,15 @@ export function createLive<T, R = T>(
     }
   })();
 
-  return {
-    value: () => store.v as (T | R) | undefined,
+  // Build the signal function with properties attached
+  // (same pattern as SolidJS's createResource)
+  return Object.assign(() => store.v as (T | R) | undefined, {
     error,
     pending,
-    mutate(updater: (current: T | R) => T | R, serverCall?) {
+    mutate(
+      updater: (current: T | R) => T | R,
+      serverCall?: () => Promise<unknown>,
+    ) {
       const current = store.v;
       if (current === undefined) return;
       updateValue(updater(current));
@@ -144,7 +149,7 @@ export function createLive<T, R = T>(
         void serverCall().catch((err) => setError(toError(err)));
       }
     },
-  };
+  }) as LiveSignal<T | R>;
 }
 
 // ---------------------------------------------------------------------------
