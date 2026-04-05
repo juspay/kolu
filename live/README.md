@@ -12,8 +12,8 @@ Imperative pub/sub (`channel.publish(value)`) is the manual version of what reac
 
 Signals on both sides, wire in the middle:
 
-- **Server** (`@solidjs/signals` + `kolu-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable, `events()` for discrete events
-- **Client** (`kolu-live/solid`): `createLive` + `createAction`
+- **Server** (`@solidjs/signals` + `live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable, `events()` for discrete events
+- **Client** (`live/solid`): `createLive` + `createAction`
 
 The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `live` only cares about `AsyncIterable<T>` — the universal streaming interface.
 
@@ -77,7 +77,7 @@ The client connects over WebSocket and subscribes to streaming endpoints (via oR
 
 ```ts
 // server.ts
-import { live } from "kolu-live/server";
+import { live } from "live/server";
 
 // oRPC handler — one line
 list: t.worker.list.handler(async function* ({ signal }) {
@@ -104,7 +104,7 @@ We use `events()` for these — a simple push/iterate pair:
 
 ```ts
 // server.ts
-import { events } from "kolu-live/server";
+import { events } from "live/server";
 
 const [pushTick, iterateTicks] = events<string>();
 
@@ -135,7 +135,7 @@ Now the client. oRPC streaming endpoints return `Promise<AsyncIterable<T>>`. We 
 
 ```tsx
 // App.tsx
-import { createLive } from "kolu-live/solid";
+import { createLive } from "live/solid";
 import { client } from "./rpc";
 
 function WorkerDashboard() {
@@ -220,14 +220,14 @@ The full code is in [`example/`](./example/).
 
 ### Server
 
-Server state uses `@solidjs/signals` (`createSignal`, `createMemo`, `createRoot`, `flush`). Import those directly from `@solidjs/signals`. The `kolu-live/server` module exports the bridging primitives:
+Server state uses `@solidjs/signals` (`createSignal`, `createMemo`, `createRoot`, `flush`). Import those directly from `@solidjs/signals`. The `live/server` module exports the bridging primitives:
 
 #### `live(fn)`
 
 Bridges a reactive expression to an AsyncGenerator. Tracks all signal reads inside `fn`. When any dependency changes, re-evaluates and yields the new value.
 
 ```ts
-import { live } from "kolu-live/server";
+import { live } from "live/server";
 
 yield * live(() => count())(signal);
 ```
@@ -239,7 +239,7 @@ First yield is the snapshot. Subsequent yields are live updates. The signal grap
 Creates a push/iterate pair for discrete events.
 
 ```ts
-import { events } from "kolu-live/server";
+import { events } from "live/server";
 
 const [push, iterate] = events<ActivitySample>();
 
@@ -250,7 +250,7 @@ for await (const sample of iterate(signal)) { ... }
 
 Events are buffered from the moment `iterate()` is called, not when `for-await` starts.
 
-### Client (`kolu-live/solid`)
+### Client (`live/solid`)
 
 #### `createLive(source, options?)`
 
@@ -259,7 +259,7 @@ Converts `Promise<AsyncIterable<T>>` into a reactive signal.
 Returns `{ value, error, pending, mutate }` — three independent signals, not a sum type. Uses `createStore` + `reconcile` internally for fine-grained reactivity on object fields.
 
 ```tsx
-import { createLive } from "kolu-live/solid";
+import { createLive } from "live/solid";
 
 const meta = createLive(() => client.terminal.onMetadataChange({ id }));
 meta.value(); // T | undefined
@@ -290,7 +290,7 @@ meta.mutate(
 Wraps an async function with reactive lifecycle tracking.
 
 ```tsx
-import { createAction } from "kolu-live/solid";
+import { createAction } from "live/solid";
 
 const [create, creating] = createAction(client.terminal.create);
 creating.pending(); // true while in flight

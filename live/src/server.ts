@@ -106,7 +106,7 @@ function watch<T>(fn: () => T, cb: (value: T) => void): () => void {
  *
  * ```ts
  * import { createSignal } from "@solidjs/signals";
- * import { live } from "kolu-live/server";
+ * import { live } from "live/server";
  *
  * const [count, setCount] = createSignal(0);
  * setInterval(() => setCount(c => c + 1), 1000);
