@@ -64,3 +64,20 @@ Feature: Git worktree management
     When I click close only in the close confirmation
     Then the sidebar should have 1 fewer terminal entry
     And there should be no page errors
+
+  Scenario: Worktree terminal with splits shows confirmation and removes all
+    When I set up a git repo at "/tmp/kolu-wt-splits"
+    And I run "cd /tmp/kolu-wt-splits"
+    And the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-splits" in the palette
+    Then the header CWD should show ".worktrees/"
+    When I create a sub-terminal via command palette
+    Given I note the sidebar entry count
+    When I open the command palette
+    And I select "Close terminal" in the palette
+    Then the close confirmation should be visible
+    When I confirm worktree removal
+    Then the sidebar should have 1 fewer terminal entry
+    And there should be no page errors
