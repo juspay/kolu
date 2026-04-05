@@ -105,7 +105,9 @@ Detect the default branch: `git symbolic-ref refs/remotes/origin/HEAD`
 
 **MANDATORY**: Load the `github-pr` skill (via Skill tool) BEFORE writing the PR title/body.
 
-**Verify**: On a feature branch (not master/main), draft PR exists (`gh pr view` succeeds).
+5. **Post hickey results**: If the hickey step produced findings with suggestions, post the full hickey analysis as a PR comment using `gh pr comment`. Use a `## Hickey Analysis` header. Skip this if hickey found no issues.
+
+**Verify**: On a feature branch (not master/main), draft PR exists (`gh pr view` succeeds). If hickey had findings, a PR comment exists.
 
 ---
 
@@ -132,7 +134,9 @@ If no documentation files are documented, skip this step with a note.
 
 ### police
 
-Invoke the `/code-police` skill via the Skill tool. It runs three passes: rule checklist, fact-check, and elegance.
+Use `git diff <default-branch>...HEAD --name-only` to check if the PR contains code changes. If all changed files are documentation-only (e.g., `.md`, `.txt`, `README`, docs/) — skip this step with a note.
+
+Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three passes: rule checklist, fact-check, and elegance.
 
 When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
@@ -234,6 +238,10 @@ gh pr comment --body "$(cat <<'COMMENT'
 | research | ✓ | 45s | ... |
 ...
 | **Total** | | **4m 32s** | |
+
+### Optimization suggestions
+
+- <2–4 concrete suggestions based on timing data>
 
 Workflow completed at <timestamp>.
 COMMENT
