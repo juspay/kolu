@@ -1,15 +1,15 @@
 # solid-live
 
-End-to-end reactive signals — `@solidjs/signals` on the server, SolidJS `Accessor` on the client, `AsyncIterable` on the wire.
+End-to-end reactive signals — [`@solidjs/signals`](https://github.com/solidjs/signals) on the server, SolidJS [`Accessor`](https://docs.solidjs.com/reference/basic-reactivity/create-signal#accessor) on the client, [`AsyncIterable`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator) on the wire.
 
 `solid-live` supplements SolidJS with two primitives for server↔client reactivity:
 
-| Primitive            | Side   | What it does                                                                    |
-| -------------------- | ------ | ------------------------------------------------------------------------------- |
-| `live(fn)`           | Server | Watches a reactive expression, yields an `AsyncGenerator` of its values         |
-| `createLive(source)` | Client | Converts `AsyncIterable` into a SolidJS `Accessor` with `.pending` and `.error` |
+| Primitive            | Side   | What it does                                                                                                                                                                                                                                                    |
+| -------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live(fn)`           | Server | Watches a reactive expression, yields an [`AsyncGenerator`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncGenerator) of its values                                                                                      |
+| `createLive(source)` | Client | Converts [`AsyncIterable`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/AsyncIterator) into a SolidJS [`Accessor`](https://docs.solidjs.com/reference/basic-reactivity/create-signal#accessor) with `.pending` and `.error` |
 
-Everything else uses standard SolidJS and oRPC: `createSignal` for state, `createMemo` for derivations, `createResource` for mutation lifecycle, `@orpc/experimental-publisher` for discrete events. `solid-live` doesn't reinvent these.
+Everything else uses standard SolidJS and oRPC: [`createSignal`](https://docs.solidjs.com/reference/basic-reactivity/create-signal) for state, [`createMemo`](https://docs.solidjs.com/reference/basic-reactivity/create-memo) for derivations, [`createResource`](https://docs.solidjs.com/reference/basic-reactivity/create-resource) for mutation lifecycle, [`@orpc/experimental-publisher`](https://orpc.dev/docs/helpers/publisher) for discrete events. `solid-live` doesn't reinvent these.
 
 ## The problem
 
