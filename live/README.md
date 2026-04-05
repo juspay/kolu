@@ -95,12 +95,19 @@ Now the client. The oRPC client gives us `Promise<AsyncIterable<T>>` for streami
 
 ```tsx
 // App.tsx
-import { createLive } from "live/solid";
+import { createLive, type LiveSignal } from "live/solid";
 import { client } from "./rpc";
 
-function WorkerCard() {
-  const meta = createLive(() => client.worker.onMetadataChange());
+type WorkerMeta = { name: string; tickCount: number; status: string };
 
+function WorkerCard() {
+  // LiveSignal<WorkerMeta> — not a plain SolidJS signal.
+  // Has .value(), .error(), .pending(), and .mutate()
+  const meta: LiveSignal<WorkerMeta> = createLive(() =>
+    client.worker.onMetadataChange(),
+  );
+
+  // Derived accessors — plain functions over meta.value()
   const name = () => meta.value()?.name;
   const ticks = () => meta.value()?.tickCount ?? 0;
 
@@ -112,9 +119,9 @@ function WorkerCard() {
 }
 ```
 
-Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second. The server writes to a signal, `live()` streams it, `createLive` renders it. That's the whole loop.
+Open the browser. We should see "alpha — 0 ticks", then "alpha — 1 ticks", "alpha — 2 ticks"... updating every second. The server writes to a signal, `live()` streams it, `createLive` wraps it in a `LiveSignal`, and we render it. That's the whole loop.
 
-Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes — not on every metadata update.
+`meta.value()` returns `WorkerMeta | undefined` (undefined until the first event arrives). `meta.pending()` is true while waiting. `meta.error()` captures stream errors. Because `createLive` uses `createStore` + `reconcile` internally, `ticks()` only re-renders when `tickCount` actually changes — not on every metadata update.
 
 #### Server: manage multiple workers
 
