@@ -12,19 +12,6 @@ import { createLive, createAction } from "../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 // ---------------------------------------------------------------------------
-// Types (inferred from server contract)
-// ---------------------------------------------------------------------------
-
-type WorkerInfo = { id: string; name: string; createdAt: number };
-type WorkerMeta = {
-  name: string;
-  tickCount: number;
-  status: "running" | "paused";
-  intervalMs: number;
-};
-type ActivitySample = [epochMs: number, isActive: boolean];
-
-// ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
 
@@ -92,9 +79,9 @@ function WorkerCard(props: { id: string }) {
   const samples = createLive(
     () => client.worker.onActivityChange({ id: props.id }),
     {
-      reduce: (acc: ActivitySample[], sample: ActivitySample) =>
+      reduce: (acc: [number, boolean][], sample: [number, boolean]) =>
         [...acc, sample].slice(-50),
-      initial: [] as ActivitySample[],
+      initial: [] as [number, boolean][],
     },
   );
 

@@ -160,11 +160,156 @@ creating.error(); // error from last failed call
 
 **Source is `() => Promise<AsyncIterable<T>>`.** Matches what oRPC returns for `eventIterator` endpoints. The factory function (not a raw iterable) allows re-subscription on reconnect.
 
-## Example
+## Tutorial: building with `live/`
 
-See [`example/`](./example/) for a working server demo and conceptual client components.
+Walk through building a reactive app from scratch. The full working code is in [`example/`](./example/).
+
+### 1. Define your contract
+
+The oRPC contract declares streaming endpoints with `eventIterator`:
+
+```ts
+import { oc, eventIterator } from "@orpc/contract";
+import { z } from "zod";
+
+const WorkerMetaSchema = z.object({
+  name: z.string(),
+  tickCount: z.number(),
+  status: z.enum(["running", "paused"]),
+});
+
+const contract = oc.router({
+  worker: {
+    // Streaming: server pushes updates
+    list: oc.output(eventIterator(z.array(WorkerInfoSchema))),
+    onMetadataChange: oc.input(IdInput).output(eventIterator(WorkerMetaSchema)),
+
+    // Request-response: client calls, server responds once
+    create: oc.output(WorkerInfoSchema),
+    kill: oc.input(IdInput).output(z.void()),
+  },
+});
+```
+
+Streaming endpoints return `AsyncIterable<T>` on the client. That's the only type `live/` cares about.
+
+### 2. Set up channels on the server
+
+One channel per data stream. Keyed channels for per-entity streams.
+
+```ts
+import { createChannel, createKeyedChannel } from "kolu-live/server";
+
+// Broadcast: all clients see the same list
+const workerList = createChannel<WorkerInfo[]>();
+
+// Per-entity: each worker has its own metadata stream
+const metadata = createKeyedChannel<string, WorkerMeta>();
+```
+
+Publish from your domain logic — channels are just typed event buses:
+
+```ts
+function createWorker() {
+  const entry = { id: "1", name: "alpha", ... };
+  workers.set(entry.id, entry);
+  workerList.publish(listWorkers());  // push updated list to all subscribers
+}
+```
+
+### 3. Wire channels to router handlers
+
+`liveQuery` encapsulates the snapshot-first pattern: subscribe before snapshot so no events are lost.
+
+```ts
+import { liveQuery } from "kolu-live/server";
+
+const router = t.router({
+  worker: {
+    list: t.worker.list.handler(async function* ({ signal }) {
+      yield* liveQuery(
+        (s) => workerList.subscribe(s), // subscribe first
+        () => listWorkers(), // then snapshot
+      )(signal);
+    }),
+
+    onMetadataChange: t.worker.onMetadataChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      yield* liveQuery(
+        (s) => metadata.subscribe(input.id, s),
+        () => getMetadata(input.id),
+      )(signal);
+    }),
+  },
+});
+```
+
+Each handler is a one-liner delegating to `liveQuery`. The generator yields the snapshot, then yields live events until the client disconnects.
+
+### 4. Consume streams on the client with `createLive`
+
+oRPC gives you `Promise<AsyncIterable<T>>`. Feed it to `createLive`:
+
+```tsx
+import { createLive, createAction } from "kolu-live/solid";
+import { client } from "./rpc";
+
+function WorkerCard(props: { id: string }) {
+  // Replacing stream — each event replaces the value
+  const meta = createLive(() =>
+    client.worker.onMetadataChange({ id: props.id }),
+  );
+
+  // Derived accessors — fine-grained, only re-renders when that field changes
+  const name = () => meta.value()?.name;
+  const ticks = () => meta.value()?.tickCount ?? 0;
+
+  return (
+    <div>
+      {name()} — {ticks()} ticks
+    </div>
+  );
+}
+```
+
+No TanStack Query. No cache keys. No `isLoading` checks. `meta.value()` is `undefined` until the first event, then it's always the latest server state.
+
+### 5. Accumulate with a reducer
+
+For streams where events build up (activity history, chat messages), pass a `reduce` option:
+
+```tsx
+const samples = createLive(
+  () => client.worker.onActivityChange({ id: props.id }),
+  {
+    reduce: (acc, sample) => [...acc, sample].slice(-50),
+    initial: [],
+  },
+);
+// samples.value() is the last 50 activity samples
+```
+
+### 6. Track mutation lifecycle with `createAction`
+
+```tsx
+const [create, creating] = createAction(() => client.worker.create());
+
+// Fire it — the live list updates automatically via the stream
+await create();
+
+// React to the call's lifecycle
+creating.pending(); // true while in flight
+creating.error(); // Error | undefined
+```
+
+The mutation and the live stream are independent. Call the server, the stream pushes the new state. No manual cache update, no optimistic plumbing (unless you want it — that's what `mutate` is for).
+
+### Run the example
 
 ```sh
-# Run the server example (counter + chat demo):
-npx tsx live/example/server.ts
+cd live/example && just dev
 ```
+
+Opens a Vite dev server on http://localhost:5173 with a worker dashboard demonstrating all patterns above: live list, per-worker metadata, activity sparkline, tick output, create/kill/toggle.
