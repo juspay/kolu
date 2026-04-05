@@ -88,8 +88,7 @@ const WorkspaceConfirm: Component<{
             <p>
               This will also close{" "}
               <span class="font-medium text-fg">
-                {props.subCount} sub-terminal
-                {props.subCount > 1 ? "s" : ""}
+                {props.subCount} split{props.subCount > 1 ? "s" : ""}
               </span>
               .
             </p>
