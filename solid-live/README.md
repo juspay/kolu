@@ -1,6 +1,16 @@
 # solid-live
 
-End-to-end reactive streams — signals on the server, SolidJS signals on the client, AsyncIterable on the wire.
+End-to-end reactive signals — `@solidjs/signals` on the server, SolidJS `Accessor` on the client, `AsyncIterable` on the wire.
+
+`solid-live` supplements SolidJS with three primitives for server↔client reactivity:
+
+| Primitive            | Side   | What it does                                                                    |
+| -------------------- | ------ | ------------------------------------------------------------------------------- |
+| `live(fn)`           | Server | Watches a reactive expression, yields an `AsyncGenerator` of its values         |
+| `events()`           | Server | Push/iterate pair for discrete events (not state)                               |
+| `createLive(source)` | Client | Converts `AsyncIterable` into a SolidJS `Accessor` with `.pending` and `.error` |
+
+Everything else uses standard SolidJS: `createSignal` for state, `createMemo` for derivations, `createResource` for mutation lifecycle, `createEffect` for side effects. `solid-live` doesn't reinvent these.
 
 ## The problem
 
@@ -13,9 +23,9 @@ Imperative pub/sub (`channel.publish(value)`) is the manual version of what reac
 Signals on both sides, wire in the middle:
 
 - **Server** (`@solidjs/signals` + `solid-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable, `events()` for discrete events
-- **Client** (`solid-live/solid`): `createLive` + `createAction`
+- **Client** (`solid-live/solid`): `createLive` to turn the stream back into a SolidJS signal. Mutations are plain RPC calls.
 
-The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `live` only cares about `AsyncIterable<T>` — the universal streaming interface.
+The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `solid-live` only cares about `AsyncIterable<T>` — the universal streaming interface.
 
 ## Tutorial
 
@@ -173,24 +183,21 @@ When we call `createWorker()`, `workerList` updates, and every connected client 
 #### Client: list + create
 
 ```tsx
-import { createLive, createAction } from "solid-live/solid";
+import { createLive } from "solid-live/solid";
 
 function WorkerDashboard() {
   const list = createLive(() => client.worker.list());
-  const [create, creating] = createAction(() => client.worker.create());
 
   return (
     <>
-      <button onClick={() => create()} disabled={creating.pending()}>
-        {creating.pending() ? "Creating..." : "+ New Worker"}
-      </button>
+      <button onClick={() => client.worker.create()}>+ New Worker</button>
       <For each={list()}>{(info) => <WorkerCard id={info.id} />}</For>
     </>
   );
 }
 ```
 
-Click "+ New Worker". The server creates a worker, `workerList` updates, `live()` pushes, `createLive` re-renders the list. We didn't touch the list ourselves — end-to-end reactivity did it.
+Click "+ New Worker". The server creates a worker, `workerList` updates, `live()` pushes, `createLive` re-renders the list. We didn't touch the list ourselves — the mutation is a plain RPC call, the list update arrives through the signal.
 
 At this point we have a working dashboard: create workers, watch them tick, see the list update. All with `live()` on the server and `createLive` on the client.
 
@@ -252,12 +259,12 @@ Each event from the server folds into the array. The sparkline fills in as the w
 
 ### What we built
 
-A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. No manual pub/sub on the server, no cache layer on the client. Four primitives:
+A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. No manual pub/sub on the server, no cache layer on the client. Three primitives from `solid-live`, everything else standard SolidJS:
 
 - **`live()`** — server signals → stream (for state)
 - **`events()`** — push/iterate (for things that happen)
 - **`createLive()`** — stream → SolidJS signal (for rendering)
-- **`createAction()`** — async call → pending/error/value (for mutations)
+- Mutations are plain RPC calls. Use `createResource` if you need loading/error tracking.
 
 The full working code is in [`examples/full/`](./examples/full/).
 
@@ -322,28 +329,6 @@ const samples = createLive(() => client.terminal.onActivityChange({ id }), {
   initial: [],
 });
 samples(); // ActivitySample[]
-```
-
-#### Optimistic updates
-
-```tsx
-meta.mutate(
-  (current) => ({ ...current, themeName: "dracula" }),
-  () => client.terminal.setTheme({ id, themeName: "dracula" }),
-);
-```
-
-#### `createAction(fn)`
-
-Wraps an async function with reactive lifecycle tracking.
-
-```tsx
-import { createAction } from "solid-live/solid";
-
-const [create, creating] = createAction(client.terminal.create);
-creating.pending(); // true while in flight
-creating.value(); // result of last successful call
-creating.error(); // error from last failed call
 ```
 
 ## Design decisions

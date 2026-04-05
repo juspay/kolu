@@ -1,9 +1,10 @@
 /**
- * SolidJS primitives for consuming async streams as reactive signals.
+ * SolidJS primitive for consuming async streams as reactive signals.
  *
- * Two concepts:
- *  - `createLive()` — AsyncIterable → SolidJS signal (callable, with .error/.pending/.mutate)
- *  - `createAction()` — async function → [trigger, { pending, value, error }]
+ * `createLive()` — AsyncIterable → SolidJS signal
+ *
+ * For mutations, call the server directly (plain RPC). If you need
+ * loading/error tracking for a mutation, use SolidJS's `createResource`.
  */
 
 import { createSignal, onCleanup, type Accessor } from "solid-js";
@@ -18,22 +19,14 @@ import { createStore, reconcile } from "solid-js/store";
  *
  * Extends `Accessor<T | undefined>` — calling it is a real SolidJS
  * reactive read, just like any signal from `createSignal`. Additional
- * properties for error, pending, and optimistic mutation follow the
- * same pattern as SolidJS's `createResource`.
+ * properties for error and pending follow the same pattern as
+ * SolidJS's `createResource`.
  */
 export interface LiveSignal<T> extends Accessor<T | undefined> {
   /** Stream error (undefined when healthy). */
   readonly error: Accessor<Error | undefined>;
   /** True while waiting for the first event from the stream. */
   readonly pending: Accessor<boolean>;
-  /**
-   * Optimistic local write. The next server push overwrites this.
-   * Optional serverCall fires after the local update.
-   */
-  readonly mutate: (
-    updater: (current: T) => T,
-    serverCall?: () => Promise<unknown>,
-  ) => void;
 }
 
 /** Options for createLive. */
@@ -132,77 +125,8 @@ export function createLive<T, R = T>(
     }
   })();
 
-  // Build the signal function with properties attached
-  // (same pattern as SolidJS's createResource)
   return Object.assign(() => store.v as (T | R) | undefined, {
     error,
     pending,
-    mutate(
-      updater: (current: T | R) => T | R,
-      serverCall?: () => Promise<unknown>,
-    ) {
-      const current = store.v;
-      if (current === undefined) return;
-      updateValue(updater(current));
-      if (serverCall) {
-        void serverCall().catch((err) => setError(toError(err)));
-      }
-    },
   }) as LiveSignal<T | R>;
-}
-
-// ---------------------------------------------------------------------------
-// createAction — mutation lifecycle tracking
-// ---------------------------------------------------------------------------
-
-/** Return shape for createAction's state signal. */
-export interface ActionState<T> {
-  /** Result of the last successful call. */
-  readonly value: Accessor<T | undefined>;
-  /** Error from the last failed call. */
-  readonly error: Accessor<Error | undefined>;
-  /** True while a call is in flight. */
-  readonly pending: Accessor<boolean>;
-}
-
-/**
- * Wrap an async function with reactive lifecycle tracking.
- *
- * Returns `[trigger, state]` where `trigger` fires the function and
- * `state` tracks pending/value/error.
- *
- * ```tsx
- * const [create, creating] = createAction(client.terminal.create);
- *
- * // Fire it:
- * const info = await create({ cwd: "/home" });
- *
- * // React to lifecycle:
- * <Show when={creating.pending()}>Creating...</Show>
- * ```
- */
-export function createAction<Args extends unknown[], T>(
-  fn: (...args: Args) => Promise<T>,
-): [trigger: (...args: Args) => Promise<T>, state: ActionState<T>] {
-  const [value, setValue] = createSignal<T | undefined>();
-  const [error, setError] = createSignal<Error | undefined>();
-  const [pending, setPending] = createSignal(false);
-
-  async function trigger(...args: Args): Promise<T> {
-    setPending(true);
-    setError(undefined);
-    try {
-      const result = await fn(...args);
-      setValue(() => result);
-      return result;
-    } catch (err) {
-      const e = err instanceof Error ? err : new Error(String(err));
-      setError(() => e);
-      throw e;
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return [trigger, { value, error, pending }];
 }

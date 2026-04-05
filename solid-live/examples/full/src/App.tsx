@@ -1,14 +1,14 @@
 /**
- * Example client: a worker dashboard demonstrating all live/ primitives.
+ * Example client: a worker dashboard demonstrating solid-live primitives.
  *
  * - createLive returns a SolidJS signal: meta() reads the value
  * - meta.pending(), meta.error() for lifecycle
- * - createAction for mutations with pending state
+ * - Mutations are plain RPC calls — no wrapper needed
  * - Fine-grained reactivity: () => meta()?.tickCount
  */
 
 import { Show, For, createMemo } from "solid-js";
-import { createLive, createAction } from "../../../src/solid.ts";
+import { createLive } from "../../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 // ---------------------------------------------------------------------------
@@ -17,7 +17,6 @@ import { client } from "./rpc.ts";
 
 function WorkerDashboard() {
   const list = createLive(() => client.worker.list());
-  const [create, creating] = createAction(() => client.worker.create());
 
   return (
     <div
@@ -27,21 +26,20 @@ function WorkerDashboard() {
         "max-width": "800px",
       }}
     >
-      <h1>live/ example</h1>
+      <h1>solid-live example</h1>
       <p style={{ color: "#666", "margin-bottom": "16px" }}>
-        createLive (signal) · createAction · fine-grained reactivity
+        createLive (signal) · plain RPC mutations · fine-grained reactivity
       </p>
 
       <button
-        onClick={() => create()}
-        disabled={creating.pending()}
+        onClick={() => client.worker.create()}
         style={{
           padding: "8px 16px",
           "margin-bottom": "16px",
           cursor: "pointer",
         }}
       >
-        {creating.pending() ? "Creating..." : "+ New Worker"}
+        + New Worker
       </button>
 
       <Show when={list.pending()}>
@@ -66,12 +64,10 @@ function WorkerDashboard() {
 // ---------------------------------------------------------------------------
 
 function WorkerCard(props: { id: string }) {
-  // meta() IS a SolidJS signal — reads the current value
   const meta = createLive(() =>
     client.worker.onMetadataChange({ id: props.id }),
   );
 
-  // Accumulating via reducer
   const samples = createLive(
     () => client.worker.onActivityChange({ id: props.id }),
     {
@@ -86,12 +82,6 @@ function WorkerCard(props: { id: string }) {
     initial: [] as string[],
   });
 
-  const [kill, killing] = createAction(() =>
-    client.worker.kill({ id: props.id }),
-  );
-  const [toggle] = createAction(() => client.worker.toggle({ id: props.id }));
-
-  // Derived — just read from the signal directly
   const name = () => meta()?.name ?? "...";
   const tickCount = () => meta()?.tickCount ?? 0;
   const status = () => meta()?.status ?? "...";
@@ -124,14 +114,13 @@ function WorkerCard(props: { id: string }) {
         </strong>
         <span>
           <button
-            onClick={() => toggle()}
+            onClick={() => client.worker.toggle({ id: props.id })}
             style={{ "margin-right": "4px", cursor: "pointer" }}
           >
             {status() === "running" ? "⏸" : "▶"}
           </button>
           <button
-            onClick={() => kill()}
-            disabled={killing.pending()}
+            onClick={() => client.worker.kill({ id: props.id })}
             style={{ cursor: "pointer" }}
           >
             ✕

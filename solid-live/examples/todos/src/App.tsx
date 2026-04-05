@@ -4,29 +4,26 @@
  */
 
 import { Show, For, createMemo, createSignal } from "solid-js";
-import { createLive, createAction } from "../../../src/solid.ts";
+import { createLive } from "../../../src/solid.ts";
 import { client } from "./rpc.ts";
 
 type Todo = { id: string; text: string; done: boolean };
 
 function TodoApp() {
+  // Live stream — solid-live provides the signal + loading/error state
   const todos = createLive(() => client.todos.list());
-  const [add, adding] = createAction((text: string) =>
-    client.todos.add({ text }),
-  );
-
   const [input, setInput] = createSignal("");
 
-  // Derived counts — reactive, update automatically
+  // Derived counts — standard SolidJS createMemo
   const total = createMemo(() => todos()?.length ?? 0);
   const done = createMemo(() => todos()?.filter((t) => t.done).length ?? 0);
-  const pending = createMemo(() => total() - done());
+  const remaining = createMemo(() => total() - done());
 
   function handleSubmit(e: Event) {
     e.preventDefault();
     const text = input().trim();
     if (!text) return;
-    add(text);
+    client.todos.add({ text }); // plain RPC — list updates via the live stream
     setInput("");
   }
 
@@ -45,8 +42,8 @@ function TodoApp() {
           placeholder="What needs to be done?"
           style={styles.input}
         />
-        <button type="submit" disabled={adding.pending()} style={styles.addBtn}>
-          {adding.pending() ? "..." : "Add"}
+        <button type="submit" style={styles.addBtn}>
+          Add
         </button>
       </form>
 
@@ -63,7 +60,7 @@ function TodoApp() {
 
       <Show when={total() > 0}>
         <div style={styles.stats}>
-          {done()} done · {pending()} pending · {total()} total
+          {done()} done · {remaining()} remaining · {total()} total
         </div>
       </Show>
     </div>
@@ -71,23 +68,15 @@ function TodoApp() {
 }
 
 function TodoItem(props: { todo: Todo }) {
-  const [toggle] = createAction(() =>
-    client.todos.toggle({ id: props.todo.id }),
-  );
-  const [remove, removing] = createAction(() =>
-    client.todos.remove({ id: props.todo.id }),
-  );
-  const [edit] = createAction((text: string) =>
-    client.todos.edit({ id: props.todo.id, text }),
-  );
-
   const [editing, setEditing] = createSignal(false);
   const [editText, setEditText] = createSignal(props.todo.text);
 
   function handleEdit(e: Event) {
     e.preventDefault();
     const text = editText().trim();
-    if (text && text !== props.todo.text) edit(text);
+    if (text && text !== props.todo.text) {
+      client.todos.edit({ id: props.todo.id, text });
+    }
     setEditing(false);
   }
 
@@ -101,7 +90,7 @@ function TodoItem(props: { todo: Todo }) {
       <input
         type="checkbox"
         checked={props.todo.done}
-        onChange={() => toggle()}
+        onChange={() => client.todos.toggle({ id: props.todo.id })}
         style={styles.checkbox}
       />
 
@@ -135,8 +124,7 @@ function TodoItem(props: { todo: Todo }) {
       </Show>
 
       <button
-        onClick={() => remove()}
-        disabled={removing.pending()}
+        onClick={() => client.todos.remove({ id: props.todo.id })}
         style={styles.removeBtn}
       >
         ✕
