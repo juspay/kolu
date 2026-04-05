@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-05T15:51:27.780955+00:00'
+generated_at: '2026-04-05T16:13:18.912678+00:00'
 apm_version: 0.8.10
 dependencies:
 - repo_url: _local/agents
@@ -45,7 +45,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: e3f4cf3af68f2834478973b455738dd1a5a297b5
+  resolved_commit: 8ccd318d85674dc134f8a5f4e2f147bdc59cb141
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -56,4 +56,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/github-pr
   - .claude/skills/hickey
-  content_hash: sha256:f48fa97a1aceca8287b7d2e0d75881ec1f5128c99b23b2d682f472a39d8c155d
+  content_hash: sha256:574b4bc2f7a6e102c7decaf55f98b92dcb4a97585ac6d5c4b0dfe231e6e3b87e

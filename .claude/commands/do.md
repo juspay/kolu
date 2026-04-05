@@ -117,7 +117,9 @@ If the task is a bug fix: write a failing test first (e2e or unit, whichever is 
 
 Otherwise: implement the planned changes. Prefer simplicity. Do the boring obvious thing.
 
-**Verify**: Code changes match the planned approach.
+**E2E coverage**: When the change introduces multiple user-facing paths (e.g., a dialog that appears under different conditions), write e2e scenarios for **each distinct path**. Enumerate the user-visible paths, then check that every one has a corresponding test.
+
+**Verify**: Code changes match the planned approach. All distinct user-facing paths have test coverage.
 
 ---
 
