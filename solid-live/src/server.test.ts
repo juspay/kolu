@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live, events } from "./server.ts";
+import { live } from "./server.ts";
 
 describe("live", () => {
   it("yields the current value as snapshot", async () => {
@@ -75,53 +75,5 @@ describe("live", () => {
 
     controller.abort();
     expect((await gen.next()).done).toBe(true);
-  });
-});
-
-describe("events", () => {
-  it("delivers pushed values to iterators", async () => {
-    const [push, iterate] = events<number>();
-    const controller = new AbortController();
-    const iter = iterate(controller.signal)[Symbol.asyncIterator]();
-
-    push(1);
-    push(2);
-
-    expect(await iter.next()).toEqual({ done: false, value: 1 });
-    expect(await iter.next()).toEqual({ done: false, value: 2 });
-
-    controller.abort();
-    expect((await iter.next()).done).toBe(true);
-  });
-
-  it("fans out to multiple iterators", async () => {
-    const [push, iterate] = events<string>();
-    const c1 = new AbortController();
-    const c2 = new AbortController();
-    const iter1 = iterate(c1.signal)[Symbol.asyncIterator]();
-    const iter2 = iterate(c2.signal)[Symbol.asyncIterator]();
-
-    push("hello");
-
-    expect(await iter1.next()).toEqual({ done: false, value: "hello" });
-    expect(await iter2.next()).toEqual({ done: false, value: "hello" });
-
-    c1.abort();
-    c2.abort();
-  });
-
-  it("buffers events from the moment iterate() is called", async () => {
-    const [push, iterate] = events<number>();
-    const controller = new AbortController();
-
-    // Start iterating, then push immediately (before for-await starts)
-    const iter = iterate(controller.signal)[Symbol.asyncIterator]();
-    push(1);
-    push(2);
-
-    expect(await iter.next()).toEqual({ done: false, value: 1 });
-    expect(await iter.next()).toEqual({ done: false, value: 2 });
-
-    controller.abort();
   });
 });

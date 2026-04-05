@@ -226,6 +226,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.19.0)

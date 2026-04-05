@@ -2,15 +2,14 @@
 
 End-to-end reactive signals — `@solidjs/signals` on the server, SolidJS `Accessor` on the client, `AsyncIterable` on the wire.
 
-`solid-live` supplements SolidJS with three primitives for server↔client reactivity:
+`solid-live` supplements SolidJS with two primitives for server↔client reactivity:
 
 | Primitive            | Side   | What it does                                                                    |
 | -------------------- | ------ | ------------------------------------------------------------------------------- |
 | `live(fn)`           | Server | Watches a reactive expression, yields an `AsyncGenerator` of its values         |
-| `events()`           | Server | Push/iterate pair for discrete events (not state)                               |
 | `createLive(source)` | Client | Converts `AsyncIterable` into a SolidJS `Accessor` with `.pending` and `.error` |
 
-Everything else uses standard SolidJS: `createSignal` for state, `createMemo` for derivations, `createResource` for mutation lifecycle, `createEffect` for side effects. `solid-live` doesn't reinvent these.
+Everything else uses standard SolidJS and oRPC: `createSignal` for state, `createMemo` for derivations, `createResource` for mutation lifecycle, `@orpc/experimental-publisher` for discrete events. `solid-live` doesn't reinvent these.
 
 ## The problem
 
@@ -22,7 +21,7 @@ Imperative pub/sub (`channel.publish(value)`) is the manual version of what reac
 
 Signals on both sides, wire in the middle:
 
-- **Server** (`@solidjs/signals` + `solid-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable, `events()` for discrete events
+- **Server** (`@solidjs/signals` + `solid-live/server`): `createSignal` for state, `live()` to bridge signals → AsyncIterable
 - **Client** (`solid-live/solid`): `createLive` to turn the stream back into a SolidJS signal. Mutations are plain RPC calls.
 
 The transport layer (oRPC, gRPC, WebSocket, SSE) stays separate. `solid-live` only cares about `AsyncIterable<T>` — the universal streaming interface.
@@ -201,39 +200,41 @@ Click "+ New Worker". The server creates a worker, `workerList` updates, `live()
 
 At this point we have a working dashboard: create workers, watch them tick, see the list update. All with `live()` on the server and `createLive` on the client.
 
-### Part 2: Events with `events()`
+### Part 2: Discrete events with oRPC publisher
 
-State covers values that _are_ — the worker list, metadata. But workers also produce things that _happen_: tick log lines and activity samples. These don't have a "current value" — they're discrete events. We use a different primitive for these.
+State covers values that _are_ — the worker list, metadata. But workers also produce things that _happen_: tick log lines and activity samples. These don't have a "current value" — they're discrete events. `live()` is for state; for events, we use oRPC's `MemoryPublisher`:
 
 #### Server: push events
 
-`events()` returns a push/iterate pair. We push from domain logic:
-
 ```ts
-import { events } from "solid-live/server";
+import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 
-const [pushTick, iterateTicks] = events<string>();
+const publisher = new MemoryPublisher<Record<string, any>>();
 
-// In the tick function:
-pushTick(`[alpha] tick #${tickCount()}`);
+// In the tick function — publish to a per-worker channel:
+await publisher.publish(`tick:${worker.id}`, `[alpha] tick #${count}`);
+await publisher.publish(`activity:${worker.id}`, [Date.now(), true]);
 ```
 
-The handler iterates:
+The handler subscribes and yields:
 
 ```ts
-attach: t.worker.attach.handler(async function* ({ input, signal }) {
-  const worker = workers.get(input.id);
-  for await (const msg of worker.iterateTicks(signal)) yield msg;
-}),
+attach: async function* ({ input, signal }) {
+  for await (const msg of publisher.subscribe(`tick:${input.id}`, { signal })) {
+    yield msg;
+  }
+},
 ```
 
-For activity samples, we also keep a history so late-joining clients catch up. We yield the history first, then live events:
+For activity samples, we yield the history first so late-joining clients catch up:
 
 ```ts
 onActivityChange: async function* ({ input, signal }) {
   const worker = workers.get(input.id);
   for (const sample of worker.activityHistory) yield sample;
-  for await (const sample of worker.iterateActivity(signal)) yield sample;
+  for await (const sample of publisher.subscribe(`activity:${input.id}`, { signal })) {
+    yield sample;
+  }
 },
 ```
 
@@ -259,12 +260,12 @@ Each event from the server folds into the array. The sparkline fills in as the w
 
 ### What we built
 
-A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. No manual pub/sub on the server, no cache layer on the client. Three primitives from `solid-live`, everything else standard SolidJS:
+A server holding state in signals, a client rendering that state reactively, connected by a WebSocket. Two primitives from `solid-live`, everything else standard SolidJS and oRPC:
 
 - **`live()`** — server signals → stream (for state)
-- **`events()`** — push/iterate (for things that happen)
 - **`createLive()`** — stream → SolidJS signal (for rendering)
-- Mutations are plain RPC calls. Use `createResource` if you need loading/error tracking.
+- **oRPC publisher** — for discrete events (not state)
+- Mutations are plain RPC calls
 
 The full working code is in [`examples/full/`](./examples/full/).
 
@@ -286,23 +287,7 @@ yield * live(() => count())(signal);
 
 First yield is the snapshot. Subsequent yields are live updates. The signal graph handles dependency tracking — no manual subscribe/publish.
 
-#### `events()`
-
-Creates a push/iterate pair for discrete events.
-
-```ts
-import { events } from "solid-live/server";
-
-const [push, iterate] = events<ActivitySample>();
-
-push([Date.now(), true]);
-
-for await (const sample of iterate(signal)) {
-  /* ... */
-}
-```
-
-Events are buffered from the moment `iterate()` is called, not when `for-await` starts.
+For discrete events (not state), use oRPC's [`@orpc/experimental-publisher`](https://orpc.dev/docs/helpers/publisher) or Node's `EventEmitter` + `events.on()`.
 
 ### Client (`solid-live/solid`)
 
@@ -335,7 +320,7 @@ samples(); // ActivitySample[]
 
 **Signals on the server.** State is `createSignal` / `createMemo` from `@solidjs/signals`. Mutations are signal writes. `live()` bridges the reactive graph to AsyncIterable. No manual publish — the signal graph IS the notification system.
 
-**State vs events.** `live()` is for values that change (metadata, lists, preferences). `events()` is for things that happen (activity samples, log lines). Different concerns, different primitives.
+**State vs events.** `live()` is for values that change (metadata, lists, preferences). For things that happen (activity samples, log lines), use oRPC's publisher or Node's EventEmitter — `solid-live` doesn't reinvent pub/sub.
 
 **`createLive` returns a SolidJS signal.** `meta()` reads the value — a real reactive read, not a wrapper. `.error`, `.pending`, `.mutate` are properties on the signal function, following SolidJS's `createResource` pattern. Composition is just `() => meta()?.git`.
 

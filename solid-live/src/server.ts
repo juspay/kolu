@@ -1,19 +1,20 @@
 /**
- * Server-side primitives for end-to-end reactive streams.
+ * Server-side primitive for end-to-end reactive streams.
  *
- * Two concepts:
- *  - `live(fn)` — reactive expression → AsyncGenerator (for state)
- *  - `events()` — push/iterate pair (for discrete events)
+ * `live(fn)` — reactive expression ��� AsyncGenerator
  *
  * State is modeled with signals from @solidjs/signals. `live()` bridges
  * the signal graph to AsyncIterable — the universal streaming interface
  * that oRPC (or any transport) can carry to the client.
+ *
+ * For discrete events (not state), use oRPC's `@orpc/experimental-publisher`
+ * or Node's `EventEmitter` + `events.on()`.
  */
 
 import { createRoot, createEffect, flush } from "@solidjs/signals";
 
 // ---------------------------------------------------------------------------
-// Internal: async queue — shared mechanics for toStream and events
+// Internal: async queue
 // ---------------------------------------------------------------------------
 
 /** Push/pull queue bridging synchronous pushes to async iteration. */
@@ -140,54 +141,4 @@ export function live<T>(
     const iter = queue.iterable[Symbol.asyncIterator]();
     return iter as AsyncGenerator<T>;
   };
-}
-
-// ---------------------------------------------------------------------------
-// events — push/iterate pair for discrete events
-// ---------------------------------------------------------------------------
-
-/**
- * Create a push/iterate pair for discrete events (not state).
- *
- * Use for things that happen (activity samples, log lines, exit codes)
- * as opposed to things that are (metadata, status, preferences).
- *
- * ```ts
- * const [pushActivity, iterateActivity] = events<ActivitySample>();
- *
- * // Push from domain logic:
- * pushActivity([Date.now(), true]);
- *
- * // In a router handler:
- * for await (const sample of iterateActivity(signal)) yield sample;
- * ```
- */
-export function events<T>(): [
-  push: (value: T) => void,
-  iterate: (signal?: AbortSignal) => AsyncIterable<T>,
-] {
-  type Listener = (value: T) => void;
-  const listeners = new Set<Listener>();
-
-  function push(value: T): void {
-    for (const listener of listeners) {
-      listener(value);
-    }
-  }
-
-  function iterate(abortSignal?: AbortSignal): AsyncIterable<T> {
-    // Eagerly register listener so events are buffered from the moment
-    // iterate() is called — not lazily when for-await starts.
-    const queue = createAsyncQueue<T>(abortSignal);
-
-    listeners.add(queue.push);
-
-    abortSignal?.addEventListener("abort", () => listeners.delete(queue.push), {
-      once: true,
-    });
-
-    return queue.iterable;
-  }
-
-  return [push, iterate];
 }

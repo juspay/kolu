@@ -2,17 +2,18 @@
  * Example server: a worker manager using signals for state.
  *
  * Workers tick at random intervals. State is reactive signals —
- * no manual publish calls. `live()` bridges signals to the wire.
- * Activity samples use `events()` (discrete events, not state).
+ * `live()` bridges signals to the wire. Discrete events (ticks,
+ * activity) use oRPC's MemoryPublisher.
  */
 
 import { RPCHandler } from "@orpc/server/ws";
 import { implement } from "@orpc/server";
+import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { WebSocketServer } from "ws";
 import { oc, eventIterator } from "@orpc/contract";
 import { z } from "zod";
 import { createSignal, createMemo, flush } from "@solidjs/signals";
-import { live, events } from "../../src/server.ts";
+import { live } from "../../src/server.ts";
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -51,11 +52,19 @@ const contract = oc.router({
 export type { contract };
 
 // ---------------------------------------------------------------------------
-// Worker entity — reactive state via signals
+// Event publisher — oRPC's MemoryPublisher for discrete events
 // ---------------------------------------------------------------------------
 
 type WorkerId = string;
 type ActivitySample = [epochMs: number, isActive: boolean];
+
+// Channel names are keyed by worker ID (e.g., "tick:1", "activity:1")
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const publisher = new MemoryPublisher<Record<string, any>>();
+
+// ---------------------------------------------------------------------------
+// Worker entity — reactive state via signals
+// ---------------------------------------------------------------------------
 
 type Worker = {
   info: z.infer<typeof WorkerInfoSchema>;
@@ -65,10 +74,6 @@ type Worker = {
   intervalMs: number;
   timer: ReturnType<typeof setInterval> | null;
   activityHistory: ActivitySample[];
-  pushActivity: (sample: ActivitySample) => void;
-  iterateActivity: (signal?: AbortSignal) => AsyncIterable<ActivitySample>;
-  pushTick: (msg: string) => void;
-  iterateTicks: (signal?: AbortSignal) => AsyncIterable<string>;
 };
 
 // ---------------------------------------------------------------------------
@@ -106,9 +111,6 @@ function createWorker(): z.infer<typeof WorkerInfoSchema> {
     intervalMs,
   }));
 
-  const [pushActivity, iterateActivity] = events<ActivitySample>();
-  const [pushTick, iterateTicks] = events<string>();
-
   const worker: Worker = {
     info: { id, name, createdAt: Date.now() },
     tickCount: [tickCount, setTickCount],
@@ -117,10 +119,6 @@ function createWorker(): z.infer<typeof WorkerInfoSchema> {
     intervalMs,
     timer: null,
     activityHistory: [],
-    pushActivity,
-    iterateActivity,
-    pushTick,
-    iterateTicks,
   };
 
   worker.timer = setInterval(() => tick(worker), intervalMs);
@@ -136,13 +134,16 @@ function tick(worker: Worker) {
   flush();
 
   const count = worker.tickCount[0]();
-  worker.pushTick(`[${worker.info.name}] tick #${count}`);
+  void publisher.publish(
+    `tick:${worker.info.id}`,
+    `[${worker.info.name}] tick #${count}`,
+  );
 
   const sample: ActivitySample = [Date.now(), true];
   worker.activityHistory.push(sample);
   if (worker.activityHistory.length > 100)
     worker.activityHistory = worker.activityHistory.slice(-100);
-  worker.pushActivity(sample);
+  void publisher.publish(`activity:${worker.info.id}`, sample);
 }
 
 function requireWorker(id: WorkerId): Worker {
@@ -172,19 +173,27 @@ const router = t.router({
       yield* live(() => worker.meta())(signal);
     }),
 
-    // Event streams — snapshot then live events
+    // Event streams — oRPC publisher, snapshot then live
     onActivityChange: t.worker.onActivityChange.handler(async function* ({
       input,
       signal,
     }) {
       const worker = requireWorker(input.id);
       for (const sample of worker.activityHistory) yield sample;
-      for await (const sample of worker.iterateActivity(signal)) yield sample;
+      for await (const sample of publisher.subscribe(`activity:${input.id}`, {
+        signal,
+      }) as AsyncIterable<ActivitySample>) {
+        yield sample;
+      }
     }),
 
     attach: t.worker.attach.handler(async function* ({ input, signal }) {
-      const worker = requireWorker(input.id);
-      for await (const msg of worker.iterateTicks(signal)) yield msg;
+      requireWorker(input.id);
+      for await (const msg of publisher.subscribe(`tick:${input.id}`, {
+        signal,
+      }) as AsyncIterable<string>) {
+        yield msg;
+      }
     }),
 
     // Mutations
@@ -207,12 +216,18 @@ const router = t.router({
         worker.timer = null;
         setStatus("paused");
         flush();
-        worker.pushActivity([Date.now(), false]);
+        void publisher.publish(`activity:${input.id}`, [
+          Date.now(),
+          false,
+        ] as ActivitySample);
       } else {
         setStatus("running");
         flush();
         worker.timer = setInterval(() => tick(worker), worker.intervalMs);
-        worker.pushActivity([Date.now(), true]);
+        void publisher.publish(`activity:${input.id}`, [
+          Date.now(),
+          true,
+        ] as ActivitySample);
       }
     }),
   },
