@@ -1,6 +1,11 @@
 /**
  * Shared todo list — add, edit, complete, delete.
- * Open in two browser tabs to see changes sync in real time.
+ * Open in two browser tabs to see changes sync instantly.
+ *
+ * Demonstrates:
+ * - createLive for live stream (signal + .pending() + .error())
+ * - Plain RPC calls for mutations, with error handling
+ * - createMemo for derived state (counts)
  */
 
 import { Show, For, createMemo, createSignal } from "solid-js";
@@ -9,12 +14,26 @@ import { client } from "./rpc.ts";
 
 type Todo = { id: string; text: string; done: boolean };
 
+/** Shared error signal — mutations catch and display errors here. */
+const [lastError, setLastError] = createSignal<string | null>(null);
+
+/** Call an RPC mutation, catch errors and surface them. */
+async function rpc<T>(fn: () => Promise<T>): Promise<T | undefined> {
+  try {
+    setLastError(null);
+    return await fn();
+  } catch (err) {
+    setLastError(err instanceof Error ? err.message : String(err));
+    return undefined;
+  }
+}
+
 function TodoApp() {
-  // Live stream — solid-live provides the signal + loading/error state
+  // Live stream — solid-live
   const todos = createLive(() => client.todos.list());
   const [input, setInput] = createSignal("");
 
-  // Derived counts — standard SolidJS createMemo
+  // Derived counts — standard SolidJS
   const total = createMemo(() => todos()?.length ?? 0);
   const done = createMemo(() => todos()?.filter((t) => t.done).length ?? 0);
   const remaining = createMemo(() => total() - done());
@@ -23,7 +42,7 @@ function TodoApp() {
     e.preventDefault();
     const text = input().trim();
     if (!text) return;
-    client.todos.add({ text }); // plain RPC — list updates via the live stream
+    rpc(() => client.todos.add({ text }));
     setInput("");
   }
 
@@ -33,6 +52,28 @@ function TodoApp() {
       <p style={styles.hint}>
         Open this page in two tabs — changes sync instantly.
       </p>
+
+      {/* Stream loading state */}
+      <Show when={todos.pending()}>
+        <p style={styles.loading}>Connecting to server...</p>
+      </Show>
+
+      {/* Stream error (WebSocket disconnected, etc.) */}
+      <Show when={todos.error()}>
+        {(err) => <p style={styles.error}>Stream error: {err().message}</p>}
+      </Show>
+
+      {/* Mutation error (RPC call failed) */}
+      <Show when={lastError()}>
+        {(msg) => (
+          <p style={styles.error}>
+            {msg()}{" "}
+            <button onClick={() => setLastError(null)} style={styles.dismiss}>
+              dismiss
+            </button>
+          </p>
+        )}
+      </Show>
 
       <form onSubmit={handleSubmit} style={styles.form}>
         <input
@@ -46,13 +87,6 @@ function TodoApp() {
           Add
         </button>
       </form>
-
-      <Show when={todos.pending()}>
-        <p style={styles.hint}>Connecting...</p>
-      </Show>
-      <Show when={todos.error()}>
-        {(err) => <p style={{ color: "#f85149" }}>{err().message}</p>}
-      </Show>
 
       <For each={todos()} fallback={<p style={styles.hint}>No todos yet.</p>}>
         {(todo) => <TodoItem todo={todo} />}
@@ -75,7 +109,7 @@ function TodoItem(props: { todo: Todo }) {
     e.preventDefault();
     const text = editText().trim();
     if (text && text !== props.todo.text) {
-      client.todos.edit({ id: props.todo.id, text });
+      rpc(() => client.todos.edit({ id: props.todo.id, text }));
     }
     setEditing(false);
   }
@@ -90,7 +124,7 @@ function TodoItem(props: { todo: Todo }) {
       <input
         type="checkbox"
         checked={props.todo.done}
-        onChange={() => client.todos.toggle({ id: props.todo.id })}
+        onChange={() => rpc(() => client.todos.toggle({ id: props.todo.id }))}
         style={styles.checkbox}
       />
 
@@ -124,7 +158,7 @@ function TodoItem(props: { todo: Todo }) {
       </Show>
 
       <button
-        onClick={() => client.todos.remove({ id: props.todo.id })}
+        onClick={() => rpc(() => client.todos.remove({ id: props.todo.id }))}
         style={styles.removeBtn}
       >
         ✕
@@ -149,6 +183,28 @@ const styles = {
     color: "#8b949e",
     "font-size": "13px",
     "margin-bottom": "16px",
+  },
+  loading: {
+    color: "#58a6ff",
+    "font-size": "13px",
+    "margin-bottom": "8px",
+  },
+  error: {
+    color: "#f85149",
+    "font-size": "13px",
+    "margin-bottom": "8px",
+    padding: "8px 12px",
+    background: "#1c1012",
+    "border-radius": "6px",
+    border: "1px solid #f8514933",
+  },
+  dismiss: {
+    border: "none",
+    background: "none",
+    color: "#8b949e",
+    cursor: "pointer",
+    "text-decoration": "underline",
+    "font-size": "12px",
   },
   form: {
     display: "flex",
