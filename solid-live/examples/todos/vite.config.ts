@@ -6,9 +6,9 @@ export default defineConfig({
   root: __dirname,
   build: { target: "esnext" },
   server: {
-    port: 5174,
+    port: 5173,
     proxy: {
-      "/rpc": { target: "http://localhost:3124", ws: true },
+      "/rpc": { target: "http://localhost:3123", ws: true },
     },
   },
 });

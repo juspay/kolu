@@ -94,7 +94,7 @@ const router = t.router({
 // WebSocket server
 // ---------------------------------------------------------------------------
 
-const PORT = 3124;
+const PORT = 3123;
 const wss = new WebSocketServer({ port: PORT });
 const rpcHandler = new RPCHandler(router);
 
