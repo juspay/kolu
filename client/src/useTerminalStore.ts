@@ -1,29 +1,27 @@
 /** Terminal store — composes view state and metadata modules.
- *  Server-derived state (including ordering) lives in TanStack cache.
+ *  Server-derived state (including ordering) streams via createSubscription.
  *  Client view state (activeId, attention, mruOrder) lives in local signals.
  *
- *  The terminal list is a live query — the server pushes updates on
+ *  The terminal list is a live subscription — the server pushes updates on
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
-import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./orpc";
+import { createSubscription } from "solid-live/solid";
+import { client } from "./rpc";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  const listQuery = createQuery(() =>
-    orpc.terminal.list.experimental_liveOptions(),
-  );
+  const listSub = createSubscription(() => client.terminal.list());
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    listQuery,
+    listSub,
     activeId: view.activeId,
   });
 
   return {
     // Live terminal list from server
-    listQuery,
+    listSub,
     // View state
     ...view,
     // Server metadata + activity + derived ordering

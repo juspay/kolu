@@ -26,7 +26,7 @@ export function useSessionRestore(deps: {
   // Hydrate from server state on initial load.
   let hydrated = false;
   createEffect(() => {
-    const existing = store.listQuery.data;
+    const existing = store.listSub();
     const state = serverState.state();
     if (existing === undefined || state === undefined) return;
     if (hydrated) return;
@@ -73,7 +73,7 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
-  // The live query keeps state fresh — just read from it.
+  // The live subscription keeps state fresh — just read from it.
   createEffect(() => {
     if (store.terminalIds().length === 0 && hydrated) {
       setSavedSession(serverState.savedSession());
@@ -98,7 +98,7 @@ export function useSessionRestore(deps: {
   }
 
   return {
-    isLoading: () => store.listQuery.isLoading,
+    isLoading: () => store.listSub.pending(),
     savedSession,
     handleRestoreSession,
   };

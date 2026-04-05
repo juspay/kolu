@@ -1,7 +1,7 @@
 /**
  * GitHub PR metadata provider — resolves PR info for the current branch.
  *
- * Subscribes to "git:<id>" (not the aggregated "metadata" channel).
+ * Reacts to gitSignal changes (not a publisher channel).
  * Publishes via updateMetadata() — no downstream providers depend on PR changes.
  * Also polls periodically (PRs can be created/updated externally at any time).
  */
@@ -14,7 +14,7 @@ import {
   type GitInfo,
 } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { subscribeForTerminal } from "../publisher.ts";
+import { getGitSignal, watch } from "../signals.ts";
 import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
@@ -160,10 +160,7 @@ export function startGitHubPrProvider(
 
   plog.info({ branch: lastBranch }, "started");
 
-  // Resolve immediately if we have git context
-  if (lastBranch && lastRepoRoot) {
-    void resolve(lastRepoRoot);
-  }
+  // No explicit initial resolve — watch() fires the initial value synchronously.
 
   function onGitChange(git: GitInfo | null) {
     const branch = git?.branch;
@@ -206,11 +203,15 @@ export function startGitHubPrProvider(
     }
   }, POLL_INTERVAL_MS);
 
-  const abort = new AbortController();
-  subscribeForTerminal("git", terminalId, abort.signal, onGitChange);
+  // Watch gitSignal reactively — fires on each git info change
+  const gitAccessor = getGitSignal(terminalId);
+  let stopWatch = () => {};
+  if (gitAccessor) {
+    stopWatch = watch(gitAccessor, onGitChange);
+  }
 
   return () => {
-    abort.abort();
+    stopWatch();
     clearInterval(pollTimer);
     plog.info("stopped");
   };

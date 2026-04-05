@@ -17,6 +17,8 @@ import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
+import { getServerState } from "./state.ts";
+import { emitServerState } from "./signals.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -61,6 +63,7 @@ const argv = cli({
 });
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
+emitServerState(getServerState());
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 

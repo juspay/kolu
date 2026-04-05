@@ -6,7 +6,7 @@
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { store } from "./state.ts";
-import { publisher } from "./publisher.ts";
+import { terminalListSignal, watch } from "./signals.ts";
 import { log } from "./log.ts";
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
@@ -35,20 +35,22 @@ export function setSavedSession(session: SavedSession): void {
   store.set("session", session);
 }
 
-// --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
+// --- Auto-save: terminal list signal → session persistence ---
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** Wire up debounced session save from terminal change events. Called once at startup. */
+/** Wire up debounced session save from terminal list signal changes. Called once at startup.
+ *  Reacts to terminal list changes (create/kill/reorder) and metadata changes
+ *  (CWD updates propagate through metadata signal → list signal update). */
 export function initSessionAutoSave(snapshot: () => SavedTerminal[]): void {
-  void (async () => {
-    try {
-      for await (const _ of publisher.subscribe("session:changed")) {
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveSession(snapshot()), 500);
+  watch(terminalListSignal, () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try {
+        saveSession(snapshot());
+      } catch (err) {
+        log.error({ err }, "session auto-save failed");
       }
-    } catch (err) {
-      log.error({ err }, "session auto-save subscription failed");
-    }
-  })();
+    }, 500);
+  });
 }

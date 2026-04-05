@@ -1,6 +1,9 @@
 /**
  * Terminal state management: PTY lifecycle and per-terminal metadata.
  * Plain Map + exported functions. Each entry owns its PtyHandle.
+ *
+ * State signals (terminal list, metadata, CWD, git) are managed in signals.ts.
+ * Event publisher (PTY data, activity, exit) stays in publisher.ts.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
 import type {
@@ -24,7 +27,17 @@ import {
   updateMetadata,
   startProviders,
 } from "./meta/index.ts";
-import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { publishEvent } from "./publisher.ts";
+import {
+  emitTerminalList,
+  createMetadataSignal,
+  removeMetadataSignal,
+  createCwdSignal,
+  removeCwdSignal,
+  setCwdSignal,
+  createGitSignal,
+  removeGitSignal,
+} from "./signals.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -33,7 +46,7 @@ export interface TerminalProcess {
   info: TerminalInfo;
   handle: PtyHandle;
   /** Whether the terminal is currently producing output. Server-side only —
-   *  published to clients via the dedicated "activity" channel, not metadata. */
+   *  published to clients via the dedicated "activity" event, not metadata. */
   busy: boolean;
   /** Rolling window of activity transitions — server-side only.
    *  Sent as snapshot on activity subscription connect (for sparkline seed). */
@@ -82,19 +95,19 @@ function pushActivitySample(
 }
 
 /** Mark terminal busy and reset the idle timer.
- *  Publishes [epochMs, isActive] on the dedicated "activity" channel — avoids
+ *  Publishes [epochMs, isActive] on the dedicated "activity" event — avoids
  *  serializing the full metadata object on every keystroke. */
 function touchActivity(entry: TerminalProcess, terminalId: string): void {
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
   if (!entry.busy) {
     entry.busy = true;
     const sample = pushActivitySample(entry, true);
-    publishForTerminal("activity", terminalId, sample);
+    publishEvent("activity", terminalId, sample);
   }
   entry.idleTimer = setTimeout(() => {
     entry.busy = false;
     const sample = pushActivitySample(entry, false);
-    publishForTerminal("activity", terminalId, sample);
+    publishEvent("activity", terminalId, sample);
   }, IDLE_MS);
 }
 
@@ -112,15 +125,9 @@ export function snapshotSession(): SavedTerminal[] {
   });
 }
 
-/** Notify that terminal state changed (triggers debounced session auto-save). */
-function emitChanged(): void {
-  publishSystem("session:changed", {});
-}
-
-/** Notify that terminal membership changed (create/kill/reorder).
- *  Drives the live terminal.list stream to clients. */
+/** Emit terminal list signal. */
 function emitListChanged(): void {
-  publishSystem("terminal-list", listTerminals());
+  emitTerminalList(listTerminals());
 }
 
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
@@ -135,7 +142,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onData: (data) => {
         const entry = terminals.get(id);
         if (entry) touchActivity(entry, id);
-        publishForTerminal("data", id, data);
+        publishEvent("data", id, data);
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -146,24 +153,27 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
-        publishForTerminal("exit", id, exitCode);
+        publishEvent("exit", id, exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) {
-          emitChanged();
+          removeMetadataSignal(id);
+          removeCwdSignal(id);
+          removeGitSignal(id);
           emitListChanged();
         }
       },
-      // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
+      // PTY callback (OSC 7): update metadata CWD, notify providers via CWD signal
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
           updateMetadata(entry, id, (m) => {
             m.cwd = newCwd;
           });
-          publishForTerminal("cwd", id, newCwd);
-          emitChanged();
+          setCwdSignal(id, newCwd);
+          // Trigger session auto-save (CWD is part of the session snapshot)
+          emitListChanged();
         }
       },
     },
@@ -185,12 +195,17 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     clipboardDir,
     stopProviders: () => {},
   };
+
+  // Register signals before adding to map (providers may use them immediately)
+  createMetadataSignal(id, meta);
+  createCwdSignal(id, handle.cwd);
+  createGitSignal(id);
+
   // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
-  emitChanged();
   emitListChanged();
   return entry.info;
 }
@@ -218,7 +233,9 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
-  emitChanged();
+  removeMetadataSignal(id);
+  removeCwdSignal(id);
+  removeGitSignal(id);
   emitListChanged();
   return entry.info;
 }
@@ -238,7 +255,7 @@ export function setTerminalParent(
   }
 }
 
-/** Set the theme name for a terminal (stored in metadata, published to clients). */
+/** Set the theme name for a terminal (stored in metadata, streamed to clients). */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) {
@@ -267,13 +284,16 @@ export function killAllTerminals(): void {
   log.info({ count: terminals.size }, "killing all terminals");
   // Snapshot entries and clear map BEFORE disposing — prevents onExit
   // callbacks from finding terminals and triggering session saves.
-  const entries = [...terminals.values()];
+  const entries = [...terminals.entries()];
   terminals.clear();
-  for (const entry of entries) {
+  for (const [id, entry] of entries) {
     if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
+    removeMetadataSignal(id);
+    removeCwdSignal(id);
+    removeGitSignal(id);
   }
   emitListChanged();
 }

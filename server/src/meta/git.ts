@@ -1,11 +1,11 @@
 /**
  * Git metadata provider — resolves repo/branch info and watches .git/HEAD.
  *
- * Subscribes to "cwd:<id>" (not the aggregated "metadata" channel).
- * Publishes on "git:<id>" so downstream providers (github) react without cycles.
+ * Reacts to cwdSignal changes (not a publisher channel).
+ * Sets gitSignal so downstream providers (github) react without cycles.
  *
  * Three triggers:
- * 1. CWD change (via cwd channel) → re-resolves + restarts HEAD watcher
+ * 1. CWD change (via cwdSignal) → re-resolves + restarts HEAD watcher
  * 2. .git/HEAD change (via fs.watch) → re-resolves on branch switch/checkout
  * 3. CWD event in a non-git dir where .git now exists → detects `git init`
  */
@@ -16,7 +16,7 @@ import { execSync } from "node:child_process";
 import { simpleGit } from "simple-git";
 import type { GitInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { subscribeForTerminal, publishForTerminal } from "../publisher.ts";
+import { getCwdSignal, setGitSignal, watch } from "../signals.ts";
 import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
 import { trackRecentRepo } from "../state.ts";
@@ -116,7 +116,7 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
 
 /**
  * Start the git metadata provider for a terminal entry.
- * Subscribes to "cwd" channel, publishes on "git" channel.
+ * Reacts to cwdSignal, sets gitSignal for downstream providers.
  * Resolves git info on CWD change and HEAD change, emits only on value change.
  */
 export function startGitProvider(
@@ -130,8 +130,7 @@ export function startGitProvider(
 
   plog.info({ cwd: lastCwd }, "started");
 
-  // Resolve immediately for initial CWD
-  void resolve(meta.cwd);
+  // No explicit initial resolve — watch() fires the initial value synchronously.
 
   function onCwdChange(newCwd: string) {
     if (newCwd === lastCwd) {
@@ -171,15 +170,19 @@ export function startGitProvider(
       m.pr = null;
     });
     plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
-    // Notify downstream providers (github) via dedicated channel
-    publishForTerminal("git", terminalId, git);
+    // Set git signal for downstream providers (github)
+    setGitSignal(terminalId, git);
   }
 
-  const abort = new AbortController();
-  subscribeForTerminal("cwd", terminalId, abort.signal, onCwdChange);
+  // Watch cwdSignal reactively — fires on each CWD change
+  const cwdAccessor = getCwdSignal(terminalId);
+  let stopWatch = () => {};
+  if (cwdAccessor) {
+    stopWatch = watch(cwdAccessor, onCwdChange);
+  }
 
   return () => {
-    abort.abort();
+    stopWatch();
     stopHeadWatch();
     plog.info("stopped");
   };

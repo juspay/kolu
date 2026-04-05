@@ -9,8 +9,7 @@ import {
   Show,
   For,
 } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./orpc";
+import { createResource } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
@@ -26,7 +25,7 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 
 import type { TerminalId } from "kolu-common";
-import { wsStatus, serverRestarted } from "./rpc";
+import { client, wsStatus, serverRestarted } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { useServerState } from "./useServerState";
 import { useThemeManager } from "./useThemeManager";
@@ -37,11 +36,7 @@ import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
-  const {
-    preferences,
-    updatePreferences,
-    invalidate: invalidateState,
-  } = useServerState();
+  const { preferences, updatePreferences } = useServerState();
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
@@ -74,9 +69,9 @@ const App: Component = () => {
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
-  const serverInfo = createQuery(() => orpc.server.info.queryOptions());
+  const [serverInfo] = createResource(() => client.server.info());
   const appTitle = () => {
-    const h = serverInfo.data?.hostname;
+    const h = serverInfo()?.hostname;
     return h ? `kolu@${h}` : "kolu";
   };
 
@@ -132,13 +127,6 @@ const App: Component = () => {
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
   });
-
-  // Refetch server state (includes recent repos) whenever the palette opens
-  createEffect(
-    on(paletteOpen, (open) => {
-      if (open) invalidateState();
-    }),
-  );
 
   function openPalette() {
     setPaletteInitialGroup(undefined);

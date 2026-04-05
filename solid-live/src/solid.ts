@@ -39,6 +39,12 @@ export interface SubscriptionOptions<T, R = T> {
   reduce?: (accumulator: R, item: T) => R;
   /** Initial value for the accumulator (required when using reduce). */
   initial?: R;
+  /**
+   * External abort signal for imperative lifecycle management.
+   * When provided, used instead of `onCleanup` — allows creating
+   * subscriptions outside a reactive owner (e.g. dynamic per-entity maps).
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -57,6 +63,10 @@ export interface SubscriptionOptions<T, R = T> {
  */
 export function createSubscription<T>(
   source: () => Promise<AsyncIterable<T>>,
+): Subscription<T>;
+export function createSubscription<T>(
+  source: () => Promise<AsyncIterable<T>>,
+  options: Omit<SubscriptionOptions<T>, "reduce" | "initial">,
 ): Subscription<T>;
 export function createSubscription<T, R>(
   source: () => Promise<AsyncIterable<T>>,
@@ -105,22 +115,28 @@ export function createSubscription<T, R = T>(
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  // AbortController for cleanup — must register synchronously before any await
-  const controller = new AbortController();
-  onCleanup(() => controller.abort());
+  // Single cleanup path: external signal OR internal AbortController + onCleanup.
+  // Never both — avoids dual lifecycle braiding.
+  const abortSignal =
+    options?.signal ??
+    (() => {
+      const controller = new AbortController();
+      onCleanup(() => controller.abort());
+      return controller.signal;
+    })();
 
   // Consume the stream
   void (async () => {
     try {
       const iterable = await source();
       for await (const item of iterable) {
-        if (controller.signal.aborted) break;
+        if (abortSignal.aborted) break;
         updateValue(reduce ? reduce(store.v as T | R, item) : item);
         if (pending()) setPending(false);
         if (error()) setError(undefined);
       }
     } catch (err) {
-      if (!controller.signal.aborted) {
+      if (!abortSignal.aborted) {
         setError(toError(err));
         if (pending()) setPending(false);
       }

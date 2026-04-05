@@ -1,9 +1,7 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { createMutation } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
-import { orpc } from "./orpc";
-import { useServerState } from "./useServerState";
+import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -13,25 +11,17 @@ export function useWorktreeOps(deps: {
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
-  const { invalidate: invalidateState } = useServerState();
-
-  const worktreeCreateMut = createMutation(() => ({
-    ...orpc.git.worktreeCreate.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to create worktree: ${err.message}`),
-  }));
-
-  const worktreeRemoveMut = createMutation(() => ({
-    ...orpc.git.worktreeRemove.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to remove worktree: ${err.message}`),
-  }));
 
   async function handleCreateWorktree(repoPath: string) {
-    const result = await worktreeCreateMut.mutateAsync({ repoPath });
-    toast.success(`Created worktree at ${result.path}`);
-    await deps.handleCreate(result.path);
-    invalidateState();
+    try {
+      const result = await client.git.worktreeCreate({ repoPath });
+      toast.success(`Created worktree at ${result.path}`);
+      await deps.handleCreate(result.path);
+    } catch (err) {
+      toast.error(
+        `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** Kill a terminal and remove its worktree.
@@ -45,9 +35,14 @@ export function useWorktreeOps(deps: {
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
-      await worktreeRemoveMut.mutateAsync({ worktreePath });
-      toast.success(`Removed worktree at ${worktreePath}`);
-      invalidateState();
+      try {
+        await client.git.worktreeRemove({ worktreePath });
+        toast.success(`Removed worktree at ${worktreePath}`);
+      } catch (err) {
+        toast.error(
+          `Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 

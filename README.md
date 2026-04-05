@@ -74,44 +74,45 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 pnpm monorepo, four packages:
 
-| Package       | Stack                                                                                                                                                               |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `common/`     | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                |
-| `server/`     | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                    |
-| `client/`     | [SolidJS](https://www.solidjs.com/) + [TanStack Query](https://tanstack.com/query) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
-| `solid-live/` | End-to-end reactive signals — `@solidjs/signals` on server, SolidJS `Accessor` on client, `AsyncIterable` on the wire                                               |
+| Package       | Stack                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `common/`     | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
+| `server/`     | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `client/`     | [SolidJS](https://www.solidjs.com/) + [solid-live](solid-live/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/) |
+| `solid-live/` | End-to-end reactive signals — `@solidjs/signals` on server, SolidJS `Accessor` on client, `AsyncIterable` on the wire                            |
 
 ### Communication
 
-All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three query patterns[^orpc-patterns]:
+All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Three patterns[^orpc-patterns]:
 
-| Pattern            | Semantics                         | TanStack integration           | Used for                                                      |
-| ------------------ | --------------------------------- | ------------------------------ | ------------------------------------------------------------- |
-| Request / response | one-shot                          | `createMutation`[^rr]          | `terminal.create`, `terminal.kill`, `terminal.reorder`        |
-| Live query         | each push replaces previous value | `experimental_liveOptions`     | Terminal list, terminal metadata (CWD, git, PR, Claude state) |
-| Streamed query     | pushes accumulate into an array   | `experimental_streamedOptions` | Activity sparklines                                           |
+| Pattern            | Semantics                         | Client integration                             | Used for                                                      |
+| ------------------ | --------------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
+| Request / response | one-shot                          | Plain `client.*` calls[^rr]                    | `terminal.create`, `terminal.kill`, `terminal.reorder`        |
+| Live subscription  | each push replaces previous value | `createSubscription()` from `solid-live/solid` | Terminal list, terminal metadata (CWD, git, PR, Claude state) |
+| Accumulated stream | pushes accumulate into an array   | `createSubscription()` with `reduce` option    | Activity sparklines                                           |
 
-All three are wired through [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
+Server state (terminal list, metadata, preferences) is modeled with `@solidjs/signals` and bridged to `AsyncIterable` via `toAsyncIterable()` from `solid-live/server`. Discrete events (PTY data, activity, exit) use `@orpc/experimental-publisher`.
 
-[^rr]: Mutations update the TanStack cache on success — optimistically via `qc.setQueryData` (reorder, theme, create, kill). The terminal list itself is a live query pushed by the server on create/kill/reorder. A few high-frequency calls (`sendInput`, `resize`) bypass TanStack and use the raw oRPC client directly.
+[^rr]: Mutations are plain async oRPC calls. The server's signal-driven live subscription pushes authoritative state immediately after mutation — no client-side cache management needed. High-frequency calls (`sendInput`, `resize`) use the raw oRPC client directly.
 
 ### Data flow
 
-Two loops drive the system — a **terminal I/O loop** (the hot path) and a **metadata loop** (side-channel enrichment). Both flow over the same WebSocket and land in [TanStack Query](https://tanstack.com/query) cache on the client via [`@orpc/tanstack-query`](https://orpc.dev/docs/integrations/tanstack-query).
+Two loops drive the system — a **terminal I/O loop** (the hot path) and a **metadata loop** (side-channel enrichment). Both flow over the same WebSocket. Server state is modeled with `@solidjs/signals` and streamed to `createSubscription()` on the client via `toAsyncIterable()`.
 
 ```mermaid
 flowchart TB
   subgraph Client["Client (SolidJS)"]
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
-    TQ["TanStack Query\ncache"]:::cache
+    Subs["createSubscription\nsolid-live signals"]:::cache
     UI["UI components\nsidebar · header · palette"]:::client
   end
 
-  subgraph Server["Server (Hono)"]
+  subgraph Server["Server (Hono + @solidjs/signals)"]
     PTY["node-pty\nshell process"]:::server
     Headless["@xterm/headless\nscreen state"]:::server
-    Pub["Publisher\nper-terminal channels"]:::server
+    Signals["Signals\nlist · metadata · state"]:::server
+    Pub["Publisher\nevents only"]:::server
     Providers["Metadata providers"]:::server
   end
 
@@ -124,16 +125,13 @@ flowchart TB
 
   %% Metadata loop
   PTY -.->|"OSC 7\n(CWD change)"| Providers
-  Providers -.->|"metadata stream\n(live query)"| TQ
-  Pub -.->|"activity stream\n(streamed query)"| TQ
-  TQ -.-> UI
-
-  %% Terminal list (server-pushed on create/kill/reorder)
-  Pub -.->|"terminal list stream\n(live query)"| TQ
+  Providers -.->|"set signals"| Signals
+  Signals -.->|"toAsyncIterable\n(live subscription)"| Subs
+  Pub -.->|"activity stream\n(accumulated)"| Subs
+  Subs -.-> UI
 
   %% User actions
   UI -->|"create · kill · reorder\n(request/response)"| PTY
-  UI -.->|"invalidates"| TQ
 
   classDef user fill:#f4a261,stroke:#e76f51,color:#000
   classDef client fill:#2a9d8f,stroke:#264653,color:#fff
@@ -146,15 +144,15 @@ flowchart TB
 
 **Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
-**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers feed a single metadata channel streamed to the client as a live query[^providers].
+**Metadata** (dashed lines) — shell activity triggers a reactive provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls `~/.claude/sessions/`. All providers update `@solidjs/signals` which are streamed to the client as live subscriptions via `toAsyncIterable()`[^providers].
 
-**User actions** — command palette and sidebar dispatch mutations ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)) via `createMutation` + `orpc.*.mutationOptions()`. Mutations write optimistically to the TanStack cache for instant UI; the server's live list push arrives moments later with authoritative data. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) manages a dynamic [`createQueries`](https://tanstack.com/query/latest/docs/framework/solid/reference/useQueries) array that derives terminal IDs from the live list query and reactively resizes as terminals come and go[^client-state].
+**User actions** — command palette and sidebar dispatch plain RPC calls ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)). Mutations hit the server directly; the server's signal-driven live subscription pushes authoritative state immediately. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) manages dynamic per-terminal `createSubscription` instances that derive terminal IDs from the live list subscription and reactively resize as terminals come and go[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
 [^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider matches PIDs to PTYs via `/proc/{pid}/fd/0`.
 
-[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the TanStack cache.
+[^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from the server-pushed subscriptions.
 
 **Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
 

@@ -1,18 +1,18 @@
-/** Terminal metadata — TanStack queries for server-derived state.
+/** Terminal metadata — subscriptions for server-derived state.
  *
- *  Two query types per terminal:
- *  - Metadata (liveOptions): slow-changing state (CWD, git, PR, claude).
+ *  Two subscription types per terminal:
+ *  - Metadata: slow-changing state (CWD, git, PR, claude).
  *    Each event replaces the previous — only current state matters.
- *  - Activity (streamedOptions): high-frequency busy/idle transitions.
+ *  - Activity: high-frequency busy/idle transitions.
  *    Events accumulate into an array for sparkline rendering. Server yields
  *    a history snapshot on connect, then individual [epochMs, boolean] samples.
- *    maxChunks caps the source array; select trims to the display window.
  *
- *  Terminal IDs are derived from the live list query data.
+ *  Terminal IDs are derived from the live list subscription data.
  *  Order is derived from metadata sortOrder — no separate ordering state. */
 
-import { type Accessor, createMemo } from "solid-js";
-import { createQueries, type CreateQueryResult } from "@tanstack/solid-query";
+import { type Accessor, createMemo, createEffect, onCleanup } from "solid-js";
+import { createSubscription, type Subscription } from "solid-live/solid";
+import { client } from "./rpc";
 import type {
   TerminalId,
   TerminalInfo,
@@ -20,67 +20,99 @@ import type {
   ActivitySample,
 } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
-import { orpc } from "./orpc";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Max samples retained in TanStack cache per terminal.
+/** Max samples retained per terminal.
  *  At ~20 samples/min during active use, 200 covers ~10 min — well beyond
  *  the 5-min display window. Prevents unbounded growth in long sessions. */
 const MAX_ACTIVITY_CHUNKS = 200;
 
 export function useTerminalMetadata(deps: {
-  listQuery: CreateQueryResult<TerminalInfo[]>;
+  listSub: Subscription<TerminalInfo[]>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  /** Terminal IDs derived from the live list query. */
+  /** Terminal IDs derived from the live list subscription. */
   const terminalIdList = createMemo(
-    () => deps.listQuery.data?.map((t) => t.id) ?? [],
+    () => deps.listSub()?.map((t) => t.id) ?? [],
   );
 
-  // --- Metadata (slow-changing) — each event replaces the previous ---
+  // --- Dynamic per-terminal subscriptions ---
+  // Managed imperatively via AbortController + signal option on createSubscription.
+  // createEffect tracks terminalIdList() — creates new subs, tears down removed ones.
 
-  const metadataQueries = createQueries(() => ({
-    queries: terminalIdList().map((id) =>
-      orpc.terminal.onMetadataChange.experimental_liveOptions({
-        input: { id },
-      }),
-    ),
-  }));
+  const metaSubs = new Map<
+    TerminalId,
+    { sub: Subscription<TerminalMetadata>; abort: AbortController }
+  >();
+  const activitySubs = new Map<
+    TerminalId,
+    { sub: Subscription<ActivitySample[]>; abort: AbortController }
+  >();
+
+  createEffect(() => {
+    const current = new Set(terminalIdList());
+
+    // Teardown removed terminals
+    for (const [id, entry] of metaSubs) {
+      if (!current.has(id)) {
+        entry.abort.abort();
+        metaSubs.delete(id);
+      }
+    }
+    for (const [id, entry] of activitySubs) {
+      if (!current.has(id)) {
+        entry.abort.abort();
+        activitySubs.delete(id);
+      }
+    }
+
+    // Create subscriptions for new terminals
+    for (const id of current) {
+      if (!metaSubs.has(id)) {
+        const abort = new AbortController();
+        const sub = createSubscription(
+          () => client.terminal.onMetadataChange({ id }),
+          { signal: abort.signal },
+        );
+        metaSubs.set(id, { sub, abort });
+      }
+      if (!activitySubs.has(id)) {
+        const abort = new AbortController();
+        const sub = createSubscription(
+          () => client.terminal.onActivityChange({ id }),
+          {
+            reduce: (acc: ActivitySample[], sample: ActivitySample) => {
+              const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
+              return [...acc.filter(([t]) => t >= cutoff), sample].slice(
+                -MAX_ACTIVITY_CHUNKS,
+              );
+            },
+            initial: [] as ActivitySample[],
+            signal: abort.signal,
+          },
+        );
+        activitySubs.set(id, { sub, abort });
+      }
+    }
+  });
+
+  // Cleanup all subscriptions when the parent owner is disposed
+  onCleanup(() => {
+    for (const entry of metaSubs.values()) entry.abort.abort();
+    for (const entry of activitySubs.values()) entry.abort.abort();
+    metaSubs.clear();
+    activitySubs.clear();
+  });
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    const idx = terminalIdList().indexOf(id);
-    return idx >= 0 ? metadataQueries[idx]?.data : undefined;
+    return metaSubs.get(id)?.sub();
   }
 
-  // --- Activity (high-frequency) — events accumulate for sparkline ---
-
-  const activityQueries = createQueries(() => ({
-    queries: terminalIdList().map((id) =>
-      orpc.terminal.onActivityChange.experimental_streamedOptions({
-        input: { id },
-        queryFnOptions: {
-          maxChunks: MAX_ACTIVITY_CHUNKS,
-          // On reconnect, server yields fresh history — discard stale client cache
-          refetchMode: "reset" as const,
-        },
-        // Trim to display window on read. The source array may hold samples
-        // slightly older than the window (up to maxChunks), but consumers
-        // only see the 5-min slice. This runs on every access — cheap for
-        // small arrays (~50-200 items).
-        select: (samples: ActivitySample[]) => {
-          const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
-          return samples.filter(([t]) => t >= cutoff);
-        },
-      }),
-    ),
-  }));
-
   function getActivityHistory(id: TerminalId): ActivitySample[] {
-    const idx = terminalIdList().indexOf(id);
-    return idx >= 0 ? (activityQueries[idx]?.data ?? []) : [];
+    return activitySubs.get(id)?.sub() ?? [];
   }
 
   // --- Order derived from metadata sortOrder ---

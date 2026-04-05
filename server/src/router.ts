@@ -1,10 +1,14 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers subscribe to publisher channels over WebSocket.
- * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
+ * Streaming handler patterns:
+ * - State (current value that changes): yield* toAsyncIterable(() => signal())(signal)
+ * - Events (discrete occurrences): yield snapshot, then for-await from publisher
+ *
+ * Terminal CRUD (create, kill, etc.) is request-response.
  */
 import { implement } from "@orpc/server";
+import { toAsyncIterable } from "solid-live/server";
 
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
@@ -20,10 +24,15 @@ import {
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
+import { subscribeEvent } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import { getServerState, updateServerState } from "./state.ts";
+import {
+  terminalListSignal,
+  getMetadataSignal,
+  serverStateSignal,
+} from "./signals.ts";
 
 const t = implement(contract);
 
@@ -45,11 +54,10 @@ export const appRouter = t.router({
     create: t.terminal.create.handler(async ({ input }) =>
       createTerminal(input.cwd, input.parentId),
     ),
+
+    // State stream — terminal list via signal
     list: t.terminal.list.handler(async function* ({ signal }) {
-      yield listTerminals();
-      for await (const list of subscribeSystem_("terminal-list", signal)) {
-        yield list;
-      }
+      yield* toAsyncIterable(() => terminalListSignal())(signal);
     }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
@@ -77,7 +85,7 @@ export const appRouter = t.router({
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the publisher, not lost.
-      const live = subscribeForTerminal_("data", input.id, signal);
+      const live = subscribeEvent("data", input.id, signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
@@ -120,21 +128,18 @@ export const appRouter = t.router({
       killAllTerminals();
     }),
 
+    // State stream — per-terminal metadata via signal
     onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
       input,
       signal,
     }) {
-      const entry = requireTerminal(input.id);
-      yield { ...entry.info.meta };
-      for await (const meta of subscribeForTerminal_(
-        "metadata",
-        input.id,
-        signal,
-      )) {
-        yield meta;
-      }
+      requireTerminal(input.id);
+      const metaSignal = getMetadataSignal(input.id);
+      if (!metaSignal) return;
+      yield* toAsyncIterable(() => metaSignal())(signal);
     }),
 
+    // Event stream — activity transitions (accumulated on client)
     onActivityChange: t.terminal.onActivityChange.handler(async function* ({
       input,
       signal,
@@ -143,22 +148,15 @@ export const appRouter = t.router({
       // Snapshot: yield full history so late-joining clients get the sparkline
       for (const sample of entry.activityHistory) yield sample;
       // Live: yield individual transitions as they happen
-      for await (const sample of subscribeForTerminal_(
-        "activity",
-        input.id,
-        signal,
-      )) {
+      for await (const sample of subscribeEvent("activity", input.id, signal)) {
         yield sample;
       }
     }),
 
+    // Event stream — exit code (one-shot)
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      for await (const exitCode of subscribeForTerminal_(
-        "exit",
-        input.id,
-        signal,
-      )) {
+      for await (const exitCode of subscribeEvent("exit", input.id, signal)) {
         yield exitCode;
         return;
       }
@@ -173,11 +171,9 @@ export const appRouter = t.router({
     }),
   },
   state: {
+    // State stream — server state (preferences, session, repos) via signal
     get: t.state.get.handler(async function* ({ signal }) {
-      yield getServerState();
-      for await (const state of subscribeSystem_("state:changed", signal)) {
-        yield state;
-      }
+      yield* toAsyncIterable(() => serverStateSignal())(signal);
     }),
     update: t.state.update.handler(async ({ input }) => {
       updateServerState(input);

@@ -1,18 +1,18 @@
 /**
  * Terminal metadata aggregation — unified state from independent providers.
  *
- * Providers form a DAG:
- *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
- *                                                    ↓
- *   claude provider (polling)  ──────────────→  metadata:<id>
+ * Providers form a reactive DAG via @solidjs/signals:
+ *   cwdSignal  →  git provider  →  gitSignal  →  github provider
+ *                                                       ↓
+ *   claude provider (polling)  ──────────────→  metadataSignal
  *
- * Each provider calls updateMetadata() to atomically mutate+publish.
- * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
+ * Each provider calls updateMetadata() to atomically mutate + set the signal.
+ * No provider reads the aggregated metadata signal — that's client-facing only.
  */
 
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { publishForTerminal } from "../publisher.ts";
+import { setMetadataSignal } from "../signals.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -26,8 +26,8 @@ export function createMetadata(
   return { cwd, git: null, pr: null, claude: null, sortOrder };
 }
 
-/** Atomically mutate metadata and publish the snapshot to all subscribers.
- *  Single place to audit — impossible to forget the publish. */
+/** Atomically mutate metadata and set the signal for all subscribers.
+ *  Single place to audit — impossible to forget the signal update. */
 export function updateMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -48,7 +48,7 @@ export function updateMetadata(
     },
     "metadata publish",
   );
-  publishForTerminal("metadata", terminalId, { ...m });
+  setMetadataSignal(terminalId, { ...m });
 }
 
 /**
