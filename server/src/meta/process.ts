@@ -23,7 +23,13 @@ import { log } from "../log.ts";
 
 const POLL_INTERVAL_MS = 3_000;
 
-/** Read agent state based on the foreground process name. */
+/**
+ * Read agent state for a terminal.
+ * Primary: foreground process name triggers agent-specific reader.
+ * Fallback: scan Claude session files via PTY matching (handles cases
+ * where node-pty reports the shell name instead of the agent, e.g. on
+ * some platforms or in tests).
+ */
 function readAgentState(
   processName: string,
   entry: TerminalProcess,
@@ -35,7 +41,10 @@ function readAgentState(
   if (processName === "opencode") {
     return readOpenCodeState(entry.handle.cwd);
   }
-  return null;
+  // Fallback: scan Claude session files via PTY matching — covers cases where
+  // node-pty reports the shell name instead of the agent (e.g. platforms where
+  // .process doesn't resolve Claude's binary name, or in e2e tests)
+  return readClaudeCodeState(entry.handle.pid);
 }
 
 /**
@@ -86,11 +95,6 @@ export function startProcessProvider(
       updateMetadata(entry, terminalId, (m) => {
         m.process = processName;
       });
-
-      // Start Claude transcript watch for near-instant state updates
-      if (processName === "claude") {
-        stopWatch = watchTranscript(entry.handle.pid, onAgentStateChange);
-      }
     }
 
     // Read agent state
@@ -103,6 +107,14 @@ export function startProcessProvider(
       updateMetadata(entry, terminalId, (m) => {
         m.agent = agentInfo;
       });
+
+      // Start/stop Claude transcript watch based on agent state
+      if (agentInfo?.kind === "claude-code" && !stopWatch) {
+        stopWatch = watchTranscript(entry.handle.pid, onAgentStateChange);
+      } else if (agentInfo?.kind !== "claude-code" && stopWatch) {
+        stopWatch();
+        stopWatch = null;
+      }
     }
   }
 
