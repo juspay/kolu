@@ -167,9 +167,9 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
 });
 
 Then(
-  "the header should show a Claude indicator with state {string}",
+  "the header should show an agent indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    const el = this.page.locator('[data-testid="claude-indicator"]');
+    const el = this.page.locator('[data-testid="agent-indicator"]');
     const state = await pollUntil(
       this.page,
       async () => {
@@ -177,7 +177,7 @@ Then(
           // There may be multiple (header + sidebar). Check the first one.
           const first = el.first();
           return (
-            (await first.getAttribute("data-claude-state", {
+            (await first.getAttribute("data-agent-state", {
               timeout: 1000,
             })) ?? ""
           );
@@ -191,15 +191,15 @@ Then(
     assert.strictEqual(
       state,
       expectedState,
-      `Expected Claude indicator state "${expectedState}", got "${state}"`,
+      `Expected agent indicator state "${expectedState}", got "${state}"`,
     );
   },
 );
 
-/** Assert a claude-indicator exists within the given container testid. */
-async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
+/** Assert an agent-indicator exists within the given container testid. */
+async function expectAgentIndicatorIn(world: KoluWorld, testId: string) {
   const container = world.page.locator(`[data-testid="${testId}"]`);
-  const indicator = container.locator('[data-testid="claude-indicator"]');
+  const indicator = container.locator('[data-testid="agent-indicator"]');
   await pollUntil(
     world.page,
     async () => {
@@ -213,28 +213,25 @@ async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
     { attempts: 30, intervalMs: 200 },
   );
   const count = await indicator.count();
-  assert.ok(
-    count > 0,
-    `Expected Claude indicator in [data-testid="${testId}"]`,
-  );
+  assert.ok(count > 0, `Expected agent indicator in [data-testid="${testId}"]`);
 }
 
 Then(
-  "the sidebar should show a Claude indicator",
+  "the sidebar should show an agent indicator",
   async function (this: KoluWorld) {
-    await expectClaudeIndicatorIn(this, "sidebar");
+    await expectAgentIndicatorIn(this, "sidebar");
   },
 );
 
 Then(
-  "Mission Control should show a Claude indicator",
+  "Mission Control should show an agent indicator",
   async function (this: KoluWorld) {
-    await expectClaudeIndicatorIn(this, "mission-control");
+    await expectAgentIndicatorIn(this, "mission-control");
   },
 );
 
 Then(
-  "the header should not show a Claude indicator",
+  "the header should not show an agent indicator",
   async function (this: KoluWorld) {
     // Wait for it to disappear (may take a poll cycle)
     await pollUntil(
@@ -242,7 +239,7 @@ Then(
       async () => {
         try {
           return await this.page
-            .locator('[data-testid="claude-indicator"]')
+            .locator('[data-testid="agent-indicator"]')
             .count();
         } catch {
           return 0;
@@ -252,12 +249,12 @@ Then(
       { attempts: 30, intervalMs: 200 },
     );
     const count = await this.page
-      .locator('[data-testid="claude-indicator"]')
+      .locator('[data-testid="agent-indicator"]')
       .count();
     assert.strictEqual(
       count,
       0,
-      `Expected no Claude indicator but found ${count}`,
+      `Expected no agent indicator but found ${count}`,
     );
   },
 );

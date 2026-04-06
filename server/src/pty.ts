@@ -47,6 +47,9 @@ export interface PtyHandle {
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
   readonly cwd: string;
+  /** Name of the foreground process in this PTY (e.g. "vim", "claude", "opencode").
+   *  Cross-platform: Linux via /proc, macOS via sysctl. */
+  readonly process: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -142,6 +145,9 @@ export function spawnPty(
     pid: proc.pid,
     get cwd() {
       return currentCwd;
+    },
+    get process() {
+      return proc.process;
     },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {

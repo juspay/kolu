@@ -49,22 +49,32 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
-// --- Claude Code context ---
+// --- AI coding agent context ---
 
-export const ClaudeCodeStateSchema = z.enum([
-  "thinking",
-  "tool_use",
-  "waiting",
-]);
+export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
 
-export const ClaudeCodeInfoSchema = z.object({
-  /** Current state derived from session JSONL. */
-  state: ClaudeCodeStateSchema,
-  /** Session UUID from ~/.claude/sessions/. */
+export const AgentStateSchema = z.enum(["thinking", "tool_use", "waiting"]);
+
+const AgentInfoBaseSchema = z.object({
+  state: AgentStateSchema,
+  /** Session identifier (agent-specific format). */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
 });
+
+export const ClaudeCodeInfoSchema = AgentInfoBaseSchema.extend({
+  kind: z.literal("claude-code"),
+});
+
+export const OpenCodeInfoSchema = AgentInfoBaseSchema.extend({
+  kind: z.literal("opencode"),
+});
+
+export const AgentInfoSchema = z.discriminatedUnion("kind", [
+  ClaudeCodeInfoSchema,
+  OpenCodeInfoSchema,
+]);
 
 // --- Terminal metadata (unified, provider-aggregated) ---
 
@@ -72,7 +82,10 @@ export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
-  claude: ClaudeCodeInfoSchema.nullable(),
+  /** AI coding agent status (Claude Code, OpenCode, etc.). */
+  agent: AgentInfoSchema.nullable(),
+  /** Foreground process name from PTY (e.g. "vim", "claude", "opencode"). */
+  process: z.string().nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -217,7 +230,9 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
-export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type AgentKind = z.infer<typeof AgentKindSchema>;
+export type AgentState = z.infer<typeof AgentStateSchema>;
+export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;

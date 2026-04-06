@@ -12,7 +12,7 @@ import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Kbd from "./Kbd";
 import Tip from "./Tip";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
+import AgentIndicator from "./AgentIndicator";
 import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -114,10 +114,11 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show when={meta().claude}>
-              {(claude) => (
+            <Show when={meta().agent}>
+              {(agent) => (
                 <span class="shrink-0">
-                  &middot; <ClaudeIndicator state={claude().state} />
+                  &middot;{" "}
+                  <AgentIndicator kind={agent().kind} state={agent().state} />
                 </span>
               )}
             </Show>

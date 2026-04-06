@@ -105,6 +105,26 @@ export const GridIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** OpenCode logo — pixel-art block style matching their brand aesthetic. */
+export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
+  <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 24 24" fill="currentColor">
+    {/* Left bracket "O" block */}
+    <rect x="2" y="4" width="4" height="4" />
+    <rect x="2" y="8" width="4" height="4" />
+    <rect x="2" y="12" width="4" height="4" />
+    <rect x="6" y="4" width="4" height="4" />
+    <rect x="6" y="16" width="4" height="4" />
+    <rect x="2" y="16" width="4" height="4" />
+    {/* Right bracket "C" block */}
+    <rect x="14" y="4" width="4" height="4" />
+    <rect x="18" y="4" width="4" height="4" />
+    <rect x="14" y="8" width="4" height="4" />
+    <rect x="14" y="12" width="4" height="4" />
+    <rect x="14" y="16" width="4" height="4" />
+    <rect x="18" y="16" width="4" height="4" />
+  </svg>
+);
+
 export const MenuIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-5 h-5"}

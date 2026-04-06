@@ -5,10 +5,10 @@ import os from "node:os";
 import {
   deriveState,
   encodeProjectPath,
-  infoEqual,
+  agentInfoEqual,
   tailJsonlLines,
 } from "./claude.ts";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type { AgentInfo } from "kolu-common";
 
 describe("deriveState", () => {
   it("returns null for empty lines", () => {
@@ -104,36 +104,40 @@ describe("encodeProjectPath", () => {
   });
 });
 
-describe("infoEqual", () => {
-  const info: ClaudeCodeInfo = {
+describe("agentInfoEqual", () => {
+  const info: AgentInfo = {
+    kind: "claude-code",
     state: "thinking",
     sessionId: "abc-123",
     model: "claude-opus-4-6",
   };
 
   it("returns true for identical references", () => {
-    expect(infoEqual(info, info)).toBe(true);
+    expect(agentInfoEqual(info, info)).toBe(true);
   });
 
   it("returns true for both null", () => {
-    expect(infoEqual(null, null)).toBe(true);
+    expect(agentInfoEqual(null, null)).toBe(true);
   });
 
   it("returns false when one is null", () => {
-    expect(infoEqual(info, null)).toBe(false);
-    expect(infoEqual(null, info)).toBe(false);
+    expect(agentInfoEqual(info, null)).toBe(false);
+    expect(agentInfoEqual(null, info)).toBe(false);
   });
 
   it("returns true for equal values", () => {
-    expect(infoEqual(info, { ...info })).toBe(true);
+    expect(agentInfoEqual(info, { ...info })).toBe(true);
   });
 
   it.each([
     { field: "state", value: "waiting" },
     { field: "sessionId", value: "other" },
     { field: "model", value: "claude-sonnet-4-6" },
+    { field: "kind", value: "opencode" },
   ] as const)("detects different $field", ({ field, value }) => {
-    expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
+    expect(agentInfoEqual(info, { ...info, [field]: value } as AgentInfo)).toBe(
+      false,
+    );
   });
 });
 
@@ -256,7 +260,7 @@ describe("findTranscriptPath", () => {
 
     const stalePath = path.join(projectDir, "stale.jsonl");
     fs.writeFileSync(stalePath, JSON.stringify({ type: "user" }) + "\n");
-    // Set mtime to 10 seconds ago (beyond 2 * POLL_INTERVAL_MS = 6s)
+    // Set mtime to 10 seconds ago (beyond default 6s threshold)
     const staleTime = new Date(Date.now() - 10_000);
     fs.utimesSync(stalePath, staleTime, staleTime);
 

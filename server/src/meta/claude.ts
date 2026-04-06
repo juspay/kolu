@@ -1,28 +1,20 @@
 /**
- * Claude Code metadata provider — detects Claude Code sessions in a terminal.
+ * Claude Code state reader — derives agent state from session JSONL transcripts.
  *
- * Detection: scans ~/.claude/sessions/ for {pid}.json, matches each PID's PTY
- * (via /proc/{pid}/fd/0) to the terminal shell's PTY. Once matched, tails
- * the session JSONL transcript to derive state.
+ * Pure functions for reading Claude Code session data. No polling, no PTY matching —
+ * the process provider detects "claude" as the foreground process, then calls
+ * readClaudeCodeState() to get the current state.
  *
  * States derived from last JSONL message:
  * - thinking:  last message is "user" (API call in flight) or "assistant" with null stop_reason
  * - tool_use:  last assistant message has stop_reason "tool_use" (executing tools / permission prompt)
  * - waiting:   last assistant message has stop_reason "end_turn" (idle, awaiting user input)
- *
- * Limitations (Linux-only for now):
- * - PTY matching relies on /proc/{pid}/fd/0 — not available on macOS
- * - Cannot distinguish "waiting for permission" from "executing tool" (both are tool_use)
- * - JSONL updates are not perfectly real-time — batched when API calls complete
- * - progress/streaming messages during thinking are not tracked (only final state)
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { ClaudeCodeInfo } from "kolu-common";
-import type { TerminalProcess } from "../terminals.ts";
-import { updateMetadata } from "./index.ts";
+import type { AgentInfo, AgentState } from "kolu-common";
 import { log } from "../log.ts";
 
 /** Configurable via env for testing. */
@@ -32,27 +24,12 @@ const SESSIONS_DIR =
 const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
-const POLL_INTERVAL_MS = 3_000;
 const TAIL_BYTES = 16_384;
 
 export interface SessionFile {
   pid: number;
   sessionId: string;
   cwd: string;
-}
-
-/** Read a symlink target, returning null on any error. */
-function readlinkSafe(p: string): string | null {
-  try {
-    return fs.readlinkSync(p);
-  } catch {
-    return null;
-  }
-}
-
-/** Get the PTY path for a process via /proc. */
-function getPtyForPid(pid: number): string | null {
-  return readlinkSafe(`/proc/${pid}/fd/0`);
 }
 
 /** Encode a CWD path to the Claude projects directory key (replace / and . with -). */
@@ -67,7 +44,10 @@ export function encodeProjectPath(cwd: string): string {
  * JSONL in the project dir — handles resumed sessions where the PID's session
  * ID differs from the transcript's original session ID.
  */
-export function findTranscriptPath(session: SessionFile): string | null {
+export function findTranscriptPath(
+  session: SessionFile,
+  recentThresholdMs: number = 6_000,
+): string | null {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
 
   // Exact match by session ID
@@ -80,10 +60,6 @@ export function findTranscriptPath(session: SessionFile): string | null {
   }
 
   // Fallback: most recently modified JSONL in the project dir.
-  // Only use if modified recently (within 2 poll cycles) — avoids showing
-  // stale state from old sessions when a new session hasn't created its
-  // JSONL yet. Handles resumed sessions where the PID's session ID differs
-  // from the transcript's original session ID.
   try {
     const files = fs
       .readdirSync(projectDir)
@@ -102,7 +78,7 @@ export function findTranscriptPath(session: SessionFile): string | null {
       }
     }
     // Stale if not modified within recent window
-    if (newest && now - newestMtime > POLL_INTERVAL_MS * 2) return null;
+    if (newest && now - newestMtime > recentThresholdMs) return null;
     return newest;
   } catch {
     return null;
@@ -134,7 +110,7 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 /** Derive Claude Code state from the last relevant JSONL message. */
 export function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): { state: AgentState; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -165,16 +141,13 @@ export function deriveState(
   return null;
 }
 
-/** Compare two ClaudeCodeInfo values for equality. */
-export function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
-  );
+/** Read a symlink target, returning null on any error. */
+function readlinkSafe(p: string): string | null {
+  try {
+    return fs.readlinkSync(p);
+  } catch {
+    return null;
+  }
 }
 
 /** Scan sessions dir and return all live sessions. */
@@ -191,159 +164,93 @@ function scanSessions(): SessionFile[] {
         process.kill(data.pid, 0);
         sessions.push(data);
       } catch {
-        // Dead process or unreadable file
+        // Dead process or unreadable file — skip
       }
     }
     return sessions;
   } catch {
+    // Sessions dir doesn't exist yet — not an error
     return [];
   }
 }
 
 /**
- * Start the Claude Code metadata provider for a terminal entry.
- * Polls for matching Claude Code sessions and tails their transcripts.
+ * Find the Claude Code session running in a terminal by matching PTYs.
+ * The shell PID owns the PTY; Claude (a child) inherits the same PTY.
+ * We match by checking if any live session's PID has the same PTY as the shell.
  */
-export function startClaudeCodeProvider(
-  entry: TerminalProcess,
-  terminalId: string,
-): () => void {
-  const plog = log.child({ provider: "claude-code", terminal: terminalId });
+function findSessionForTerminal(shellPid: number): SessionFile | null {
+  const termPty = readlinkSafe(`/proc/${shellPid}/fd/0`);
+  if (!termPty || !termPty.startsWith("/dev/pts/")) return null;
 
-  // Track current match
-  let matchedSession: SessionFile | null = null;
-  let transcriptPath: string | null = null;
-  let watcher: fs.FSWatcher | null = null;
-
-  plog.info("started");
-
-  function getTerminalPty(): string | null {
-    return getPtyForPid(entry.handle.pid);
+  for (const session of scanSessions()) {
+    const sessionPty = readlinkSafe(`/proc/${session.pid}/fd/0`);
+    if (sessionPty === termPty) return session;
   }
+  return null;
+}
 
-  /** Try to match a Claude Code session to this terminal via PTY. */
-  function matchSession(): SessionFile | null {
-    const termPty = getTerminalPty();
-    if (!termPty) {
-      plog.debug({ pid: entry.handle.pid }, "cannot read terminal PTY");
-      return null;
-    }
-    if (!termPty.startsWith("/dev/pts/")) {
-      plog.debug({ pty: termPty }, "terminal fd/0 is not a PTY");
-      return null;
-    }
+/**
+ * Read Claude Code agent state for a terminal's shell PID.
+ * Scans session files and matches via PTY to find the Claude process,
+ * then tails its JSONL transcript to derive state.
+ */
+export function readClaudeCodeState(shellPid: number): AgentInfo | null {
+  const session = findSessionForTerminal(shellPid);
+  if (!session) return null;
 
-    const sessions = scanSessions();
-    plog.debug({ termPty, sessionCount: sessions.length }, "scanning sessions");
-    for (const session of sessions) {
-      const sessionPty = getPtyForPid(session.pid);
-      if (sessionPty === termPty) return session;
-    }
+  const transcriptPath = findTranscriptPath(session);
+  if (!transcriptPath) return null;
+
+  const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
+  const derived = deriveState(lines);
+  if (!derived) return null;
+
+  return {
+    kind: "claude-code",
+    state: derived.state,
+    sessionId: session.sessionId,
+    model: derived.model,
+  };
+}
+
+/** Compare two AgentInfo values for equality. */
+export function agentInfoEqual(
+  a: AgentInfo | null,
+  b: AgentInfo | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.kind === b.kind &&
+    a.state === b.state &&
+    a.sessionId === b.sessionId &&
+    a.model === b.model
+  );
+}
+
+/** Optional: start watching a Claude JSONL transcript for near-instant state updates.
+ *  Returns a cleanup function. The `onChange` callback is called when the file changes. */
+export function watchTranscript(
+  shellPid: number,
+  onChange: () => void,
+): (() => void) | null {
+  const session = findSessionForTerminal(shellPid);
+  if (!session) return null;
+
+  const transcriptPath = findTranscriptPath(session);
+  if (!transcriptPath) return null;
+
+  const plog = log.child({ provider: "claude-watch" });
+  try {
+    const watcher = fs.watch(transcriptPath, () => onChange());
+    plog.debug({ path: transcriptPath }, "watching transcript");
+    return () => {
+      watcher.close();
+      plog.debug("transcript watch stopped");
+    };
+  } catch {
+    plog.warn({ path: transcriptPath }, "failed to watch transcript");
     return null;
   }
-
-  /** Read transcript and update metadata. */
-  function updateState() {
-    if (!transcriptPath) return;
-
-    const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
-    const derived = deriveState(lines);
-    if (!derived) {
-      plog.debug(
-        { path: transcriptPath },
-        "no user/assistant message in transcript tail",
-      );
-      return;
-    }
-    if (!matchedSession) return;
-
-    const info: ClaudeCodeInfo = {
-      state: derived.state,
-      sessionId: matchedSession.sessionId,
-      model: derived.model,
-    };
-
-    if (infoEqual(info, entry.info.meta.claude)) return;
-    plog.info(
-      { state: info.state, model: info.model, session: info.sessionId },
-      "claude code state updated",
-    );
-    updateMetadata(entry, terminalId, (m) => {
-      m.claude = info;
-    });
-  }
-
-  /** Start watching the transcript file for changes. */
-  function startWatching(filePath: string) {
-    stopWatching();
-    transcriptPath = filePath;
-    try {
-      watcher = fs.watch(filePath, () => updateState());
-    } catch {
-      plog.warn({ path: filePath }, "failed to watch transcript");
-    }
-  }
-
-  function stopWatching() {
-    if (watcher) {
-      watcher.close();
-      watcher = null;
-    }
-    transcriptPath = null;
-  }
-
-  /** Poll for session match and start/stop watching as needed. */
-  function poll() {
-    const session = matchSession();
-
-    if (!session) {
-      // No match — clear state if previously matched
-      if (matchedSession) {
-        plog.info("claude code session ended");
-        matchedSession = null;
-        stopWatching();
-        if (entry.info.meta.claude !== null) {
-          updateMetadata(entry, terminalId, (m) => {
-            m.claude = null;
-          });
-        }
-      }
-      return;
-    }
-
-    // New or different session matched
-    if (!matchedSession || matchedSession.sessionId !== session.sessionId) {
-      plog.info(
-        { session: session.sessionId, pid: session.pid },
-        "claude code session matched",
-      );
-      matchedSession = session;
-    }
-
-    // Retry transcript lookup on each poll — JSONL is created lazily
-    // after the first message exchange, not at session start
-    if (matchedSession && !transcriptPath) {
-      const tp = findTranscriptPath(matchedSession);
-      if (tp) {
-        plog.info({ path: tp }, "transcript found");
-        startWatching(tp);
-        updateState();
-      } else {
-        plog.debug(
-          { session: matchedSession.sessionId, cwd: matchedSession.cwd },
-          "transcript not found yet (JSONL created after first message)",
-        );
-      }
-    }
-  }
-
-  // Initial poll + periodic re-scan
-  poll();
-  const pollTimer = setInterval(poll, POLL_INTERVAL_MS);
-
-  return () => {
-    clearInterval(pollTimer);
-    stopWatching();
-    plog.info("stopped");
-  };
 }

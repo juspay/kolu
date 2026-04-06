@@ -3,7 +3,7 @@
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
+import AgentIndicator from "./AgentIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
@@ -116,7 +116,7 @@ const TerminalMeta: Component<{
           </Show>
 
           {/* Agent status + activity sparkline */}
-          <Show when={info().meta.claude || info().activityHistory.length > 0}>
+          <Show when={info().meta.agent || info().activityHistory.length > 0}>
             <div
               class="flex items-center gap-1.5"
               classList={{
@@ -124,8 +124,10 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.claude}>
-                {(claude) => <ClaudeIndicator state={claude().state} />}
+              <Show when={info().meta.agent}>
+                {(agent) => (
+                  <AgentIndicator kind={agent().kind} state={agent().state} />
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto">

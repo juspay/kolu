@@ -1,7 +1,7 @@
 /** Terminal metadata — subscriptions for server-derived state.
  *
  *  Two subscription types per terminal:
- *  - Metadata: slow-changing state (CWD, git, PR, claude).
+ *  - Metadata: slow-changing state (CWD, git, PR, agent status, process name).
  *    Each event replaces the previous — only current state matters.
  *  - Activity: high-frequency busy/idle transitions.
  *    Events accumulate into an array for sparkline rendering. Server yields

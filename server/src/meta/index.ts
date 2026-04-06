@@ -4,7 +4,7 @@
  * Providers form a DAG:
  *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
  *                                                    ↓
- *   claude provider (polling)  ──────────────→  metadata:<id>
+ *   process provider (polling)  ──────────────→  metadata:<id>
  *
  * Each provider calls updateMetadata() to atomically mutate+publish.
  * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
@@ -15,7 +15,7 @@ import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
-import { startClaudeCodeProvider } from "./claude.ts";
+import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
@@ -23,7 +23,7 @@ export function createMetadata(
   cwd: string,
   sortOrder: number,
 ): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null, sortOrder };
+  return { cwd, git: null, pr: null, agent: null, process: null, sortOrder };
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
@@ -43,8 +43,9 @@ export function updateMetadata(
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
-      // Only include claude field when present to avoid noisy null logs
-      ...(m.claude && { claude: m.claude.state }),
+      // Only include agent/process fields when present to avoid noisy null logs
+      ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
+      ...(m.process && { process: m.process }),
     },
     "metadata publish",
   );
@@ -61,10 +62,10 @@ export function startProviders(
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
-  const stopClaude = startClaudeCodeProvider(entry, terminalId);
+  const stopProcess = startProcessProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
-    stopClaude();
+    stopProcess();
   };
 }
