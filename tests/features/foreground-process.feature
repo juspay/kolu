@@ -10,6 +10,6 @@ Feature: Foreground process detection
     And there should be no page errors
 
   Scenario: Process name shows running command
-    When I run a long-running "sleep 10" command
-    Then the sidebar process name should be "sleep"
+    When I run a long-running "cat" command
+    Then the sidebar process name should be "cat"
     And there should be no page errors

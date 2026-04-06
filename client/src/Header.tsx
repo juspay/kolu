@@ -17,15 +17,8 @@ import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
-import type { TerminalMetadata, Foreground } from "kolu-common";
+import type { TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
-
-/** Type-safe narrowing for the claude-code variant of Foreground. */
-function claudeForeground(
-  fg: Foreground,
-): Extract<Foreground, { kind: "claude-code" }> | null {
-  return fg.kind === "claude-code" ? fg : null;
-}
 
 /** WS connection status indicator colors and animations. */
 const statusStyles: Record<WsStatus, string> = {
@@ -121,20 +114,20 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show when={meta().foreground}>
-              {(fg) => (
-                <Show
-                  when={claudeForeground(fg())}
-                  fallback={
+            <Show
+              when={meta().claude}
+              fallback={
+                <Show when={meta().foreground}>
+                  {(fg) => (
                     <span class="text-fg-3 shrink-0">&middot; {fg().name}</span>
-                  }
-                >
-                  {(claude) => (
-                    <span class="shrink-0">
-                      &middot; <ClaudeIndicator state={claude().state} />
-                    </span>
                   )}
                 </Show>
+              }
+            >
+              {(claude) => (
+                <span class="shrink-0">
+                  &middot; <ClaudeIndicator state={claude().state} />
+                </span>
               )}
             </Show>
           </div>

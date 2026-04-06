@@ -25,7 +25,14 @@ export function createMetadata(
   cwd: string,
   sortOrder: number,
 ): TerminalMetadata {
-  return { cwd, git: null, pr: null, foreground: null, sortOrder };
+  return {
+    cwd,
+    git: null,
+    pr: null,
+    claude: null,
+    foreground: null,
+    sortOrder,
+  };
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
@@ -45,12 +52,9 @@ export function updateMetadata(
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
-      ...(m.foreground && {
-        foreground:
-          m.foreground.kind === "process"
-            ? m.foreground.name
-            : `${m.foreground.kind}:${m.foreground.state}`,
-      }),
+      // Only include claude/foreground fields when present to avoid noisy null logs
+      ...(m.claude && { claude: m.claude.state }),
+      ...(m.foreground && { foreground: m.foreground.name }),
     },
     "metadata publish",
   );

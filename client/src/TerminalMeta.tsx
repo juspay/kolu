@@ -1,21 +1,13 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
-import { type Component, Match, Show, Switch } from "solid-js";
+import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { Foreground } from "kolu-common";
-
-/** Type-safe narrowing for the claude-code variant of Foreground. */
-function claudeForeground(
-  fg: Foreground,
-): Extract<Foreground, { kind: "claude-code" }> | null {
-  return fg.kind === "claude-code" ? fg : null;
-}
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -123,9 +115,13 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Foreground process / agent status + activity sparkline */}
+          {/* Claude status / process name + activity sparkline */}
           <Show
-            when={info().meta.foreground || info().activityHistory.length > 0}
+            when={
+              info().meta.claude ||
+              info().meta.foreground ||
+              info().activityHistory.length > 0
+            }
           >
             <div
               class="flex items-center gap-1.5"
@@ -134,22 +130,22 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.foreground}>
-                {(fg) => (
-                  <Show
-                    when={claudeForeground(fg())}
-                    fallback={
+              <Show
+                when={info().meta.claude}
+                fallback={
+                  <Show when={info().meta.foreground}>
+                    {(fg) => (
                       <span
                         class="text-xs text-fg-3 truncate"
                         data-testid="process-name"
                       >
                         {fg().name}
                       </span>
-                    }
-                  >
-                    {(claude) => <ClaudeIndicator state={claude().state} />}
+                    )}
                   </Show>
-                )}
+                }
+              >
+                {(claude) => <ClaudeIndicator state={claude().state} />}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto">

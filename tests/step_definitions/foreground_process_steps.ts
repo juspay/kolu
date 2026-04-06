@@ -44,7 +44,8 @@ Then(
 When(
   "I run a long-running {string} command",
   async function (this: KoluWorld, command: string) {
-    await this.page.keyboard.type(command);
+    // Pipe to cat to keep it running as a foreground process
+    await this.page.keyboard.type(`${command} < /dev/zero`);
     await this.page.keyboard.press("Enter");
     // Brief pause to let the shell preexec fire and the command start
     await new Promise((r) => setTimeout(r, 500));

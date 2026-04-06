@@ -9,7 +9,6 @@
  */
 
 import path from "node:path";
-import type { Foreground } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { updateMetadata } from "./index.ts";
@@ -21,36 +20,29 @@ function processBasename(proc: string): string {
   return path.basename(proc);
 }
 
-/** Build a Foreground value from a process name.
- *  For now, all processes are plain "process" kind.
- *  Agent-specific enrichment (claude-code, opencode) will be added in a follow-up PR. */
-function buildForeground(name: string): Foreground {
-  return { kind: "process", name };
-}
-
 export function startProcessProvider(
   entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
   let lastName: string | null = null;
+  let lastTitle: string | null = null;
 
   plog.info("started");
 
-  function update() {
+  function update(title?: string) {
     const name = processBasename(entry.handle.process);
-    if (name === lastName) return;
+    const newTitle = title ?? lastTitle;
+    if (name === lastName && newTitle === lastTitle) return;
 
-    plog.info({ from: lastName, to: name }, "foreground process changed");
+    plog.info(
+      { from: lastName, to: name, title: newTitle },
+      "foreground process changed",
+    );
     lastName = name;
-
-    // Don't overwrite enriched agent foreground (e.g. claude-code with state)
-    // — the agent provider owns that. Only write plain process foreground.
-    const current = entry.info.meta.foreground;
-    if (current && current.kind !== "process" && current.name === name) return;
-
+    lastTitle = newTitle;
     updateMetadata(entry, terminalId, (m) => {
-      m.foreground = buildForeground(name);
+      m.foreground = { name, title: newTitle };
     });
   }
 
@@ -59,7 +51,9 @@ export function startProcessProvider(
 
   // Subscribe to title changes — fired by OSC 2 preexec hook
   const abort = new AbortController();
-  subscribeForTerminal("title", terminalId, abort.signal, () => update());
+  subscribeForTerminal("title", terminalId, abort.signal, (title) =>
+    update(title),
+  );
 
   return () => {
     abort.abort();

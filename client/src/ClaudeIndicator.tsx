@@ -1,9 +1,10 @@
 /** Claude Code session state indicator — logo + state label. Logo animates when active. */
 
 import type { Component } from "solid-js";
+import type { ClaudeCodeInfo } from "kolu-common";
 import { ClaudeCodeIcon } from "./Icons";
 
-type ClaudeState = "thinking" | "tool_use" | "waiting";
+type ClaudeState = ClaudeCodeInfo["state"];
 
 /** Busy = actively working (thinking or running tools). Warning = needs user input. */
 const BUSY_COLOR = "text-[#D97757]";

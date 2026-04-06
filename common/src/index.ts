@@ -49,27 +49,32 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
-// --- Foreground process context ---
+// --- Claude Code context ---
 
-/** What's running in the foreground of a terminal.
- *  Either a plain process name or rich agent status (Claude Code, etc.). */
-export const ForegroundProcessSchema = z.object({
-  kind: z.literal("process"),
-  name: z.string(),
-});
+export const ClaudeCodeStateSchema = z.enum([
+  "thinking",
+  "tool_use",
+  "waiting",
+]);
 
-export const ForegroundClaudeSchema = z.object({
-  kind: z.literal("claude-code"),
-  name: z.string(),
-  state: z.enum(["thinking", "tool_use", "waiting"]),
+export const ClaudeCodeInfoSchema = z.object({
+  /** Current state derived from session JSONL. */
+  state: ClaudeCodeStateSchema,
+  /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
+  /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
 });
 
-export const ForegroundSchema = z.discriminatedUnion("kind", [
-  ForegroundProcessSchema,
-  ForegroundClaudeSchema,
-]);
+// --- Foreground process context ---
+
+/** Foreground process info from PTY. */
+export const ForegroundSchema = z.object({
+  /** Binary name (e.g. "vim", "claude", "opencode"). */
+  name: z.string(),
+  /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
+  title: z.string().nullable(),
+});
 
 // --- Terminal metadata (unified, provider-aggregated) ---
 
@@ -77,7 +82,8 @@ export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
-  /** Foreground process — plain name or rich agent status. */
+  claude: ClaudeCodeInfoSchema.nullable(),
+  /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
@@ -223,6 +229,7 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
