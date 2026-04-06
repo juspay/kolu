@@ -114,7 +114,16 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show when={meta().agent}>
+            <Show
+              when={meta().agent}
+              fallback={
+                <Show when={meta().process}>
+                  {(proc) => (
+                    <span class="text-fg-3 shrink-0">&middot; {proc()}</span>
+                  )}
+                </Show>
+              }
+            >
               {(agent) => (
                 <span class="shrink-0">
                   &middot;{" "}

@@ -115,8 +115,14 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Agent status + activity sparkline */}
-          <Show when={info().meta.agent || info().activityHistory.length > 0}>
+          {/* Process name / agent status + activity sparkline */}
+          <Show
+            when={
+              info().meta.process ||
+              info().meta.agent ||
+              info().activityHistory.length > 0
+            }
+          >
             <div
               class="flex items-center gap-1.5"
               classList={{
@@ -124,7 +130,21 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.agent}>
+              <Show
+                when={info().meta.agent}
+                fallback={
+                  <Show when={info().meta.process}>
+                    {(proc) => (
+                      <span
+                        class="text-xs text-fg-3 truncate"
+                        data-testid="process-name"
+                      >
+                        {proc()}
+                      </span>
+                    )}
+                  </Show>
+                }
+              >
                 {(agent) => (
                   <AgentIndicator kind={agent().kind} state={agent().state} />
                 )}
