@@ -23,6 +23,8 @@ type TerminalChannels = {
   activity: ActivitySample;
   /** CWD changed (OSC 7 from PTY) — triggers git provider */
   cwd: string;
+  /** Terminal title changed (OSC 0/2 from PTY) — triggers process provider */
+  title: string;
   /** Git context changed — triggers github PR provider */
   git: GitInfo | null;
   /** Raw PTY output bytes — high frequency, drives xterm.js */

@@ -155,6 +155,10 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
           emitListChanged();
         }
       },
+      // PTY callback (OSC 0/2): notify process provider that title changed
+      onTitleChange: (title) => {
+        publishForTerminal("title", id, title);
+      },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
         const entry = terminals.get(id);

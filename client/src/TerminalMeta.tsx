@@ -115,13 +115,9 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Agent status + activity sparkline */}
+          {/* Foreground process / agent status + activity sparkline */}
           <Show
-            when={
-              info().meta.claude ||
-              info().meta.process ||
-              info().activityHistory.length > 0
-            }
+            when={info().meta.foreground || info().activityHistory.length > 0}
           >
             <div
               class="flex items-center gap-1.5"
@@ -130,22 +126,32 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show
-                when={info().meta.claude}
-                fallback={
-                  <Show when={info().meta.process}>
-                    {(proc) => (
+              <Show when={info().meta.foreground}>
+                {(fg) => (
+                  <Show
+                    when={fg().kind === "claude-code" && fg()}
+                    fallback={
                       <span
                         class="text-xs text-fg-3 truncate"
                         data-testid="process-name"
                       >
-                        {proc()}
+                        {fg().name}
                       </span>
+                    }
+                  >
+                    {(claude) => (
+                      <ClaudeIndicator
+                        state={
+                          (
+                            claude() as {
+                              state: "thinking" | "tool_use" | "waiting";
+                            }
+                          ).state
+                        }
+                      />
                     )}
                   </Show>
-                }
-              >
-                {(claude) => <ClaudeIndicator state={claude().state} />}
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto">

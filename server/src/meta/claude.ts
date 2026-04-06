@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type { Foreground } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
@@ -134,7 +134,7 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 /** Derive Claude Code state from the last relevant JSONL message. */
 export function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): { state: "thinking" | "tool_use" | "waiting"; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -165,13 +165,11 @@ export function deriveState(
   return null;
 }
 
-/** Compare two ClaudeCodeInfo values for equality. */
-export function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
-): boolean {
+/** Compare two Foreground claude values for equality. */
+function claudeEqual(a: Foreground | null, b: Foreground | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
+  if (a.kind !== "claude-code" || b.kind !== "claude-code") return a === b;
   return (
     a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
   );
@@ -257,19 +255,25 @@ export function startClaudeCodeProvider(
     }
     if (!matchedSession) return;
 
-    const info: ClaudeCodeInfo = {
+    const info: Foreground = {
+      kind: "claude-code",
+      name: "claude",
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
     };
 
-    if (infoEqual(info, entry.info.meta.claude)) return;
+    if (claudeEqual(info, entry.info.meta.foreground)) return;
     plog.info(
-      { state: info.state, model: info.model, session: info.sessionId },
+      {
+        state: derived.state,
+        model: derived.model,
+        session: matchedSession.sessionId,
+      },
       "claude code state updated",
     );
     updateMetadata(entry, terminalId, (m) => {
-      m.claude = info;
+      m.foreground = info;
     });
   }
 
@@ -302,9 +306,9 @@ export function startClaudeCodeProvider(
         plog.info("claude code session ended");
         matchedSession = null;
         stopWatching();
-        if (entry.info.meta.claude !== null) {
+        if (entry.info.meta.foreground?.kind === "claude-code") {
           updateMetadata(entry, terminalId, (m) => {
-            m.claude = null;
+            m.foreground = null;
           });
         }
       }

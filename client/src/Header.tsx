@@ -114,25 +114,29 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show
-              when={meta().claude}
-              fallback={
-                <Show when={meta().process}>
-                  {(proc) => (
-                    <span
-                      class="text-fg-3 shrink-0"
-                      data-testid="header-process"
-                    >
-                      &middot; {proc()}
+            <Show when={meta().foreground}>
+              {(fg) => (
+                <Show
+                  when={fg().kind === "claude-code" && fg()}
+                  fallback={
+                    <span class="text-fg-3 shrink-0">&middot; {fg().name}</span>
+                  }
+                >
+                  {(claude) => (
+                    <span class="shrink-0">
+                      &middot;{" "}
+                      <ClaudeIndicator
+                        state={
+                          (
+                            claude() as {
+                              state: "thinking" | "tool_use" | "waiting";
+                            }
+                          ).state
+                        }
+                      />
                     </span>
                   )}
                 </Show>
-              }
-            >
-              {(claude) => (
-                <span class="shrink-0">
-                  &middot; <ClaudeIndicator state={claude().state} />
-                </span>
               )}
             </Show>
           </div>

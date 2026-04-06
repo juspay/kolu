@@ -73,6 +73,11 @@ export function cleanEnv(): Record<string, string> {
 /** Shell function that emits OSC 7 with the current working directory. */
 const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
 
+/** Shell function that emits OSC 2 (title) with the command about to run.
+ *  Triggered by preexec — fires before each command, enabling event-driven
+ *  foreground process detection without polling. */
+const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
+
 /**
  * Prepare shell init that injects an OSC 7 hook *after* the user's rc files.
  *
@@ -105,7 +110,10 @@ export function osc7Init(
         `[ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
         pathLine,
         OSC7_FN,
+        OSC2_PREEXEC_FN,
         `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+        // bash lacks native preexec — use DEBUG trap to emit title before each command
+        `trap '__kolu_preexec "$BASH_COMMAND"' DEBUG`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -125,8 +133,10 @@ export function osc7Init(
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
         pathLine,
         OSC7_FN,
+        OSC2_PREEXEC_FN,
         `autoload -Uz add-zsh-hook`,
         `add-zsh-hook precmd __kolu_osc7`,
+        `add-zsh-hook preexec __kolu_preexec`,
       ]
         .filter(Boolean)
         .join("\n"),

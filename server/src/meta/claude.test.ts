@@ -2,13 +2,7 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import {
-  deriveState,
-  encodeProjectPath,
-  infoEqual,
-  tailJsonlLines,
-} from "./claude.ts";
-import type { ClaudeCodeInfo } from "kolu-common";
+import { deriveState, encodeProjectPath, tailJsonlLines } from "./claude.ts";
 
 describe("deriveState", () => {
   it("returns null for empty lines", () => {
@@ -101,39 +95,6 @@ describe("encodeProjectPath", () => {
     { input: "simple", expected: "simple" },
   ])("encodeProjectPath($input) → $expected", ({ input, expected }) => {
     expect(encodeProjectPath(input)).toBe(expected);
-  });
-});
-
-describe("infoEqual", () => {
-  const info: ClaudeCodeInfo = {
-    state: "thinking",
-    sessionId: "abc-123",
-    model: "claude-opus-4-6",
-  };
-
-  it("returns true for identical references", () => {
-    expect(infoEqual(info, info)).toBe(true);
-  });
-
-  it("returns true for both null", () => {
-    expect(infoEqual(null, null)).toBe(true);
-  });
-
-  it("returns false when one is null", () => {
-    expect(infoEqual(info, null)).toBe(false);
-    expect(infoEqual(null, info)).toBe(false);
-  });
-
-  it("returns true for equal values", () => {
-    expect(infoEqual(info, { ...info })).toBe(true);
-  });
-
-  it.each([
-    { field: "state", value: "waiting" },
-    { field: "sessionId", value: "other" },
-    { field: "model", value: "claude-sonnet-4-6" },
-  ] as const)("detects different $field", ({ field, value }) => {
-    expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
   });
 });
 

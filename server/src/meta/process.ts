@@ -1,16 +1,19 @@
 /**
- * Process provider — detects and publishes the foreground process name.
+ * Process provider — publishes the foreground process name on title change.
  *
- * Polls node-pty's .process property (cross-platform: Linux via /proc,
- * macOS via sysctl) and publishes the basename to meta.process.
+ * Event-driven: the shell preexec hook (injected in shell.ts) emits OSC 2
+ * before each command. The headless xterm fires onTitleChange, which triggers
+ * a .process read from node-pty (cross-platform: Linux via /proc, macOS via sysctl).
+ *
+ * No polling — the title change IS the event that something changed.
  */
 
 import path from "node:path";
+import type { Foreground } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
+import { subscribeForTerminal } from "../publisher.ts";
 import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
-
-const POLL_INTERVAL_MS = 3_000;
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on NixOS).
  *  Always normalize to the basename. */
@@ -18,34 +21,42 @@ function processBasename(proc: string): string {
   return path.basename(proc);
 }
 
+/** Build a Foreground value from a process name.
+ *  For now, all processes are plain "process" kind.
+ *  Agent-specific enrichment (claude-code, opencode) will be added in a follow-up PR. */
+function buildForeground(name: string): Foreground {
+  return { kind: "process", name };
+}
+
 export function startProcessProvider(
   entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
-  let lastProcess: string | null = null;
+  let lastName: string | null = null;
 
   plog.info("started");
 
-  function poll() {
-    const processName = processBasename(entry.handle.process);
-    if (processName !== lastProcess) {
-      plog.info(
-        { from: lastProcess, to: processName },
-        "foreground process changed",
-      );
-      lastProcess = processName;
-      updateMetadata(entry, terminalId, (m) => {
-        m.process = processName;
-      });
-    }
+  function update() {
+    const name = processBasename(entry.handle.process);
+    if (name === lastName) return;
+
+    plog.info({ from: lastName, to: name }, "foreground process changed");
+    lastName = name;
+    updateMetadata(entry, terminalId, (m) => {
+      m.foreground = buildForeground(name);
+    });
   }
 
-  poll();
-  const timer = setInterval(poll, POLL_INTERVAL_MS);
+  // Read initial process immediately
+  update();
+
+  // Subscribe to title changes — fired by OSC 2 preexec hook
+  const abort = new AbortController();
+  subscribeForTerminal("title", terminalId, abort.signal, () => update());
 
   return () => {
-    clearInterval(timer);
+    abort.abort();
     plog.info("stopped");
   };
 }

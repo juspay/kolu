@@ -4,6 +4,7 @@
  * Providers form a DAG:
  *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
  *                                                    ↓
+ *   title:<id>  →  process provider  ────────→  metadata:<id>
  *   claude provider (polling)  ──────────────→  metadata:<id>
  *
  * Each provider calls updateMetadata() to atomically mutate+publish.
@@ -24,7 +25,7 @@ export function createMetadata(
   cwd: string,
   sortOrder: number,
 ): TerminalMetadata {
-  return { cwd, git: null, pr: null, claude: null, process: null, sortOrder };
+  return { cwd, git: null, pr: null, foreground: null, sortOrder };
 }
 
 /** Atomically mutate metadata and publish the snapshot to all subscribers.
@@ -44,9 +45,12 @@ export function updateMetadata(
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
-      // Only include claude/process fields when present to avoid noisy null logs
-      ...(m.claude && { claude: m.claude.state }),
-      ...(m.process && { process: m.process }),
+      ...(m.foreground && {
+        foreground:
+          m.foreground.kind === "process"
+            ? m.foreground.name
+            : `${m.foreground.kind}:${m.foreground.state}`,
+      }),
     },
     "metadata publish",
   );
