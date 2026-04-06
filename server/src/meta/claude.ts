@@ -165,11 +165,13 @@ export function deriveState(
   return null;
 }
 
-/** Compare two Foreground claude values for equality. */
+/** Compare foreground value for Claude state dedup — only equal if both are
+ *  claude-code with identical state/session/model. Returns false otherwise
+ *  to force a publish (the process provider owns non-claude foreground). */
 function claudeEqual(a: Foreground | null, b: Foreground | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  if (a.kind !== "claude-code" || b.kind !== "claude-code") return a === b;
+  if (a.kind !== "claude-code" || b.kind !== "claude-code") return false;
   return (
     a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
   );

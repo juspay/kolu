@@ -1,13 +1,21 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
  *  Shared between Sidebar entries and Mission Control cards. */
 
-import { type Component, Show } from "solid-js";
+import { type Component, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
 import ClaudeIndicator from "./ClaudeIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+import type { Foreground } from "kolu-common";
+
+/** Type-safe narrowing for the claude-code variant of Foreground. */
+function claudeForeground(
+  fg: Foreground,
+): Extract<Foreground, { kind: "claude-code" }> | null {
+  return fg.kind === "claude-code" ? fg : null;
+}
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -129,7 +137,7 @@ const TerminalMeta: Component<{
               <Show when={info().meta.foreground}>
                 {(fg) => (
                   <Show
-                    when={fg().kind === "claude-code" && fg()}
+                    when={claudeForeground(fg())}
                     fallback={
                       <span
                         class="text-xs text-fg-3 truncate"
@@ -139,17 +147,7 @@ const TerminalMeta: Component<{
                       </span>
                     }
                   >
-                    {(claude) => (
-                      <ClaudeIndicator
-                        state={
-                          (
-                            claude() as {
-                              state: "thinking" | "tool_use" | "waiting";
-                            }
-                          ).state
-                        }
-                      />
-                    )}
+                    {(claude) => <ClaudeIndicator state={claude().state} />}
                   </Show>
                 )}
               </Show>

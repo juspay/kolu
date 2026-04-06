@@ -43,6 +43,12 @@ export function startProcessProvider(
 
     plog.info({ from: lastName, to: name }, "foreground process changed");
     lastName = name;
+
+    // Don't overwrite enriched agent foreground (e.g. claude-code with state)
+    // — the agent provider owns that. Only write plain process foreground.
+    const current = entry.info.meta.foreground;
+    if (current && current.kind !== "process" && current.name === name) return;
+
     updateMetadata(entry, terminalId, (m) => {
       m.foreground = buildForeground(name);
     });
