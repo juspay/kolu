@@ -13,15 +13,18 @@ export function useWorktreeOps(deps: {
   const { store } = deps;
 
   async function handleCreateWorktree(repoPath: string) {
-    const result = await client.git
-      .worktreeCreate({ repoPath })
-      .catch((err: Error) => {
-        toast.error(`Failed to create worktree: ${err.message}`);
-        throw err;
+    const id = toast.loading("Creating worktree…");
+    try {
+      const result = await client.git.worktreeCreate({ repoPath });
+      toast.success(`Created worktree at ${result.path}`, { id });
+      await deps.handleCreate(result.path);
+      // Recent repos update reactively via trackRecentRepo → publishSystem
+    } catch (err) {
+      toast.error(`Failed to create worktree: ${(err as Error).message}`, {
+        id,
       });
-    toast.success(`Created worktree at ${result.path}`);
-    await deps.handleCreate(result.path);
-    // Recent repos update reactively via trackRecentRepo → publishSystem
+      throw err;
+    }
   }
 
   /** Kill a terminal and remove its worktree.
@@ -35,11 +38,16 @@ export function useWorktreeOps(deps: {
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
-      await client.git.worktreeRemove({ worktreePath }).catch((err: Error) => {
-        toast.error(`Failed to remove worktree: ${err.message}`);
+      const tid = toast.loading("Removing worktree…");
+      try {
+        await client.git.worktreeRemove({ worktreePath });
+        toast.success("Worktree removed", { id: tid });
+      } catch (err) {
+        toast.error(`Failed to remove worktree: ${(err as Error).message}`, {
+          id: tid,
+        });
         throw err;
-      });
-      toast.success(`Removed worktree at ${worktreePath}`);
+      }
     }
   }
 
