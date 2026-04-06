@@ -1,25 +1,22 @@
 /**
- * Unified server state — live query for server sync, local store for instant UI reactivity.
+ * Unified server state — live subscription for server sync, local store for instant UI reactivity.
  *
  * Architecture:
- * - Live query (experimental_liveOptions): server pushes state changes over WebSocket
+ * - createSubscription: server pushes state changes over WebSocket
  * - Singleton SolidJS store: synchronous UI updates for preferences
- * - reconcile effect: syncs live query → local store on every server push
+ * - reconcile effect: syncs subscription → local store on every server push
  * - updatePreferences: instant local store update + async server mutation
  *
- * Why both? TanStack Query's setQueryData notifications go through setTimeout(0),
- * which is too slow for instant toggle feedback. The local store handles synchronous
- * reactivity; the live query handles server sync.
+ * Why both? The server round-trip (even on localhost) takes a few ms.
+ * For instant toggle feedback, the local store handles the synchronous update;
+ * the subscription pushes authoritative state back via reconcile.
  */
 
 import { createEffect, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import {
-  createQuery,
-  createMutation,
-  useQueryClient,
-} from "@tanstack/solid-query";
-import { orpc } from "./orpc";
+import { toast } from "solid-sonner";
+import { createSubscription } from "./createSubscription";
+import { client } from "./rpc";
 import type {
   ServerState,
   Preferences,
@@ -41,15 +38,14 @@ const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
 let storeInitialized = false;
 
 export function useServerState() {
-  const qc = useQueryClient();
-  const query = createQuery(() => orpc.state.get.experimental_liveOptions());
+  const sub = createSubscription(() => client.state.get());
 
-  // Sync singleton store from live query — only the first caller wires this up.
+  // Sync singleton store from subscription — only the first caller wires this up.
   if (!storeInitialized) {
     storeInitialized = true;
     createEffect(
       on(
-        () => query.data?.preferences,
+        () => sub()?.preferences,
         (serverPrefs) => {
           if (serverPrefs) setPrefs(reconcile(serverPrefs));
         },
@@ -57,32 +53,24 @@ export function useServerState() {
     );
   }
 
-  const updateMut = createMutation(() => orpc.state.update.mutationOptions());
-
   /** Update one or more preferences. Instant local update + async server persist. */
   function updatePreferences(patch: Partial<Preferences>) {
     // Synchronous local update — UI reacts immediately (singleton store)
     setPrefs(patch);
     // Server persist — live stream will push authoritative state back via reconcile
-    updateMut.mutate({ preferences: patch });
-  }
-
-  /** Invalidate state query (e.g. after worktree create changes recent repos). */
-  function invalidate() {
-    void qc.invalidateQueries({
-      queryKey: orpc.state.get.key(),
-    });
+    void client.state
+      .update({ preferences: patch })
+      .catch(() => toast.error("Failed to save preferences"));
   }
 
   return {
-    query,
+    sub,
     /** Full server state (undefined while loading). */
-    state: () => query.data as ServerState | undefined,
-    /** Preferences — singleton store, synced from live query on every server push. */
+    state: () => sub() as ServerState | undefined,
+    /** Preferences — singleton store, synced from subscription on every server push. */
     preferences: () => prefs,
-    recentRepos: () => (query.data?.recentRepos ?? []) as RecentRepo[],
-    savedSession: () => (query.data?.session ?? null) as SavedSession | null,
+    recentRepos: () => (sub()?.recentRepos ?? []) as RecentRepo[],
+    savedSession: () => (sub()?.session ?? null) as SavedSession | null,
     updatePreferences,
-    invalidate,
   };
 }

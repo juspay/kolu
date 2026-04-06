@@ -1,11 +1,11 @@
 /** Terminal session state — thin composition shell.
  *
  *  ARCHITECTURE: This file wires together focused modules:
- *    - useTerminalStore.ts    — TanStack live queries + client view state
+ *    - useTerminalStore.ts    — live subscriptions + client view state
  *    - useTerminalCrud.ts     — create, kill, close-all, theme, reorder, copy
- *    - useSessionRestore.ts   — queries, hydration, session restore
+ *    - useSessionRestore.ts   — hydration, session restore
  *    - useWorktreeOps.ts      — worktree create/remove
- *    - useTerminalAlerts.ts   — Claude state detection (watches TanStack metadata)
+ *    - useTerminalAlerts.ts   — Claude state detection (watches metadata subscriptions)
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 

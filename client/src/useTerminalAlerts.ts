@@ -1,5 +1,5 @@
 /** Terminal alerts — reactively detect Claude state transitions and fire notifications.
- *  Watches TanStack metadata queries for Claude state changes. */
+ *  Watches metadata subscriptions for Claude state changes. */
 
 import { type Accessor, createEffect, on } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
