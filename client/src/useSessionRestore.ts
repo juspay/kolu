@@ -1,6 +1,7 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import { createSignal, createEffect } from "solid-js";
+import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
 import { useServerState } from "./useServerState";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
@@ -84,16 +85,25 @@ export function useSessionRestore(deps: {
     const session = savedSession();
     if (!session) return;
     setSavedSession(null);
-    const oldToNew = new Map<string, TerminalId>();
-    const topLevel = session.terminals.filter((t) => !t.parentId);
-    const subTerminals = session.terminals.filter((t) => t.parentId);
-    for (const t of topLevel) {
-      const newId = await deps.handleCreate(t.cwd);
-      oldToNew.set(t.id, newId);
-    }
-    for (const t of subTerminals) {
-      const newParentId = oldToNew.get(t.parentId!);
-      if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+    const id = toast.loading(
+      `Restoring ${session.terminals.length} terminals…`,
+    );
+    try {
+      const oldToNew = new Map<string, TerminalId>();
+      const topLevel = session.terminals.filter((t) => !t.parentId);
+      const subTerminals = session.terminals.filter((t) => t.parentId);
+      for (const t of topLevel) {
+        const newId = await deps.handleCreate(t.cwd);
+        oldToNew.set(t.id, newId);
+      }
+      for (const t of subTerminals) {
+        const newParentId = oldToNew.get(t.parentId!);
+        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+      }
+      toast.success("Session restored", { id });
+    } catch (err) {
+      toast.error(`Restore failed: ${(err as Error).message}`, { id });
+      throw err;
     }
   }
 
