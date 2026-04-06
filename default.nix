@@ -140,7 +140,7 @@ in
 
   default = pkgs.writeShellApplication {
     name = "kolu";
-    runtimeInputs = [ nodejs pkgs.tsx pkgs.git pkgs.gh ];
+    runtimeInputs = [ nodejs pkgs.tsx pkgs.git pkgs.gh pkgs.sqlite ];
     text = ''
       export KOLU_CLIENT_DIST="${koluStamped}/client/dist"
       export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"

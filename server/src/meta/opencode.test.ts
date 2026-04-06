@@ -2,66 +2,51 @@ import { describe, it, expect } from "vitest";
 import { deriveOpenCodeState } from "./opencode.ts";
 
 describe("deriveOpenCodeState", () => {
-  it("returns thinking for user message", () => {
-    expect(deriveOpenCodeState("user", "[]")).toBe("thinking");
+  it("returns thinking when latest message is from user", () => {
+    expect(deriveOpenCodeState("step-finish", "stop", "user")).toBe("thinking");
   });
 
-  it("returns thinking for tool message", () => {
-    expect(deriveOpenCodeState("tool", "[]")).toBe("thinking");
+  it("returns thinking for step-start", () => {
+    expect(deriveOpenCodeState("step-start", null, "assistant")).toBe(
+      "thinking",
+    );
   });
 
-  it("returns null for system message", () => {
-    expect(deriveOpenCodeState("system", "[]")).toBeNull();
+  it("returns tool_use for step-finish with reason tool-calls", () => {
+    expect(
+      deriveOpenCodeState("step-finish", "tool-calls", "assistant"),
+    ).toBe("tool_use");
   });
 
-  it("returns thinking for assistant with no finish part", () => {
-    const parts = JSON.stringify([{ type: "text", data: { text: "Hello" } }]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("thinking");
+  it("returns waiting for step-finish with reason stop", () => {
+    expect(deriveOpenCodeState("step-finish", "stop", "assistant")).toBe(
+      "waiting",
+    );
   });
 
-  it("returns tool_use for assistant with finish.reason=tool_use", () => {
-    const parts = JSON.stringify([
-      { type: "text", data: { text: "Let me check" } },
-      { type: "tool_call", data: { id: "tc1", name: "bash", input: "ls" } },
-      { type: "finish", data: { reason: "tool_use", time: 1234 } },
-    ]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("tool_use");
+  it("returns waiting for step-finish with reason cancel", () => {
+    expect(deriveOpenCodeState("step-finish", "cancel", "assistant")).toBe(
+      "waiting",
+    );
   });
 
-  it("returns waiting for assistant with finish.reason=end_turn", () => {
-    const parts = JSON.stringify([
-      { type: "text", data: { text: "Done!" } },
-      { type: "finish", data: { reason: "end_turn", time: 1234 } },
-    ]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("waiting");
+  it("returns waiting for step-finish with reason error", () => {
+    expect(deriveOpenCodeState("step-finish", "error", "assistant")).toBe(
+      "waiting",
+    );
   });
 
-  it("returns waiting for assistant with finish.reason=canceled", () => {
-    const parts = JSON.stringify([
-      { type: "finish", data: { reason: "canceled", time: 1234 } },
-    ]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("waiting");
+  it("returns thinking for reasoning part mid-step", () => {
+    expect(deriveOpenCodeState("reasoning", null, "assistant")).toBe(
+      "thinking",
+    );
   });
 
-  it("returns waiting for assistant with finish.reason=error", () => {
-    const parts = JSON.stringify([
-      { type: "finish", data: { reason: "error", time: 1234 } },
-    ]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("waiting");
+  it("returns thinking for text part mid-step", () => {
+    expect(deriveOpenCodeState("text", null, "assistant")).toBe("thinking");
   });
 
-  it("returns waiting for assistant with finish.reason=max_tokens", () => {
-    const parts = JSON.stringify([
-      { type: "finish", data: { reason: "max_tokens", time: 1234 } },
-    ]);
-    expect(deriveOpenCodeState("assistant", parts)).toBe("waiting");
-  });
-
-  it("returns null for malformed JSON", () => {
-    expect(deriveOpenCodeState("assistant", "not json")).toBeNull();
-  });
-
-  it("returns null for unknown role", () => {
-    expect(deriveOpenCodeState("unknown", "[]")).toBeNull();
+  it("returns thinking for tool part mid-step", () => {
+    expect(deriveOpenCodeState("tool", null, "assistant")).toBe("thinking");
   });
 });
