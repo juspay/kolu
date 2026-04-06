@@ -73,6 +73,7 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  process: z.string().nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),

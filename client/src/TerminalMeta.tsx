@@ -116,7 +116,13 @@ const TerminalMeta: Component<{
           </Show>
 
           {/* Agent status + activity sparkline */}
-          <Show when={info().meta.claude || info().activityHistory.length > 0}>
+          <Show
+            when={
+              info().meta.claude ||
+              info().meta.process ||
+              info().activityHistory.length > 0
+            }
+          >
             <div
               class="flex items-center gap-1.5"
               classList={{
@@ -124,7 +130,21 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.claude}>
+              <Show
+                when={info().meta.claude}
+                fallback={
+                  <Show when={info().meta.process}>
+                    {(proc) => (
+                      <span
+                        class="text-xs text-fg-3 truncate"
+                        data-testid="process-name"
+                      >
+                        {proc()}
+                      </span>
+                    )}
+                  </Show>
+                }
+              >
                 {(claude) => <ClaudeIndicator state={claude().state} />}
               </Show>
               <Show when={info().activityHistory.length > 0}>
