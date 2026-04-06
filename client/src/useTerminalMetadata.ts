@@ -34,6 +34,7 @@ import {
  *  the 5-min display window. Prevents unbounded growth in long sessions. */
 const MAX_ACTIVITY_CHUNKS = 200;
 
+/** Subscriptions created per terminal via mapArray — disposed when the terminal leaves the list. */
 interface PerTerminalSubs {
   id: TerminalId;
   meta: Subscription<TerminalMetadata>;
