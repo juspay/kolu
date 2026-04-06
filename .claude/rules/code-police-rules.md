@@ -7,15 +7,17 @@ paths:
 
 These rules extend the base code-police skill with Kolu-specific patterns. They are checked during Pass 1 (rule checklist) alongside the generic rules.
 
-### tanstack-use-loading-state
+### subscription-use-pending
 
-Never check `.data === undefined` as a proxy for loading — use TanStack Query's `.isLoading` or `.isPending`.
+Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.
 _Rationale_: Conflates "loading" with "no data" and misses error states.
 
-### no-query-wrapper-accessors
+### catch-must-surface-error
 
-Don't wrap query properties in accessor functions — export the query object directly.
-_Rationale_: Wrapper accessors like `() => query.isLoading` add indirection without value; the query object is already reactive in SolidJS.
+When catching an error to show a toast, always include `err.message` in the toast text.
+Bad: `.catch(() => toast.error("Failed to set theme"))`
+Good: `.catch((err: Error) => toast.error(\`Failed to set theme: ${err.message}\`))`
+_Rationale_: Generic error toasts hide the server's actual error message, making debugging impossible. The server returns specific error details via oRPC — surface them.
 
 ### styling-tailwind-only
 

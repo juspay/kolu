@@ -1,9 +1,7 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { createMutation } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
-import { orpc } from "./orpc";
-import { useServerState } from "./useServerState";
+import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -13,25 +11,17 @@ export function useWorktreeOps(deps: {
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
-  const { invalidate: invalidateState } = useServerState();
-
-  const worktreeCreateMut = createMutation(() => ({
-    ...orpc.git.worktreeCreate.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to create worktree: ${err.message}`),
-  }));
-
-  const worktreeRemoveMut = createMutation(() => ({
-    ...orpc.git.worktreeRemove.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to remove worktree: ${err.message}`),
-  }));
 
   async function handleCreateWorktree(repoPath: string) {
-    const result = await worktreeCreateMut.mutateAsync({ repoPath });
+    const result = await client.git
+      .worktreeCreate({ repoPath })
+      .catch((err: Error) => {
+        toast.error(`Failed to create worktree: ${err.message}`);
+        throw err;
+      });
     toast.success(`Created worktree at ${result.path}`);
     await deps.handleCreate(result.path);
-    invalidateState();
+    // Recent repos update reactively via trackRecentRepo → publishSystem
   }
 
   /** Kill a terminal and remove its worktree.
@@ -45,9 +35,11 @@ export function useWorktreeOps(deps: {
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
-      await worktreeRemoveMut.mutateAsync({ worktreePath });
+      await client.git.worktreeRemove({ worktreePath }).catch((err: Error) => {
+        toast.error(`Failed to remove worktree: ${err.message}`);
+        throw err;
+      });
       toast.success(`Removed worktree at ${worktreePath}`);
-      invalidateState();
     }
   }
 

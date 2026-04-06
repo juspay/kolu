@@ -85,6 +85,8 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
   // Sort most-recent first, then trim
   repos.sort((a, b) => b.lastSeen - a.lastSeen);
   store.set("recentRepos", repos.slice(0, MAX_RECENT_REPOS));
+  // Notify live subscription so clients see the updated repos list
+  publishSystem("state:changed", getServerState());
 }
 
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */

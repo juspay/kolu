@@ -10,3 +10,4 @@ applyTo: "client/src/**"
 - **`richColors` is enabled**: The `<Toaster>` has `richColors` set, so semantic variants automatically get colored backgrounds. Choosing the right variant matters for UX.
 - **No `toast.promise()`**: Our mutations do post-success work (cache updates, state transitions) after `await mutateAsync()`. Wrapping in `toast.promise()` would braid mutation invocation with toast lifecycle. Use explicit `onError` + post-await `toast.success()` instead.
 - **Action toasts**: For persistent notifications requiring user action, use `duration: Infinity` with an `action` prop (see server-update toast in `rpc.ts`).
+- **Always surface `err.message`**: When catching errors for toast display, include the server's error message: `.catch((err: Error) => toast.error(\`Failed to X: ${err.message}\`))`. Never swallow the message with a generic string.

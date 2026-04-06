@@ -43,7 +43,7 @@ Two abstractions serving one user-level concern = accidental concept multiplicat
 
 ### Layer 3: Check the Complecting Catalog
 
-Scan for known complecting patterns:
+Scan for known complecting patterns **and any additional complecting patterns from project instructions**:
 
 | Construct | What it complects | Simpler alternative |
 |---|---|---|

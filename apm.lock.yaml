@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-05T16:13:18.912678+00:00'
+generated_at: '2026-04-06T16:00:08.548793+00:00'
 apm_version: 0.8.10
 dependencies:
 - repo_url: _local/agents
@@ -9,6 +9,7 @@ dependencies:
   - .claude/rules/architecture.md
   - .claude/rules/code-police-rules.md
   - .claude/rules/e2e-testing.md
+  - .claude/rules/hickey-catalog.md
   - .claude/rules/nix.md
   - .claude/rules/solidjs.md
   - .claude/rules/state.md
@@ -45,7 +46,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 8ccd318d85674dc134f8a5f4e2f147bdc59cb141
+  resolved_commit: 5b761a616e3aa4bee20b859a2947f3f0f8f792b1
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -56,4 +57,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/github-pr
   - .claude/skills/hickey
-  content_hash: sha256:574b4bc2f7a6e102c7decaf55f98b92dcb4a97585ac6d5c4b0dfe231e6e3b87e
+  content_hash: sha256:f522d330c9b6f3e0745d2648f985f91a1c5d06b822d7236a7aabc1288b372032
