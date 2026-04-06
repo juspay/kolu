@@ -54,9 +54,18 @@ export function deriveOpenCodeState(
  */
 export function readOpenCodeState(cwd: string): AgentInfo | null {
   // Fast check: does the DB exist and was it modified recently?
+  // Check both .db and .db-wal — WAL mode writes go to the WAL file,
+  // so the main .db mtime may lag behind active usage.
   try {
-    const stat = fs.statSync(DB_PATH);
-    if (Date.now() - stat.mtimeMs > STALE_THRESHOLD_MS) return null;
+    const dbMtime = fs.statSync(DB_PATH).mtimeMs;
+    let walMtime = 0;
+    try {
+      walMtime = fs.statSync(DB_PATH + "-wal").mtimeMs;
+    } catch {
+      // No WAL file — DB may use journal mode instead
+    }
+    const latestMtime = Math.max(dbMtime, walMtime);
+    if (Date.now() - latestMtime > STALE_THRESHOLD_MS) return null;
   } catch {
     // DB doesn't exist — OpenCode not installed
     return null;
