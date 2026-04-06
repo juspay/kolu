@@ -27,5 +27,6 @@ pkgs.mkShell {
     tsx
     nixpkgs-fmt
     prettier
+    sqlite
   ];
 }
