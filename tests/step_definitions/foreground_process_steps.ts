@@ -1,7 +1,7 @@
 /**
  * Foreground process detection — step definitions.
  *
- * Verifies that the sidebar shows the foreground process name,
+ * Verifies that the sidebar shows the exact foreground process name,
  * driven by OSC 2 title changes from the shell preexec hook.
  */
 
@@ -25,36 +25,28 @@ async function getSidebarProcessName(world: KoluWorld): Promise<string | null> {
 }
 
 Then(
-  "the sidebar should show a process name",
-  async function (this: KoluWorld) {
+  "the sidebar process name should be {string}",
+  async function (this: KoluWorld, expected: string) {
     const name = await pollUntil(
       this.page,
       () => getSidebarProcessName(this),
-      (n) => n !== null && n.length > 0,
+      (n) => n === expected,
       { attempts: 30, intervalMs: 200 },
     );
-    assert.ok(
-      name && name.length > 0,
-      `Expected sidebar to show a process name, got "${name}"`,
+    assert.strictEqual(
+      name,
+      expected,
+      `Expected sidebar process name "${expected}", got "${name}"`,
     );
   },
 );
 
-Then(
-  "the sidebar process name should eventually change",
-  async function (this: KoluWorld) {
-    // After running a command, the process name should update
-    // (it may briefly show "cat" then revert to the shell)
-    // We just verify the process-name element exists and has content
-    const name = await pollUntil(
-      this.page,
-      () => getSidebarProcessName(this),
-      (n) => n !== null && n.length > 0,
-      { attempts: 30, intervalMs: 200 },
-    );
-    assert.ok(
-      name && name.length > 0,
-      `Expected process name to be present after command, got "${name}"`,
-    );
+When(
+  "I run a long-running {string} command",
+  async function (this: KoluWorld, command: string) {
+    await this.page.keyboard.type(command);
+    await this.page.keyboard.press("Enter");
+    // Brief pause to let the shell preexec fire and the command start
+    await new Promise((r) => setTimeout(r, 500));
   },
 );

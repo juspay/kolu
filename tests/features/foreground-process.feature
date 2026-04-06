@@ -5,11 +5,11 @@ Feature: Foreground process detection
   Background:
     Given the terminal is ready
 
-  Scenario: Sidebar shows shell process name
-    Then the sidebar should show a process name
+  Scenario: Sidebar shows shell process name at startup
+    Then the sidebar process name should be "bash"
     And there should be no page errors
 
-  Scenario: Process name updates when running a command
-    When I run "cat /dev/null"
-    Then the sidebar process name should eventually change
+  Scenario: Process name shows running command
+    When I run a long-running "sleep 10" command
+    Then the sidebar process name should be "sleep"
     And there should be no page errors
