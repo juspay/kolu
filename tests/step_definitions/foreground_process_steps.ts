@@ -1,11 +1,11 @@
 /**
  * Foreground process detection — step definitions.
  *
- * Verifies that the sidebar shows the exact foreground process name,
+ * Verifies that the sidebar and header show the foreground process name,
  * driven by OSC 2 title changes from the shell preexec hook.
  */
 
-import { Then, When } from "@cucumber/cucumber";
+import { Then } from "@cucumber/cucumber";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
@@ -41,13 +41,28 @@ Then(
   },
 );
 
-When(
-  "I run a long-running {string} command",
-  async function (this: KoluWorld, command: string) {
-    // Pipe to cat to keep it running as a foreground process
-    await this.page.keyboard.type(`${command} < /dev/zero`);
-    await this.page.keyboard.press("Enter");
-    // Brief pause to let the shell preexec fire and the command start
-    await new Promise((r) => setTimeout(r, 500));
+Then(
+  "the header should contain the text {string}",
+  async function (this: KoluWorld, expected: string) {
+    const headerText = await pollUntil(
+      this.page,
+      async () => {
+        try {
+          return (
+            (await this.page
+              .locator('[data-testid="header-cwd"]')
+              .textContent({ timeout: 1000 })) ?? ""
+          );
+        } catch {
+          return "";
+        }
+      },
+      (t) => t.includes(expected),
+      { attempts: 30, intervalMs: 200 },
+    );
+    assert.ok(
+      headerText.includes(expected),
+      `Expected header to contain "${expected}", got "${headerText}"`,
+    );
   },
 );

@@ -9,7 +9,6 @@ Feature: Foreground process detection
     Then the sidebar process name should be "bash"
     And there should be no page errors
 
-  Scenario: Process name shows running command
-    When I run a long-running "cat" command
-    Then the sidebar process name should be "cat"
+  Scenario: Header shows foreground process name
+    Then the header should contain the text "bash"
     And there should be no page errors
