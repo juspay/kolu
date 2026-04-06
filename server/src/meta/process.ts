@@ -10,6 +10,7 @@
  * state updates between poll ticks.
  */
 
+import path from "node:path";
 import type { AgentInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
@@ -23,22 +24,28 @@ import { log } from "../log.ts";
 
 const POLL_INTERVAL_MS = 3_000;
 
+/** Extract the binary name from a process string.
+ *  node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on NixOS)
+ *  or just the binary name. Always normalize to the basename. */
+function processBasename(proc: string): string {
+  return path.basename(proc);
+}
+
 /**
  * Read agent state for a terminal.
- * Primary: foreground process name triggers agent-specific reader.
+ * Primary: foreground process basename triggers agent-specific reader.
  * Fallback: scan Claude session files via PTY matching (handles cases
  * where node-pty reports the shell name instead of the agent, e.g. on
  * some platforms or in tests).
  */
 function readAgentState(
-  processName: string,
+  basename: string,
   entry: TerminalProcess,
 ): AgentInfo | null {
-  // node-pty returns the binary name; Claude Code appears as "claude"
-  if (processName === "claude") {
+  if (basename === "claude") {
     return readClaudeCodeState(entry.handle.pid);
   }
-  if (processName === "opencode") {
+  if (basename === "opencode") {
     return readOpenCodeState(entry.handle.cwd);
   }
   // Fallback: scan Claude session files via PTY matching — covers cases where
@@ -76,7 +83,8 @@ export function startProcessProvider(
   }
 
   function poll() {
-    const processName = entry.handle.process;
+    // Normalize to basename — on NixOS, node-pty returns full /nix/store/... paths
+    const processName = processBasename(entry.handle.process);
 
     // Update meta.process on change
     if (processName !== lastProcess) {
