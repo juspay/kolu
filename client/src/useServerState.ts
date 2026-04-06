@@ -60,7 +60,9 @@ export function useServerState() {
     // Server persist — live stream will push authoritative state back via reconcile
     void client.state
       .update({ preferences: patch })
-      .catch(() => toast.error("Failed to save preferences"));
+      .catch((err: Error) =>
+        toast.error(`Failed to save preferences: ${err.message}`),
+      );
   }
 
   return {

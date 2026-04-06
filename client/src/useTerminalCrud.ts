@@ -28,14 +28,18 @@ export function useTerminalCrud(deps: {
   function setThemeName(id: TerminalId, name: string) {
     void client.terminal
       .setTheme({ id, themeName: name })
-      .catch(() => toast.error("Failed to set theme"));
+      .catch((err: Error) =>
+        toast.error(`Failed to set theme: ${err.message}`),
+      );
   }
 
   /** Reorder terminals on the server. */
   function reorderTerminals(ids: TerminalId[]) {
     void client.terminal
       .reorder({ ids })
-      .catch(() => toast.error("Failed to reorder terminals"));
+      .catch((err: Error) =>
+        toast.error(`Failed to reorder terminals: ${err.message}`),
+      );
   }
 
   /** Remove a terminal and auto-switch if it was active. */
@@ -60,7 +64,9 @@ export function useTerminalCrud(deps: {
     for (const subId of orphanIds) {
       void client.terminal
         .setParent({ id: subId, parentId: null })
-        .catch(() => toast.error("Failed to set parent"));
+        .catch((err: Error) =>
+          toast.error(`Failed to set parent: ${err.message}`),
+        );
     }
 
     const ids = store.terminalIds();
@@ -137,8 +143,8 @@ export function useTerminalCrud(deps: {
     try {
       await client.terminal.killAll();
       store.reset();
-    } catch {
-      toast.error("Failed to close all terminals");
+    } catch (err) {
+      toast.error(`Failed to close all terminals: ${(err as Error).message}`);
     }
   }
 
