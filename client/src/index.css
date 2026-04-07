@@ -26,6 +26,7 @@
   --color-ok: #4ade80;
   --color-warning: #facc15;
   --color-danger: #f87171;
+  --color-busy: #d97757;
 
   --animate-activity-pulse: activity-pulse 600ms ease-out;
 }
@@ -73,5 +74,29 @@
   }
   50% {
     background-color: oklch(from var(--color-alert) l c h / 0.25);
+  }
+}
+
+/* Agent actively working (thinking or running tools) — gentle border breathe */
+@keyframes agent-active-pulse {
+  0%,
+  100% {
+    border-left-color: var(--color-busy);
+  }
+  50% {
+    border-left-color: oklch(from var(--color-busy) l c h / 0.25);
+  }
+}
+
+/* Agent waiting for user input — urgent pulse with background glow */
+@keyframes agent-waiting-pulse {
+  0%,
+  100% {
+    border-left-color: var(--color-warning);
+    background-color: oklch(from var(--color-warning) l c h / 0.05);
+  }
+  50% {
+    border-left-color: transparent;
+    background-color: oklch(from var(--color-warning) l c h / 0.15);
   }
 }

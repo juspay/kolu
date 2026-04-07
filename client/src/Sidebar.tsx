@@ -61,15 +61,32 @@ const SidebarEntry: Component<{
           "text-fg-3 hover:text-fg-2": !props.isActive && !props.alerting,
           "opacity-25": sortable.isActiveDraggable,
         }}
-        style={{
-          "border-left-color": props.alerting
-            ? "var(--color-alert)"
-            : (props.displayInfo?.repoColor ??
-              (props.isActive ? "var(--accent)" : "transparent")),
-          ...(props.alerting
-            ? { animation: "alerting-glow 1.5s ease-in-out infinite" }
-            : {}),
-        }}
+        style={(() => {
+          if (props.alerting) {
+            return {
+              "border-left-color": "var(--color-alert)",
+              animation: "alerting-glow 1.5s ease-in-out infinite",
+            };
+          }
+          const claudeState = props.displayInfo?.meta.claude?.state;
+          if (claudeState === "waiting") {
+            return {
+              "border-left-color": "var(--color-warning)",
+              animation: "agent-waiting-pulse 1s ease-in-out infinite",
+            };
+          }
+          if (claudeState === "thinking" || claudeState === "tool_use") {
+            return {
+              "border-left-color": "var(--color-busy)",
+              animation: "agent-active-pulse 2s ease-in-out infinite",
+            };
+          }
+          return {
+            "border-left-color":
+              props.displayInfo?.repoColor ??
+              (props.isActive ? "var(--accent)" : "transparent"),
+          };
+        })()}
         onClick={() => props.onSelect(props.id)}
         onMouseDown={(e) => e.preventDefault()}
         title={props.metadata?.cwd ?? String(props.id)}
