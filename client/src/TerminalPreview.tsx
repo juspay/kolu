@@ -1,44 +1,54 @@
 /**
  * TerminalPreview — read-only miniature xterm.js instance for sidebar previews.
  *
- * Streams live terminal output. Instead of rendering at a tiny font (which is
- * blurry and gives different cols×rows than the main terminal — meaning the
- * same stream wraps/clips differently), it renders xterm at a normal readable
- * font on a larger virtual canvas, then CSS-scales the whole thing down to
- * fit the host container. This preserves the column count closer to the main
- * terminal and keeps text crisp, at the cost of a bit of CSS indirection.
+ * Renders at the exact same cols×rows as the main terminal, then CSS-scales
+ * the canvas down to fit the host container. Identical dimensions mean the
+ * server's stream (cursor escapes, line wraps, clears) interprets the same
+ * way in the preview as in the main terminal — the preview is a true
+ * zoomed-out view of the same cell grid.
+ *
+ * No FitAddon: fitting would re-compute cols/rows from the container size
+ * and diverge from the main. We size explicitly via term.resize().
  */
 
 import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
-import { refitOnTabVisible } from "./refitOnTabVisible";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 
-/** Font size for the internal xterm instance (crisp). */
-const PREVIEW_FONT_SIZE = 12;
-/** How much to shrink the internal canvas to fit the host container.
- *  0.4 means the virtual canvas is 1/0.4 = 2.5× the host size — the inner
- *  xterm gets ~2.5× the cols/rows a naïve fit would give it. */
-const PREVIEW_SCALE = 0.4;
+/** Font size for the internal xterm instance. Large enough to render crisp
+ *  on canvas; the whole element is CSS-scaled down to fit the host. */
+const PREVIEW_FONT_SIZE = 14;
 
 const TerminalPreview: Component<{
   terminalId: TerminalId;
   theme: ITheme;
+  cols: number;
+  rows: number;
 }> = (props) => {
-  let containerRef!: HTMLDivElement;
+  /** Host: the sidebar card slot; variable size. */
+  let hostRef!: HTMLDivElement;
+  /** Inner: the xterm canvas at natural (cols × charWidth × rows × lineHeight) size. */
+  let innerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
-  let fitAddon: FitAddon | null = null;
   let streamAbort: AbortController | null = null;
-  let fitRaf = 0;
 
-  function debouncedFit() {
-    cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => fitAddon?.fit());
+  /** Recompute the CSS scale so the inner natural size fits the host. */
+  function applyScale() {
+    if (!innerRef || !hostRef || !terminal) return;
+    // Clear previous transform to measure natural size.
+    innerRef.style.transform = "";
+    const naturalW = innerRef.offsetWidth;
+    const naturalH = innerRef.offsetHeight;
+    if (naturalW === 0 || naturalH === 0) return;
+    const hostW = hostRef.clientWidth;
+    const hostH = hostRef.clientHeight;
+    // Uniform scale — preserves aspect ratio. Whichever axis is tighter wins.
+    const scale = Math.min(hostW / naturalW, hostH / naturalH);
+    innerRef.style.transform = `scale(${scale})`;
   }
 
   createEffect(
@@ -51,6 +61,19 @@ const TerminalPreview: Component<{
     ),
   );
 
+  // Resize xterm when the main terminal's dimensions change.
+  createEffect(
+    on(
+      () => [props.cols, props.rows] as const,
+      ([cols, rows]) => {
+        if (!terminal) return;
+        terminal.resize(cols, rows);
+        requestAnimationFrame(applyScale);
+      },
+      { defer: true },
+    ),
+  );
+
   onMount(async () => {
     await document.fonts.load(`1em ${FONT_FAMILY}`);
 
@@ -58,6 +81,8 @@ const TerminalPreview: Component<{
       fontFamily: FONT_FAMILY,
       theme: props.theme,
       fontSize: PREVIEW_FONT_SIZE,
+      cols: props.cols,
+      rows: props.rows,
       cursorBlink: false,
       cursorInactiveStyle: "none",
       disableStdin: true,
@@ -66,12 +91,10 @@ const TerminalPreview: Component<{
       allowProposedApi: true,
     });
     terminal = term;
-
-    fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-
-    term.open(containerRef);
-    fitAddon.fit();
+    term.open(innerRef);
+    // xterm measures cell dimensions on its first animation frame — offsetWidth
+    // is 0 on the same tick as term.open(), so defer the first scale.
+    requestAnimationFrame(applyScale);
 
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
@@ -91,12 +114,12 @@ const TerminalPreview: Component<{
       }
     })();
 
+    // Recompute scale whenever the host card changes size (sidebar resize,
+    // viewport breakpoint change, etc.)
     createResizeObserver(
-      () => containerRef,
-      () => debouncedFit(),
+      () => hostRef,
+      () => applyScale(),
     );
-
-    refitOnTabVisible(debouncedFit);
 
     onCleanup(() => {
       streamAbort?.abort();
@@ -104,24 +127,20 @@ const TerminalPreview: Component<{
     });
   });
 
-  // The outer div is the host size. The inner div (containerRef) is the
-  // virtual canvas — sized at 1/PREVIEW_SCALE of the host, then CSS-scaled
-  // back down to fit. xterm + FitAddon run inside the inner div and see
-  // the larger dimensions, giving more cols×rows at a readable font size.
-  const invScale = `${100 / PREVIEW_SCALE}%`;
   return (
     <div
+      ref={hostRef}
       class="w-full h-full overflow-hidden"
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
     >
       <div
-        ref={containerRef}
+        ref={innerRef}
         style={{
-          width: invScale,
-          height: invScale,
-          transform: `scale(${PREVIEW_SCALE})`,
           "transform-origin": "top left",
+          // Inline-block so offsetWidth/Height reflect the xterm canvas size,
+          // not the parent host's width. We measure natural size before scaling.
+          display: "inline-block",
         }}
       />
     </div>

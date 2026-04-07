@@ -339,6 +339,7 @@ const App: Component = () => {
           isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
           getTerminalTheme={getTerminalTheme}
+          getDimensions={store.getDimensions}
           showAgentPreviews={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
@@ -385,6 +386,9 @@ const App: Component = () => {
                     onCloseTerminal={closeTerminal}
                     activeMeta={store.activeMeta()}
                     scrollLockEnabled={scrollLock()}
+                    onDimensionsChange={(cols, rows) =>
+                      store.setDimensions(id, cols, rows)
+                    }
                   />
                 )}
               </For>
