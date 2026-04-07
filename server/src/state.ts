@@ -22,7 +22,7 @@ import { publishSystem } from "./publisher.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.2.0";
+const SCHEMA_VERSION = "1.3.0";
 
 const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
@@ -31,6 +31,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
+  missionControlVisible: false,
+  missionControlShowAll: false,
 };
 
 export const store = new Conf<PersistedState>({
@@ -53,6 +55,16 @@ export const store = new Conf<PersistedState>({
       if (!store.has("preferences")) {
         store.set("preferences", DEFAULT_PREFERENCES);
       }
+    },
+    // Mission Control strip prefs added — old preference blobs lack these fields.
+    "1.3.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | Partial<Preferences>
+        | undefined;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...current,
+      });
     },
   },
 });

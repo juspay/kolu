@@ -32,6 +32,7 @@ const Header: Component<{
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
   onMissionControl?: () => void;
+  missionControlVisible?: boolean;
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
@@ -126,10 +127,17 @@ const Header: Component<{
       </Show>
       {/* Zone C: Controls — rigid, never clips */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
-        <Tip label="Mission Control">
+        <Tip
+          label={
+            props.missionControlVisible
+              ? "Hide Mission Control"
+              : "Show Mission Control"
+          }
+        >
           <button
             data-testid="mission-control-trigger"
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            data-active={props.missionControlVisible ? "" : undefined}
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 data-[active]:text-accent data-[active]:bg-surface-2"
             onClick={() => props.onMissionControl?.()}
           >
             <GridIcon />

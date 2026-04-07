@@ -31,6 +31,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
+  missionControlVisible: false,
+  missionControlShowAll: false,
 };
 
 // Singleton store — all callers share one reactive source of truth for preferences.

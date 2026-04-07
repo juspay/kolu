@@ -28,7 +28,7 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 ### Navigation
 
 - Command palette (`Cmd/Ctrl+K`) — search terminals, switch themes, run actions
-- Mission Control (`Cmd/Ctrl+.` or `Ctrl+Tab`) — bird's eye grid of all terminals with live previews. Navigate with arrow keys, Tab, or number keys (1-9). `Ctrl+Tab` quick-switch uses MRU order: hold Ctrl, Tab through terminals, release to select — instant flip between two terminals
+- Mission Control (`Cmd/Ctrl+.`) — sticky strip between the header and main panel with live previews of terminals running code agents. Click a card to focus; expand the chevron at the bottom to show all terminals. Visibility and filter mode persist server-side. `Ctrl+Tab` (or `Alt+Tab`) jumps straight to the most recently used terminal — no overlay
 - Keyboard-driven — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
 
 ### Git & GitHub

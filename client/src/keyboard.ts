@@ -98,13 +98,9 @@ export const SHORTCUTS = {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     label: "Previous terminal",
   },
-  nextTerminalTab: {
+  prevTerminalMru: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
-    label: "Quick switch (Mission Control)",
-  },
-  prevTerminalTab: {
-    keybind: { key: "Tab", code: "Tab", ctrl: true, shift: true },
-    label: "Quick switch (reverse)",
+    label: "Previous terminal (most recently used)",
   },
   commandPalette: {
     keybind: { key: "k", mod: true },
@@ -136,7 +132,7 @@ export const SHORTCUTS = {
   },
   missionControl: {
     keybind: { key: ".", mod: true },
-    label: "Mission Control",
+    label: "Toggle Mission Control",
   },
   randomizeTheme: {
     keybind: { key: "j", mod: true },

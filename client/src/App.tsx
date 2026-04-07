@@ -15,7 +15,7 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import MissionControl, { type MCMode } from "./MissionControl";
+import MissionControl from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
@@ -38,6 +38,10 @@ const App: Component = () => {
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
+  const missionControlVisible = () => preferences().missionControlVisible;
+  const missionControlShowAll = () => preferences().missionControlShowAll;
+  const toggleMissionControl = () =>
+    updatePreferences({ missionControlVisible: !missionControlVisible() });
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -96,9 +100,6 @@ const App: Component = () => {
   const [closeConfirmTarget, setCloseConfirmTarget] =
     createSignal<CloseConfirmTarget | null>(null);
 
-  // Mission Control state — single discriminated union, no impossible states
-  const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
-
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
@@ -110,6 +111,7 @@ const App: Component = () => {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
+    mruOrder: store.mruOrder,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
@@ -118,8 +120,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    mcMode,
-    setMcMode,
+    toggleMissionControl,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -177,7 +178,7 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
-    setMcMode,
+    toggleMissionControl,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
@@ -249,20 +250,6 @@ const App: Component = () => {
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
-      <MissionControl
-        mcMode={mcMode()}
-        onMcModeChange={(mode) => {
-          setMcMode(mode);
-          if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
-        }}
-        terminalIds={store.terminalIds()}
-        mruOrder={store.mruOrder()}
-        activeId={store.activeId()}
-        getMetadata={store.getMetadata}
-        getDisplayInfo={store.getDisplayInfo}
-        getTerminalTheme={getTerminalTheme}
-        onSelect={store.setActiveId}
-      />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
@@ -319,7 +306,8 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        onMissionControl={() => setMcMode({ mode: "browse" })}
+        onMissionControl={toggleMissionControl}
+        missionControlVisible={missionControlVisible()}
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
@@ -338,6 +326,20 @@ const App: Component = () => {
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
+      <Show when={missionControlVisible()}>
+        <MissionControl
+          terminalIds={store.terminalIds()}
+          activeId={store.activeId()}
+          showAll={missionControlShowAll()}
+          onShowAllChange={(showAll) =>
+            updatePreferences({ missionControlShowAll: showAll })
+          }
+          getMetadata={store.getMetadata}
+          getDisplayInfo={store.getDisplayInfo}
+          getTerminalTheme={getTerminalTheme}
+          onSelect={store.setActiveId}
+        />
+      </Show>
       {/* relative: anchor for sidebar's absolute overlay on mobile.
        *  --active-terminal-bg published here so child components (Sidebar)
        *  can read it via CSS without prop drilling. */}

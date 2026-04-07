@@ -1,15 +1,16 @@
 /** Global keyboard shortcuts — single capture-phase listener dispatching to handlers. */
 
-import { type Accessor, type Setter, createEffect } from "solid-js";
+import { type Accessor, type Setter } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
-import type { MCMode } from "./MissionControl";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 interface ShortcutDeps {
   terminalIds: Accessor<TerminalId[]>;
   activeId: Accessor<TerminalId | null>;
   setActiveId: Setter<TerminalId | null>;
+  /** Terminal IDs in most-recently-used order; used for Ctrl+Tab "previous terminal". */
+  mruOrder: Accessor<TerminalId[]>;
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
@@ -17,8 +18,7 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
-  mcMode: Accessor<MCMode>;
-  setMcMode: Setter<MCMode>;
+  toggleMissionControl: () => void;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -26,25 +26,20 @@ interface ShortcutDeps {
   handleCopyTerminalText: () => void;
 }
 
-/** Wire up all global keyboard shortcuts. Call once from the app root.
- *  Listener is reactively owned: only installed when MC is closed.
- *  When MC opens, SolidJS disposes the effect scope → listener removed. */
+/** Wire up all global keyboard shortcuts. Call once from the app root. */
 export function useShortcuts(deps: ShortcutDeps) {
-  createEffect(() => {
-    if (deps.mcMode().mode !== "closed") return;
-    makeEventListener(
-      window,
-      "keydown",
-      (e: KeyboardEvent) => {
-        const handled = dispatch(e, deps);
-        if (handled) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      },
-      { capture: true },
-    );
-  });
+  makeEventListener(
+    window,
+    "keydown",
+    (e: KeyboardEvent) => {
+      const handled = dispatch(e, deps);
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    { capture: true },
+  );
 }
 
 /** Try to handle the event. Returns true if a shortcut matched. */
@@ -70,20 +65,13 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
     return true;
   }
 
-  // Alt+Tab / Alt+Shift+Tab: quick-switch alias for macOS Chrome (which intercepts Ctrl+Tab).
-  if (e.altKey && e.key === "Tab") {
-    deps.setMcMode({ mode: "quickSwitch", direction: e.shiftKey ? -1 : 1 });
-    return true;
-  }
-
-  // Ctrl+Tab / Ctrl+Shift+Tab: open Mission Control in quick-switch mode.
-  if (matchesKeybind(e, SHORTCUTS.nextTerminalTab.keybind)) {
-    deps.setMcMode({ mode: "quickSwitch", direction: 1 });
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.prevTerminalTab.keybind)) {
-    deps.setMcMode({ mode: "quickSwitch", direction: -1 });
+  // Alt+Tab / Ctrl+Tab: jump to the previous terminal in MRU order.
+  // Alt+Tab covers macOS Chrome, which intercepts Ctrl+Tab.
+  if (
+    (e.altKey && e.key === "Tab") ||
+    matchesKeybind(e, SHORTCUTS.prevTerminalMru.keybind)
+  ) {
+    switchToMruPrevious(deps);
     return true;
   }
 
@@ -113,7 +101,7 @@ function dispatch(e: KeyboardEvent, deps: ShortcutDeps): boolean {
   }
 
   if (matchesKeybind(e, SHORTCUTS.missionControl.keybind)) {
-    deps.setMcMode({ mode: "browse" });
+    deps.toggleMissionControl();
     return true;
   }
 
@@ -168,4 +156,12 @@ function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;
   deps.setActiveId(ids[next]!);
+}
+
+/** Jump to the previous terminal in MRU order (one-shot, no overlay). */
+function switchToMruPrevious(deps: ShortcutDeps) {
+  const mru = deps.mruOrder();
+  const existing = new Set(deps.terminalIds());
+  const previous = mru.find((id) => existing.has(id) && id !== deps.activeId());
+  if (previous) deps.setActiveId(previous);
 }

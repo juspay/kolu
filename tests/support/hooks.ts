@@ -172,6 +172,8 @@ Before(async function (this: KoluWorld) {
           scrollLock: true,
           activityAlerts: true,
           colorScheme: "dark",
+          missionControlVisible: false,
+          missionControlShowAll: false,
         },
       },
     }),

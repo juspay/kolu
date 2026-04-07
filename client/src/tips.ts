@@ -54,7 +54,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
   {
     id: "amb-mru",
-    text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
+    text: `${formatKeybind(SHORTCUTS.prevTerminalMru.keybind)} jumps to the most recently used terminal`,
   },
   {
     id: "amb-search",

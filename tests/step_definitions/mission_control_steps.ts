@@ -1,14 +1,24 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
-import { readBufferText } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 const MC_SELECTOR = '[data-testid="mission-control"]';
 const MC_CARD_SELECTOR = '[data-testid="mission-control-card"]';
+const MC_EXPAND_SELECTOR = '[data-testid="mission-control-expand"]';
+const MC_EMPTY_SELECTOR = '[data-testid="mission-control-empty"]';
 
 When("I click the Mission Control icon", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="mission-control-trigger"]').click();
+  await this.waitForFrame();
 });
+
+When(
+  "I click the Mission Control expand toggle",
+  async function (this: KoluWorld) {
+    await this.page.locator(MC_EXPAND_SELECTOR).click();
+    await this.waitForFrame();
+  },
+);
 
 When(
   "I click terminal card {int}",
@@ -32,15 +42,23 @@ Then(
   "Mission Control should show {int} terminal card(s)",
   async function (this: KoluWorld, expected: number) {
     const cards = this.page.locator(MC_CARD_SELECTOR);
-    await cards
-      .nth(expected - 1)
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const count = await cards.count();
-    assert.strictEqual(
-      count,
+    await this.page.waitForFunction(
+      (count: number) =>
+        document.querySelectorAll('[data-testid="mission-control-card"]')
+          .length === count,
       expected,
-      `Expected ${expected} terminal cards, got ${count}`,
+      { timeout: POLL_TIMEOUT },
     );
+    const actual = await cards.count();
+    assert.strictEqual(actual, expected);
+  },
+);
+
+Then(
+  "Mission Control should show the empty state",
+  async function (this: KoluWorld) {
+    const empty = this.page.locator(MC_EMPTY_SELECTOR);
+    await empty.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -52,124 +70,12 @@ Then(
   },
 );
 
-Then(
-  "Mission Control should show terminal previews",
-  async function (this: KoluWorld) {
-    const previews = this.page.locator('[data-testid="terminal-preview"]');
-    await previews.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const count = await previews.count();
-    assert.ok(count > 0, "Expected at least one terminal preview");
-  },
-);
-
-Then(
-  "Mission Control card {int} should show number {string}",
-  async function (this: KoluWorld, index: number, expected: string) {
-    const card = this.page.locator(MC_CARD_SELECTOR).nth(index - 1);
-    const badge = card.locator('[data-testid="card-number"]');
-    await badge.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await badge.textContent();
-    assert.strictEqual(
-      text?.trim(),
-      expected,
-      `Expected card ${index} badge to show "${expected}", got "${text}"`,
-    );
-  },
-);
-
-When("I hold Ctrl and press Tab", async function (this: KoluWorld) {
-  await this.page.keyboard.down("Control");
-  await this.page.keyboard.press("Tab");
-  await this.waitForFrame();
-});
-
-When("I hold Ctrl and Shift and press Tab", async function (this: KoluWorld) {
-  await this.page.keyboard.down("Control");
-  await this.page.keyboard.press("Shift+Tab");
-  await this.waitForFrame();
-});
-
-When("I release Ctrl", async function (this: KoluWorld) {
-  await this.page.keyboard.up("Control");
-  await this.waitForFrame();
-});
-
 When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+.`);
+  await this.waitForFrame();
 });
 
-Then("the active card should have focus", async function (this: KoluWorld) {
-  // Wait for auto-focus (setTimeout in MissionControl runs after Corvu's focus trap)
-  await this.page.waitForFunction(
-    () =>
-      document.activeElement?.getAttribute("data-testid") ===
-      "mission-control-card",
-    { timeout: POLL_TIMEOUT },
-  );
+When("I press Ctrl+Tab", async function (this: KoluWorld) {
+  await this.page.keyboard.press("Control+Tab");
+  await this.waitForFrame();
 });
-
-Then(
-  "Mission Control card {int} should have focus",
-  async function (this: KoluWorld, index: number) {
-    const cards = this.page.locator(MC_CARD_SELECTOR);
-    const card = cards.nth(index - 1);
-    const id = await card.getAttribute("data-terminal-id");
-    const focusedId = await this.page.evaluate(() =>
-      document.activeElement?.getAttribute("data-terminal-id"),
-    );
-    assert.strictEqual(
-      focusedId,
-      id,
-      `Expected card ${index} to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
-    );
-  },
-);
-
-Then(
-  "the last Mission Control card should have focus",
-  async function (this: KoluWorld) {
-    const cards = this.page.locator(MC_CARD_SELECTOR);
-    const count = await cards.count();
-    const last = cards.nth(count - 1);
-    const id = await last.getAttribute("data-terminal-id");
-    const focusedId = await this.page.evaluate(() =>
-      document.activeElement?.getAttribute("data-terminal-id"),
-    );
-    assert.strictEqual(
-      focusedId,
-      id,
-      `Expected last card to have focus (terminal ${id}), but focused terminal is ${focusedId}`,
-    );
-  },
-);
-
-When(
-  "I type {string} in Mission Control",
-  async function (this: KoluWorld, text: string) {
-    await this.page.keyboard.type(text);
-    await this.waitForFrame();
-  },
-);
-
-Then(
-  "the active terminal should not show {string}",
-  async function (this: KoluWorld, forbidden: string) {
-    const content = await readBufferText(this.page);
-    assert.ok(
-      !content.includes(forbidden),
-      `Terminal buffer unexpectedly contains "${forbidden}".\nBuffer (partial): ${content.slice(0, 500)}`,
-    );
-  },
-);
-
-Then(
-  "all Mission Control cards should be visible",
-  async function (this: KoluWorld) {
-    const cards = this.page.locator(MC_CARD_SELECTOR);
-    const count = await cards.count();
-    for (let i = 0; i < count; i++) {
-      const visible = await cards.nth(i).isVisible();
-      assert.ok(visible, `Mission Control card ${i + 1} is not visible`);
-    }
-  },
-);

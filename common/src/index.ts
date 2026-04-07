@@ -188,6 +188,10 @@ export const PreferencesSchema = z.object({
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
+  /** Mission Control strip: visible between header and main panel. */
+  missionControlVisible: z.boolean(),
+  /** Mission Control strip: show all terminals instead of filtering to agents. */
+  missionControlShowAll: z.boolean(),
 });
 
 // --- Server state ---

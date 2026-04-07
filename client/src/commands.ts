@@ -3,7 +3,6 @@
 import { createMemo, batch } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PaletteCommand } from "./CommandPalette";
-import type { MCMode } from "./MissionControl";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -26,7 +25,7 @@ export interface CommandDeps {
   handleSetTheme: (name: string) => void;
   handleRandomizeTheme: () => void;
   // Dialogs
-  setMcMode: (mode: MCMode) => void;
+  toggleMissionControl: () => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
@@ -93,12 +92,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
     {
-      name: "Mission Control",
-      keybind: [
-        SHORTCUTS.missionControl.keybind,
-        SHORTCUTS.nextTerminalTab.keybind,
-      ],
-      onSelect: () => deps.setMcMode({ mode: "browse" }),
+      name: "Toggle Mission Control",
+      keybind: SHORTCUTS.missionControl.keybind,
+      onSelect: () => deps.toggleMissionControl(),
     },
     ...(deps.terminalIds().length > 0
       ? [
