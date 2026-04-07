@@ -157,6 +157,40 @@ When(
 );
 
 When(
+  "a newer stale previous-session JSONL exists in the same project dir",
+  async function (this: KoluWorld) {
+    // Regression guard: previously `findTranscriptPath` had an MRU fallback
+    // that picked the most recently modified JSONL in the project dir — so a
+    // previous session's transcript could capture the watcher while the
+    // current session's JSONL was still being created.
+    //
+    // This step bumps the stale file's mtime into the future so an MRU
+    // scan would always prefer it over the mock's current-session JSONL.
+    // With the fix, exact-match lookup ignores the stale file entirely.
+    if (!PROJECTS_DIR) throw new Error("KOLU_CLAUDE_PROJECTS_DIR must be set");
+    if (!mockCwd) throw new Error("mockCwd not set — call mock step first");
+    const encodedCwd = mockCwd.replace(/[/.]/g, "-");
+    const projectDir = path.join(PROJECTS_DIR, encodedCwd);
+    const stalePath = path.join(projectDir, "stale-previous-session.jsonl");
+    fs.writeFileSync(
+      stalePath,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-6",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "previous" }],
+        },
+      }) + "\n",
+    );
+    // Future mtime so an MRU fallback would always pick this over the
+    // current-session JSONL.
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(stalePath, future, future);
+  },
+);
+
+When(
   "the Claude Code session state changes to {string}",
   async function (this: KoluWorld, state: string) {
     if (!mockTranscriptPath) throw new Error("No mock transcript to update");
