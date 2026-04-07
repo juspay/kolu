@@ -2,10 +2,8 @@
  * Claude Code metadata provider — detects Claude Code sessions in a terminal.
  *
  * Detection: each terminal asks "what's my pty's foreground process?" via
- * tcgetpgrp(fd) (exposed by node-pty's foregroundPid accessor — added by
- * patches/node-pty@1.1.0.patch, upstream tracked at
- * https://github.com/microsoft/node-pty/issues/913). If a session file
- * exists at ~/.claude/sessions/{fgpid}.json, that terminal is running
+ * tcgetpgrp(fd) (exposed by node-pty's foregroundPid accessor). If a session
+ * file exists at ~/.claude/sessions/{fgpid}.json, that terminal is running
  * claude-code. Cross-platform — works on both Linux and macOS.
  *
  * States derived from last JSONL message:
