@@ -137,9 +137,16 @@ const SidebarEntry: Component<{
           title={props.metadata?.cwd ?? String(props.id)}
         >
           <Show when={showPreview()}>
+            {/* mr compensates for the wrapper's active/inactive pr-0 vs pr-1.5
+             *  difference so the preview stays a constant width — otherwise
+             *  FitAddon re-computes cols on switch and the content reflows. */}
             <div
               data-testid="sidebar-preview"
-              class="mx-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              class="ml-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              classList={{
+                "mr-4": props.isActive,
+                "mr-2.5": !props.isActive,
+              }}
             >
               <TerminalPreview
                 terminalId={props.id}
