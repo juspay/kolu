@@ -239,7 +239,7 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav class="flex-1 overflow-y-auto py-0.5 sidebar-scroll">
+        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {
