@@ -137,7 +137,7 @@ const TerminalMeta: Component<{
               <Show when={info().meta.foreground}>
                 {(fg) => (
                   <span
-                    class="text-xs text-fg-3 font-mono truncate min-w-0 flex-1"
+                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
                     data-testid="process-name"
                     title={fg().title ?? fg().name}
                   >
