@@ -95,8 +95,12 @@
 .card-border-wrap {
   position: relative;
   padding: 2px; /* border thickness */
-  padding-right: 0; /* no border on right — cards bleed to edge */
   background: var(--color-surface-0);
+}
+
+/* Active wrapper bleeds to the right edge — no right border channel */
+.card-border-wrap.card-active {
+  padding-right: 0;
 }
 
 /* Spinning states — all use --card-color (the terminal's repo color) */

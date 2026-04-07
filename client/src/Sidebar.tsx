@@ -37,6 +37,7 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
+  activeTerminalBg: string;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const tier = () =>
@@ -44,8 +45,11 @@ const SidebarEntry: Component<{
 
   return (
     <div
-      class="relative py-1"
-      class="pl-1.5 pr-0"
+      class="relative py-1 pl-1.5"
+      classList={{
+        "pr-0": props.isActive,
+        "pr-1.5": !props.isActive,
+      }}
       style={transformStyle(sortable.transform)}
     >
       <Show when={props.dropEdge}>
@@ -62,19 +66,18 @@ const SidebarEntry: Component<{
 
       {/* Spinning border container — conic gradient rotates behind the card */}
       <div
-        class="card-border-wrap transition-all duration-200 rounded-l-2xl rounded-r-none"
+        class="card-border-wrap transition-all duration-200"
         classList={{
+          "rounded-2xl": !props.isActive,
+          "rounded-l-2xl rounded-r-none card-active": props.isActive,
           "card-spin-active": tier() === "active",
           "card-spin-waiting": tier() === "waiting",
           "card-spin-alerting": tier() === "alerting",
-          "z-10": props.isActive,
+          /* Active: lifted, bleeds into terminal pane */
+          "z-10 shadow-[0_8px_24px_rgba(0,0,0,0.6)]": props.isActive,
         }}
         style={{
-          /* Pass repo color to CSS for spinning gradients + active blend */
           "--card-color": props.displayInfo?.repoColor ?? "var(--color-accent)",
-          ...(props.isActive && tier() === "idle"
-            ? { background: "var(--card-color)" }
-            : {}),
         }}
       >
         <button
@@ -90,16 +93,16 @@ const SidebarEntry: Component<{
           data-alerting={props.alerting ? "" : undefined}
           class="group relative w-full text-sm text-left touch-none transition-all duration-200"
           classList={{
-            "rounded-l-[14px] rounded-r-none": true,
-            "text-fg": props.isActive,
-            "text-fg": !props.isActive && tier() !== "idle",
+            "rounded-[14px]": !props.isActive,
+            "rounded-l-[14px] rounded-r-none": props.isActive,
+            "text-fg": props.isActive || tier() !== "idle",
             "text-fg-3 hover:text-fg-2": !props.isActive && tier() === "idle",
             "opacity-25": sortable.isActiveDraggable,
           }}
           style={{
-            /* Repo color tint for inactive; active matches terminal bg to merge visually */
+            /* Active card uses the actual xterm theme bg — same material as the terminal */
             "background-color": props.isActive
-              ? "var(--color-surface-1)"
+              ? props.activeTerminalBg
               : props.displayInfo?.repoColor
                 ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
@@ -143,6 +146,7 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
+  activeTerminalBg: string;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -256,6 +260,7 @@ const Sidebar: Component<{
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}
+                      activeTerminalBg={props.activeTerminalBg}
                     />
                   );
                 }}
