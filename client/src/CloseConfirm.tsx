@@ -24,6 +24,7 @@ const CloseConfirm: Component<{
   let cancelRef!: HTMLButtonElement;
   const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
   const splitCount = () => props.target?.splitCount ?? 0;
+  const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
 
   return (
     <ModalDialog
@@ -120,7 +121,7 @@ const CloseConfirm: Component<{
                 data-testid="close-confirm-close-all"
                 onClick={() => props.onClose()}
               >
-                {splitCount() > 0 ? "Close all" : "Close"}
+                {closeLabel()}
               </button>
             }
           >
@@ -129,14 +130,14 @@ const CloseConfirm: Component<{
               data-testid="close-confirm-close-only"
               onClick={() => props.onClose()}
             >
-              Close only
+              {closeLabel()}
             </button>
             <button
               data-testid="close-confirm-remove"
               class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
               onClick={() => props.onCloseAndRemove()}
             >
-              Remove worktree
+              {closeLabel()} and remove worktree
             </button>
           </Show>
         </div>
