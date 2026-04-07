@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { match } from "ts-pattern";
 import type { ClaudeCodeInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
@@ -138,26 +139,33 @@ export function deriveState(
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
-      const entry = JSON.parse(lines[i]!);
-      const type: string = entry.type;
-
-      if (type === "assistant") {
-        const stopReason: string | null = entry.message?.stop_reason ?? null;
-        const model: string | null = entry.message?.model ?? null;
-        if (stopReason === "end_turn") {
-          return { state: "waiting", model };
-        }
-        if (stopReason === "tool_use") {
-          return { state: "tool_use", model };
-        }
-        // null or other → still thinking
-        return { state: "thinking", model };
-      }
-
-      if (type === "user") {
-        // User sent a message or tool result — Claude is about to think
-        return { state: "thinking", model: null };
-      }
+      const entry: {
+        type?: string;
+        message?: { stop_reason?: string | null; model?: string | null };
+      } = JSON.parse(lines[i]!);
+      const model = entry.message?.model ?? null;
+      const result = match({
+        type: entry.type,
+        stopReason: entry.message?.stop_reason ?? null,
+      })
+        .with({ type: "assistant", stopReason: "end_turn" }, () => ({
+          state: "waiting" as const,
+          model,
+        }))
+        .with({ type: "assistant", stopReason: "tool_use" }, () => ({
+          state: "tool_use" as const,
+          model,
+        }))
+        .with({ type: "assistant" }, () => ({
+          state: "thinking" as const,
+          model,
+        }))
+        .with({ type: "user" }, () => ({
+          state: "thinking" as const,
+          model: null,
+        }))
+        .otherwise(() => null);
+      if (result !== null) return result;
     } catch {
       // Skip malformed lines
     }

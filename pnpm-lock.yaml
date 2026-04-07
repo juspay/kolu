@@ -188,6 +188,9 @@ importers:
       simple-git:
         specifier: ^3.33.0
         version: 3.33.0
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       ws:
         specifier: ^8.19.0
         version: 8.19.0
