@@ -8,7 +8,11 @@ overrides:
   serialize-javascript: ^7.0.3
   picomatch: ^4.0.4
   yaml: ^2.8.3
-  node-pty: file:./nix/vendored/node-pty-769bfbd.tgz
+
+patchedDependencies:
+  node-pty@1.1.0:
+    hash: 50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6
+    path: patches/node-pty@1.1.0.patch
 
 importers:
 
@@ -175,8 +179,8 @@ importers:
         specifier: workspace:*
         version: link:../common
       node-pty:
-        specifier: file:../nix/vendored/node-pty-769bfbd.tgz
-        version: file:nix/vendored/node-pty-769bfbd.tgz
+        specifier: ^1.0.0
+        version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -2687,9 +2691,8 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
-  node-pty@file:nix/vendored/node-pty-769bfbd.tgz:
-    resolution: {integrity: sha512-BtBRFpg1RFAzOqT4UWqvda1GAWPZ+yacjy0BYZMtV1awPXYtzHwXzV+padafMcIfCxpEnPG0iwzyc9yUwnyeHw==, tarball: file:nix/vendored/node-pty-769bfbd.tgz}
-    version: 1.1.0
+  node-pty@1.1.0:
+    resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
 
   node-releases@2.0.36:
     resolution: {integrity: sha512-TdC8FSgHz8Mwtw9g5L4gR/Sh9XhSP/0DEkQxfEFXOpiul5IiHgHan2VhYYb6agDSfp4KuvltmGApc8HMgUrIkA==}
@@ -6133,7 +6136,7 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-pty@file:nix/vendored/node-pty-769bfbd.tgz:
+  node-pty@1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6):
     dependencies:
       node-addon-api: 7.1.1
 

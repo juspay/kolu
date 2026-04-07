@@ -62,10 +62,9 @@ let
       ./common
       ./server
       ./client
-      # Vendored node-pty fork tarball — referenced by pnpm.overrides
-      # via a file: URL. The fork adds a foregroundPid accessor used by
-      # the claude-code metadata provider for cross-platform detection.
-      ./nix/vendored
+      # pnpm.patchedDependencies entries (e.g. node-pty foregroundPid).
+      # Read by pnpm during install and applied to the upstream tarball.
+      ./patches
     ];
   };
 
@@ -73,7 +72,7 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-MjpJy9UQGxejYuIuis+02TZ7sZjnZn9UCmqen+IzDAs=";
+    hash = "sha256-YcSHxDIjqRVmvldOjx2lurCBmcf+5D7Oxi33TAbjgnw=";
     fetcherVersion = 3;
   };
 

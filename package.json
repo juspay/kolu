@@ -15,8 +15,10 @@
     "overrides": {
       "serialize-javascript": "^7.0.3",
       "picomatch": "^4.0.4",
-      "yaml": "^2.8.3",
-      "node-pty": "file:./nix/vendored/node-pty-769bfbd.tgz"
+      "yaml": "^2.8.3"
+    },
+    "patchedDependencies": {
+      "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
     }
   }
 }
