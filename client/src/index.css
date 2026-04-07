@@ -67,11 +67,19 @@
   }
 }
 
-/* Hide sidebar scrollbar — still scrollable via wheel/touch */
+/* Slim sidebar scrollbar — only visible when content actually overflows */
 .sidebar-scroll {
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--color-edge) transparent;
   &::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--color-edge);
+    border-radius: 3px;
   }
 }
 
