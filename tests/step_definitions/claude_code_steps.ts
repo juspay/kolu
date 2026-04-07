@@ -234,6 +234,17 @@ Then(
 );
 
 Then(
+  "the sidebar should show a terminal preview",
+  async function (this: KoluWorld) {
+    const sidebar = this.page.locator('[data-testid="sidebar"]');
+    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
+    await preview.first().waitFor({ state: "visible", timeout: 10_000 });
+    const count = await preview.count();
+    assert.ok(count > 0, "Expected at least one sidebar preview");
+  },
+);
+
+Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {
     // Wait for it to disappear (may take a poll cycle)

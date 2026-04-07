@@ -356,6 +356,7 @@ const App: Component = () => {
           getMetadata={store.getMetadata}
           isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
+          getTerminalTheme={getTerminalTheme}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}

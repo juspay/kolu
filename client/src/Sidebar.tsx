@@ -12,10 +12,12 @@ import {
 import { match, P } from "ts-pattern";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
+import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
+import type { ITheme } from "@xterm/xterm";
 
 type ClaudeState = ClaudeCodeInfo["state"];
 type CardTier = "waiting" | "active" | "idle";
@@ -38,10 +40,15 @@ const SidebarEntry: Component<{
   metadata: TerminalMetadata | undefined;
   unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
+  terminalTheme: ITheme;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
 }> = (props) => {
+  /** Agent terminals get a live preview above the meta — lets the user watch
+   *  what their agents are saying without switching terminals. Non-agent
+   *  terminals keep the compact meta-only card to save vertical space. */
+  const hasAgent = () => props.metadata?.claude != null;
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
@@ -126,6 +133,17 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
+          <Show when={hasAgent()}>
+            <div
+              data-testid="sidebar-preview"
+              class="mx-2.5 mt-2 h-20 rounded-lg overflow-hidden border border-edge bg-surface-0"
+            >
+              <TerminalPreview
+                terminalId={props.id}
+                theme={props.terminalTheme}
+              />
+            </div>
+          </Show>
           <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>
@@ -154,6 +172,7 @@ const Sidebar: Component<{
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
@@ -271,6 +290,7 @@ const Sidebar: Component<{
                       metadata={props.getMetadata(id)}
                       unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
+                      terminalTheme={props.getTerminalTheme(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}
