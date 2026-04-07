@@ -47,6 +47,8 @@ export interface PtyHandle {
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
   readonly cwd: string;
+  /** Current foreground process name (from node-pty). */
+  readonly process: string;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -59,13 +61,15 @@ export interface PtyHandle {
   dispose(): void;
 }
 
-/** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
+/** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
   tlog: Logger,
   opts: {
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
+    /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
+    onTitleChange?: (title: string) => void;
   },
   clipboard: { shimBinDir: string; clipboardDir: string },
   spawnCwd?: string,
@@ -121,6 +125,13 @@ export function spawnPty(
     },
   );
 
+  // OSC 0/2 title changes signal that the foreground process may have changed.
+  // The shell preexec hook (injected in shell.ts) emits OSC 2 before each command.
+  const titleDisposable = headless.onTitleChange((title: string) => {
+    tlog.info({ title }, "title changed (OSC 0/2)");
+    opts.onTitleChange?.(title);
+  });
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
@@ -143,6 +154,9 @@ export function spawnPty(
     get cwd() {
       return currentCwd;
     },
+    get process() {
+      return proc.process;
+    },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
@@ -153,6 +167,7 @@ export function spawnPty(
       getScreenText(headless.buffer.active, startLine, endLine),
     dispose() {
       oscDisposable.dispose();
+      titleDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();

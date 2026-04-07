@@ -66,6 +66,16 @@ export const ClaudeCodeInfoSchema = z.object({
   model: z.string().nullable(),
 });
 
+// --- Foreground process context ---
+
+/** Foreground process info from PTY. */
+export const ForegroundSchema = z.object({
+  /** Binary name (e.g. "vim", "claude", "opencode"). */
+  name: z.string(),
+  /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
+  title: z.string().nullable(),
+});
+
 // --- Terminal metadata (unified, provider-aggregated) ---
 
 export const TerminalMetadataSchema = z.object({
@@ -73,6 +83,8 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  /** Foreground process name — detected via OSC 2 title change events. */
+  foreground: ForegroundSchema.nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -218,6 +230,7 @@ export type TerminalId = TerminalInfo["id"];
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;

@@ -12,6 +12,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
     git: null,
     pr: null,
     claude: null,
+    foreground: null,
     sortOrder: 0,
     ...overrides,
   };
