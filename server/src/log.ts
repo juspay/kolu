@@ -6,7 +6,10 @@ export const log = pino(
     ? { level: "info" }
     : {
         level: "info",
-        transport: { target: "pino-pretty", options: { colorize: true } },
+        transport: {
+          target: "pino-pretty",
+          options: { colorize: true, singleLine: true },
+        },
       },
 );
 

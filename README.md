@@ -11,8 +11,8 @@ Unlike agent command centers that wrap a single model behind their own chat UI, 
 ## Usage
 
 ```sh
-nix run github:juspay/kolu       # serve on 0.0.0.0:7681
-nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
+nix run github:juspay/kolu       # serve on 127.0.0.1:7681
+nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 ```
 
 ## Features
