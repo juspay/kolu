@@ -135,18 +135,21 @@ const TerminalMeta: Component<{
                 fallback={
                   <Show when={info().meta.foreground}>
                     {(fg) => (
-                      <span
-                        class="text-xs text-fg-3 truncate"
-                        data-testid="process-name"
-                        title={fg().title ?? undefined}
-                      >
-                        {fg().name}
+                      <div data-testid="process-name">
+                        <div class="text-xs text-fg-3 truncate">
+                          {fg().name}
+                        </div>
                         <Show when={fg().title}>
                           {(title) => (
-                            <span class="text-fg-4 ml-1">{title()}</span>
+                            <div
+                              class="text-[0.6rem] text-fg-4 truncate"
+                              title={title()}
+                            >
+                              {title()}
+                            </div>
                           )}
                         </Show>
-                      </span>
+                      </div>
                     )}
                   </Show>
                 }
