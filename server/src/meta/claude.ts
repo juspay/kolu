@@ -97,46 +97,23 @@ export function encodeProjectPath(cwd: string): string {
 }
 
 /**
- * Find the JSONL transcript path for a session.
+ * Find the JSONL transcript path for a session — exact match by session ID.
  *
- * First tries the exact session ID. Falls back to the most recently modified
- * JSONL in the project dir — handles resumed sessions where the PID's session
- * ID differs from the transcript's original session ID.
+ * Returns null if the file doesn't exist yet (common: claude creates the
+ * JSONL lazily on the first user↔assistant exchange, not at session start).
+ * Callers should treat null as "wait and retry" via a project dir watcher,
+ * not as "give up".
  *
- * No staleness check: this function is only called right after a session is
- * freshly matched, so any transcript under the session's encoded cwd is
- * attributable to the current session.
+ * No MRU fallback: picking the most recently modified file in the project
+ * dir leads to attaching to a stale previous-session transcript while the
+ * current session's file is still being created. Better to wait.
  */
 export function findTranscriptPath(session: SessionFile): string | null {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
-
-  // Exact match by session ID
   const exactPath = path.join(projectDir, `${session.sessionId}.jsonl`);
   try {
     fs.accessSync(exactPath);
     return exactPath;
-  } catch {
-    // fall through to MRU scan
-  }
-
-  // Fallback: most recently modified JSONL in the project dir.
-  try {
-    const files = fs
-      .readdirSync(projectDir)
-      .filter((f) => f.endsWith(".jsonl"));
-    if (files.length === 0) return null;
-
-    let newest: string | null = null;
-    let newestMtime = 0;
-    for (const file of files) {
-      const full = path.join(projectDir, file);
-      const stat = fs.statSync(full);
-      if (stat.mtimeMs > newestMtime) {
-        newestMtime = stat.mtimeMs;
-        newest = full;
-      }
-    }
-    return newest;
   } catch {
     return null;
   }
@@ -308,10 +285,7 @@ export function startClaudeCodeProvider(
 
   function attachTranscriptWatcher(tp: string) {
     try {
-      const fileWatcher = fs.watch(tp, (eventType) => {
-        plog.info({ path: tp, eventType }, "transcript watch event");
-        onTranscriptMaybeChanged();
-      });
+      const fileWatcher = fs.watch(tp, () => onTranscriptMaybeChanged());
       transcriptWatching = { kind: "watching", path: tp, fileWatcher };
     } catch (err) {
       plog.warn({ err, path: tp }, "failed to watch transcript");
@@ -351,48 +325,18 @@ export function startClaudeCodeProvider(
   }
 
   function onTranscriptMaybeChanged() {
-    if (transcriptWatching.kind !== "watching") {
-      plog.info(
-        { kind: transcriptWatching.kind },
-        "transcript event ignored — not in watching state",
+    if (transcriptWatching.kind !== "watching") return;
+    if (!matchedSession) return;
+
+    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    const derived = deriveState(lines);
+    if (!derived) {
+      plog.debug(
+        { path: transcriptWatching.path },
+        "no user/assistant message in transcript tail",
       );
       return;
     }
-    if (!matchedSession) {
-      plog.info("transcript event ignored — no matched session");
-      return;
-    }
-
-    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    // Last few line types for diagnosis — walking backwards
-    const lastTypes: string[] = [];
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 4); i--) {
-      try {
-        const e = JSON.parse(lines[i]!) as {
-          type?: string;
-          message?: { stop_reason?: string | null };
-        };
-        lastTypes.push(
-          `${e.type ?? "?"}${
-            e.message?.stop_reason ? ":" + e.message.stop_reason : ""
-          }`,
-        );
-      } catch {
-        lastTypes.push("<parse-err>");
-      }
-    }
-    const derived = deriveState(lines);
-    plog.info(
-      {
-        path: transcriptWatching.path,
-        lines: lines.length,
-        lastTypes,
-        derived: derived?.state ?? null,
-        published: entry.info.meta.claude?.state ?? null,
-      },
-      "transcript read",
-    );
-    if (!derived) return;
 
     const info: ClaudeCodeInfo = {
       state: derived.state,

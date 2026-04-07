@@ -31,6 +31,12 @@ Feature: Claude Code status detection
     Then the header should show a Claude indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Previous-session JSONL in the project dir doesn't confuse detection
+    When a Claude Code session is mocked with state "thinking"
+    And a newer stale previous-session JSONL exists in the same project dir
+    Then the header should show a Claude indicator with state "thinking"
+    And there should be no page errors
+
   Scenario: Sidebar shows a live preview for terminals running agents
     When a Claude Code session is mocked with state "thinking"
     Then the sidebar should show a terminal preview
