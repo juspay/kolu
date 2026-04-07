@@ -146,16 +146,12 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Close a terminal — shows confirmation if it has splits or is a worktree. */
+  /** Close a terminal — always shows the confirmation dialog. */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
     if (!meta) return;
     const splitCount = store.getSubTerminalIds(id).length;
-    if (splitCount > 0 || meta.git?.isWorktree) {
-      setCloseConfirmTarget({ id, meta, splitCount });
-    } else {
-      void crud.handleKill(id);
-    }
+    setCloseConfirmTarget({ id, meta, splitCount });
   }
 
   const commands = createCommands({

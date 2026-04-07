@@ -1,6 +1,16 @@
 Feature: Kill terminal
   Closing terminals via sidebar and auto-switching.
 
+  Scenario: Closing a plain terminal asks for confirmation
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I click the sidebar close button for terminal 1
+    Then the close confirmation should be visible
+    When I dismiss the close confirmation
+    Then the sidebar should have 2 terminal entries
+    And there should be no page errors
+
   Scenario: Kill terminal via sidebar close button
     When I open the app
     And I create a terminal
