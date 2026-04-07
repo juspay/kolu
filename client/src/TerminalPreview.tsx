@@ -131,9 +131,13 @@ const TerminalPreview: Component<{
     <div
       ref={hostRef}
       class="w-full h-full overflow-hidden"
-      // Fill the letterbox bars (host > scaled xterm canvas) with the
-      // terminal's own theme background so they read as terminal padding
-      // rather than a generic surface gap.
+      // The scaled xterm canvas almost never fills the host slot exactly:
+      // main terminal aspect ratio (cols × charW : rows × lineH) won't match
+      // the sidebar card's, and the mismatch shifts as the user opens/closes
+      // sub-panels (which resize main → changes cols/rows → changes the
+      // preview's natural ratio). Painting the host with the terminal theme
+      // background makes the unused bands read as terminal padding rather
+      // than a generic-surface gap that flashes on every layout change.
       style={{ "background-color": props.theme.background }}
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
