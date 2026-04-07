@@ -1,20 +1,22 @@
 /**
  * Claude Code metadata provider — detects Claude Code sessions in a terminal.
  *
- * Detection: scans ~/.claude/sessions/ for {pid}.json, matches each PID's PTY
- * (via /proc/{pid}/fd/0) to the terminal shell's PTY. Once matched, tails
- * the session JSONL transcript to derive state.
+ * Detection: each terminal asks "what's my pty's foreground process?" via
+ * tcgetpgrp(fd) (exposed by node-pty's foregroundPid accessor). If a session
+ * file exists at ~/.claude/sessions/{fgpid}.json, that terminal is running
+ * claude-code. Cross-platform — works on both Linux and macOS.
  *
  * States derived from last JSONL message:
  * - thinking:  last message is "user" (API call in flight) or "assistant" with null stop_reason
  * - tool_use:  last assistant message has stop_reason "tool_use" (executing tools / permission prompt)
  * - waiting:   last assistant message has stop_reason "end_turn" (idle, awaiting user input)
  *
- * Limitations (Linux-only for now):
- * - PTY matching relies on /proc/{pid}/fd/0 — not available on macOS
+ * Limitations:
  * - Cannot distinguish "waiting for permission" from "executing tool" (both are tool_use)
  * - JSONL updates are not perfectly real-time — batched when API calls complete
  * - progress/streaming messages during thinking are not tracked (only final state)
+ * - Wrapper processes (e.g. `script -q out.log claude`) are not detected: the
+ *   foreground pid is the wrapper, not claude-code itself
  */
 
 import fs from "node:fs";
@@ -42,18 +44,39 @@ export interface SessionFile {
   cwd: string;
 }
 
-/** Read a symlink target, returning null on any error. */
-function readlinkSafe(p: string): string | null {
+/**
+ * Read a Claude session file by pid. Returns null if the file doesn't
+ * exist (the common case — most pids are not claude-code sessions) or
+ * if the file is unreadable / malformed / missing required fields.
+ */
+function readSessionFile(pid: number): SessionFile | null {
+  let raw: string;
   try {
-    return fs.readlinkSync(p);
-  } catch {
+    raw = fs.readFileSync(path.join(SESSIONS_DIR, `${pid}.json`), "utf8");
+  } catch (err) {
+    // ENOENT is expected — most pids are not claude-code sessions.
+    // Other errors (EACCES, EIO, etc.) are surfaced at debug level so
+    // they're discoverable without spamming the log.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.debug({ err, pid }, "claude session file unreadable");
+    }
     return null;
   }
-}
-
-/** Get the PTY path for a process via /proc. */
-function getPtyForPid(pid: number): string | null {
-  return readlinkSafe(`/proc/${pid}/fd/0`);
+  try {
+    const parsed = JSON.parse(raw) as Partial<SessionFile>;
+    if (
+      typeof parsed.pid !== "number" ||
+      typeof parsed.sessionId !== "string" ||
+      typeof parsed.cwd !== "string"
+    ) {
+      log.debug({ pid, parsed }, "claude session file shape unexpected");
+      return null;
+    }
+    return parsed as SessionFile;
+  } catch (err) {
+    log.debug({ err, pid }, "claude session file parse failed");
+    return null;
+  }
 }
 
 /** Encode a CWD path to the Claude projects directory key (replace / and . with -). */
@@ -185,29 +208,6 @@ export function infoEqual(
   );
 }
 
-/** Scan sessions dir and return all live sessions. */
-function scanSessions(): SessionFile[] {
-  try {
-    const files = fs.readdirSync(SESSIONS_DIR);
-    const sessions: SessionFile[] = [];
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      try {
-        const raw = fs.readFileSync(path.join(SESSIONS_DIR, file), "utf8");
-        const data = JSON.parse(raw) as SessionFile;
-        // Verify process is still alive
-        process.kill(data.pid, 0);
-        sessions.push(data);
-      } catch {
-        // Dead process or unreadable file
-      }
-    }
-    return sessions;
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Start the Claude Code metadata provider for a terminal entry.
  * Polls for matching Claude Code sessions and tails their transcripts.
@@ -225,29 +225,26 @@ export function startClaudeCodeProvider(
 
   plog.info("started");
 
-  function getTerminalPty(): string | null {
-    return getPtyForPid(entry.handle.pid);
-  }
-
-  /** Try to match a Claude Code session to this terminal via PTY. */
+  /**
+   * Look up the claude-code session running in this terminal, if any.
+   *
+   * Asks the pty for its current foreground process group leader (via
+   * tcgetpgrp) and checks whether ~/.claude/sessions/{fgpid}.json exists.
+   * No cross-product scan, no /proc/<pid>/fd/0 reads — works on Linux
+   * and macOS identically.
+   */
   function matchSession(): SessionFile | null {
-    const termPty = getTerminalPty();
-    if (!termPty) {
-      plog.debug({ pid: entry.handle.pid }, "cannot read terminal PTY");
+    const fgPid = entry.handle.foregroundPid;
+    if (fgPid === undefined) {
+      plog.debug({ pid: entry.handle.pid }, "no foreground pid yet");
       return null;
     }
-    if (!termPty.startsWith("/dev/pts/")) {
-      plog.debug({ pty: termPty }, "terminal fd/0 is not a PTY");
+    const session = readSessionFile(fgPid);
+    if (!session) {
+      plog.debug({ fgPid }, "no claude session for foreground pid");
       return null;
     }
-
-    const sessions = scanSessions();
-    plog.debug({ termPty, sessionCount: sessions.length }, "scanning sessions");
-    for (const session of sessions) {
-      const sessionPty = getPtyForPid(session.pid);
-      if (sessionPty === termPty) return session;
-    }
-    return null;
+    return session;
   }
 
   /** Read transcript and update metadata. */
