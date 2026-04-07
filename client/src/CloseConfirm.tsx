@@ -17,7 +17,7 @@ export interface CloseConfirmTarget {
 
 const CloseConfirm: Component<{
   target: CloseConfirmTarget | null;
-  onOpenChange: (open: boolean) => void;
+  onCancel: () => void;
   onClose: () => void;
   onCloseAndRemove: () => void;
 }> = (props) => {
@@ -28,7 +28,9 @@ const CloseConfirm: Component<{
   return (
     <ModalDialog
       open={props.target !== null}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={(open) => {
+        if (!open) props.onCancel();
+      }}
       initialFocusEl={cancelRef}
     >
       <Dialog.Content
@@ -105,7 +107,8 @@ const CloseConfirm: Component<{
           <button
             ref={cancelRef}
             class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
-            onClick={() => props.onOpenChange(false)}
+            data-testid="close-confirm-cancel"
+            onClick={() => props.onCancel()}
           >
             Cancel
           </button>
@@ -115,10 +118,7 @@ const CloseConfirm: Component<{
               <button
                 class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
                 data-testid="close-confirm-close-all"
-                onClick={() => {
-                  props.onClose();
-                  props.onOpenChange(false);
-                }}
+                onClick={() => props.onClose()}
               >
                 Close all
               </button>
@@ -127,20 +127,14 @@ const CloseConfirm: Component<{
             <button
               class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
               data-testid="close-confirm-close-only"
-              onClick={() => {
-                props.onClose();
-                props.onOpenChange(false);
-              }}
+              onClick={() => props.onClose()}
             >
               Close only
             </button>
             <button
               data-testid="close-confirm-remove"
               class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
-              onClick={() => {
-                props.onCloseAndRemove();
-                props.onOpenChange(false);
-              }}
+              onClick={() => props.onCloseAndRemove()}
             >
               Remove worktree
             </button>

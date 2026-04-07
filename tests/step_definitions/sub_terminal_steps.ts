@@ -245,6 +245,10 @@ When(
     // Hover the parent to reveal the close button
     await tab.locator("..").hover();
     await tab.click();
+    // Confirm in the dialog — every close goes through CloseConfirm.
+    const confirm = this.page.locator('[data-testid="close-confirm"]');
+    await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await confirm.locator('[data-testid="close-confirm-close-all"]').click();
     await this.waitForFrame();
   },
 );

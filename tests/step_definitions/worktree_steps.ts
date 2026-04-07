@@ -65,6 +65,13 @@ When("I dismiss the close confirmation", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
+When("I cancel the close confirmation", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="close-confirm-cancel"]').click();
+  await this.page
+    .locator('[data-testid="close-confirm"]')
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+});
+
 Then(
   "the sidebar entry count should be unchanged",
   async function (this: KoluWorld) {

@@ -277,18 +277,20 @@ const App: Component = () => {
       </ModalDialog>
       <CloseConfirm
         target={closeConfirmTarget()}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCloseConfirmTarget(null);
-            requestAnimationFrame(refocusTerminal);
-          }
+        onCancel={() => {
+          setCloseConfirmTarget(null);
+          requestAnimationFrame(refocusTerminal);
         }}
         onClose={() => {
           const target = closeConfirmTarget();
+          setCloseConfirmTarget(null);
+          // Don't refocus — the natural reactive focus handlers (sub-panel,
+          // active terminal) restore focus to the right place after the kill.
           if (target) void crud.handleKillWithSubs(target.id);
         }}
         onCloseAndRemove={() => {
           const target = closeConfirmTarget();
+          setCloseConfirmTarget(null);
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
