@@ -4,55 +4,60 @@
  * Mocks Claude Code sessions by creating fake session files and JSONL transcripts
  * in the test's configurable directories (KOLU_CLAUDE_SESSIONS_DIR / KOLU_CLAUDE_PROJECTS_DIR).
  *
- * Uses the terminal's own shell PID as the fake "Claude Code PID" — since
- * the shell PID is alive and its stdin points to the terminal's PTY, the
- * provider's PTY matching logic treats it as a match.
+ * Uses the terminal's own shell PID as the fake "Claude Code PID" — when
+ * nothing else is running, the pty's foreground process group leader is the
+ * shell itself, so a session file at ~/.claude/sessions/<shell-pid>.json
+ * makes the provider's foreground-pid lookup succeed.
  */
 
-import { When, Then, Before, After } from "@cucumber/cucumber";
+import { When, Then, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
-import { pollUntilBufferContains } from "../support/buffer.ts";
+import { readBufferText } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
 const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
 
-// Skip on macOS — PTY matching relies on /proc which doesn't exist there
-Before({ tags: "@claude-mock" }, function () {
-  if (os.platform() !== "linux") {
-    return "skipped";
-  }
-});
-
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
   const marker = `PID_MARKER_${Date.now()}`;
   await world.page.keyboard.type(`echo $$; echo ${marker}`);
   await world.page.keyboard.press("Enter");
-  // Wait for the marker to appear — guarantees the PID output is complete
-  const text = await pollUntilBufferContains(world.page, marker);
-  // The PID is the line immediately before the marker line
-  const lines = text.split("\n").map((l) => l.trim());
-  const markerIdx = lines.findIndex(
-    (l) => l.includes(marker) && !l.includes("echo"),
+  // Poll until we can actually parse the PID from the buffer. The marker
+  // appears in the echoed command line BEFORE the shell prints its output,
+  // so polling on the substring alone races the output. Instead poll until
+  // the structure we want — PID line + marker output line — is present.
+  const pid = await pollUntil(
+    world.page,
+    async () => {
+      const text = await readBufferText(world.page);
+      const lines = text.split("\n").map((l) => l.trim());
+      // Find the marker on a line that's NOT the typed echo command.
+      const markerIdx = lines.findIndex(
+        (l) => l.includes(marker) && !l.includes("echo"),
+      );
+      if (markerIdx <= 0) return null;
+      // Walk backwards from marker to find the PID (first purely numeric line).
+      for (let i = markerIdx - 1; i >= 0; i--) {
+        const num = parseInt(lines[i]!, 10);
+        if (!isNaN(num) && num > 0 && String(num) === lines[i]) return num;
+      }
+      return null;
+    },
+    (val) => val !== null,
+    { attempts: 50, intervalMs: 100 },
   );
-  if (markerIdx <= 0)
+  if (pid === null) {
+    const text = await readBufferText(world.page);
     throw new Error(
-      `Could not find marker output in buffer:\n${text.slice(0, 800)}`,
+      `getTerminalPid: PID not parseable from buffer (marker=${marker}):\n${text.slice(0, 800)}`,
     );
-  // Walk backwards from marker to find the PID (first purely numeric line)
-  for (let i = markerIdx - 1; i >= 0; i--) {
-    const num = parseInt(lines[i]!, 10);
-    if (!isNaN(num) && num > 0 && String(num) === lines[i]) return num;
   }
-  throw new Error(
-    `Could not parse PID from buffer before marker:\n${text.slice(0, 800)}`,
-  );
+  return pid;
 }
 
 /** Build a JSONL transcript with a specific final state. */

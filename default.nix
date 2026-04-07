@@ -62,6 +62,9 @@ let
       ./common
       ./server
       ./client
+      # pnpm.patchedDependencies entries (e.g. node-pty foregroundPid).
+      # Read by pnpm during install and applied to the upstream tarball.
+      ./patches
     ];
   };
 

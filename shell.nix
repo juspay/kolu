@@ -27,5 +27,13 @@ pkgs.mkShell {
     tsx
     nixpkgs-fmt
     prettier
+    # node-gyp toolchain — required by `pnpm install` to recompile node-pty
+    # after applying patches/node-pty@1.1.0.patch (the patched install
+    # script forces node-gyp rebuild). The build derivation already lists
+    # these in nativeBuildInputs; the dev shell needs them so `just install`
+    # works outside the nix build.
+    python3
+    nodePackages.node-gyp
+    pkg-config
   ];
 }

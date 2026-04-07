@@ -9,6 +9,11 @@ overrides:
   picomatch: ^4.0.4
   yaml: ^2.8.3
 
+patchedDependencies:
+  node-pty@1.1.0:
+    hash: 50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6
+    path: patches/node-pty@1.1.0.patch
+
 importers:
 
   .: {}
@@ -175,7 +180,7 @@ importers:
         version: link:../common
       node-pty:
         specifier: ^1.0.0
-        version: 1.1.0
+        version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -6131,7 +6136,7 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-pty@1.1.0:
+  node-pty@1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6):
     dependencies:
       node-addon-api: 7.1.1
 

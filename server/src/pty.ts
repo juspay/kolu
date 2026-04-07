@@ -49,6 +49,12 @@ export interface PtyHandle {
   readonly cwd: string;
   /** Current foreground process name (from node-pty). */
   readonly process: string;
+  /**
+   * Pid of the pty's current foreground process group leader (from
+   * tcgetpgrp(3)), or `undefined` if not yet set. Used by metadata
+   * providers to identify which process is running in the terminal.
+   */
+  readonly foregroundPid: number | undefined;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -93,6 +99,19 @@ export function spawnPty(
     env,
   });
   tlog.info({ pid: proc.pid }, "pty spawned");
+
+  // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
+  // changes drop it, fail loud here instead of silently breaking claude
+  // detection. The accessor returns 0 momentarily before the child finishes
+  // setsid, so any number (including 0) means the property exists.
+  if (
+    typeof (proc as unknown as { foregroundPid?: unknown }).foregroundPid !==
+    "number"
+  ) {
+    throw new Error(
+      "node-pty.foregroundPid accessor missing — fork patch may have regressed",
+    );
+  }
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.
@@ -156,6 +175,13 @@ export function spawnPty(
     },
     get process() {
       return proc.process;
+    },
+    get foregroundPid() {
+      // node-pty's IPty type doesn't expose this; the UnixTerminal class does.
+      // tcgetpgrp can return 0 momentarily before the child finishes setsid —
+      // collapse that to undefined so callers don't have to special-case it.
+      const pid = (proc as unknown as { foregroundPid?: number }).foregroundPid;
+      return pid && pid > 0 ? pid : undefined;
     },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {

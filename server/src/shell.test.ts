@@ -35,7 +35,10 @@ describe("OSC7_FN", () => {
   it("emits OSC 7 with file:// URL containing hostname and cwd", () => {
     const out = runBash(`${OSC7_FN}; __kolu_osc7`, "/tmp");
     // Format: ESC ] 7 ; file://<hostname><pwd> ESC \
-    expect(out).toMatch(/^\x1b\]7;file:\/\/[^/]+\/tmp\x1b\\$/);
+    // On macOS /tmp resolves to /private/tmp, so the path may end in
+    // /tmp but contain /private as a prefix — accept any path ending
+    // in /tmp.
+    expect(out).toMatch(/^\x1b\]7;file:\/\/.+\/tmp\x1b\\$/);
   });
 
   it("reflects current PWD not the initial cwd", () => {
