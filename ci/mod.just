@@ -22,7 +22,13 @@ _local:
     just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
 
 _linux:
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
+
+# Runs home-manager and e2e in parallel after nix has completed.
+# Within the same just process, their `: nix` deps are already satisfied,
+# so nix is not rebuilt.
+[parallel]
+_linux-fanout: home-manager e2e
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
