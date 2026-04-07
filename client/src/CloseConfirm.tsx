@@ -120,7 +120,7 @@ const CloseConfirm: Component<{
                 data-testid="close-confirm-close-all"
                 onClick={() => props.onClose()}
               >
-                Close all
+                {splitCount() > 0 ? "Close all" : "Close"}
               </button>
             }
           >
