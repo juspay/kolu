@@ -26,7 +26,7 @@ const argv = cli({
     host: {
       type: String,
       description: "Address to listen on",
-      default: "0.0.0.0",
+      default: "127.0.0.1",
     },
     port: {
       type: Number,
