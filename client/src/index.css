@@ -103,6 +103,18 @@
   padding-right: 0;
 }
 
+/* Active card depth + identity:
+ *   - dark drop shadow for elevation in dark themes
+ *   - repo-colored outer glow that's always visible (any theme)
+ *   - subtle inset highlight on top edge for "lifted" feel
+ */
+.card-active-shadow {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 2px oklch(from var(--card-color) l c h / 0.4),
+    0 0 16px oklch(from var(--card-color) l c h / 0.35);
+}
+
 /* Spinning states — all use --card-color (the terminal's repo color) */
 .card-border-wrap.card-spin-active {
   background: conic-gradient(

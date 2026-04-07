@@ -73,8 +73,8 @@ const SidebarEntry: Component<{
           "card-spin-active": tier() === "active",
           "card-spin-waiting": tier() === "waiting",
           "card-spin-alerting": tier() === "alerting",
-          /* Active: lifted, bleeds into terminal pane */
-          "z-10 shadow-[0_8px_24px_rgba(0,0,0,0.6)]": props.isActive,
+          /* Active: lifted with depth (dark shadow) + identity (repo-colored glow) */
+          "z-10 card-active-shadow": props.isActive,
         }}
         style={{
           "--card-color": props.displayInfo?.repoColor ?? "var(--color-accent)",
