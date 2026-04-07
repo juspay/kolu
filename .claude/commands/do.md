@@ -3,9 +3,9 @@ argument-hint: <github-issue-url | prompt> [--review] [--from <step>]
 description: Do a task end-to-end — implement, PR, CI loop, ship
 ---
 
-# Execute Workflow
+# Do Workflow
 
-Take a task and execute it top-to-bottom: research, implement, open a draft PR, pass CI, refine, and ship.
+Take a task and do it top-to-bottom: research, implement, open a draft PR, pass CI, refine, and ship.
 
 **Fully autonomous.** Do NOT use `AskUserQuestion` at any point (unless `--review` is active during the planning pause). Make sensible default choices and keep moving.
 
@@ -22,7 +22,7 @@ After each step's verification, write/update `.do-results.json`:
 
 ```json
 {
-  "workflow": "execute",
+  "workflow": "do",
   "startedAt": "<ISO timestamp>",
   "active": true,
   "status": "running",
@@ -48,7 +48,7 @@ After each step's verification, write/update `.do-results.json`:
 Print a progress line before each step:
 
 ```
-[execute] ✓sync ✓research ▸hickey · branch · implement · docs · police · fmt · commit · test · ci · update-pr · done
+[do] ✓sync ✓research ▸hickey · branch · implement · docs · police · fmt · commit · test · ci · update-pr · done
 ```
 
 ### sync
@@ -219,7 +219,7 @@ Compute duration for each step from its `startedAt`/`completedAt` timestamps. Pr
 After the timing table, print 2–4 concrete suggestions for reducing time-to-completion in future runs. Base these on the actual timing data — for example:
 
 - If **ci** dominates: suggest `--from ci-only` for re-runs, or note which CI sub-step was slowest
-- If **research** was slow: suggest pre-reading relevant code before invoking `/execute`
+- If **research** was slow: suggest pre-reading relevant code before invoking `/do`
 - If **test** had retries: note the flaky test and suggest hardening it
 - If **police** required fix iterations: note which pass caught issues (rules/fact-check/elegance)
 - If **implement** was the bottleneck: suggest breaking the task into smaller PRs
@@ -232,7 +232,7 @@ Report the PR URL. Then post the final step status table as a **PR comment** usi
 
 ```
 gh pr comment --body "$(cat <<'COMMENT'
-## Execute Results
+## [`/do`](https://github.com/srid/agency) results
 
 | Step | Status | Duration | Verification |
 |------|--------|----------|-------------|
@@ -264,7 +264,7 @@ COMMENT
 
 ## Rules
 
-- **Never skip steps.** Execute them in order from entry point to **done**.
+- **Never skip steps.** Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main.
 - **Background for CI.** Run CI with `run_in_background: true`.

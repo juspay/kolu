@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/hooks/agency/scripts/execute-stop-guard.sh"
+            "command": ".claude/hooks/agency/scripts/do-stop-guard.sh"
           }
         ],
         "_apm_source": "agency"

@@ -7,7 +7,7 @@ import { ClaudeCodeIcon } from "./Icons";
 type ClaudeState = ClaudeCodeInfo["state"];
 
 /** Busy = actively working (thinking or running tools). Warning = needs user input. */
-const BUSY_COLOR = "text-[#D97757]";
+const BUSY_COLOR = "text-busy";
 
 const stateConfig: Record<
   ClaudeState,

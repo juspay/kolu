@@ -26,6 +26,7 @@
   --color-ok: #4ade80;
   --color-warning: #facc15;
   --color-danger: #f87171;
+  --color-busy: #d97757;
 
   --animate-activity-pulse: activity-pulse 600ms ease-out;
 }
@@ -50,6 +51,7 @@
   --color-ok: #16a34a;
   --color-warning: #ca8a04;
   --color-danger: #dc2626;
+  --color-busy: #c4623e;
 }
 
 /* Brief pulse when a terminal becomes active in the background */
@@ -65,13 +67,76 @@
   }
 }
 
-/* Pulsing warm glow on sidebar entry when a background terminal's Claude finishes */
-@keyframes alerting-glow {
-  0%,
-  100% {
-    background-color: oklch(from var(--color-alert) l c h / 0.08);
+/* Hide sidebar scrollbar — still scrollable via wheel/touch */
+.sidebar-scroll {
+  scrollbar-width: none; /* Firefox */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
   }
-  50% {
-    background-color: oklch(from var(--color-alert) l c h / 0.25);
+}
+
+/* ── Spinning border animation ───────────────────────────────── */
+/* Conic gradient rotates behind the card; the card masks the center,
+   leaving a thin animated "tire" border visible around the edges. */
+
+@property --spin-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes border-spin {
+  to {
+    --spin-angle: 360deg;
   }
+}
+
+/* Base wrapper — positions the spinning gradient behind the card */
+.card-border-wrap {
+  position: relative;
+  padding: 2px; /* border thickness */
+  background: var(--color-surface-0);
+}
+
+/* Active wrapper bleeds to the right edge — no right border channel */
+.card-border-wrap.card-active {
+  padding-right: 0;
+}
+
+/* Active card depth + identity:
+ *   - dark drop shadow for elevation in dark themes
+ *   - repo-colored outer glow that's always visible (any theme)
+ *   - subtle inset highlight on top edge for "lifted" feel
+ */
+.card-active-shadow {
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 2px oklch(from var(--card-color) l c h / 0.4),
+    0 0 16px oklch(from var(--card-color) l c h / 0.35);
+}
+
+/* Spinning states — all use --card-color (the terminal's repo color) */
+.card-border-wrap.card-spin-active {
+  background: conic-gradient(
+    from var(--spin-angle),
+    transparent 0%,
+    var(--card-color) 25%,
+    transparent 50%,
+    oklch(from var(--card-color) l c h / 0.3) 75%,
+    transparent 100%
+  );
+  animation: border-spin 3s linear infinite;
+}
+
+.card-border-wrap.card-spin-waiting {
+  background: conic-gradient(
+    from var(--spin-angle),
+    transparent 0%,
+    var(--card-color) 20%,
+    transparent 40%,
+    var(--card-color) 60%,
+    transparent 80%,
+    var(--card-color) 100%
+  );
+  animation: border-spin 1.2s linear infinite;
 }

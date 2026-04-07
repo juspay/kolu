@@ -1,20 +1,12 @@
 ---
 paths:
-  - ".claude/**"
+  - ".claude/**,.opencode/**"
 ---
 
 ## Generated Files — Do Not Edit Directly
 
-Everything under `.claude/` (except `launch.json`) is **generated** from `.apm/` sources by APM. Direct edits will be overwritten on the next `apm install` run.
+> **This rule only applies if an `.apm/` directory exists in the project root.** If there is no `.apm/` directory, `.claude/` and `.opencode/` files are vendored directly and can be edited in place.
 
-**To modify agent configuration, edit the source files in `.apm/`:**
+Everything under `.claude/` and `.opencode/` is **generated** from `.apm/` sources by APM. Direct edits will be overwritten on the next `apm install` run.
 
-| `.claude/` output | Source in `.apm/`                  |
-| ----------------- | ---------------------------------- |
-| `rules/*.md`      | `instructions/*.instructions.md`   |
-| `commands/*.md`   | `prompts/*.prompt.md`              |
-| `skills/*/`       | `skills/*/`                        |
-| `hooks/`          | `hooks/`                           |
-| `settings.json`   | Hook definitions in `hooks/*.json` |
-
-After editing, run `apm install` to regenerate `.claude/` from sources.
+To modify agent configuration, edit the source files in `.apm/`, then run `apm install` to regenerate.

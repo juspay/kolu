@@ -9,34 +9,55 @@ import {
   transformStyle,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import { match, P } from "ts-pattern";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
 
-/** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
+type ClaudeState = ClaudeCodeInfo["state"];
+type CardTier = "waiting" | "active" | "idle";
+
+/** Derive the visual tier for the sidebar card from live Claude state.
+ *  Note: `unread` (unseen completion) is orthogonal — rendered as a
+ *  separate dot, not folded into this tier. */
+function cardTier(claudeState: ClaudeState | undefined): CardTier {
+  return match(claudeState)
+    .with("waiting", () => "waiting" as const)
+    .with(P.union("thinking", "tool_use"), () => "active" as const)
+    .with(undefined, () => "idle" as const)
+    .exhaustive();
+}
+
+/** Single sortable sidebar entry — floating card with spinning border for agent states. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
-  alerting: boolean;
+  unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
-  /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
   const sortable = createSortable(props.id);
+  const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
   return (
-    <div class="relative" style={transformStyle(sortable.transform)}>
-      {/* Drop indicator line — positioned at the edge where the item will be inserted */}
+    <div
+      class="relative py-1 pl-1.5"
+      classList={{
+        "pr-0": props.isActive,
+        "pr-1.5": !props.isActive,
+      }}
+      style={transformStyle(sortable.transform)}
+    >
       <Show when={props.dropEdge}>
         {(edge) => (
           <div
-            class="absolute left-1 right-1 h-0.5 bg-accent rounded-full"
+            class="absolute left-2 right-2 h-0.5 bg-accent rounded-full z-10"
             classList={{
               "top-0": edge() === "above",
               "bottom-0": edge() === "below",
@@ -44,49 +65,84 @@ const SidebarEntry: Component<{
           />
         )}
       </Show>
-      <button
-        ref={sortable.ref}
-        {...sortable.dragActivators}
-        data-terminal-id={props.id}
-        data-active={props.isActive ? "" : undefined}
-        data-activity={
-          props.displayInfo?.activityHistory.at(-1)?.[1] ? "active" : "sleeping"
-        }
-        data-alerting={props.alerting ? "" : undefined}
-        class="group w-full py-2 pl-2 pr-6 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
+
+      {/* Unread dot — sits in the left gutter beside the card so it doesn't
+       *  overlap any card content or the close button. */}
+      <Show when={props.unread}>
+        <span
+          data-testid="unread-dot"
+          class="absolute left-0 top-1/2 -translate-y-1/2 flex h-2 w-2 z-20"
+          title="Unread completion"
+        >
+          <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+        </span>
+      </Show>
+
+      {/* Spinning border container — conic gradient rotates behind the card */}
+      <div
+        class="card-border-wrap transition-all duration-200"
         classList={{
-          "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
-          "text-fg": !props.isActive && !!props.alerting,
-          "text-fg-3 hover:text-fg-2": !props.isActive && !props.alerting,
-          "opacity-25": sortable.isActiveDraggable,
+          "rounded-2xl": !props.isActive,
+          "rounded-l-2xl rounded-r-none card-active": props.isActive,
+          "card-spin-active": tier() === "active",
+          "card-spin-waiting": tier() === "waiting",
+          /* Active: lifted with depth (dark shadow) + identity (repo-colored glow) */
+          "z-10 card-active-shadow": props.isActive,
         }}
         style={{
-          "border-left-color": props.alerting
-            ? "var(--color-alert)"
-            : (props.displayInfo?.repoColor ??
-              (props.isActive ? "var(--accent)" : "transparent")),
-          ...(props.alerting
-            ? { animation: "alerting-glow 1.5s ease-in-out infinite" }
-            : {}),
+          "--card-color": props.displayInfo?.repoColor ?? "var(--color-accent)",
         }}
-        onClick={() => props.onSelect(props.id)}
-        onMouseDown={(e) => e.preventDefault()}
-        title={props.metadata?.cwd ?? String(props.id)}
       >
-        <TerminalMeta info={props.displayInfo} />
-        <span
-          data-testid="sidebar-close"
-          class="absolute top-1 right-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onClose(props.id);
+        <button
+          ref={sortable.ref}
+          {...sortable.dragActivators}
+          data-terminal-id={props.id}
+          data-active={props.isActive ? "" : undefined}
+          data-activity={
+            props.displayInfo?.activityHistory.at(-1)?.[1]
+              ? "active"
+              : "sleeping"
+          }
+          data-unread={props.unread ? "" : undefined}
+          class="group relative w-full text-sm text-left touch-none transition-all duration-200"
+          classList={{
+            "rounded-[14px]": !props.isActive,
+            "rounded-l-[14px] rounded-r-none": props.isActive,
+            "text-fg": props.isActive || tier() !== "idle",
+            "text-fg-3 hover:text-fg-2": !props.isActive && tier() === "idle",
+            "opacity-25": sortable.isActiveDraggable,
           }}
-          title="Close terminal"
+          style={{
+            /* Active card uses the actual xterm theme bg — same material as the terminal.
+             * --active-terminal-bg is published by App.tsx on the layout root. */
+            "background-color": props.isActive
+              ? "var(--active-terminal-bg)"
+              : props.displayInfo?.repoColor
+                ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
+                : "var(--color-surface-1)",
+          }}
+          onClick={() => props.onSelect(props.id)}
+          onMouseDown={(e) => e.preventDefault()}
+          title={props.metadata?.cwd ?? String(props.id)}
         >
-          ×
-        </span>
-      </button>
+          <div class="min-w-0 px-2.5 py-2 pr-6">
+            <TerminalMeta info={props.displayInfo} />
+          </div>
+
+          <span
+            data-testid="sidebar-close"
+            class="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onClose(props.id);
+            }}
+            title="Close terminal"
+          >
+            ×
+          </span>
+        </button>
+      </div>
     </div>
   );
 };
@@ -96,7 +152,7 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  needsAttention: (id: TerminalId) => boolean;
+  isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
@@ -136,7 +192,6 @@ const Sidebar: Component<{
 
   return (
     <>
-      {/* Backdrop — mobile only, shown when sidebar is open */}
       <Show when={props.open}>
         <div
           data-testid="sidebar-backdrop"
@@ -145,10 +200,9 @@ const Sidebar: Component<{
         />
       </Show>
 
-      {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-48 lg:w-56 xl:w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
@@ -156,7 +210,7 @@ const Sidebar: Component<{
         }}
       >
         <Tip label="New terminal" class="w-full">
-          <div class="flex border-b border-edge">
+          <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
             <button
               data-testid="create-terminal"
               class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
@@ -167,7 +221,7 @@ const Sidebar: Component<{
             <div class="w-px my-1.5 bg-edge" />
             <button
               data-testid="new-terminal-menu"
-              class="px-2 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
               onClick={props.onNewTerminalMenu}
               title="More options"
             >
@@ -185,7 +239,7 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav class="flex-1 overflow-y-auto">
+        <nav class="flex-1 overflow-y-auto py-0.5 sidebar-scroll">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {
@@ -215,7 +269,7 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
-                      alerting={props.needsAttention(id)}
+                      unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
@@ -230,10 +284,7 @@ const Sidebar: Component<{
                 {(dragId) => {
                   const d = () => props.getDisplayInfo(dragId());
                   return (
-                    <div
-                      class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": d()?.repoColor }}
-                    >
+                    <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
                       <span style={{ color: d()?.repoColor }}>
                         {d()?.name ?? "terminal"}
                       </span>
