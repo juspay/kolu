@@ -62,8 +62,12 @@ let
       ./common
       ./server
       ./client
-      # pnpm.patchedDependencies entries (e.g. node-pty foregroundPid).
-      # Read by pnpm during install and applied to the upstream tarball.
+      # pnpm.patchedDependencies entries — read by pnpm during install and
+      # applied to the upstream tarball. Currently:
+      #   - node-pty@1.1.0.patch: adds a foregroundPid accessor wrapping
+      #     tcgetpgrp(masterFd). Upstream feature request:
+      #     https://github.com/microsoft/node-pty/issues/913 — drop this
+      #     patch once that lands.
       ./patches
     ];
   };
