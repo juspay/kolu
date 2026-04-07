@@ -25,44 +25,17 @@ async function getSidebarProcessName(world: KoluWorld): Promise<string | null> {
 }
 
 Then(
-  "the sidebar process name should be {string}",
+  "the sidebar process name should contain {string}",
   async function (this: KoluWorld, expected: string) {
     const name = await pollUntil(
       this.page,
       () => getSidebarProcessName(this),
-      (n) => n === expected,
-      { attempts: 30, intervalMs: 200 },
-    );
-    assert.strictEqual(
-      name,
-      expected,
-      `Expected sidebar process name "${expected}", got "${name}"`,
-    );
-  },
-);
-
-Then(
-  "the header should contain the text {string}",
-  async function (this: KoluWorld, expected: string) {
-    const headerText = await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return (
-            (await this.page
-              .locator('[data-testid="header-cwd"]')
-              .textContent({ timeout: 1000 })) ?? ""
-          );
-        } catch {
-          return "";
-        }
-      },
-      (t) => t.includes(expected),
+      (n) => n !== null && n.includes(expected),
       { attempts: 30, intervalMs: 200 },
     );
     assert.ok(
-      headerText.includes(expected),
-      `Expected header to contain "${expected}", got "${headerText}"`,
+      name && name.includes(expected),
+      `Expected sidebar process name to contain "${expected}", got "${name}"`,
     );
   },
 );

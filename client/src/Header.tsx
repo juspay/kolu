@@ -114,29 +114,7 @@ const Header: Component<{
                 </a>
               )}
             </Show>
-            <Show
-              when={meta().claude}
-              fallback={
-                <Show when={meta().foreground}>
-                  {(fg) => (
-                    <span class="shrink-0">
-                      &middot;{" "}
-                      <span class="font-mono text-fg-3">{fg().name}</span>
-                      <Show when={fg().title}>
-                        {(title) => (
-                          <span
-                            class="text-fg-4 ml-1 truncate hidden md:inline"
-                            title={title()}
-                          >
-                            {title()}
-                          </span>
-                        )}
-                      </Show>
-                    </span>
-                  )}
-                </Show>
-              }
-            >
+            <Show when={meta().claude}>
               {(claude) => (
                 <span class="shrink-0">
                   &middot; <ClaudeIndicator state={claude().state} />

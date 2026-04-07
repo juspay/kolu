@@ -1,14 +1,12 @@
 Feature: Foreground process detection
-  The sidebar shows the name of the foreground process running in each terminal.
-  Detection is event-driven via OSC 2 title changes from the shell preexec hook.
+  The sidebar shows the OSC 2 terminal title by default (the shell prompt sets
+  this to e.g. "user@host: ~/dir"), falling back to the process binary name
+  when no title has been emitted. Detection is event-driven via title changes
+  from the shell preexec hook.
 
   Background:
     Given the terminal is ready
 
-  Scenario: Sidebar shows shell process name at startup
-    Then the sidebar process name should be "bash"
-    And there should be no page errors
-
-  Scenario: Header shows foreground process name
-    Then the header should contain the text "bash"
+  Scenario: Sidebar shows terminal title at startup
+    Then the sidebar process name should contain "@"
     And there should be no page errors

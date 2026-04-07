@@ -78,6 +78,30 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *  foreground process detection without polling. */
 export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
 
+/** Bash-specific preexec dispatch — uses PS0 guard flag to ensure the title
+ *  only fires for user-typed commands, not PROMPT_COMMAND hooks.
+ *
+ *  Why: bash's DEBUG trap fires for EVERY command including those inside
+ *  PROMPT_COMMAND. Without a guard, hooks like __zoxide_hook, _direnv_hook,
+ *  __fzf_history__ leak into OSC 2 and clutter the terminal title.
+ *
+ *  How: PS0 is evaluated after readline reads a user command but before
+ *  bash executes it — so it fires ONCE per user command (bash 4.4+). We set
+ *  a "ready" flag in PS0, check it in DEBUG, clear it after the first use.
+ *  Everything else (PROMPT_COMMAND hooks, pipeline internals) finds the flag
+ *  cleared and skips emitting.
+ *
+ *  Requires bash 4.4+ (PS0 support). Older bash silently no-ops. */
+export const OSC2_PREEXEC_BASH_GUARD = [
+  `__kolu_preexec_ready=""`,
+  `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
+  `__kolu_preexec_dispatch() {`,
+  `  [ -z "$__kolu_preexec_ready" ] && return`,
+  `  __kolu_preexec_ready=""`,
+  `  __kolu_preexec "$BASH_COMMAND"`,
+  `}`,
+].join("\n");
+
 /** Shell function that resets OSC 2 title to CWD at the prompt.
  *  Matches Ghostty/Kitty convention: CWD when idle, command when running. */
 export const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
@@ -116,10 +140,16 @@ export function osc7Init(
         pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
+        OSC2_PREEXEC_BASH_GUARD,
         OSC2_PRECMD_BASH,
         `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
-        // bash lacks native preexec — use DEBUG trap to emit title before each command
-        `trap '__kolu_preexec "$BASH_COMMAND"' DEBUG`,
+        // PS0 fires after readline reads a user command but before bash runs it.
+        // It sets the "ready" flag so the DEBUG trap knows this is a real user
+        // command (not a PROMPT_COMMAND hook). PS0 produces no output — the
+        // $() command substitution captures the empty return value.
+        `PS0='$(__kolu_preexec_arm)'`,
+        // DEBUG dispatch — guarded by the ready flag set in PS0.
+        `trap '__kolu_preexec_dispatch' DEBUG`,
       ]
         .filter(Boolean)
         .join("\n"),

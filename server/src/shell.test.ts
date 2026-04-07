@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import {
   OSC7_FN,
   OSC2_PREEXEC_FN,
+  OSC2_PREEXEC_BASH_GUARD,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
 } from "./shell.ts";
@@ -77,6 +78,99 @@ describe("OSC2_PRECMD_BASH", () => {
     expect(out).toContain("tmp");
   });
 });
+
+describe("OSC2_PREEXEC_BASH_GUARD", () => {
+  /** Common prelude that sets up preexec fn + guard. */
+  const prelude = `${OSC2_PREEXEC_FN}\n${OSC2_PREEXEC_BASH_GUARD}\n`;
+
+  it("arm sets the ready flag", () => {
+    const out = runBash(
+      `${prelude}__kolu_preexec_arm; printf 'ready=%s\\n' "$__kolu_preexec_ready" >&2`,
+    );
+    // stdout is empty (no OSC), stderr has ready=1 — but execFileSync only returns stdout.
+    // Re-run capturing both streams:
+    const combined = execFileSyncBoth(
+      `${prelude}__kolu_preexec_arm; echo "ready=$__kolu_preexec_ready"`,
+    );
+    expect(combined).toContain("ready=1");
+    expect(out).toBe("");
+  });
+
+  it("dispatch is no-op when ready flag is empty (no DEBUG trap installed)", () => {
+    // Without arm(), dispatch should return immediately with no output
+    const out = runBash(`${prelude}__kolu_preexec_dispatch; echo "done"`);
+    // "done" is printed to stdout; the OSC 2 line should NOT appear
+    expect(out).not.toContain("\x1b]2;");
+    expect(out).toContain("done");
+  });
+
+  it("DEBUG trap emits for user command when armed via PS0", () => {
+    // Real integration: install DEBUG trap + arm manually (PS0 simulated),
+    // then run a no-op command. The trap fires with BASH_COMMAND set by bash itself.
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        `__kolu_preexec_arm\n` +
+        `true\n`,
+    );
+    // The DEBUG trap fires for __kolu_preexec_arm itself BEFORE arm runs (flag is ""),
+    // then for `true` after arm set flag=1 — so we should see ONE OSC 2 emission
+    // with the command "true".
+    const matches = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)];
+    // At least one emission, and at least one should be "true"
+    expect(matches.length).toBeGreaterThan(0);
+    const titles = matches.map((m) => m[1]);
+    expect(titles).toContain("true");
+  });
+
+  it("DEBUG trap does NOT emit when not armed (PROMPT_COMMAND simulation)", () => {
+    // Simulate the state after a user command: ready flag was set, dispatch
+    // was called, flag got cleared. Now a PROMPT_COMMAND hook runs — no arm,
+    // flag stays "". Verify no OSC 2 is emitted.
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        // No arm — simulates PROMPT_COMMAND context
+        `__zoxide_hook() { :; }\n` +
+        `__zoxide_hook\n`,
+    );
+    // The command "__zoxide_hook" would fire DEBUG with BASH_COMMAND="__zoxide_hook"
+    // but flag is empty so dispatch returns early.
+    expect(out).not.toContain("__zoxide_hook");
+  });
+
+  it("full flow: user command emitted, PROMPT_COMMAND hook skipped", () => {
+    // Most realistic test: install trap, simulate user command (arm + run),
+    // then simulate PROMPT_COMMAND hook (no arm + run another command).
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        `__zoxide_hook() { :; }\n` +
+        // Simulate user command via PS0 arm
+        `__kolu_preexec_arm\n` +
+        `true\n` +
+        // After the user command, flag is cleared. Now PROMPT_COMMAND hooks run.
+        `__zoxide_hook\n`,
+    );
+    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
+      (m) => m[1],
+    );
+    // "true" should appear (user command), "__zoxide_hook" should NOT
+    expect(titles).toContain("true");
+    expect(titles).not.toContain("__zoxide_hook");
+  });
+});
+
+/** Like runBash but returns combined stdout+stderr. */
+function execFileSyncBoth(script: string): string {
+  try {
+    return execFileSync("bash", ["-c", `${script} 2>&1`], {
+      encoding: "utf8",
+    });
+  } catch {
+    return "";
+  }
+}
 
 describe("OSC2_PRECMD_ZSH", () => {
   it("emits OSC 2 with compact zsh prompt path", () => {

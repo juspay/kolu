@@ -138,8 +138,9 @@ const TerminalMeta: Component<{
                       <span
                         class="text-xs text-fg-3 font-mono truncate min-w-0"
                         data-testid="process-name"
+                        title={fg().title ?? fg().name}
                       >
-                        {fg().name}
+                        {fg().title ?? fg().name}
                       </span>
                     )}
                   </Show>
