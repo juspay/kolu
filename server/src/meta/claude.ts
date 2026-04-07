@@ -6,6 +6,15 @@
  * file exists at ~/.claude/sessions/{fgpid}.json, that terminal is running
  * claude-code. Cross-platform — works on both Linux and macOS.
  *
+ * Event-driven — no polling. Trigger sources:
+ *   - title event (subscribeForTerminal("title", ...)) — fires on shell
+ *     preexec/precmd OSC 2, which is when foregroundPid is likely to change
+ *   - fs.watch(SESSIONS_DIR) — fires when session files appear/disappear,
+ *     catching the race where title fires before claude writes its session file
+ *   - fs.watch(projectDir) — fires when the JSONL transcript is created
+ *     (claude writes it lazily on first message, not at session start)
+ *   - fs.watch(transcriptPath) — fires on each message, drives state updates
+ *
  * States derived from last JSONL message:
  * - thinking:  last message is "user" (API call in flight) or "assistant" with null stop_reason
  * - tool_use:  last assistant message has stop_reason "tool_use" (executing tools / permission prompt)
@@ -17,6 +26,9 @@
  * - progress/streaming messages during thinking are not tracked (only final state)
  * - Wrapper processes (e.g. `script -q out.log claude`) are not detected: the
  *   foreground pid is the wrapper, not claude-code itself
+ *
+ * Known fanout: each terminal provider holds its own fs.watch on SESSIONS_DIR.
+ * At typical terminal counts this is fine; a shared registry would be cleaner.
  */
 
 import fs from "node:fs";
@@ -26,6 +38,7 @@ import { match } from "ts-pattern";
 import type { ClaudeCodeInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
+import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
 /** Configurable via env for testing. */
@@ -35,7 +48,6 @@ const SESSIONS_DIR =
 const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
-const POLL_INTERVAL_MS = 3_000;
 const TAIL_BYTES = 16_384;
 
 export interface SessionFile {
@@ -90,6 +102,10 @@ export function encodeProjectPath(cwd: string): string {
  * First tries the exact session ID. Falls back to the most recently modified
  * JSONL in the project dir — handles resumed sessions where the PID's session
  * ID differs from the transcript's original session ID.
+ *
+ * No staleness check: this function is only called right after a session is
+ * freshly matched, so any transcript under the session's encoded cwd is
+ * attributable to the current session.
  */
 export function findTranscriptPath(session: SessionFile): string | null {
   const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
@@ -104,17 +120,12 @@ export function findTranscriptPath(session: SessionFile): string | null {
   }
 
   // Fallback: most recently modified JSONL in the project dir.
-  // Only use if modified recently (within 2 poll cycles) — avoids showing
-  // stale state from old sessions when a new session hasn't created its
-  // JSONL yet. Handles resumed sessions where the PID's session ID differs
-  // from the transcript's original session ID.
   try {
     const files = fs
       .readdirSync(projectDir)
       .filter((f) => f.endsWith(".jsonl"));
     if (files.length === 0) return null;
 
-    const now = Date.now();
     let newest: string | null = null;
     let newestMtime = 0;
     for (const file of files) {
@@ -125,8 +136,6 @@ export function findTranscriptPath(session: SessionFile): string | null {
         newest = full;
       }
     }
-    // Stale if not modified within recent window
-    if (newest && now - newestMtime > POLL_INTERVAL_MS * 2) return null;
     return newest;
   } catch {
     return null;
@@ -209,8 +218,73 @@ export function infoEqual(
 }
 
 /**
+ * Try to watch a directory. Returns a cleanup function on success, null
+ * if watch failed. ENOENT (directory doesn't exist yet) is expected and
+ * silent; other errors (EACCES, EMFILE, etc.) surface at debug so they're
+ * discoverable without spamming the log.
+ */
+function tryWatchDir(dir: string, onChange: () => void): (() => void) | null {
+  try {
+    const w = fs.watch(dir, () => onChange());
+    return () => w.close();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.debug({ err, dir }, "fs.watch failed");
+    }
+    return null;
+  }
+}
+
+/**
+ * Watch a directory that may not yet exist. If direct watch fails, falls
+ * back to watching the immediate parent (one level only) and re-attaches
+ * to the target as soon as it appears. Returns a cleanup function.
+ *
+ * Used for both SESSIONS_DIR (absent on fresh systems until first claude
+ * run) and the per-session project dir under PROJECTS_DIR (created lazily
+ * when claude writes its first transcript).
+ */
+function watchOrWaitForDir(dir: string, onChange: () => void): () => void {
+  const direct = tryWatchDir(dir, onChange);
+  if (direct) return direct;
+
+  let child: (() => void) | null = null;
+  let parentWatcher: fs.FSWatcher | null = null;
+  try {
+    parentWatcher = fs.watch(path.dirname(dir), () => {
+      if (child) return;
+      const attached = tryWatchDir(dir, onChange);
+      if (!attached) return;
+      child = attached;
+      parentWatcher?.close();
+      parentWatcher = null;
+      // Kick — dir may already contain files (race: created between our
+      // first attempt and the parent event).
+      onChange();
+    });
+  } catch (err) {
+    // Parent also missing — give up. Logged so fresh-system diagnosis
+    // is possible.
+    log.debug({ err, dir }, "fs.watch parent fallback failed");
+  }
+  return () => {
+    parentWatcher?.close();
+    child?.();
+  };
+}
+
+/**
+ * Transcript-watching lifecycle as a sum type — mutually exclusive states,
+ * checked exhaustively via ts-pattern on every transition.
+ */
+type TranscriptWatching =
+  | { kind: "none" }
+  | { kind: "waiting"; dirWatcher: () => void }
+  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+
+/**
  * Start the Claude Code metadata provider for a terminal entry.
- * Polls for matching Claude Code sessions and tails their transcripts.
+ * Wakes on title events + SESSIONS_DIR changes + transcript file changes.
  */
 export function startClaudeCodeProvider(
   entry: TerminalProcess,
@@ -218,49 +292,74 @@ export function startClaudeCodeProvider(
 ): () => void {
   const plog = log.child({ provider: "claude-code", terminal: terminalId });
 
-  // Track current match
   let matchedSession: SessionFile | null = null;
-  let transcriptPath: string | null = null;
-  let watcher: fs.FSWatcher | null = null;
+  let transcriptWatching: TranscriptWatching = { kind: "none" };
 
   plog.info("started");
 
-  /**
-   * Look up the claude-code session running in this terminal, if any.
-   *
-   * Asks the pty for its current foreground process group leader (via
-   * tcgetpgrp) and checks whether ~/.claude/sessions/{fgpid}.json exists.
-   * No cross-product scan, no /proc/<pid>/fd/0 reads — works on Linux
-   * and macOS identically.
-   */
-  function matchSession(): SessionFile | null {
-    const fgPid = entry.handle.foregroundPid;
-    if (fgPid === undefined) {
-      plog.debug({ pid: entry.handle.pid }, "no foreground pid yet");
-      return null;
-    }
-    const session = readSessionFile(fgPid);
-    if (!session) {
-      plog.debug({ fgPid }, "no claude session for foreground pid");
-      return null;
-    }
-    return session;
+  function teardownTranscriptWatching() {
+    match(transcriptWatching)
+      .with({ kind: "none" }, () => {})
+      .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
+      .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
+      .exhaustive();
+    transcriptWatching = { kind: "none" };
   }
 
-  /** Read transcript and update metadata. */
-  function updateState() {
-    if (!transcriptPath) return;
+  function attachTranscriptWatcher(tp: string) {
+    try {
+      const fileWatcher = fs.watch(tp, () => onTranscriptMaybeChanged());
+      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+    } catch (err) {
+      plog.warn({ err, path: tp }, "failed to watch transcript");
+      transcriptWatching = { kind: "none" };
+    }
+  }
 
-    const lines = tailJsonlLines(transcriptPath, TAIL_BYTES);
+  function setupTranscriptWatching(session: SessionFile) {
+    const tp = findTranscriptPath(session);
+    if (tp) {
+      plog.info({ path: tp }, "transcript found");
+      attachTranscriptWatcher(tp);
+      onTranscriptMaybeChanged();
+      return;
+    }
+    // JSONL not yet created — watch the project dir for its appearance.
+    plog.debug(
+      { session: session.sessionId, cwd: session.cwd },
+      "transcript not found yet (JSONL created after first message)",
+    );
+    const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
+    const dirWatcher = watchOrWaitForDir(projectDir, () =>
+      onProjectDirChanged(),
+    );
+    transcriptWatching = { kind: "waiting", dirWatcher };
+  }
+
+  function onProjectDirChanged() {
+    if (!matchedSession) return;
+    if (transcriptWatching.kind !== "waiting") return;
+    const tp = findTranscriptPath(matchedSession);
+    if (!tp) return;
+    plog.info({ path: tp }, "transcript appeared");
+    transcriptWatching.dirWatcher();
+    attachTranscriptWatcher(tp);
+    onTranscriptMaybeChanged();
+  }
+
+  function onTranscriptMaybeChanged() {
+    if (transcriptWatching.kind !== "watching") return;
+    if (!matchedSession) return;
+
+    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
     const derived = deriveState(lines);
     if (!derived) {
       plog.debug(
-        { path: transcriptPath },
+        { path: transcriptWatching.path },
         "no user/assistant message in transcript tail",
       );
       return;
     }
-    if (!matchedSession) return;
 
     const info: ClaudeCodeInfo = {
       state: derived.state,
@@ -278,77 +377,65 @@ export function startClaudeCodeProvider(
     });
   }
 
-  /** Start watching the transcript file for changes. */
-  function startWatching(filePath: string) {
-    stopWatching();
-    transcriptPath = filePath;
-    try {
-      watcher = fs.watch(filePath, () => updateState());
-    } catch {
-      plog.warn({ path: filePath }, "failed to watch transcript");
+  /**
+   * Re-check whether the foreground pid has a matching claude session.
+   * Called on: startup, title events, SESSIONS_DIR changes.
+   */
+  function onSessionMaybeChanged() {
+    const fgPid = entry.handle.foregroundPid;
+    const newSession = fgPid !== undefined ? readSessionFile(fgPid) : null;
+
+    // Same session — nothing to do. Transcript updates flow via the
+    // transcript file watcher, not this path.
+    if (
+      (matchedSession?.sessionId ?? null) === (newSession?.sessionId ?? null)
+    ) {
+      return;
     }
-  }
 
-  function stopWatching() {
-    if (watcher) {
-      watcher.close();
-      watcher = null;
-    }
-    transcriptPath = null;
-  }
+    // Session identity changed — tear down old watchers first.
+    teardownTranscriptWatching();
+    matchedSession = newSession;
 
-  /** Poll for session match and start/stop watching as needed. */
-  function poll() {
-    const session = matchSession();
-
-    if (!session) {
-      // No match — clear state if previously matched
-      if (matchedSession) {
-        plog.info("claude code session ended");
-        matchedSession = null;
-        stopWatching();
-        if (entry.info.meta.claude !== null) {
-          updateMetadata(entry, terminalId, (m) => {
-            m.claude = null;
-          });
-        }
+    if (!newSession) {
+      plog.info("claude code session ended");
+      if (entry.info.meta.claude !== null) {
+        updateMetadata(entry, terminalId, (m) => {
+          m.claude = null;
+        });
       }
       return;
     }
 
-    // New or different session matched
-    if (!matchedSession || matchedSession.sessionId !== session.sessionId) {
-      plog.info(
-        { session: session.sessionId, pid: session.pid },
-        "claude code session matched",
-      );
-      matchedSession = session;
-    }
-
-    // Retry transcript lookup on each poll — JSONL is created lazily
-    // after the first message exchange, not at session start
-    if (matchedSession && !transcriptPath) {
-      const tp = findTranscriptPath(matchedSession);
-      if (tp) {
-        plog.info({ path: tp }, "transcript found");
-        startWatching(tp);
-        updateState();
-      } else {
-        plog.debug(
-          { session: matchedSession.sessionId, cwd: matchedSession.cwd },
-          "transcript not found yet (JSONL created after first message)",
-        );
-      }
-    }
+    plog.info(
+      { session: newSession.sessionId, pid: newSession.pid },
+      "claude code session matched",
+    );
+    setupTranscriptWatching(newSession);
   }
 
-  // Initial poll + periodic re-scan
-  poll();
-  const pollTimer = setInterval(poll, POLL_INTERVAL_MS);
+  // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.
+  const abort = new AbortController();
+  subscribeForTerminal("title", terminalId, abort.signal, () =>
+    onSessionMaybeChanged(),
+  );
+
+  // Watch the sessions dir so session file appearance/disappearance drives
+  // reconciliation. On fresh systems (~/.claude/ missing), this walks up
+  // one level to watch the parent; if the parent is also missing it no-ops
+  // and kolu will detect claude only after a server restart.
+  const sessionsDirWatcher = watchOrWaitForDir(SESSIONS_DIR, () =>
+    onSessionMaybeChanged(),
+  );
+
+  // Initial reconcile for a terminal that already hosts a claude session
+  // (e.g. across kolu restarts).
+  onSessionMaybeChanged();
 
   return () => {
-    clearInterval(pollTimer);
-    stopWatching();
+    abort.abort();
+    sessionsDirWatcher();
+    teardownTranscriptWatching();
     plog.info("stopped");
   };
 }

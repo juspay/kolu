@@ -248,23 +248,4 @@ describe("findTranscriptPath", () => {
     });
     expect(result).toBeNull();
   });
-
-  it("returns null when MRU file is stale", () => {
-    const cwd = "/home/user/stale-project";
-    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
-    fs.mkdirSync(projectDir, { recursive: true });
-
-    const stalePath = path.join(projectDir, "stale.jsonl");
-    fs.writeFileSync(stalePath, JSON.stringify({ type: "user" }) + "\n");
-    // Set mtime to 10 seconds ago (beyond 2 * POLL_INTERVAL_MS = 6s)
-    const staleTime = new Date(Date.now() - 10_000);
-    fs.utimesSync(stalePath, staleTime, staleTime);
-
-    const result = findTranscriptPath({
-      pid: 1,
-      sessionId: "nonexistent",
-      cwd,
-    });
-    expect(result).toBeNull();
-  });
 });
