@@ -28,12 +28,15 @@ Feature: Sidebar
     Then the terminal should have keyboard focus
 
   Scenario: Switching to an off-screen terminal scrolls it into view
-    # With many terminals the sidebar overflows. After creating them all, the
-    # active card is at the bottom; switching to terminal 1 via keyboard must
-    # scroll the sidebar so the top card is visible — otherwise the user has
-    # no visual feedback that the switch happened.
+    # When the sidebar overflows, switching terminals via keyboard must
+    # scroll the active card into view — otherwise the user has no visual
+    # feedback that the switch happened. We force the overflow by clamping
+    # the nav height + scrolling to bottom (rather than spawning many real
+    # terminals, which would burden parallel darwin CI workers).
     When I open the app
-    And I create 12 terminals
+    And I create a terminal
+    And I create a terminal
+    And I clamp the sidebar nav and scroll to the bottom
     When I press the switch to terminal 1 shortcut
     Then the active sidebar entry should be within the sidebar viewport
 

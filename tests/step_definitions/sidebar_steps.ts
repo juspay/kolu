@@ -12,12 +12,31 @@ When("I create a terminal", async function (this: KoluWorld) {
   this.createdTerminalIds.push(id);
 });
 
-When("I create {int} terminals", async function (this: KoluWorld, n: number) {
-  for (let i = 0; i < n; i++) {
-    const id = await this.createTerminal();
-    this.createdTerminalIds.push(id);
-  }
-});
+When(
+  "I clamp the sidebar nav and scroll to the bottom",
+  async function (this: KoluWorld) {
+    // Force a sidebar-overflow situation without spawning many PTYs.
+    // Two real terminals + a nav height ≈ 1.5 entries makes the topmost
+    // card sit off-screen after scrolling to the bottom, unless the
+    // auto-scroll-on-active effect runs. Avoiding real PTY spawn keeps
+    // darwin CI workers from getting overloaded by other parallel
+    // scenarios (e.g. session-restore timeouts).
+    await this.page.evaluate(() => {
+      const nav = document.querySelector(
+        '[data-testid="sidebar"] nav',
+      ) as HTMLElement | null;
+      if (!nav) throw new Error("sidebar nav not found");
+      const firstEntry = nav.querySelector(
+        "[data-terminal-id]",
+      ) as HTMLElement | null;
+      if (!firstEntry) throw new Error("no sidebar entries to clamp against");
+      const entryH = firstEntry.offsetHeight;
+      nav.style.height = `${Math.round(entryH * 1.5)}px`;
+      nav.style.flex = "none";
+      nav.scrollTop = nav.scrollHeight;
+    });
+  },
+);
 
 Then(
   "the active sidebar entry should be within the sidebar viewport",
