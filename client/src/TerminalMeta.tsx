@@ -115,41 +115,36 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Agent status / process name + activity sparkline (single row) */}
-          <Show
-            when={
-              info().meta.claude ||
-              info().meta.foreground ||
-              info().activityHistory.length > 0
-            }
-          >
+          {/* Claude indicator + activity sparkline (single row) */}
+          <Show when={info().meta.claude || info().activityHistory.length > 0}>
             <div
-              class="flex items-center gap-1.5 min-w-0"
+              class="flex items-center gap-1.5 min-w-0 mt-1"
               classList={{
-                "mt-0.5": mode() === "normal",
                 "mt-auto": mode() === "readonly",
               }}
             >
               <Show when={info().meta.claude}>
                 {(claude) => <ClaudeIndicator state={claude().state} />}
               </Show>
-              <Show when={info().meta.foreground}>
-                {(fg) => (
-                  <span
-                    class="text-xs text-fg-3 font-mono truncate min-w-0"
-                    data-testid="process-name"
-                    title={fg().title ?? fg().name}
-                  >
-                    {fg().title ?? fg().name}
-                  </span>
-                )}
-              </Show>
               <Show when={info().activityHistory.length > 0}>
-                <div class="ml-auto shrink-0">
+                <div class="ml-auto w-16 shrink-0">
                   <ActivityGraph samples={info().activityHistory} />
                 </div>
               </Show>
             </div>
+          </Show>
+
+          {/* Foreground process / title — own line, always spaced from above */}
+          <Show when={info().meta.foreground}>
+            {(fg) => (
+              <div
+                class="text-xs text-fg-3 font-mono truncate min-w-0 mt-1"
+                data-testid="process-name"
+                title={fg().title ?? fg().name}
+              >
+                {fg().title ?? fg().name}
+              </div>
+            )}
           </Show>
         </>
       )}
