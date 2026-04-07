@@ -1,5 +1,6 @@
-/** Confirmation dialog shown when closing a terminal that has splits
- *  and/or is in a git worktree. */
+/** Confirmation dialog shown whenever a terminal is closed.
+ *  Adapts its content for plain terminals, terminals with splits,
+ *  and terminals that live in a git worktree. */
 
 import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
@@ -16,18 +17,21 @@ export interface CloseConfirmTarget {
 
 const CloseConfirm: Component<{
   target: CloseConfirmTarget | null;
-  onOpenChange: (open: boolean) => void;
+  onCancel: () => void;
   onClose: () => void;
   onCloseAndRemove: () => void;
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
   const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
   const splitCount = () => props.target?.splitCount ?? 0;
+  const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
 
   return (
     <ModalDialog
       open={props.target !== null}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={(open) => {
+        if (!open) props.onCancel();
+      }}
       initialFocusEl={cancelRef}
     >
       <Dialog.Content
@@ -35,7 +39,14 @@ const CloseConfirm: Component<{
         data-testid="close-confirm"
       >
         <Dialog.Label class="font-semibold text-fg">
-          <Show when={isWorktree()} fallback="Close terminal and splits?">
+          <Show
+            when={isWorktree()}
+            fallback={
+              splitCount() > 0
+                ? "Close terminal and splits?"
+                : "Close terminal?"
+            }
+          >
             Remove worktree too?
           </Show>
         </Dialog.Label>
@@ -97,7 +108,8 @@ const CloseConfirm: Component<{
           <button
             ref={cancelRef}
             class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
-            onClick={() => props.onOpenChange(false)}
+            data-testid="close-confirm-cancel"
+            onClick={() => props.onCancel()}
           >
             Cancel
           </button>
@@ -107,34 +119,25 @@ const CloseConfirm: Component<{
               <button
                 class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
                 data-testid="close-confirm-close-all"
-                onClick={() => {
-                  props.onClose();
-                  props.onOpenChange(false);
-                }}
+                onClick={() => props.onClose()}
               >
-                Close all
+                {closeLabel()}
               </button>
             }
           >
             <button
               class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
               data-testid="close-confirm-close-only"
-              onClick={() => {
-                props.onClose();
-                props.onOpenChange(false);
-              }}
+              onClick={() => props.onClose()}
             >
-              Close only
+              {closeLabel()}
             </button>
             <button
               data-testid="close-confirm-remove"
               class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
-              onClick={() => {
-                props.onCloseAndRemove();
-                props.onOpenChange(false);
-              }}
+              onClick={() => props.onCloseAndRemove()}
             >
-              Remove worktree
+              {closeLabel()} and remove worktree
             </button>
           </Show>
         </div>
