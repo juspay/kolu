@@ -39,3 +39,19 @@ Then(
     );
   },
 );
+
+Then(
+  "the sidebar process name should be non-empty",
+  async function (this: KoluWorld) {
+    const name = await pollUntil(
+      this.page,
+      () => getSidebarProcessName(this),
+      (n) => n !== null && n.length > 0,
+      { attempts: 30, intervalMs: 200 },
+    );
+    assert.ok(
+      name && name.length > 0,
+      `Expected sidebar process name to be non-empty, got "${name}"`,
+    );
+  },
+);
