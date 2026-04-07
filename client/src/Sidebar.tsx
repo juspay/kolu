@@ -1,4 +1,10 @@
-import { type Component, For, Show, createSignal } from "solid-js";
+import {
+  type Component,
+  For,
+  Show,
+  createEffect,
+  createSignal,
+} from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -64,6 +70,19 @@ const SidebarEntry: Component<{
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
+  /** When this entry becomes active, scroll itself into view. Handles both
+   *  switching to an existing terminal AND creating a new one: in either
+   *  case, the effect runs on the element that already has `buttonRef`
+   *  bound, so there's no race with DOM mount order (unlike a parent-level
+   *  effect that would have to querySelector by id). `block: "nearest"` is
+   *  a no-op when the card is already visible. */
+  let buttonRef!: HTMLButtonElement;
+  createEffect(() => {
+    if (props.isActive) {
+      buttonRef.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+
   return (
     <div
       class="relative py-1 pl-1.5"
@@ -114,7 +133,10 @@ const SidebarEntry: Component<{
         }}
       >
         <button
-          ref={sortable.ref}
+          ref={(el) => {
+            sortable.ref(el);
+            buttonRef = el;
+          }}
           {...sortable.dragActivators}
           data-terminal-id={props.id}
           data-active={props.isActive ? "" : undefined}

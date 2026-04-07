@@ -12,6 +12,75 @@ When("I create a terminal", async function (this: KoluWorld) {
   this.createdTerminalIds.push(id);
 });
 
+/** Shrinks the sidebar nav to roughly 1.5 entry-heights so overflow is
+ *  forced with just 2 real terminals. Keeps parallel darwin CI workers
+ *  from getting overloaded by large PTY spawn storms. */
+async function clampSidebarNav(page: KoluWorld["page"]) {
+  await page.evaluate(() => {
+    const nav = document.querySelector(
+      '[data-testid="sidebar"] nav',
+    ) as HTMLElement | null;
+    if (!nav) throw new Error("sidebar nav not found");
+    const firstEntry = nav.querySelector(
+      "[data-terminal-id]",
+    ) as HTMLElement | null;
+    if (!firstEntry) throw new Error("no sidebar entries to clamp against");
+    const entryH = firstEntry.offsetHeight;
+    nav.style.height = `${Math.round(entryH * 1.5)}px`;
+    nav.style.flex = "none";
+  });
+}
+
+When(
+  "I clamp the sidebar nav and scroll to the top",
+  async function (this: KoluWorld) {
+    await clampSidebarNav(this.page);
+    await this.page.evaluate(() => {
+      const nav = document.querySelector(
+        '[data-testid="sidebar"] nav',
+      ) as HTMLElement;
+      nav.scrollTop = 0;
+    });
+  },
+);
+
+When(
+  "I clamp the sidebar nav and scroll to the bottom",
+  async function (this: KoluWorld) {
+    await clampSidebarNav(this.page);
+    await this.page.evaluate(() => {
+      const nav = document.querySelector(
+        '[data-testid="sidebar"] nav',
+      ) as HTMLElement;
+      nav.scrollTop = nav.scrollHeight;
+    });
+  },
+);
+
+Then(
+  "the active sidebar entry should be within the sidebar viewport",
+  async function (this: KoluWorld) {
+    // The active card's bounding box must sit fully inside the scrollable nav.
+    // Without auto-scroll-on-active, switching to an off-screen terminal
+    // leaves the active card outside these bounds.
+    await this.page.waitForFunction(
+      () => {
+        const nav = document.querySelector(
+          '[data-testid="sidebar"] nav',
+        ) as HTMLElement | null;
+        const active = nav?.querySelector(
+          "[data-active]",
+        ) as HTMLElement | null;
+        if (!nav || !active) return false;
+        const navBox = nav.getBoundingClientRect();
+        const box = active.getBoundingClientRect();
+        return box.top >= navBox.top && box.bottom <= navBox.bottom;
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "I select terminal {int} in the sidebar",
   async function (this: KoluWorld, index: number) {
