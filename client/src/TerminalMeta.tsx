@@ -115,16 +115,35 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Claude indicator + activity sparkline (single row) */}
-          <Show when={info().meta.claude || info().activityHistory.length > 0}>
+          {/* Claude indicator — own row when active */}
+          <Show when={info().meta.claude}>
+            {(claude) => (
+              <div class="mt-1">
+                <ClaudeIndicator state={claude().state} />
+              </div>
+            )}
+          </Show>
+
+          {/* Foreground process/title + activity sparkline (shared row) */}
+          <Show
+            when={info().meta.foreground || info().activityHistory.length > 0}
+          >
             <div
-              class="flex items-center gap-1.5 min-w-0 mt-1"
+              class="flex items-center gap-2 min-w-0 mt-1"
               classList={{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.claude}>
-                {(claude) => <ClaudeIndicator state={claude().state} />}
+              <Show when={info().meta.foreground}>
+                {(fg) => (
+                  <span
+                    class="text-xs text-fg-3 font-mono truncate min-w-0 flex-1"
+                    data-testid="process-name"
+                    title={fg().title ?? fg().name}
+                  >
+                    {fg().title ?? fg().name}
+                  </span>
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto w-16 shrink-0">
@@ -132,19 +151,6 @@ const TerminalMeta: Component<{
                 </div>
               </Show>
             </div>
-          </Show>
-
-          {/* Foreground process / title — own line, always spaced from above */}
-          <Show when={info().meta.foreground}>
-            {(fg) => (
-              <div
-                class="text-xs text-fg-3 font-mono truncate min-w-0 mt-1"
-                data-testid="process-name"
-                title={fg().title ?? fg().name}
-              >
-                {fg().title ?? fg().name}
-              </div>
-            )}
           </Show>
         </>
       )}
