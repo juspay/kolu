@@ -6,16 +6,14 @@
  * file exists at ~/.claude/sessions/{fgpid}.json, that terminal is running
  * claude-code. Cross-platform — works on both Linux and macOS.
  *
- * Mostly event-driven. Trigger sources:
+ * Event-driven — no polling. Trigger sources:
  *   - title event (subscribeForTerminal("title", ...)) — fires on shell
  *     preexec/precmd OSC 2, which is when foregroundPid is likely to change
  *   - fs.watch(SESSIONS_DIR) — fires when session files appear/disappear,
  *     catching the race where title fires before claude writes its session file
  *   - fs.watch(projectDir) — fires when the JSONL transcript is created
  *     (claude writes it lazily on first message, not at session start)
- *   - fs.watchFile(transcriptPath) — stat-polled at 2s; fs.watch's inotify
- *     loses track of inode replacements (claude rewrites the JSONL via
- *     temp+rename, breaking watch but not stat-polling)
+ *   - fs.watch(transcriptPath) — fires on each message, drives state updates
  *
  * States derived from last JSONL message:
  * - thinking:  last message is "user" (API call in flight) or "assistant" with null stop_reason
@@ -278,21 +276,11 @@ function watchOrWaitForDir(dir: string, onChange: () => void): () => void {
 /**
  * Transcript-watching lifecycle as a sum type — mutually exclusive states,
  * checked exhaustively via ts-pattern on every transition.
- *
- * Note: the "watching" state uses fs.watchFile (stat-polling) rather than
- * fs.watch (inotify). claude-code writes its JSONL transcripts in a way
- * that confuses fs.watch — likely an atomic temp+rename — and inotify
- * watches the inode, not the path, so events stop firing after the first
- * replacement. fs.watchFile polls the path's stat and fires reliably
- * regardless of how the underlying file was rewritten. The 2-second
- * interval is faster than the 3-second polling the provider used to do.
  */
 type TranscriptWatching =
   | { kind: "none" }
   | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string };
-
-const TRANSCRIPT_POLL_INTERVAL_MS = 2_000;
+  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
 
 /**
  * Start the Claude Code metadata provider for a terminal entry.
@@ -313,24 +301,22 @@ export function startClaudeCodeProvider(
     match(transcriptWatching)
       .with({ kind: "none" }, () => {})
       .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ path }) => fs.unwatchFile(path))
+      .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
       .exhaustive();
     transcriptWatching = { kind: "none" };
   }
 
   function attachTranscriptWatcher(tp: string) {
-    fs.watchFile(
-      tp,
-      { interval: TRANSCRIPT_POLL_INTERVAL_MS },
-      (curr, prev) => {
-        // Skip the synthetic initial event where both stats are zero
-        // (the file disappeared, or we just attached and there's no
-        // change to report).
-        if (curr.mtimeMs === prev.mtimeMs && curr.size === prev.size) return;
+    try {
+      const fileWatcher = fs.watch(tp, (eventType) => {
+        plog.info({ path: tp, eventType }, "transcript watch event");
         onTranscriptMaybeChanged();
-      },
-    );
-    transcriptWatching = { kind: "watching", path: tp };
+      });
+      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+    } catch (err) {
+      plog.warn({ err, path: tp }, "failed to watch transcript");
+      transcriptWatching = { kind: "none" };
+    }
   }
 
   function setupTranscriptWatching(session: SessionFile) {
@@ -365,18 +351,48 @@ export function startClaudeCodeProvider(
   }
 
   function onTranscriptMaybeChanged() {
-    if (transcriptWatching.kind !== "watching") return;
-    if (!matchedSession) return;
-
-    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    const derived = deriveState(lines);
-    if (!derived) {
-      plog.debug(
-        { path: transcriptWatching.path },
-        "no user/assistant message in transcript tail",
+    if (transcriptWatching.kind !== "watching") {
+      plog.info(
+        { kind: transcriptWatching.kind },
+        "transcript event ignored — not in watching state",
       );
       return;
     }
+    if (!matchedSession) {
+      plog.info("transcript event ignored — no matched session");
+      return;
+    }
+
+    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    // Last few line types for diagnosis — walking backwards
+    const lastTypes: string[] = [];
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 4); i--) {
+      try {
+        const e = JSON.parse(lines[i]!) as {
+          type?: string;
+          message?: { stop_reason?: string | null };
+        };
+        lastTypes.push(
+          `${e.type ?? "?"}${
+            e.message?.stop_reason ? ":" + e.message.stop_reason : ""
+          }`,
+        );
+      } catch {
+        lastTypes.push("<parse-err>");
+      }
+    }
+    const derived = deriveState(lines);
+    plog.info(
+      {
+        path: transcriptWatching.path,
+        lines: lines.length,
+        lastTypes,
+        derived: derived?.state ?? null,
+        published: entry.info.meta.claude?.state ?? null,
+      },
+      "transcript read",
+    );
+    if (!derived) return;
 
     const info: ClaudeCodeInfo = {
       state: derived.state,
