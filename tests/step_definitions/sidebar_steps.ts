@@ -12,6 +12,37 @@ When("I create a terminal", async function (this: KoluWorld) {
   this.createdTerminalIds.push(id);
 });
 
+When("I create {int} terminals", async function (this: KoluWorld, n: number) {
+  for (let i = 0; i < n; i++) {
+    const id = await this.createTerminal();
+    this.createdTerminalIds.push(id);
+  }
+});
+
+Then(
+  "the active sidebar entry should be within the sidebar viewport",
+  async function (this: KoluWorld) {
+    // The active card's bounding box must sit fully inside the scrollable nav.
+    // Without auto-scroll-on-active, switching to an off-screen terminal
+    // leaves the active card outside these bounds.
+    await this.page.waitForFunction(
+      () => {
+        const nav = document.querySelector(
+          '[data-testid="sidebar"] nav',
+        ) as HTMLElement | null;
+        const active = nav?.querySelector(
+          "[data-active]",
+        ) as HTMLElement | null;
+        if (!nav || !active) return false;
+        const navBox = nav.getBoundingClientRect();
+        const box = active.getBoundingClientRect();
+        return box.top >= navBox.top && box.bottom <= navBox.bottom;
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "I select terminal {int} in the sidebar",
   async function (this: KoluWorld, index: number) {

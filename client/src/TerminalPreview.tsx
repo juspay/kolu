@@ -138,7 +138,16 @@ const TerminalPreview: Component<{
       // preview's natural ratio). Painting the host with the terminal theme
       // background makes the unused bands read as terminal padding rather
       // than a generic-surface gap that flashes on every layout change.
-      style={{ "background-color": props.theme.background }}
+      // pointer-events: none — preview is purely visual (disableStdin: true,
+      // scrollback: 0). Without this, xterm's wheel listener captures trackpad
+      // scroll when the cursor is over the preview, blocking the sidebar from
+      // scrolling. Disabling pointer events also lets clicks fall through to
+      // the parent SidebarEntry button, so clicking the preview now selects
+      // the terminal (previously xterm swallowed those clicks too).
+      style={{
+        "background-color": props.theme.background,
+        "pointer-events": "none",
+      }}
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
     >

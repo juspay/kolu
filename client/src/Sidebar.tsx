@@ -1,4 +1,11 @@
-import { type Component, For, Show, createSignal } from "solid-js";
+import {
+  type Component,
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  on,
+} from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -210,6 +217,36 @@ const Sidebar: Component<{
   const [dropTarget, setDropTarget] = createSignal<TerminalId | null>(null);
   const [activeItem, setActiveItem] = createSignal<TerminalId | null>(null);
 
+  /** Scrollable sidebar nav — needed so we can scroll the active card into
+   *  view when it would otherwise sit off-screen (many terminals + keybind
+   *  switch / MRU cycle leaves no visual feedback otherwise). */
+  let navRef!: HTMLElement;
+
+  /** When activeId changes, ensure the active card is visible. `block: "nearest"`
+   *  is a no-op when the card is already on screen and scrolls the minimum
+   *  needed otherwise. `defer: true` skips the initial run on mount.
+   *
+   *  Selector note: query by the new id directly via `button[data-terminal-id]`
+   *  rather than `[data-active]`. Querying `[data-active]` would race the
+   *  reactive attribute update — Solid may run this effect before SidebarEntry
+   *  re-evaluates its `data-active` binding, leaving us scrolling to the
+   *  *previous* active card. The id-based lookup doesn't depend on any
+   *  reactive attribute being applied. The `button` tag disambiguates from
+   *  TerminalPreview, which also carries `data-terminal-id` on its host div. */
+  createEffect(
+    on(
+      () => props.activeId,
+      (id) => {
+        if (!id) return;
+        const el = navRef.querySelector<HTMLElement>(
+          `button[data-terminal-id="${id}"]`,
+        );
+        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      },
+      { defer: true },
+    ),
+  );
+
   function handleDragEnd({ draggable, droppable }: DragEvent) {
     setActiveItem(null);
     setDragFrom(null);
@@ -274,7 +311,10 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
+        <nav
+          ref={navRef}
+          class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll"
+        >
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {

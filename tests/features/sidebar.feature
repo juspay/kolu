@@ -27,6 +27,16 @@ Feature: Sidebar
     When I select terminal 1 in the sidebar
     Then the terminal should have keyboard focus
 
+  Scenario: Switching to an off-screen terminal scrolls it into view
+    # With many terminals the sidebar overflows. After creating them all, the
+    # active card is at the bottom; switching to terminal 1 via keyboard must
+    # scroll the sidebar so the top card is visible — otherwise the user has
+    # no visual feedback that the switch happened.
+    When I open the app
+    And I create 12 terminals
+    When I press the switch to terminal 1 shortcut
+    Then the active sidebar entry should be within the sidebar viewport
+
   Scenario: Terminals survive browser refresh
     When I open the app
     Given I note the sidebar entry count
