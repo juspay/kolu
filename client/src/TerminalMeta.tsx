@@ -26,7 +26,7 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row */}
+          {/* Name row + terminal title */}
           <div class={`flex items-center gap-1.5 ${nameClass()} truncate`}>
             <span
               data-testid="terminal-meta-name"
@@ -35,6 +35,16 @@ const TerminalMeta: Component<{
             >
               {info().name}
             </span>
+            <Show when={info().meta.foreground?.title}>
+              {(title) => (
+                <span
+                  class="text-[0.6rem] text-fg-4 truncate"
+                  title={title()}
+                >
+                  {title()}
+                </span>
+              )}
+            </Show>
             <Show when={info().meta.git}>
               {(git) => (
                 <Show when={git().isWorktree}>
@@ -115,47 +125,30 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Claude status / process name + activity sparkline */}
+          {/* Foreground process name + Claude indicator */}
+          <Show when={info().meta.foreground || info().meta.claude}>
+            <div class="flex items-center gap-1.5" data-testid="process-name">
+              <Show when={info().meta.claude}>
+                {(claude) => <ClaudeIndicator state={claude().state} />}
+              </Show>
+              <Show when={info().meta.foreground}>
+                {(fg) => (
+                  <span class="text-xs text-fg-3 truncate">{fg().name}</span>
+                )}
+              </Show>
+            </div>
+          </Show>
+
+          {/* Activity sparkline */}
           <Show
-            when={
-              info().meta.claude ||
-              info().meta.foreground ||
-              info().activityHistory.length > 0
-            }
+            when={info().activityHistory.length > 0}
           >
             <div
-              class="flex items-center gap-1.5"
               classList={{
                 "mt-0.5": mode() === "normal",
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show
-                when={info().meta.claude}
-                fallback={
-                  <Show when={info().meta.foreground}>
-                    {(fg) => (
-                      <div data-testid="process-name">
-                        <div class="text-xs text-fg-3 truncate">
-                          {fg().name}
-                        </div>
-                        <Show when={fg().title}>
-                          {(title) => (
-                            <div
-                              class="text-[0.6rem] text-fg-4 truncate"
-                              title={title()}
-                            >
-                              {title()}
-                            </div>
-                          )}
-                        </Show>
-                      </div>
-                    )}
-                  </Show>
-                }
-              >
-                {(claude) => <ClaudeIndicator state={claude().state} />}
-              </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto">
                   <ActivityGraph samples={info().activityHistory} />
