@@ -138,9 +138,14 @@ const TerminalMeta: Component<{
                       <span
                         class="text-xs text-fg-3 truncate"
                         data-testid="process-name"
-                        title={fg().title ?? fg().name}
+                        title={fg().title ?? undefined}
                       >
-                        {fg().title ?? fg().name}
+                        {fg().name}
+                        <Show when={fg().title}>
+                          {(title) => (
+                            <span class="text-fg-4 ml-1">{title()}</span>
+                          )}
+                        </Show>
                       </span>
                     )}
                   </Show>
