@@ -238,6 +238,20 @@ Then(
 );
 
 Then(
+  "the sidebar should not show a terminal preview",
+  async function (this: KoluWorld) {
+    const sidebar = this.page.locator('[data-testid="sidebar"]');
+    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
+    await preview.first().waitFor({ state: "hidden", timeout: 10_000 });
+  },
+);
+
+When("I click the agent previews toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="sidebar-agent-previews-toggle"]');
+  await this.waitForFrame();
+});
+
+Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {
     // Wait for it to disappear (may take a poll cycle)

@@ -27,6 +27,14 @@ Feature: Claude Code status detection
     Then the sidebar should show a terminal preview
     And there should be no page errors
 
+  Scenario: Disabling the agent previews setting hides the sidebar preview
+    When a Claude Code session is mocked with state "thinking"
+    Then the sidebar should show a terminal preview
+    When I click the settings button
+    And I click the agent previews toggle
+    Then the sidebar should not show a terminal preview
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the header should show a Claude indicator with state "thinking"

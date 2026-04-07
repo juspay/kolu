@@ -11,10 +11,12 @@ import {
 } from "@thisbeyond/solid-dnd";
 import { match, P } from "ts-pattern";
 import Tip from "./Tip";
+import Kbd from "./Kbd";
 import TerminalMeta from "./TerminalMeta";
 import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
@@ -331,6 +333,17 @@ const Sidebar: Component<{
             </DragOverlay>
           </DragDropProvider>
         </nav>
+        {/* Sticky footer hint — surfaces the MRU cycle keybind without
+         *  needing the user to discover it via the shortcuts help dialog. */}
+        <Show when={props.terminalIds.length > 1}>
+          <div
+            data-testid="sidebar-footer-hint"
+            class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
+          >
+            <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
+            <span>cycle terminals</span>
+          </div>
+        </Show>
       </aside>
     </>
   );
