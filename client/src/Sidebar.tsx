@@ -16,7 +16,18 @@ import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
-/** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
+/** Derive the visual tier for the sidebar card ring/glow. */
+function cardTier(
+  alerting: boolean,
+  claudeState: string | undefined,
+): "alerting" | "waiting" | "active" | "idle" {
+  if (alerting) return "alerting";
+  if (claudeState === "waiting") return "waiting";
+  if (claudeState === "thinking" || claudeState === "tool_use") return "active";
+  return "idle";
+}
+
+/** Single sortable sidebar entry — rendered as a floating card. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
@@ -25,18 +36,21 @@ const SidebarEntry: Component<{
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
-  /** "above" | "below" | null — where the drop line should render on this entry */
   dropEdge: "above" | "below" | null;
 }> = (props) => {
   const sortable = createSortable(props.id);
+  const tier = () =>
+    cardTier(props.alerting, props.displayInfo?.meta.claude?.state);
 
   return (
-    <div class="relative" style={transformStyle(sortable.transform)}>
-      {/* Drop indicator line — positioned at the edge where the item will be inserted */}
+    <div
+      class="relative px-1.5 py-1"
+      style={transformStyle(sortable.transform)}
+    >
       <Show when={props.dropEdge}>
         {(edge) => (
           <div
-            class="absolute left-1 right-1 h-0.5 bg-accent rounded-full"
+            class="absolute left-2 right-2 h-0.5 bg-accent rounded-full z-10"
             classList={{
               "top-0": edge() === "above",
               "bottom-0": edge() === "below",
@@ -44,58 +58,68 @@ const SidebarEntry: Component<{
           />
         )}
       </Show>
-      <button
-        ref={sortable.ref}
-        {...sortable.dragActivators}
-        data-terminal-id={props.id}
-        data-active={props.isActive ? "" : undefined}
-        data-activity={
-          props.displayInfo?.activityHistory.at(-1)?.[1] ? "active" : "sleeping"
-        }
-        data-alerting={props.alerting ? "" : undefined}
-        class="group w-full py-2 pl-2 pr-6 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
+
+      {/* Outer glow wrapper — the ring/glow lives here so it doesn't clip */}
+      <div
+        class="rounded-2xl transition-shadow duration-300"
         classList={{
-          "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
-          "text-fg": !props.isActive && !!props.alerting,
-          "text-fg-3 hover:text-fg-2": !props.isActive && !props.alerting,
-          "opacity-25": sortable.isActiveDraggable,
+          "shadow-[0_0_0_1.5px_var(--color-accent),0_0_12px_var(--color-accent)/25]":
+            props.isActive && tier() === "idle",
+          "card-ring-active": tier() === "active",
+          "card-ring-waiting": tier() === "waiting",
+          "card-ring-alerting": tier() === "alerting",
         }}
-        style={(() => {
-          const claudeState = props.displayInfo?.meta.claude?.state;
-          // Background animation: alerting > waiting > active > none
-          const animation = props.alerting
-            ? "alerting-glow 1.5s ease-in-out infinite"
-            : claudeState === "waiting"
-              ? "agent-waiting-glow 1s ease-in-out infinite"
-              : claudeState === "thinking" || claudeState === "tool_use"
-                ? "agent-active-shimmer 2s ease-in-out infinite"
-                : undefined;
-          return {
-            // Left border = repo color identity only (no agent state)
-            "border-left-color":
-              props.displayInfo?.repoColor ??
-              (props.isActive ? "var(--accent)" : "transparent"),
-            ...(animation ? { animation } : {}),
-          };
-        })()}
-        onClick={() => props.onSelect(props.id)}
-        onMouseDown={(e) => e.preventDefault()}
-        title={props.metadata?.cwd ?? String(props.id)}
       >
-        <TerminalMeta info={props.displayInfo} />
-        <span
-          data-testid="sidebar-close"
-          class="absolute top-1 right-1 hidden group-hover:flex items-center justify-center w-5 h-5 rounded text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onClose(props.id);
+        <button
+          ref={sortable.ref}
+          {...sortable.dragActivators}
+          data-terminal-id={props.id}
+          data-active={props.isActive ? "" : undefined}
+          data-activity={
+            props.displayInfo?.activityHistory.at(-1)?.[1]
+              ? "active"
+              : "sleeping"
+          }
+          data-alerting={props.alerting ? "" : undefined}
+          class="group relative w-full rounded-2xl text-sm text-left touch-none transition-all duration-200 overflow-hidden"
+          classList={{
+            "bg-surface-2 text-fg": props.isActive,
+            "bg-surface-1 hover:bg-surface-2/70": !props.isActive,
+            "text-fg": !props.isActive && tier() !== "idle",
+            "text-fg-3 hover:text-fg-2": !props.isActive && tier() === "idle",
+            "opacity-25": sortable.isActiveDraggable,
           }}
-          title="Close terminal"
+          onClick={() => props.onSelect(props.id)}
+          onMouseDown={(e) => e.preventDefault()}
+          title={props.metadata?.cwd ?? String(props.id)}
         >
-          ×
-        </span>
-      </button>
+          {/* Repo color accent — top edge stripe */}
+          <div
+            class="h-0.5 rounded-t-2xl"
+            style={{
+              "background-color": props.displayInfo?.repoColor ?? "transparent",
+            }}
+          />
+
+          {/* Card content */}
+          <div class="px-2.5 py-2 pr-6">
+            <TerminalMeta info={props.displayInfo} />
+          </div>
+
+          {/* Close button */}
+          <span
+            data-testid="sidebar-close"
+            class="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onClose(props.id);
+            }}
+            title="Close terminal"
+          >
+            ×
+          </span>
+        </button>
+      </div>
     </div>
   );
 };
@@ -145,7 +169,6 @@ const Sidebar: Component<{
 
   return (
     <>
-      {/* Backdrop — mobile only, shown when sidebar is open */}
       <Show when={props.open}>
         <div
           data-testid="sidebar-backdrop"
@@ -154,10 +177,9 @@ const Sidebar: Component<{
         />
       </Show>
 
-      {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-48 lg:w-56 xl:w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
@@ -165,7 +187,7 @@ const Sidebar: Component<{
         }}
       >
         <Tip label="New terminal" class="w-full">
-          <div class="flex border-b border-edge">
+          <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
             <button
               data-testid="create-terminal"
               class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
@@ -176,7 +198,7 @@ const Sidebar: Component<{
             <div class="w-px my-1.5 bg-edge" />
             <button
               data-testid="new-terminal-menu"
-              class="px-2 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
               onClick={props.onNewTerminalMenu}
               title="More options"
             >
@@ -194,7 +216,7 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav class="flex-1 overflow-y-auto">
+        <nav class="flex-1 overflow-y-auto py-0.5">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {
@@ -239,10 +261,7 @@ const Sidebar: Component<{
                 {(dragId) => {
                   const d = () => props.getDisplayInfo(dragId());
                   return (
-                    <div
-                      class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": d()?.repoColor }}
-                    >
+                    <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
                       <span style={{ color: d()?.repoColor }}>
                         {d()?.name ?? "terminal"}
                       </span>

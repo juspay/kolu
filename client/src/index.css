@@ -67,35 +67,65 @@
   }
 }
 
-/* Pulsing warm glow on sidebar entry when a background terminal's Claude finishes */
-@keyframes alerting-glow {
+/* ── Sidebar card ring animations ────────────────────────────── */
+
+/* Agent working — breathing ring glow */
+@keyframes ring-active {
   0%,
   100% {
-    background-color: oklch(from var(--color-alert) l c h / 0.08);
+    box-shadow:
+      0 0 0 1px oklch(from var(--color-busy) l c h / 0.5),
+      0 0 8px oklch(from var(--color-busy) l c h / 0.15);
   }
   50% {
-    background-color: oklch(from var(--color-alert) l c h / 0.25);
+    box-shadow:
+      0 0 0 1.5px var(--color-busy),
+      0 0 16px oklch(from var(--color-busy) l c h / 0.3);
   }
 }
 
-/* Agent actively working (thinking or running tools) — subtle background shimmer */
-@keyframes agent-active-shimmer {
+/* Agent waiting — urgent pulsing ring */
+@keyframes ring-waiting {
   0%,
   100% {
-    background-color: oklch(from var(--color-busy) l c h / 0.06);
+    box-shadow:
+      0 0 0 1.5px oklch(from var(--color-warning) l c h / 0.6),
+      0 0 10px oklch(from var(--color-warning) l c h / 0.2);
   }
   50% {
-    background-color: oklch(from var(--color-busy) l c h / 0.14);
+    box-shadow:
+      0 0 0 2px var(--color-warning),
+      0 0 20px oklch(from var(--color-warning) l c h / 0.4);
   }
 }
 
-/* Agent waiting for user input — warm attention-grabbing background throb */
-@keyframes agent-waiting-glow {
+/* Alerting — finished agent needs attention */
+@keyframes ring-alerting {
   0%,
   100% {
-    background-color: oklch(from var(--color-warning) l c h / 0.08);
+    box-shadow:
+      0 0 0 1.5px oklch(from var(--color-alert) l c h / 0.6),
+      0 0 10px oklch(from var(--color-alert) l c h / 0.2);
   }
   50% {
-    background-color: oklch(from var(--color-warning) l c h / 0.22);
+    box-shadow:
+      0 0 0 2px var(--color-alert),
+      0 0 20px oklch(from var(--color-alert) l c h / 0.4);
   }
+}
+
+/* Utility classes for sidebar card states */
+.card-ring-active {
+  animation: ring-active 2.5s ease-in-out infinite;
+  border-radius: var(--radius-2xl, 1rem);
+}
+
+.card-ring-waiting {
+  animation: ring-waiting 1s ease-in-out infinite;
+  border-radius: var(--radius-2xl, 1rem);
+}
+
+.card-ring-alerting {
+  animation: ring-alerting 1.5s ease-in-out infinite;
+  border-radius: var(--radius-2xl, 1rem);
 }
