@@ -121,11 +121,17 @@ const TerminalMeta: Component<{
             fallback={
               <Show when={info().meta.foreground}>
                 {(fg) => (
-                  <div class="min-w-0" data-testid="process-name">
-                    <div class="text-xs text-fg-3 truncate">{fg().name}</div>
+                  <div class="min-w-0">
+                    <div
+                      class="text-xs text-fg-3 truncate"
+                      data-testid="process-name"
+                    >
+                      {fg().name}
+                    </div>
                     <Show when={fg().title && fg().title !== fg().name}>
                       <div
                         class="text-[0.65rem] text-fg-4 truncate"
+                        data-testid="process-title"
                         title={fg().title ?? undefined}
                       >
                         {fg().title}
@@ -136,11 +142,7 @@ const TerminalMeta: Component<{
               </Show>
             }
           >
-            {(claude) => (
-              <div data-testid="process-name">
-                <ClaudeIndicator state={claude().state} />
-              </div>
-            )}
+            {(claude) => <ClaudeIndicator state={claude().state} />}
           </Show>
 
           {/* Activity sparkline */}
