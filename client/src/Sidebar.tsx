@@ -37,7 +37,7 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
-  activeTerminalBg: string;
+  activeTerminalBg: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const tier = () =>
@@ -102,7 +102,7 @@ const SidebarEntry: Component<{
           style={{
             /* Active card uses the actual xterm theme bg — same material as the terminal */
             "background-color": props.isActive
-              ? props.activeTerminalBg
+              ? (props.activeTerminalBg ?? "var(--color-surface-1)")
               : props.displayInfo?.repoColor
                 ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
@@ -146,7 +146,7 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
-  activeTerminalBg: string;
+  activeTerminalBg: string | undefined;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
