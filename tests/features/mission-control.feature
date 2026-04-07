@@ -80,7 +80,7 @@ Feature: Mission Control
     When I create a terminal
     And I run "echo ctrl-tab-target"
     And I create a terminal
-    And I press Ctrl+Tab
+    And I jump to the previous terminal
     Then Mission Control should not be visible
     And the active terminal should show "ctrl-tab-target"
     And there should be no page errors

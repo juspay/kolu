@@ -75,7 +75,7 @@ When("I press the Mission Control shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-When("I press Ctrl+Tab", async function (this: KoluWorld) {
+When("I jump to the previous terminal", async function (this: KoluWorld) {
   await this.page.keyboard.press("Control+Tab");
   await this.waitForFrame();
 });
