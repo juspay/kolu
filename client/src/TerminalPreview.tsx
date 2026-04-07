@@ -131,6 +131,10 @@ const TerminalPreview: Component<{
     <div
       ref={hostRef}
       class="w-full h-full overflow-hidden"
+      // Fill the letterbox bars (host > scaled xterm canvas) with the
+      // terminal's own theme background so they read as terminal padding
+      // rather than a generic surface gap.
+      style={{ "background-color": props.theme.background }}
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
     >
