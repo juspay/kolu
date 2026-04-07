@@ -18,6 +18,10 @@ When(
     // Hover to reveal the close button, then click it
     await entry.hover();
     await entry.locator('[data-testid="sidebar-close"]').click();
+    // Confirm in the dialog — every close goes through CloseConfirm.
+    const confirm = this.page.locator('[data-testid="close-confirm"]');
+    await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await confirm.locator('[data-testid="close-confirm-close-all"]').click();
     // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
@@ -49,6 +53,10 @@ When(
       .locator("li", { hasText: "Close terminal" })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await palette.locator("li", { hasText: "Close terminal" }).click();
+    // Confirm in the dialog — every close goes through CloseConfirm.
+    const confirm = this.page.locator('[data-testid="close-confirm"]');
+    await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await confirm.locator('[data-testid="close-confirm-close-all"]').click();
     await this.waitForFrame();
   },
 );
