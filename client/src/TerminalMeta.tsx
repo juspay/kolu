@@ -51,7 +51,7 @@ const TerminalMeta: Component<{
             <Show when={info().subCount > 0}>
               <span
                 data-testid="sub-count"
-                class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+                class="ml-auto text-[0.6rem] text-fg-2 bg-fg/10 px-1 rounded shrink-0"
               >
                 +{info().subCount}
               </span>

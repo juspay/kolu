@@ -60,7 +60,7 @@ const Header: Component<{
         <Tip label="Toggle sidebar">
           <button
             data-testid="sidebar-toggle"
-            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onToggleSidebar?.()}
           >
             <MenuIcon />
@@ -129,7 +129,7 @@ const Header: Component<{
         <Tip label="Mission Control">
           <button
             data-testid="mission-control-trigger"
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onMissionControl?.()}
           >
             <GridIcon />
@@ -139,7 +139,7 @@ const Header: Component<{
           <Tip label={`Theme: ${props.themeName}`}>
             <button
               data-testid="theme-name"
-              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer max-w-[14ch] truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded-lg transition-colors cursor-pointer max-w-[14ch] truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {
                 props.onThemeClick?.();
                 setTimeout(
@@ -156,7 +156,7 @@ const Header: Component<{
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
           <button
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onSearch?.()}
           >
             <SearchIcon />
@@ -167,7 +167,7 @@ const Header: Component<{
             <button
               ref={settingsTriggerRef}
               data-testid="settings-trigger"
-              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => setSettingsOpen(!settingsOpen())}
             >
               <SettingsIcon />
@@ -192,7 +192,7 @@ const Header: Component<{
         <Tip label="Command palette">
           <button
             data-testid="palette-trigger"
-            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette?.()}
           >
             <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>

@@ -31,7 +31,7 @@ const CloseConfirm: Component<{
       initialFocusEl={cancelRef}
     >
       <Dialog.Content
-        class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-sm text-sm space-y-4"
+        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 max-w-sm text-sm space-y-4"
         data-testid="close-confirm"
       >
         <Dialog.Label class="font-semibold text-fg">
@@ -55,7 +55,7 @@ const CloseConfirm: Component<{
 
           <Show when={props.target?.meta.git}>
             {(git) => (
-              <div class="flex items-center gap-1.5 text-fg-3 text-xs bg-surface-2 rounded px-2.5 py-2">
+              <div class="flex items-center gap-1.5 text-fg-3 text-xs bg-surface-2 rounded-lg px-2.5 py-2">
                 <WorktreeIcon class="w-3.5 h-3.5 shrink-0" />
                 <span class="font-medium text-fg-2 truncate">
                   {git().repoName}
@@ -79,7 +79,7 @@ const CloseConfirm: Component<{
                 href={pr().url}
                 target="_blank"
                 rel="noopener noreferrer"
-                class="flex items-center gap-1.5 text-xs bg-surface-2 rounded px-2.5 py-2 hover:bg-surface-3 transition-colors"
+                class="flex items-center gap-1.5 text-xs bg-surface-2 rounded-lg px-2.5 py-2 hover:bg-surface-3 transition-colors"
                 data-testid="close-confirm-pr"
               >
                 <PrStateIcon state={pr().state} class="w-3.5 h-3.5 shrink-0" />
@@ -96,7 +96,7 @@ const CloseConfirm: Component<{
         <div class="flex flex-wrap justify-end gap-2 pt-1">
           <button
             ref={cancelRef}
-            class="px-3 py-1.5 text-xs rounded text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
+            class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
             onClick={() => props.onOpenChange(false)}
           >
             Cancel
@@ -105,7 +105,7 @@ const CloseConfirm: Component<{
             when={isWorktree()}
             fallback={
               <button
-                class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+                class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
                 data-testid="close-confirm-close-all"
                 onClick={() => {
                   props.onClose();
@@ -117,7 +117,7 @@ const CloseConfirm: Component<{
             }
           >
             <button
-              class="px-3 py-1.5 text-xs rounded bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
+              class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
               data-testid="close-confirm-close-only"
               onClick={() => {
                 props.onClose();
@@ -128,7 +128,7 @@ const CloseConfirm: Component<{
             </button>
             <button
               data-testid="close-confirm-remove"
-              class="px-3 py-1.5 text-xs rounded bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
+              class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
               onClick={() => {
                 props.onCloseAndRemove();
                 props.onOpenChange(false);

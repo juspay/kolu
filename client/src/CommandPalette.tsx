@@ -231,7 +231,7 @@ const CommandPalette: Component<{
       <Dialog.Content
         forceMount
         data-testid="command-palette"
-        class="w-md bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden flex flex-col"
+        class="w-md bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
         style={{ height: "24rem" }}
       >
         {/* Breadcrumb — visible when drilled into a group */}
@@ -262,7 +262,7 @@ const CommandPalette: Component<{
           ref={inputRef}
           type="text"
           placeholder="Type a command..."
-          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge-bright outline-none placeholder-fg-3"
+          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge outline-none placeholder-fg-3"
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />

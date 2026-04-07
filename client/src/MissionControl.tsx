@@ -206,7 +206,7 @@ const MissionControl: Component<{
     >
       <Dialog.Content
         data-testid="mission-control"
-        class="w-[90vw] max-w-5xl h-[80vh] bg-surface-2 border border-edge-bright rounded-lg shadow-2xl overflow-hidden p-4 flex flex-col"
+        class="w-[90vw] max-w-5xl h-[80vh] bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden p-4 flex flex-col"
       >
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-sm font-semibold text-fg">Mission Control</h2>
@@ -244,12 +244,12 @@ const MissionControl: Component<{
                     {/* Inner wrapper: square aspect ratio constrained by grid cell.
                         aspect-ratio on grid items overflows; on a nested element with
                         max-h/w-full it's constrained by the cell's definite dimensions. */}
-                    <div class="relative flex flex-col aspect-square max-h-full max-w-full w-full bg-surface-0 border-2 border-edge rounded-lg overflow-hidden transition-all hover:border-accent/60 group-focus-visible:border-accent group-focus-visible:ring-4 group-focus-visible:ring-accent/40">
+                    <div class="relative flex flex-col aspect-square max-h-full max-w-full w-full bg-surface-0 rounded-2xl overflow-hidden transition-all shadow-lg shadow-black/40 hover:shadow-xl hover:shadow-black/50 group-focus-visible:ring-4 group-focus-visible:ring-accent/50">
                       {/* Number badge — press this digit to switch */}
                       <Show when={num() <= 9}>
                         <span
                           data-testid="card-number"
-                          class="absolute top-1.5 left-1.5 z-10 w-5 h-5 flex items-center justify-center text-[0.6rem] font-bold rounded bg-surface-0/80 text-fg-2 border border-edge"
+                          class="absolute top-2 left-2 z-10 w-5 h-5 flex items-center justify-center text-[0.6rem] font-bold rounded-lg bg-fg/10 text-fg-2"
                         >
                           {num()}
                         </span>
