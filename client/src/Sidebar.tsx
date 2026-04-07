@@ -139,7 +139,7 @@ const SidebarEntry: Component<{
           <Show when={showPreview()}>
             <div
               data-testid="sidebar-preview"
-              class="mx-2.5 mt-2 h-20 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              class="mx-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
             >
               <TerminalPreview
                 terminalId={props.id}
