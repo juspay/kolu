@@ -71,17 +71,17 @@ export function cleanEnv(): Record<string, string> {
 }
 
 /** Shell function that emits OSC 7 with the current working directory. */
-const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
+export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
 
 /** Shell function that emits OSC 2 (title) with the command about to run.
  *  Triggered by preexec — fires before each command, enabling event-driven
  *  foreground process detection without polling. */
-const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
+export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
 
 /** Shell function that resets OSC 2 title to CWD at the prompt.
  *  Matches Ghostty/Kitty convention: CWD when idle, command when running. */
-const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
-const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
+export const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
+export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
 
 /**
  * Prepare shell init that injects an OSC 7 hook *after* the user's rc files.

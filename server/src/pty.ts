@@ -128,7 +128,7 @@ export function spawnPty(
   // OSC 0/2 title changes signal that the foreground process may have changed.
   // The shell preexec hook (injected in shell.ts) emits OSC 2 before each command.
   const titleDisposable = headless.onTitleChange((title: string) => {
-    tlog.debug({ title }, "title changed (OSC 0/2)");
+    tlog.info({ title }, "title changed (OSC 0/2)");
     opts.onTitleChange?.(title);
   });
 

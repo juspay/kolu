@@ -26,7 +26,7 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row + terminal title */}
+          {/* Name row */}
           <div class={`flex items-center gap-1.5 ${nameClass()} truncate`}>
             <span
               data-testid="terminal-meta-name"
@@ -35,16 +35,6 @@ const TerminalMeta: Component<{
             >
               {info().name}
             </span>
-            <Show when={info().meta.foreground?.title}>
-              {(title) => (
-                <span
-                  class="text-[0.6rem] text-fg-4 truncate"
-                  title={title()}
-                >
-                  {title()}
-                </span>
-              )}
-            </Show>
             <Show when={info().meta.git}>
               {(git) => (
                 <Show when={git().isWorktree}>
@@ -125,24 +115,36 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Foreground process name + Claude indicator */}
-          <Show when={info().meta.foreground || info().meta.claude}>
-            <div class="flex items-center gap-1.5" data-testid="process-name">
-              <Show when={info().meta.claude}>
-                {(claude) => <ClaudeIndicator state={claude().state} />}
-              </Show>
+          {/* Claude indicator (takes precedence over plain process name) */}
+          <Show
+            when={info().meta.claude}
+            fallback={
               <Show when={info().meta.foreground}>
                 {(fg) => (
-                  <span class="text-xs text-fg-3 truncate">{fg().name}</span>
+                  <div class="min-w-0" data-testid="process-name">
+                    <div class="text-xs text-fg-3 truncate">{fg().name}</div>
+                    <Show when={fg().title && fg().title !== fg().name}>
+                      <div
+                        class="text-[0.65rem] text-fg-4 truncate"
+                        title={fg().title ?? undefined}
+                      >
+                        {fg().title}
+                      </div>
+                    </Show>
+                  </div>
                 )}
               </Show>
-            </div>
+            }
+          >
+            {(claude) => (
+              <div data-testid="process-name">
+                <ClaudeIndicator state={claude().state} />
+              </div>
+            )}
           </Show>
 
           {/* Activity sparkline */}
-          <Show
-            when={info().activityHistory.length > 0}
-          >
+          <Show when={info().activityHistory.length > 0}>
             <div
               classList={{
                 "mt-0.5": mode() === "normal",
