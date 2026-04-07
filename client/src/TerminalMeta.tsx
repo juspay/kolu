@@ -136,7 +136,7 @@ const TerminalMeta: Component<{
                   <Show when={info().meta.foreground}>
                     {(fg) => (
                       <span
-                        class="text-xs text-fg-3 truncate min-w-0"
+                        class="text-xs text-fg-3 font-mono truncate min-w-0"
                         data-testid="process-name"
                       >
                         {fg().name}
@@ -153,19 +153,6 @@ const TerminalMeta: Component<{
                 </div>
               </Show>
             </div>
-          </Show>
-
-          {/* Terminal title — its own line below the agent/process row */}
-          <Show when={info().meta.foreground?.title}>
-            {(title) => (
-              <div
-                class="text-[0.65rem] text-fg-4 truncate"
-                data-testid="process-title"
-                title={title()}
-              >
-                {title()}
-              </div>
-            )}
           </Show>
         </>
       )}

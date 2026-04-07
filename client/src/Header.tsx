@@ -119,7 +119,20 @@ const Header: Component<{
               fallback={
                 <Show when={meta().foreground}>
                   {(fg) => (
-                    <span class="text-fg-3 shrink-0">&middot; {fg().name}</span>
+                    <span class="shrink-0">
+                      &middot;{" "}
+                      <span class="font-mono text-fg-3">{fg().name}</span>
+                      <Show when={fg().title}>
+                        {(title) => (
+                          <span
+                            class="text-fg-4 ml-1 truncate hidden md:inline"
+                            title={title()}
+                          >
+                            {title()}
+                          </span>
+                        )}
+                      </Show>
+                    </span>
                   )}
                 </Show>
               }
