@@ -338,8 +338,16 @@ const App: Component = () => {
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
-      {/* relative: anchor for sidebar's absolute overlay on mobile */}
-      <div class="relative flex flex-1 min-h-0">
+      {/* relative: anchor for sidebar's absolute overlay on mobile.
+       *  --active-terminal-bg published here so child components (Sidebar)
+       *  can read it via CSS without prop drilling. */}
+      <div
+        class="relative flex flex-1 min-h-0"
+        style={{
+          "--active-terminal-bg":
+            activeTheme().background ?? "var(--color-surface-1)",
+        }}
+      >
         <Sidebar
           terminalIds={store.terminalIds()}
           activeId={store.activeId()}
@@ -353,7 +361,6 @@ const App: Component = () => {
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
-          activeTerminalBg={activeTheme().background}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0">

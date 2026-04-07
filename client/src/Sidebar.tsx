@@ -37,7 +37,6 @@ const SidebarEntry: Component<{
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
-  activeTerminalBg: string | undefined;
 }> = (props) => {
   const sortable = createSortable(props.id);
   const tier = () =>
@@ -100,9 +99,10 @@ const SidebarEntry: Component<{
             "opacity-25": sortable.isActiveDraggable,
           }}
           style={{
-            /* Active card uses the actual xterm theme bg — same material as the terminal */
+            /* Active card uses the actual xterm theme bg — same material as the terminal.
+             * --active-terminal-bg is published by App.tsx on the layout root. */
             "background-color": props.isActive
-              ? (props.activeTerminalBg ?? "var(--color-surface-1)")
+              ? "var(--active-terminal-bg)"
               : props.displayInfo?.repoColor
                 ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
@@ -146,7 +146,6 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
-  activeTerminalBg: string | undefined;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -260,7 +259,6 @@ const Sidebar: Component<{
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}
-                      activeTerminalBg={props.activeTerminalBg}
                     />
                   );
                 }}
