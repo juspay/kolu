@@ -251,6 +251,19 @@ Then(
   },
 );
 
+Then(
+  "the sidebar agent headline should show the branch name",
+  async function (this: KoluWorld) {
+    const el = this.page.locator('[data-testid="agent-headline-branch"]');
+    await el.first().waitFor({ state: "visible", timeout: 10_000 });
+    const text = (await el.first().textContent())?.trim() ?? "";
+    assert.ok(
+      text.length > 0,
+      `Expected agent headline branch to be non-empty, got "${text}"`,
+    );
+  },
+);
+
 When("I click the agent previews toggle", async function (this: KoluWorld) {
   await this.page.click('[data-testid="sidebar-agent-previews-toggle"]');
   await this.waitForFrame();

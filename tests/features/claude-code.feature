@@ -35,6 +35,15 @@ Feature: Claude Code status detection
     Then the sidebar should not show a terminal preview
     And there should be no page errors
 
+  Scenario: Agent sidebar card uses the branch name as the headline when no PR is linked
+    When I run "git init /tmp/kolu-agent-headline-test"
+    And I run "cd /tmp/kolu-agent-headline-test"
+    Then the sidebar should show a branch name
+    When a Claude Code session is mocked with state "thinking"
+    Then the sidebar should show a terminal preview
+    And the sidebar agent headline should show the branch name
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the header should show a Claude indicator with state "thinking"

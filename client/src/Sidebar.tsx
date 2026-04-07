@@ -20,6 +20,10 @@ import Tip from "./Tip";
 import Kbd from "./Kbd";
 import TerminalMeta from "./TerminalMeta";
 import TerminalPreview from "./TerminalPreview";
+import ClaudeIndicator from "./ClaudeIndicator";
+import ChecksIndicator from "./ChecksIndicator";
+import ActivityGraph from "./ActivityGraph";
+import { PrStateIcon, WorktreeIcon } from "./Icons";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
@@ -41,6 +45,156 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
     .with(undefined, () => "idle" as const)
     .exhaustive();
 }
+
+/** Meta layout for agent terminal cards (those with a live preview strip above).
+ *
+ *  Differs from the default `TerminalMeta` in that it promotes the PR title
+ *  (or branch, when there's no PR) to the card headline — reviewers scan the
+ *  sidebar looking for "which agent is working on what", and a full-width
+ *  wrapping PR title answers that faster than a truncated sub-line. Repo
+ *  name and branch demote to a secondary row. */
+const AgentSidebarMeta: Component<{
+  info: TerminalDisplayInfo | undefined;
+}> = (props) => {
+  const i = () => props.info;
+  return (
+    <Show when={i()}>
+      {(info) => (
+        <>
+          {/* Headline: PR title if available, else branch name. Wraps up to
+           *  two lines so long titles stay legible instead of truncating. */}
+          <div class="flex items-start gap-1.5 text-sm font-medium text-fg leading-tight">
+            <Show
+              when={info().meta.pr}
+              fallback={
+                <Show
+                  when={info().meta.git}
+                  fallback={<span class="truncate">{info().name}</span>}
+                >
+                  {(git) => (
+                    <span
+                      data-testid="agent-headline-branch"
+                      class="line-clamp-2 break-all"
+                      style={{ color: info().branchColor }}
+                      classList={{ "text-fg": !info().branchColor }}
+                    >
+                      {git().branch}
+                    </span>
+                  )}
+                </Show>
+              }
+            >
+              {(pr) => (
+                <>
+                  <PrStateIcon
+                    state={pr().state}
+                    class="w-3 h-3 mt-1 shrink-0"
+                  />
+                  <a
+                    href={pr().url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="shrink-0 text-fg-3 hover:text-accent mt-px"
+                    onClick={(e) => e.stopPropagation()}
+                    data-testid="agent-headline-pr-link"
+                  >
+                    #{pr().number}
+                  </a>
+                  <span
+                    data-testid="agent-headline-pr-title"
+                    class="line-clamp-2 break-words"
+                    title={pr().title}
+                  >
+                    {pr().title}
+                  </span>
+                </>
+              )}
+            </Show>
+            <Show when={info().subCount > 0}>
+              <span
+                data-testid="sub-count"
+                class="ml-auto text-[0.6rem] text-fg-2 bg-fg/10 px-1 rounded shrink-0 mt-0.5"
+              >
+                +{info().subCount}
+              </span>
+            </Show>
+          </div>
+
+          {/* Secondary: repo name, worktree indicator, and branch (only when
+           *  branch isn't already the headline). Kept to a single compact
+           *  truncating row so the card stays short. */}
+          <div class="flex items-center gap-1.5 text-xs mt-0.5 min-w-0">
+            <span
+              data-testid="terminal-meta-name"
+              class="shrink-0"
+              style={{ color: info().repoColor }}
+            >
+              {info().name}
+            </span>
+            <Show when={info().meta.git}>
+              {(git) => (
+                <>
+                  <Show when={git().isWorktree}>
+                    <span
+                      data-testid="worktree-indicator"
+                      class="text-fg-3 shrink-0"
+                      title="Worktree"
+                    >
+                      <WorktreeIcon />
+                    </span>
+                  </Show>
+                  <Show when={info().meta.pr}>
+                    <Tip label={git().branch}>
+                      <span
+                        data-testid="terminal-meta-branch"
+                        class="truncate"
+                        style={{ color: info().branchColor }}
+                        classList={{ "text-fg-3": !info().branchColor }}
+                      >
+                        {git().branch}
+                      </span>
+                    </Tip>
+                  </Show>
+                </>
+              )}
+            </Show>
+            <Show when={info().meta.pr?.checks}>
+              {(checks) => (
+                <span class="ml-auto shrink-0">
+                  <ChecksIndicator status={checks()} />
+                </span>
+              )}
+            </Show>
+          </div>
+
+          {/* Footer: Claude state + foreground process + activity sparkline
+           *  on one row — this is the "something is happening" row. */}
+          <div class="flex items-center gap-2 mt-1 min-w-0">
+            <Show when={info().meta.claude}>
+              {(claude) => <ClaudeIndicator state={claude().state} />}
+            </Show>
+            <Show when={info().meta.foreground}>
+              {(fg) => (
+                <span
+                  class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                  data-testid="process-name"
+                  title={fg().title ?? fg().name}
+                >
+                  {fg().title ?? fg().name}
+                </span>
+              )}
+            </Show>
+            <Show when={info().activityHistory.length > 0}>
+              <div class="ml-auto w-16 shrink-0">
+                <ActivityGraph samples={info().activityHistory} />
+              </div>
+            </Show>
+          </div>
+        </>
+      )}
+    </Show>
+  );
+};
 
 /** Single sortable sidebar entry — floating card with spinning border for agent states. */
 const SidebarEntry: Component<{
@@ -167,10 +321,21 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
-          <Show when={showPreview()}>
+          <Show
+            when={showPreview()}
+            fallback={
+              <div class="min-w-0 px-2.5 py-2 pr-6">
+                <TerminalMeta info={props.displayInfo} />
+              </div>
+            }
+          >
+            {/* Agent layout: thin preview strip as an ambient "something is
+             *  happening" signal, and a restructured meta below that
+             *  promotes the PR title (or branch, when no PR) to the
+             *  headline — the thing you actually scan the sidebar for. */}
             <div
               data-testid="sidebar-preview"
-              class="mx-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              class="mx-2.5 mt-2 h-12 rounded-lg overflow-hidden border border-edge bg-surface-0"
             >
               <TerminalPreview
                 terminalId={props.id}
@@ -179,10 +344,10 @@ const SidebarEntry: Component<{
                 rows={props.dimensions!.rows}
               />
             </div>
+            <div class="min-w-0 px-2.5 py-2 pr-6">
+              <AgentSidebarMeta info={props.displayInfo} />
+            </div>
           </Show>
-          <div class="min-w-0 px-2.5 py-2 pr-6">
-            <TerminalMeta info={props.displayInfo} />
-          </div>
 
           <span
             data-testid="sidebar-close"
