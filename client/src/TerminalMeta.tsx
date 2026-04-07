@@ -115,50 +115,57 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Claude indicator (takes precedence over plain process name) */}
+          {/* Agent status / process name + activity sparkline (single row) */}
           <Show
-            when={info().meta.claude}
-            fallback={
-              <Show when={info().meta.foreground}>
-                {(fg) => (
-                  <div class="min-w-0">
-                    <div
-                      class="text-xs text-fg-3 truncate"
-                      data-testid="process-name"
-                    >
-                      {fg().name}
-                    </div>
-                    <Show when={fg().title && fg().title !== fg().name}>
-                      <div
-                        class="text-[0.65rem] text-fg-4 truncate"
-                        data-testid="process-title"
-                        title={fg().title ?? undefined}
-                      >
-                        {fg().title}
-                      </div>
-                    </Show>
-                  </div>
-                )}
-              </Show>
+            when={
+              info().meta.claude ||
+              info().meta.foreground ||
+              info().activityHistory.length > 0
             }
           >
-            {(claude) => <ClaudeIndicator state={claude().state} />}
-          </Show>
-
-          {/* Activity sparkline */}
-          <Show when={info().activityHistory.length > 0}>
             <div
+              class="flex items-center gap-1.5 min-w-0"
               classList={{
                 "mt-0.5": mode() === "normal",
                 "mt-auto": mode() === "readonly",
               }}
             >
+              <Show
+                when={info().meta.claude}
+                fallback={
+                  <Show when={info().meta.foreground}>
+                    {(fg) => (
+                      <span
+                        class="text-xs text-fg-3 truncate min-w-0"
+                        data-testid="process-name"
+                      >
+                        {fg().name}
+                      </span>
+                    )}
+                  </Show>
+                }
+              >
+                {(claude) => <ClaudeIndicator state={claude().state} />}
+              </Show>
               <Show when={info().activityHistory.length > 0}>
-                <div class="ml-auto">
+                <div class="ml-auto shrink-0">
                   <ActivityGraph samples={info().activityHistory} />
                 </div>
               </Show>
             </div>
+          </Show>
+
+          {/* Terminal title — its own line below the agent/process row */}
+          <Show when={info().meta.foreground?.title}>
+            {(title) => (
+              <div
+                class="text-[0.65rem] text-fg-4 truncate"
+                data-testid="process-title"
+                title={title()}
+              >
+                {title()}
+              </div>
+            )}
           </Show>
         </>
       )}
