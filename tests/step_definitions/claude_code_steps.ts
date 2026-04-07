@@ -227,13 +227,6 @@ Then(
 );
 
 Then(
-  "Mission Control should show a Claude indicator",
-  async function (this: KoluWorld) {
-    await expectClaudeIndicatorIn(this, "mission-control");
-  },
-);
-
-Then(
   "the sidebar should show a terminal preview",
   async function (this: KoluWorld) {
     const sidebar = this.page.locator('[data-testid="sidebar"]');

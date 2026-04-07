@@ -61,6 +61,20 @@ Feature: Keyboard Shortcuts
     Then the active terminal should show "tab-second"
     And there should be no page errors
 
+  Scenario: Holding Ctrl+Tab repeatedly cycles through MRU terminals
+    When I open the app
+    And I create a terminal
+    And I run "echo cycle-first"
+    And I create a terminal
+    And I run "echo cycle-second"
+    And I create a terminal
+    And I run "echo cycle-third"
+    # MRU snapshot while Ctrl held: [cycle-third, cycle-second, cycle-first, background].
+    # Pressing Tab twice advances cursor to index 2 = cycle-first.
+    When I cycle 2 terminals back by holding Ctrl+Tab
+    Then the active terminal should show "cycle-first"
+    And there should be no page errors
+
   Scenario: Create terminal with shortcut
     Given I note the sidebar entry count
     When I press the create terminal shortcut

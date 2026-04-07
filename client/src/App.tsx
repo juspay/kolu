@@ -15,7 +15,6 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import MissionControl from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
@@ -38,10 +37,7 @@ const App: Component = () => {
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
-  const missionControlVisible = () => preferences().missionControlVisible;
-  const missionControlShowAll = () => preferences().missionControlShowAll;
-  const toggleMissionControl = () =>
-    updatePreferences({ missionControlVisible: !missionControlVisible() });
+  const sidebarAgentPreviews = () => preferences().sidebarAgentPreviews;
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -120,7 +116,6 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    toggleMissionControl,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -178,7 +173,6 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
-    toggleMissionControl,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
@@ -306,8 +300,6 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        onMissionControl={toggleMissionControl}
-        missionControlVisible={missionControlVisible()}
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
@@ -323,23 +315,13 @@ const App: Component = () => {
         onActivityAlertsChange={(on) =>
           updatePreferences({ activityAlerts: on })
         }
+        sidebarAgentPreviews={sidebarAgentPreviews()}
+        onSidebarAgentPreviewsChange={(on) =>
+          updatePreferences({ sidebarAgentPreviews: on })
+        }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
-      <Show when={missionControlVisible()}>
-        <MissionControl
-          terminalIds={store.terminalIds()}
-          activeId={store.activeId()}
-          showAll={missionControlShowAll()}
-          onShowAllChange={(showAll) =>
-            updatePreferences({ missionControlShowAll: showAll })
-          }
-          getMetadata={store.getMetadata}
-          getDisplayInfo={store.getDisplayInfo}
-          getTerminalTheme={getTerminalTheme}
-          onSelect={store.setActiveId}
-        />
-      </Show>
       {/* relative: anchor for sidebar's absolute overlay on mobile.
        *  --active-terminal-bg published here so child components (Sidebar)
        *  can read it via CSS without prop drilling. */}
@@ -357,6 +339,7 @@ const App: Component = () => {
           isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
           getTerminalTheme={getTerminalTheme}
+          showAgentPreviews={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}

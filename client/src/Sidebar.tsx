@@ -41,6 +41,8 @@ const SidebarEntry: Component<{
   unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   terminalTheme: ITheme;
+  /** When true, agent terminals render a live xterm preview above the meta. */
+  showAgentPreview: boolean;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
@@ -48,7 +50,8 @@ const SidebarEntry: Component<{
   /** Agent terminals get a live preview above the meta — lets the user watch
    *  what their agents are saying without switching terminals. Non-agent
    *  terminals keep the compact meta-only card to save vertical space. */
-  const hasAgent = () => props.metadata?.claude != null;
+  const showPreview = () =>
+    props.showAgentPreview && props.metadata?.claude != null;
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
@@ -133,7 +136,7 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
-          <Show when={hasAgent()}>
+          <Show when={showPreview()}>
             <div
               data-testid="sidebar-preview"
               class="mx-2.5 mt-2 h-20 rounded-lg overflow-hidden border border-edge bg-surface-0"
@@ -173,6 +176,7 @@ const Sidebar: Component<{
   isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
+  showAgentPreviews: boolean;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
@@ -291,6 +295,7 @@ const Sidebar: Component<{
                       unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       terminalTheme={props.getTerminalTheme(id)}
+                      showAgentPreview={props.showAgentPreviews}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}

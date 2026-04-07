@@ -25,7 +25,6 @@ export interface CommandDeps {
   handleSetTheme: (name: string) => void;
   handleRandomizeTheme: () => void;
   // Dialogs
-  toggleMissionControl: () => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
@@ -91,11 +90,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
-    {
-      name: "Toggle Mission Control",
-      keybind: SHORTCUTS.missionControl.keybind,
-      onSelect: () => deps.toggleMissionControl(),
-    },
     ...(deps.terminalIds().length > 0
       ? [
           {

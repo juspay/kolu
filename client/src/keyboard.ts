@@ -98,9 +98,9 @@ export const SHORTCUTS = {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     label: "Previous terminal",
   },
-  prevTerminalMru: {
+  cycleTerminalMru: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
-    label: "Previous terminal (most recently used)",
+    label: "Cycle terminals by most recent use",
   },
   commandPalette: {
     keybind: { key: "k", mod: true },
@@ -129,10 +129,6 @@ export const SHORTCUTS = {
   prevSubTab: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous split tab",
-  },
-  missionControl: {
-    keybind: { key: ".", mod: true },
-    label: "Toggle Mission Control",
   },
   randomizeTheme: {
     keybind: { key: "j", mod: true },

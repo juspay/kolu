@@ -31,8 +31,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
-  missionControlVisible: false,
-  missionControlShowAll: false,
+  sidebarAgentPreviews: true,
 };
 
 export const store = new Conf<PersistedState>({
@@ -56,7 +55,7 @@ export const store = new Conf<PersistedState>({
         store.set("preferences", DEFAULT_PREFERENCES);
       }
     },
-    // Mission Control strip prefs added — old preference blobs lack these fields.
+    // sidebarAgentPreviews added — old preference blobs lack this field.
     "1.3.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as
         | Partial<Preferences>
