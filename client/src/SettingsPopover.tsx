@@ -65,7 +65,7 @@ const SettingsPopover: Component<{
             updatePos();
           }}
           data-testid="settings-popover"
-          class="fixed z-50 bg-surface-1 border border-edge-bright rounded-lg shadow-lg p-3 min-w-[200px] space-y-3"
+          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[200px] space-y-3"
           style={{ top: `${pos().top}px`, right: `${pos().right}px` }}
         >
           {/* Color scheme */}
@@ -73,7 +73,7 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Theme</span>
             <div
               data-testid="color-scheme-toggle"
-              class="flex rounded-md overflow-hidden border border-edge"
+              class="flex rounded-lg overflow-hidden border border-edge"
             >
               <For each={SCHEME_OPTIONS}>
                 {(opt) => (

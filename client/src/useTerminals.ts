@@ -29,7 +29,7 @@ export function useTerminals(deps: {
     activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
     getMetadata: store.getMetadata,
-    markAttention: store.markAttention,
+    markUnread: store.markUnread,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
   });

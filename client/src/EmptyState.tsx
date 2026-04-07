@@ -24,7 +24,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
     data-testid="empty-state"
     class="flex items-center justify-center h-full"
   >
-    <div class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-xs w-full">
+    <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/40 p-5 max-w-xs w-full">
       <Show when={props.savedSession}>
         {(session) => {
           const topLevel = () => session().terminals.filter((t) => !t.parentId);
@@ -57,7 +57,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
               </div>
               <button
                 data-testid="restore-session"
-                class="w-full px-3 py-1.5 text-sm rounded bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+                class="w-full px-3 py-1.5 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
                 onClick={() => props.onRestore?.()}
               >
                 Restore {session().terminals.length} terminal

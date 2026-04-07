@@ -264,7 +264,7 @@ const App: Component = () => {
         onSelect={store.setActiveId}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
-        <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
+        <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
@@ -338,13 +338,21 @@ const App: Component = () => {
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
-      {/* relative: anchor for sidebar's absolute overlay on mobile */}
-      <div class="relative flex flex-1 min-h-0">
+      {/* relative: anchor for sidebar's absolute overlay on mobile.
+       *  --active-terminal-bg published here so child components (Sidebar)
+       *  can read it via CSS without prop drilling. */}
+      <div
+        class="relative flex flex-1 min-h-0"
+        style={{
+          "--active-terminal-bg":
+            activeTheme().background ?? "var(--color-surface-1)",
+        }}
+      >
         <Sidebar
           terminalIds={store.terminalIds()}
           activeId={store.activeId()}
           getMetadata={store.getMetadata}
-          needsAttention={store.needsAttention}
+          isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}

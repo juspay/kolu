@@ -14,7 +14,7 @@ const Tip: Component<{
         {props.children}
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content class="z-50 px-2 py-1 text-xs text-fg bg-surface-2 rounded shadow-lg border border-edge-bright">
+        <Tooltip.Content class="z-50 px-2 py-1 text-xs text-fg bg-surface-2 rounded-lg shadow-lg shadow-black/40 border border-edge">
           {props.label}
         </Tooltip.Content>
       </Tooltip.Portal>

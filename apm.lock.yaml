@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-04-06T16:00:08.548793+00:00'
-apm_version: 0.8.10
+generated_at: '2026-04-07T01:47:01.520040+00:00'
+apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
   package_type: apm_package
@@ -28,7 +28,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/skills
   host: github.com
-  resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
+  resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
   virtual_path: skills/nix-justfile
   is_virtual: true
   package_type: claude_skill
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
-  resolved_commit: dda471de09467bf5992d700772459276d2e64f7e
+  resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
   virtual_path: skills/nix-typescript
   is_virtual: true
   package_type: claude_skill
@@ -46,15 +46,15 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 5b761a616e3aa4bee20b859a2947f3f0f8f792b1
+  resolved_commit: 7fc84d15e9c48395d2c093c9d275939bf05738f6
   resolved_ref: master
   package_type: apm_package
   deployed_files:
   - .claude/commands/do.md
   - .claude/commands/talk.md
-  - .claude/hooks/agency/scripts/execute-stop-guard.sh
+  - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
   - .claude/skills/code-police
   - .claude/skills/github-pr
   - .claude/skills/hickey
-  content_hash: sha256:f522d330c9b6f3e0745d2648f985f91a1c5d06b822d7236a7aabc1288b372032
+  content_hash: sha256:3b3dd5a41cf8a0e6967d3b7eb12f280a351c6e676b363f69988e73f8b199afae

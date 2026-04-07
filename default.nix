@@ -69,7 +69,7 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-3mdr2UZ+3EQTqvA6DjulIzmcR9LUUs4QFMocvcm9Vh0=";
+    hash = "sha256-YcSHxDIjqRVmvldOjx2lurCBmcf+5D7Oxi33TAbjgnw=";
     fetcherVersion = 3;
   };
 
