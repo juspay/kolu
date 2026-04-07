@@ -1,9 +1,12 @@
 /**
- * TerminalPreview — read-only miniature xterm.js instance for Mission Control.
+ * TerminalPreview — read-only miniature xterm.js instance for sidebar previews.
  *
- * Streams live terminal output at a small font size. No input, no addons beyond
- * FitAddon. Uses canvas renderer (not WebGL) to keep GPU overhead low when
- * rendering many previews simultaneously.
+ * Streams live terminal output. Instead of rendering at a tiny font (which is
+ * blurry and gives different cols×rows than the main terminal — meaning the
+ * same stream wraps/clips differently), it renders xterm at a normal readable
+ * font on a larger virtual canvas, then CSS-scales the whole thing down to
+ * fit the host container. This preserves the column count closer to the main
+ * terminal and keeps text crisp, at the cost of a bit of CSS indirection.
  */
 
 import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
@@ -16,7 +19,12 @@ import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 
-const PREVIEW_FONT_SIZE = 5;
+/** Font size for the internal xterm instance (crisp). */
+const PREVIEW_FONT_SIZE = 12;
+/** How much to shrink the internal canvas to fit the host container.
+ *  0.4 means the virtual canvas is 1/0.4 = 2.5× the host size — the inner
+ *  xterm gets ~2.5× the cols/rows a naïve fit would give it. */
+const PREVIEW_SCALE = 0.4;
 
 const TerminalPreview: Component<{
   terminalId: TerminalId;
@@ -96,13 +104,27 @@ const TerminalPreview: Component<{
     });
   });
 
+  // The outer div is the host size. The inner div (containerRef) is the
+  // virtual canvas — sized at 1/PREVIEW_SCALE of the host, then CSS-scaled
+  // back down to fit. xterm + FitAddon run inside the inner div and see
+  // the larger dimensions, giving more cols×rows at a readable font size.
+  const invScale = `${100 / PREVIEW_SCALE}%`;
   return (
     <div
-      ref={containerRef}
       class="w-full h-full overflow-hidden"
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
-    />
+    >
+      <div
+        ref={containerRef}
+        style={{
+          width: invScale,
+          height: invScale,
+          transform: `scale(${PREVIEW_SCALE})`,
+          "transform-origin": "top left",
+        }}
+      />
+    </div>
   );
 };
 
