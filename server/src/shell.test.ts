@@ -159,6 +159,51 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(titles).toContain("true");
     expect(titles).not.toContain("__zoxide_hook");
   });
+
+  // REGRESSION: PS0 command substitution runs in a subshell, so
+  // `PS0='$(__kolu_preexec_arm)'` would set the flag in a subshell that
+  // immediately exits — the parent shell's flag stays empty and dispatch
+  // never emits. We now arm via PROMPT_COMMAND (end) instead.
+  it("regression: arming via PS0 subshell does NOT work (wrong approach)", () => {
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        // BAD: PS0 runs arm in a subshell, flag never reaches parent
+        `PS0='$(__kolu_preexec_arm)'\n` +
+        // Force PS0 evaluation by... actually, PS0 only fires in interactive
+        // mode after readline reads a line. Non-interactive bash doesn't
+        // evaluate PS0 at all. So we simulate the broken behavior by
+        // running arm inside `$(...)` directly.
+        `$(__kolu_preexec_arm)\n` +
+        `true\n`,
+    );
+    // The subshell arm doesn't leak to parent → dispatch for `true` sees
+    // flag="" → no emission.
+    expect(out).not.toContain("\x1b]2;true");
+  });
+
+  it("correct approach: arming at end of PROMPT_COMMAND reaches parent", () => {
+    // Simulate the real PROMPT_COMMAND cycle: arm runs as the last step of
+    // PROMPT_COMMAND, which executes in the parent shell (no subshell).
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        // PROMPT_COMMAND = "...;__kolu_preexec_arm" (simplified to just arm)
+        // In real bash this runs before each prompt; here we call it directly.
+        `__kolu_preexec_arm\n` +
+        // Now the user's command runs — DEBUG fires with flag=1 → emit
+        `true\n` +
+        // Next cycle: arm again, then another command
+        `__kolu_preexec_arm\n` +
+        `:\n`,
+    );
+    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
+      (m) => m[1],
+    );
+    // Both user commands should have emitted their OSC 2
+    expect(titles).toContain("true");
+    expect(titles).toContain(":");
+  });
 });
 
 /** Like runBash but returns combined stdout+stderr. */

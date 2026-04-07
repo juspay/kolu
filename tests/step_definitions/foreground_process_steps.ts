@@ -5,7 +5,7 @@
  * driven by OSC 2 title changes from the shell preexec hook.
  */
 
-import { Then } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
 import { pollUntil } from "../support/poll.ts";
@@ -53,5 +53,15 @@ Then(
       name && name.length > 0,
       `Expected sidebar process name to be non-empty, got "${name}"`,
     );
+  },
+);
+
+When(
+  "I run a long-running {string} command",
+  async function (this: KoluWorld, command: string) {
+    // Type the command and press Enter. The command stays running so the
+    // preexec-emitted OSC 2 title remains visible until the test asserts on it.
+    await this.page.keyboard.type(command);
+    await this.page.keyboard.press("Enter");
   },
 );

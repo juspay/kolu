@@ -78,20 +78,21 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *  foreground process detection without polling. */
 export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
 
-/** Bash-specific preexec dispatch — uses PS0 guard flag to ensure the title
- *  only fires for user-typed commands, not PROMPT_COMMAND hooks.
+/** Bash-specific preexec dispatch — uses a ready flag armed at the end of
+ *  PROMPT_COMMAND to ensure the title only fires for user-typed commands,
+ *  not PROMPT_COMMAND hooks themselves.
  *
  *  Why: bash's DEBUG trap fires for EVERY command including those inside
  *  PROMPT_COMMAND. Without a guard, hooks like __zoxide_hook, _direnv_hook,
  *  __fzf_history__ leak into OSC 2 and clutter the terminal title.
  *
- *  How: PS0 is evaluated after readline reads a user command but before
- *  bash executes it — so it fires ONCE per user command (bash 4.4+). We set
- *  a "ready" flag in PS0, check it in DEBUG, clear it after the first use.
- *  Everything else (PROMPT_COMMAND hooks, pipeline internals) finds the flag
- *  cleared and skips emitting.
+ *  How: `__kolu_preexec_arm` is appended as the LAST entry in PROMPT_COMMAND,
+ *  so the flag goes "ready" only between the end of PROMPT_COMMAND and the
+ *  next user command. DEBUG dispatch checks the flag, emits once per user
+ *  command, and clears it (so subsequent pipeline commands don't re-emit).
  *
- *  Requires bash 4.4+ (PS0 support). Older bash silently no-ops. */
+ *  (We originally tried PS0 command substitution, but `$(...)` runs in a
+ *  subshell, so the flag assignment never reached the parent shell.) */
 export const OSC2_PREEXEC_BASH_GUARD = [
   `__kolu_preexec_ready=""`,
   `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
@@ -142,13 +143,18 @@ export function osc7Init(
         OSC2_PREEXEC_FN,
         OSC2_PREEXEC_BASH_GUARD,
         OSC2_PRECMD_BASH,
-        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
-        // PS0 fires after readline reads a user command but before bash runs it.
-        // It sets the "ready" flag so the DEBUG trap knows this is a real user
-        // command (not a PROMPT_COMMAND hook). PS0 produces no output — the
-        // $() command substitution captures the empty return value.
-        `PS0='$(__kolu_preexec_arm)'`,
-        // DEBUG dispatch — guarded by the ready flag set in PS0.
+        // PROMPT_COMMAND order matters:
+        //   1. Our own osc7 + title_precmd (title/CWD)
+        //   2. User's PROMPT_COMMAND (if any)
+        //   3. __kolu_preexec_arm — MUST be last, so the ready flag only goes
+        //      "on" between the end of prompt setup and the next user command.
+        //      Any DEBUG firing before arm (hooks, aliases, etc.) sees flag=""
+        //      and skips emitting OSC 2.
+        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND};__kolu_preexec_arm"`,
+        // Install the DEBUG trap at source time — reinstalling inside
+        // PROMPT_COMMAND is unnecessary since the trap persists across
+        // commands. If a user's .bashrc clears it, bash-preexec-compatible
+        // setups will still work if we're loaded first.
         `trap '__kolu_preexec_dispatch' DEBUG`,
       ]
         .filter(Boolean)
