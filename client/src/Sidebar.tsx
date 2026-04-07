@@ -9,22 +9,26 @@ import {
   transformStyle,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import { match, P } from "ts-pattern";
 import Tip from "./Tip";
 import TerminalMeta from "./TerminalMeta";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
+
+type ClaudeState = ClaudeCodeInfo["state"];
+type CardTier = "waiting" | "active" | "idle";
 
 /** Derive the visual tier for the sidebar card from live Claude state.
  *  Note: `unread` (unseen completion) is orthogonal — rendered as a
  *  separate dot, not folded into this tier. */
-function cardTier(
-  claudeState: string | undefined,
-): "waiting" | "active" | "idle" {
-  if (claudeState === "waiting") return "waiting";
-  if (claudeState === "thinking" || claudeState === "tool_use") return "active";
-  return "idle";
+function cardTier(claudeState: ClaudeState | undefined): CardTier {
+  return match(claudeState)
+    .with("waiting", () => "waiting" as const)
+    .with(P.union("thinking", "tool_use"), () => "active" as const)
+    .with(undefined, () => "idle" as const)
+    .exhaustive();
 }
 
 /** Single sortable sidebar entry — floating card with spinning border for agent states. */
@@ -60,6 +64,19 @@ const SidebarEntry: Component<{
             }}
           />
         )}
+      </Show>
+
+      {/* Unread dot — sits in the left gutter beside the card so it doesn't
+       *  overlap any card content or the close button. */}
+      <Show when={props.unread}>
+        <span
+          data-testid="unread-dot"
+          class="absolute left-0 top-1/2 -translate-y-1/2 flex h-2 w-2 z-20"
+          title="Unread completion"
+        >
+          <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+        </span>
       </Show>
 
       {/* Spinning border container — conic gradient rotates behind the card */}
@@ -112,20 +129,6 @@ const SidebarEntry: Component<{
           <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>
-
-          {/* Unread dot — flashes when this terminal has an unseen
-           *  Claude completion. Hidden when the close button is hovered to
-           *  avoid visual collision. */}
-          <Show when={props.unread}>
-            <span
-              data-testid="unread-dot"
-              class="absolute top-2.5 right-2.5 group-hover:hidden flex h-2 w-2"
-              title="Unread completion"
-            >
-              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
-            </span>
-          </Show>
 
           <span
             data-testid="sidebar-close"
