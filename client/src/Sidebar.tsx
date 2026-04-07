@@ -4,7 +4,6 @@ import {
   Show,
   createEffect,
   createSignal,
-  on,
 } from "solid-js";
 import {
   DragDropProvider,
@@ -71,6 +70,19 @@ const SidebarEntry: Component<{
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
+  /** When this entry becomes active, scroll itself into view. Handles both
+   *  switching to an existing terminal AND creating a new one: in either
+   *  case, the effect runs on the element that already has `buttonRef`
+   *  bound, so there's no race with DOM mount order (unlike a parent-level
+   *  effect that would have to querySelector by id). `block: "nearest"` is
+   *  a no-op when the card is already visible. */
+  let buttonRef!: HTMLButtonElement;
+  createEffect(() => {
+    if (props.isActive) {
+      buttonRef.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
+
   return (
     <div
       class="relative py-1 pl-1.5"
@@ -121,7 +133,10 @@ const SidebarEntry: Component<{
         }}
       >
         <button
-          ref={sortable.ref}
+          ref={(el) => {
+            sortable.ref(el);
+            buttonRef = el;
+          }}
           {...sortable.dragActivators}
           data-terminal-id={props.id}
           data-active={props.isActive ? "" : undefined}
@@ -217,36 +232,6 @@ const Sidebar: Component<{
   const [dropTarget, setDropTarget] = createSignal<TerminalId | null>(null);
   const [activeItem, setActiveItem] = createSignal<TerminalId | null>(null);
 
-  /** Scrollable sidebar nav — needed so we can scroll the active card into
-   *  view when it would otherwise sit off-screen (many terminals + keybind
-   *  switch / MRU cycle leaves no visual feedback otherwise). */
-  let navRef!: HTMLElement;
-
-  /** When activeId changes, ensure the active card is visible. `block: "nearest"`
-   *  is a no-op when the card is already on screen and scrolls the minimum
-   *  needed otherwise. `defer: true` skips the initial run on mount.
-   *
-   *  Selector note: query by the new id directly via `button[data-terminal-id]`
-   *  rather than `[data-active]`. Querying `[data-active]` would race the
-   *  reactive attribute update — Solid may run this effect before SidebarEntry
-   *  re-evaluates its `data-active` binding, leaving us scrolling to the
-   *  *previous* active card. The id-based lookup doesn't depend on any
-   *  reactive attribute being applied. The `button` tag disambiguates from
-   *  TerminalPreview, which also carries `data-terminal-id` on its host div. */
-  createEffect(
-    on(
-      () => props.activeId,
-      (id) => {
-        if (!id) return;
-        const el = navRef.querySelector<HTMLElement>(
-          `button[data-terminal-id="${id}"]`,
-        );
-        el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-      },
-      { defer: true },
-    ),
-  );
-
   function handleDragEnd({ draggable, droppable }: DragEvent) {
     setActiveItem(null);
     setDragFrom(null);
@@ -311,10 +296,7 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav
-          ref={navRef}
-          class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll"
-        >
+        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {

@@ -40,6 +40,19 @@ Feature: Sidebar
     When I press the switch to terminal 1 shortcut
     Then the active sidebar entry should be within the sidebar viewport
 
+  Scenario: Creating a new terminal scrolls it into view
+    # A newly created terminal becomes active. If the sidebar is already
+    # overflowing, the new card can render below the fold — the user gets
+    # no visual confirmation that creation succeeded. The auto-scroll
+    # effect must run for the new active id, even though the entry didn't
+    # exist in the DOM a moment ago.
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I clamp the sidebar nav and scroll to the top
+    And I create a terminal
+    Then the active sidebar entry should be within the sidebar viewport
+
   Scenario: Terminals survive browser refresh
     When I open the app
     Given I note the sidebar entry count
