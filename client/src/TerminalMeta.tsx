@@ -130,23 +130,19 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show
-                when={info().meta.claude}
-                fallback={
-                  <Show when={info().meta.foreground}>
-                    {(fg) => (
-                      <span
-                        class="text-xs text-fg-3 font-mono truncate min-w-0"
-                        data-testid="process-name"
-                        title={fg().title ?? fg().name}
-                      >
-                        {fg().title ?? fg().name}
-                      </span>
-                    )}
-                  </Show>
-                }
-              >
+              <Show when={info().meta.claude}>
                 {(claude) => <ClaudeIndicator state={claude().state} />}
+              </Show>
+              <Show when={info().meta.foreground}>
+                {(fg) => (
+                  <span
+                    class="text-xs text-fg-3 font-mono truncate min-w-0"
+                    data-testid="process-name"
+                    title={fg().title ?? fg().name}
+                  >
+                    {fg().title ?? fg().name}
+                  </span>
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto shrink-0">
