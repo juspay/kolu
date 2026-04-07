@@ -4,11 +4,9 @@
 
 # kolu
 
-A browser cockpit for coding agents[^name]. Bring your own CLI, run them anywhere.
+A browser cockpit for coding agents. Bring your own CLI, run them anywhere.
 
 Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, `aider`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. It's an [Agentic Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) that treats terminals as the thesis, not the substrate.
-
-[^name]: Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
 
 ## Usage
 
@@ -22,16 +20,16 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 ### Terminals
 
 - Create, switch, kill, and drag-to-reorder terminals from a collapsible sidebar
-- Split terminals — `` Ctrl+` `` splits a bottom pane per terminal; `` Ctrl+Shift+` `` adds tabs, `Ctrl+PageDown/Up` cycles
-- Font zoom (`Cmd/Ctrl +/-`), persisted per terminal across sessions
+- Split terminals — <kbd>Ctrl+`</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+`</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
+- Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
 - Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
 
 ### Navigation
 
-- Command palette (`Cmd/Ctrl+K`) — search terminals, switch themes, run actions
-- Sidebar agent previews — terminals running code agents show a live xterm preview directly in the sidebar card, so you can watch what they're doing without switching. Toggle in Settings. `Ctrl+Tab` (or `Alt+Tab`) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
-- Keyboard-driven — `Cmd+T` new terminal, `Cmd+1-9` jump, `Cmd+Shift+[/]` cycle, `Cmd+/` shortcuts help
+- Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
+- Sidebar agent previews — terminals running code agents show a live xterm preview directly in the sidebar card, so you can watch what they're doing without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
 ### Git & GitHub
 
@@ -70,7 +68,7 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 ### Clipboard
 
-- `Ctrl+V` pastes images into Claude Code via server-side clipboard shims
+- <kbd>Ctrl+V</kbd> pastes images into Claude Code via server-side clipboard shims
 
 ## Architecture
 
@@ -202,3 +200,7 @@ A home-manager module runs kolu as a systemd user service:
 ```
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
+
+---
+
+Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
