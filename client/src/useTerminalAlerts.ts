@@ -12,7 +12,7 @@ export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  markAttention: (id: TerminalId) => void;
+  markUnread: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
@@ -43,7 +43,7 @@ export function useTerminalAlerts(deps: {
     if (!deps.activityAlerts() || next !== "waiting" || prev === "waiting")
       return;
     const isBackground = id !== deps.activeId();
-    if (isBackground) deps.markAttention(id);
+    if (isBackground) deps.markUnread(id);
     if (isBackground || document.hidden)
       fireActivityAlert(deps.terminalLabel(id));
   }
@@ -53,7 +53,7 @@ export function useTerminalAlerts(deps: {
     const inactive = deps.terminalIds().filter((id) => id !== deps.activeId());
     if (inactive.length === 0) return;
     const id = inactive[Math.floor(Math.random() * inactive.length)]!;
-    deps.markAttention(id);
+    deps.markUnread(id);
     fireActivityAlert(deps.terminalLabel(id));
   }
 

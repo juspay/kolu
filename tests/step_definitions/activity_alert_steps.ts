@@ -17,7 +17,7 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
 });
 
 Then("a sidebar entry should be notified", async function (this: KoluWorld) {
-  const notified = this.page.locator('[data-testid="sidebar"] [data-alerting]');
+  const notified = this.page.locator('[data-testid="sidebar"] [data-unread]');
   await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
@@ -26,13 +26,13 @@ Then("no sidebar entry should be notified", async function (this: KoluWorld) {
   await this.waitForFrame();
   await this.waitForFrame();
   const count = await this.page
-    .locator('[data-testid="sidebar"] [data-alerting]')
+    .locator('[data-testid="sidebar"] [data-unread]')
     .count();
   assert.strictEqual(count, 0, `Expected no notified entries, found ${count}`);
 });
 
 When("I click the notified sidebar entry", async function (this: KoluWorld) {
-  const notified = this.page.locator('[data-testid="sidebar"] [data-alerting]');
+  const notified = this.page.locator('[data-testid="sidebar"] [data-unread]');
   await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await notified.first().click();
   await this.waitForFrame();

@@ -16,12 +16,12 @@ import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
-/** Derive the visual tier for the sidebar card. */
+/** Derive the visual tier for the sidebar card from live Claude state.
+ *  Note: `unread` (unseen completion) is orthogonal — rendered as a
+ *  separate dot, not folded into this tier. */
 function cardTier(
-  alerting: boolean,
   claudeState: string | undefined,
-): "alerting" | "waiting" | "active" | "idle" {
-  if (alerting) return "alerting";
+): "waiting" | "active" | "idle" {
   if (claudeState === "waiting") return "waiting";
   if (claudeState === "thinking" || claudeState === "tool_use") return "active";
   return "idle";
@@ -32,15 +32,14 @@ const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
-  alerting: boolean;
+  unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
 }> = (props) => {
   const sortable = createSortable(props.id);
-  const tier = () =>
-    cardTier(props.alerting, props.displayInfo?.meta.claude?.state);
+  const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
   return (
     <div
@@ -71,7 +70,6 @@ const SidebarEntry: Component<{
           "rounded-l-2xl rounded-r-none card-active": props.isActive,
           "card-spin-active": tier() === "active",
           "card-spin-waiting": tier() === "waiting",
-          "card-spin-alerting": tier() === "alerting",
           /* Active: lifted with depth (dark shadow) + identity (repo-colored glow) */
           "z-10 card-active-shadow": props.isActive,
         }}
@@ -89,7 +87,7 @@ const SidebarEntry: Component<{
               ? "active"
               : "sleeping"
           }
-          data-alerting={props.alerting ? "" : undefined}
+          data-unread={props.unread ? "" : undefined}
           class="group relative w-full text-sm text-left touch-none transition-all duration-200"
           classList={{
             "rounded-[14px]": !props.isActive,
@@ -115,6 +113,20 @@ const SidebarEntry: Component<{
             <TerminalMeta info={props.displayInfo} />
           </div>
 
+          {/* Unread dot — flashes when this terminal has an unseen
+           *  Claude completion. Hidden when the close button is hovered to
+           *  avoid visual collision. */}
+          <Show when={props.unread}>
+            <span
+              data-testid="unread-dot"
+              class="absolute top-2.5 right-2.5 group-hover:hidden flex h-2 w-2"
+              title="Unread completion"
+            >
+              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+            </span>
+          </Show>
+
           <span
             data-testid="sidebar-close"
             class="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
@@ -137,7 +149,7 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  needsAttention: (id: TerminalId) => boolean;
+  isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
@@ -254,7 +266,7 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
-                      alerting={props.needsAttention(id)}
+                      unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}

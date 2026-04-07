@@ -352,7 +352,7 @@ const App: Component = () => {
           terminalIds={store.terminalIds()}
           activeId={store.activeId()}
           getMetadata={store.getMetadata}
-          needsAttention={store.needsAttention}
+          isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}

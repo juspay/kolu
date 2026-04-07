@@ -140,15 +140,3 @@
   );
   animation: border-spin 1.2s linear infinite;
 }
-
-.card-border-wrap.card-spin-alerting {
-  background: conic-gradient(
-    from var(--spin-angle),
-    transparent 0%,
-    var(--card-color) 25%,
-    transparent 50%,
-    oklch(from var(--card-color) l c h / 0.3) 75%,
-    transparent 100%
-  );
-  animation: border-spin 1.5s linear infinite;
-}
