@@ -78,6 +78,11 @@ const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostna
  *  foreground process detection without polling. */
 const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
 
+/** Shell function that resets OSC 2 title to CWD at the prompt.
+ *  Matches Ghostty/Kitty convention: CWD when idle, command when running. */
+const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
+const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
+
 /**
  * Prepare shell init that injects an OSC 7 hook *after* the user's rc files.
  *
@@ -111,7 +116,8 @@ export function osc7Init(
         pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
-        `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+        OSC2_PRECMD_BASH,
+        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
         // bash lacks native preexec — use DEBUG trap to emit title before each command
         `trap '__kolu_preexec "$BASH_COMMAND"' DEBUG`,
       ]
@@ -134,8 +140,10 @@ export function osc7Init(
         pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
+        OSC2_PRECMD_ZSH,
         `autoload -Uz add-zsh-hook`,
         `add-zsh-hook precmd __kolu_osc7`,
+        `add-zsh-hook precmd __kolu_title_precmd`,
         `add-zsh-hook preexec __kolu_preexec`,
       ]
         .filter(Boolean)
