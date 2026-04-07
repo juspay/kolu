@@ -62,29 +62,21 @@ const SidebarEntry: Component<{
           "opacity-25": sortable.isActiveDraggable,
         }}
         style={(() => {
-          if (props.alerting) {
-            return {
-              "border-left-color": "var(--color-alert)",
-              animation: "alerting-glow 1.5s ease-in-out infinite",
-            };
-          }
           const claudeState = props.displayInfo?.meta.claude?.state;
-          if (claudeState === "waiting") {
-            return {
-              "border-left-color": "var(--color-warning)",
-              animation: "agent-waiting-pulse 1s ease-in-out infinite",
-            };
-          }
-          if (claudeState === "thinking" || claudeState === "tool_use") {
-            return {
-              "border-left-color": "var(--color-busy)",
-              animation: "agent-active-pulse 2s ease-in-out infinite",
-            };
-          }
+          // Background animation: alerting > waiting > active > none
+          const animation = props.alerting
+            ? "alerting-glow 1.5s ease-in-out infinite"
+            : claudeState === "waiting"
+              ? "agent-waiting-glow 1s ease-in-out infinite"
+              : claudeState === "thinking" || claudeState === "tool_use"
+                ? "agent-active-shimmer 2s ease-in-out infinite"
+                : undefined;
           return {
+            // Left border = repo color identity only (no agent state)
             "border-left-color":
               props.displayInfo?.repoColor ??
               (props.isActive ? "var(--accent)" : "transparent"),
+            ...(animation ? { animation } : {}),
           };
         })()}
         onClick={() => props.onSelect(props.id)}

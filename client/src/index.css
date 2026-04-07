@@ -51,6 +51,7 @@
   --color-ok: #16a34a;
   --color-warning: #ca8a04;
   --color-danger: #dc2626;
+  --color-busy: #c4623e;
 }
 
 /* Brief pulse when a terminal becomes active in the background */
@@ -77,26 +78,24 @@
   }
 }
 
-/* Agent actively working (thinking or running tools) — gentle border breathe */
-@keyframes agent-active-pulse {
+/* Agent actively working (thinking or running tools) — subtle background shimmer */
+@keyframes agent-active-shimmer {
   0%,
   100% {
-    border-left-color: var(--color-busy);
+    background-color: oklch(from var(--color-busy) l c h / 0.06);
   }
   50% {
-    border-left-color: oklch(from var(--color-busy) l c h / 0.25);
+    background-color: oklch(from var(--color-busy) l c h / 0.14);
   }
 }
 
-/* Agent waiting for user input — urgent pulse with background glow */
-@keyframes agent-waiting-pulse {
+/* Agent waiting for user input — warm attention-grabbing background throb */
+@keyframes agent-waiting-glow {
   0%,
   100% {
-    border-left-color: var(--color-warning);
-    background-color: oklch(from var(--color-warning) l c h / 0.05);
+    background-color: oklch(from var(--color-warning) l c h / 0.08);
   }
   50% {
-    border-left-color: transparent;
-    background-color: oklch(from var(--color-warning) l c h / 0.15);
+    background-color: oklch(from var(--color-warning) l c h / 0.22);
   }
 }
