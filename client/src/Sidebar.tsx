@@ -16,7 +16,7 @@ import { sidebarSwitchTip } from "./tips";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
-/** Derive the visual tier for the sidebar card ring/glow. */
+/** Derive the visual tier for the sidebar card. */
 function cardTier(
   alerting: boolean,
   claudeState: string | undefined,
@@ -27,7 +27,7 @@ function cardTier(
   return "idle";
 }
 
-/** Single sortable sidebar entry — rendered as a floating card. */
+/** Single sortable sidebar entry — floating card with spinning border for agent states. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
@@ -44,7 +44,8 @@ const SidebarEntry: Component<{
 
   return (
     <div
-      class="relative px-1.5 py-1"
+      class="relative py-1"
+      class="pl-1.5 pr-0"
       style={transformStyle(sortable.transform)}
     >
       <Show when={props.dropEdge}>
@@ -59,15 +60,21 @@ const SidebarEntry: Component<{
         )}
       </Show>
 
-      {/* Outer glow wrapper — the ring/glow lives here so it doesn't clip */}
+      {/* Spinning border container — conic gradient rotates behind the card */}
       <div
-        class="rounded-2xl transition-shadow duration-300"
+        class="card-border-wrap transition-all duration-200 rounded-l-2xl rounded-r-none"
         classList={{
-          "shadow-[0_0_0_1.5px_var(--color-accent),0_0_12px_var(--color-accent)/25]":
-            props.isActive && tier() === "idle",
-          "card-ring-active": tier() === "active",
-          "card-ring-waiting": tier() === "waiting",
-          "card-ring-alerting": tier() === "alerting",
+          "card-spin-active": tier() === "active",
+          "card-spin-waiting": tier() === "waiting",
+          "card-spin-alerting": tier() === "alerting",
+          "z-10": props.isActive,
+        }}
+        style={{
+          /* Pass repo color to CSS for spinning gradients + active blend */
+          "--card-color": props.displayInfo?.repoColor ?? "var(--color-accent)",
+          ...(props.isActive && tier() === "idle"
+            ? { background: "var(--card-color)" }
+            : {}),
         }}
       >
         <button
@@ -81,32 +88,30 @@ const SidebarEntry: Component<{
               : "sleeping"
           }
           data-alerting={props.alerting ? "" : undefined}
-          class="group relative w-full rounded-2xl text-sm text-left touch-none transition-all duration-200 overflow-hidden"
+          class="group relative w-full text-sm text-left touch-none transition-all duration-200"
           classList={{
-            "bg-surface-2 text-fg": props.isActive,
-            "bg-surface-1 hover:bg-surface-2/70": !props.isActive,
+            "rounded-l-[14px] rounded-r-none": true,
+            "text-fg": props.isActive,
             "text-fg": !props.isActive && tier() !== "idle",
             "text-fg-3 hover:text-fg-2": !props.isActive && tier() === "idle",
             "opacity-25": sortable.isActiveDraggable,
+          }}
+          style={{
+            /* Repo color tint for inactive; active matches terminal bg to merge visually */
+            "background-color": props.isActive
+              ? "var(--color-surface-1)"
+              : props.displayInfo?.repoColor
+                ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
+                : "var(--color-surface-1)",
           }}
           onClick={() => props.onSelect(props.id)}
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
-          {/* Repo color accent — top edge stripe */}
-          <div
-            class="h-0.5 rounded-t-2xl"
-            style={{
-              "background-color": props.displayInfo?.repoColor ?? "transparent",
-            }}
-          />
-
-          {/* Card content */}
-          <div class="px-2.5 py-2 pr-6">
+          <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>
 
-          {/* Close button */}
           <span
             data-testid="sidebar-close"
             class="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
@@ -216,7 +221,7 @@ const Sidebar: Component<{
             </button>
           </div>
         </Tip>
-        <nav class="flex-1 overflow-y-auto py-0.5">
+        <nav class="flex-1 overflow-y-auto py-0.5 sidebar-scroll">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {

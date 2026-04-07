@@ -357,8 +357,13 @@ const App: Component = () => {
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0">
           <div
-            class="h-full overflow-hidden"
-            style={{ "background-color": activeTheme().background }}
+            class="h-full overflow-hidden border-l-[3px] transition-colors duration-200"
+            style={{
+              "background-color": activeTheme().background,
+              "border-left-color":
+                store.getDisplayInfo(store.activeId()!)?.repoColor ??
+                "var(--color-edge)",
+            }}
             data-testid="terminal-viewport"
           >
             <Show

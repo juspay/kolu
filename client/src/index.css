@@ -67,65 +67,72 @@
   }
 }
 
-/* ── Sidebar card ring animations ────────────────────────────── */
-
-/* Agent working — breathing ring glow */
-@keyframes ring-active {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1px oklch(from var(--color-busy) l c h / 0.5),
-      0 0 8px oklch(from var(--color-busy) l c h / 0.15);
-  }
-  50% {
-    box-shadow:
-      0 0 0 1.5px var(--color-busy),
-      0 0 16px oklch(from var(--color-busy) l c h / 0.3);
+/* Hide sidebar scrollbar — still scrollable via wheel/touch */
+.sidebar-scroll {
+  scrollbar-width: none; /* Firefox */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
   }
 }
 
-/* Agent waiting — urgent pulsing ring */
-@keyframes ring-waiting {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1.5px oklch(from var(--color-warning) l c h / 0.6),
-      0 0 10px oklch(from var(--color-warning) l c h / 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px var(--color-warning),
-      0 0 20px oklch(from var(--color-warning) l c h / 0.4);
-  }
+/* ── Spinning border animation ───────────────────────────────── */
+/* Conic gradient rotates behind the card; the card masks the center,
+   leaving a thin animated "tire" border visible around the edges. */
+
+@property --spin-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
 }
 
-/* Alerting — finished agent needs attention */
-@keyframes ring-alerting {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 1.5px oklch(from var(--color-alert) l c h / 0.6),
-      0 0 10px oklch(from var(--color-alert) l c h / 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px var(--color-alert),
-      0 0 20px oklch(from var(--color-alert) l c h / 0.4);
+@keyframes border-spin {
+  to {
+    --spin-angle: 360deg;
   }
 }
 
-/* Utility classes for sidebar card states */
-.card-ring-active {
-  animation: ring-active 2.5s ease-in-out infinite;
-  border-radius: var(--radius-2xl, 1rem);
+/* Base wrapper — positions the spinning gradient behind the card */
+.card-border-wrap {
+  position: relative;
+  padding: 2px; /* border thickness */
+  padding-right: 0; /* no border on right — cards bleed to edge */
+  background: var(--color-surface-0);
 }
 
-.card-ring-waiting {
-  animation: ring-waiting 1s ease-in-out infinite;
-  border-radius: var(--radius-2xl, 1rem);
+/* Spinning states — all use --card-color (the terminal's repo color) */
+.card-border-wrap.card-spin-active {
+  background: conic-gradient(
+    from var(--spin-angle),
+    transparent 0%,
+    var(--card-color) 25%,
+    transparent 50%,
+    oklch(from var(--card-color) l c h / 0.3) 75%,
+    transparent 100%
+  );
+  animation: border-spin 3s linear infinite;
 }
 
-.card-ring-alerting {
-  animation: ring-alerting 1.5s ease-in-out infinite;
-  border-radius: var(--radius-2xl, 1rem);
+.card-border-wrap.card-spin-waiting {
+  background: conic-gradient(
+    from var(--spin-angle),
+    transparent 0%,
+    var(--card-color) 20%,
+    transparent 40%,
+    var(--card-color) 60%,
+    transparent 80%,
+    var(--card-color) 100%
+  );
+  animation: border-spin 1.2s linear infinite;
+}
+
+.card-border-wrap.card-spin-alerting {
+  background: conic-gradient(
+    from var(--spin-angle),
+    transparent 0%,
+    var(--card-color) 25%,
+    transparent 50%,
+    oklch(from var(--card-color) l c h / 0.3) 75%,
+    transparent 100%
+  );
+  animation: border-spin 1.5s linear infinite;
 }
