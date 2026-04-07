@@ -79,6 +79,8 @@ const Terminal: Component<{
   scrollLockEnabled?: boolean;
   /** Whether this terminal lives in a sub-panel (used for e2e test selectors). */
   isSub?: boolean;
+  /** Publish this terminal's cols×rows so sidebar previews can mirror them. */
+  onDimensionsChange?: (cols: number, rows: number) => void;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
@@ -163,6 +165,7 @@ const Terminal: Component<{
     const cols = terminal.cols;
     const rows = terminal.rows;
     if (cols <= 0 || rows <= 0) return;
+    props.onDimensionsChange?.(cols, rows);
     try {
       await client.terminal.resize({ id: props.terminalId, cols, rows });
     } catch {

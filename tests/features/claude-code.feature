@@ -1,7 +1,7 @@
 @claude-mock
 Feature: Claude Code status detection
-  When Claude Code is running in a terminal, the header, sidebar, and
-  Mission Control show its current state (thinking, tool use, waiting).
+  When Claude Code is running in a terminal, the header and sidebar
+  show its current state (thinking, tool use, waiting).
 
   Requires KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR env vars
   pointing the server at test-controlled directories.
@@ -22,12 +22,17 @@ Feature: Claude Code status detection
     Then the header should show a Claude indicator with state "waiting"
     And there should be no page errors
 
-  Scenario: Mission Control shows Claude Code status
+  Scenario: Sidebar shows a live preview for terminals running agents
     When a Claude Code session is mocked with state "thinking"
-    Then the header should show a Claude indicator with state "thinking"
-    When I click the Mission Control icon
-    Then Mission Control should show a Claude indicator
-    When I press Escape
+    Then the sidebar should show a terminal preview
+    And there should be no page errors
+
+  Scenario: Disabling the agent previews setting hides the sidebar preview
+    When a Claude Code session is mocked with state "thinking"
+    Then the sidebar should show a terminal preview
+    When I click the settings button
+    And I click the agent previews toggle
+    Then the sidebar should not show a terminal preview
     And there should be no page errors
 
   Scenario: Claude Code indicator disappears when session ends

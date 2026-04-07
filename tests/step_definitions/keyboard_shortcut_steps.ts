@@ -22,17 +22,20 @@ When("I press the prev terminal shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+Shift+BracketLeft`);
 });
 
-When(
-  "I press the next terminal tab shortcut",
-  async function (this: KoluWorld) {
-    await this.page.keyboard.press("Control+Tab");
-  },
-);
+When("I jump to the previous terminal", async function (this: KoluWorld) {
+  await this.page.keyboard.down("Control");
+  await this.page.keyboard.press("Tab");
+  await this.page.keyboard.up("Control");
+  await this.waitForFrame();
+});
 
 When(
-  "I press the prev terminal tab shortcut",
-  async function (this: KoluWorld) {
-    await this.page.keyboard.press("Control+Shift+Tab");
+  "I cycle {int} terminals back by holding Ctrl+Tab",
+  async function (this: KoluWorld, n: number) {
+    await this.page.keyboard.down("Control");
+    for (let i = 0; i < n; i++) await this.page.keyboard.press("Tab");
+    await this.page.keyboard.up("Control");
+    await this.waitForFrame();
   },
 );
 

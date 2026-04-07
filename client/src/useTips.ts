@@ -71,12 +71,6 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
       setTimeout(showStartupTip, 1000);
     }
   });
-
-  // Mission Control nudge at 3+ terminals
-  createEffect(() => {
-    if (deps.terminalIds().length >= 3)
-      showTipOnce(CONTEXTUAL_TIPS.missionControl);
-  });
 }
 
 export function useTips() {

@@ -200,6 +200,8 @@ export const PreferencesSchema = z.object({
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
+  /** Show live xterm previews in the sidebar for terminals running code agents. */
+  sidebarAgentPreviews: z.boolean(),
 });
 
 // --- Server state ---

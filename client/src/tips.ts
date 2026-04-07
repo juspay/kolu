@@ -22,10 +22,6 @@ export function sidebarSwitchTip(index: number): Tip {
 }
 
 export const CONTEXTUAL_TIPS = {
-  missionControl: {
-    id: "mission-control",
-    text: `Tip: ${formatKeybind(SHORTCUTS.missionControl.keybind)} opens Mission Control`,
-  },
   themeFromPalette: {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(SHORTCUTS.commandPalette.keybind)} → Theme for quick switching`,
@@ -54,7 +50,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
   {
     id: "amb-mru",
-    text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
+    text: `${formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
   },
   {
     id: "amb-search",

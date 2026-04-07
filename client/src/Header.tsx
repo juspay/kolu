@@ -1,7 +1,6 @@
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import {
-  GridIcon,
   MenuIcon,
   PrStateIcon,
   SearchIcon,
@@ -31,7 +30,6 @@ const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
-  onMissionControl?: () => void;
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
@@ -47,6 +45,8 @@ const Header: Component<{
   onStartupTipsChange?: (on: boolean) => void;
   activityAlerts?: boolean;
   onActivityAlertsChange?: (on: boolean) => void;
+  sidebarAgentPreviews?: boolean;
+  onSidebarAgentPreviewsChange?: (on: boolean) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -126,15 +126,6 @@ const Header: Component<{
       </Show>
       {/* Zone C: Controls — rigid, never clips */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
-        <Tip label="Mission Control">
-          <button
-            data-testid="mission-control-trigger"
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onMissionControl?.()}
-          >
-            <GridIcon />
-          </button>
-        </Tip>
         {props.themeName && (
           <Tip label={`Theme: ${props.themeName}`}>
             <button
@@ -185,6 +176,10 @@ const Header: Component<{
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
             activityAlerts={props.activityAlerts ?? true}
             onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
+            sidebarAgentPreviews={props.sidebarAgentPreviews ?? true}
+            onSidebarAgentPreviewsChange={(on) =>
+              props.onSidebarAgentPreviewsChange?.(on)
+            }
             startupTips={props.startupTips ?? true}
             onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />

@@ -11,11 +11,16 @@ import {
 } from "@thisbeyond/solid-dnd";
 import { match, P } from "ts-pattern";
 import Tip from "./Tip";
+import Kbd from "./Kbd";
 import TerminalMeta from "./TerminalMeta";
+import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
+import type { ITheme } from "@xterm/xterm";
+import type { TerminalDimensions } from "./useViewState";
 
 type ClaudeState = ClaudeCodeInfo["state"];
 type CardTier = "waiting" | "active" | "idle";
@@ -38,10 +43,24 @@ const SidebarEntry: Component<{
   metadata: TerminalMetadata | undefined;
   unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
+  terminalTheme: ITheme;
+  /** When true, agent terminals render a live xterm preview above the meta. */
+  showAgentPreview: boolean;
+  /** Current cols×rows of the main terminal — preview mirrors these exactly. */
+  dimensions: TerminalDimensions | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
 }> = (props) => {
+  /** Agent terminals get a live preview above the meta — lets the user watch
+   *  what their agents are saying without switching terminals. Non-agent
+   *  terminals keep the compact meta-only card to save vertical space. The
+   *  preview only renders once dimensions are known, so the preview xterm
+   *  can size itself to match the main terminal exactly. */
+  const showPreview = () =>
+    props.showAgentPreview &&
+    props.metadata?.claude != null &&
+    props.dimensions !== undefined;
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
@@ -126,6 +145,19 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
+          <Show when={showPreview()}>
+            <div
+              data-testid="sidebar-preview"
+              class="mx-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+            >
+              <TerminalPreview
+                terminalId={props.id}
+                theme={props.terminalTheme}
+                cols={props.dimensions!.cols}
+                rows={props.dimensions!.rows}
+              />
+            </div>
+          </Show>
           <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>
@@ -154,6 +186,9 @@ const Sidebar: Component<{
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  getTerminalTheme: (id: TerminalId) => ITheme;
+  getDimensions: (id: TerminalId) => TerminalDimensions | undefined;
+  showAgentPreviews: boolean;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
@@ -271,6 +306,9 @@ const Sidebar: Component<{
                       metadata={props.getMetadata(id)}
                       unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
+                      terminalTheme={props.getTerminalTheme(id)}
+                      showAgentPreview={props.showAgentPreviews}
+                      dimensions={props.getDimensions(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}
@@ -295,6 +333,17 @@ const Sidebar: Component<{
             </DragOverlay>
           </DragDropProvider>
         </nav>
+        {/* Sticky footer hint — surfaces the MRU cycle keybind without
+         *  needing the user to discover it via the shortcuts help dialog. */}
+        <Show when={props.terminalIds.length > 1}>
+          <div
+            data-testid="sidebar-footer-hint"
+            class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
+          >
+            <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
+            <span>cycle terminals</span>
+          </div>
+        </Show>
       </aside>
     </>
   );

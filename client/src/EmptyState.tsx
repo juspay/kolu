@@ -10,7 +10,7 @@ const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
-  { label: "Mission Control", shortcut: SHORTCUTS.missionControl.keybind },
+  { label: "Cycle terminals", shortcut: SHORTCUTS.cycleTerminalMru.keybind },
   { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
 ];
 

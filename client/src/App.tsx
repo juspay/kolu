@@ -15,7 +15,6 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import MissionControl, { type MCMode } from "./MissionControl";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
@@ -38,6 +37,7 @@ const App: Component = () => {
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
+  const sidebarAgentPreviews = () => preferences().sidebarAgentPreviews;
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -96,9 +96,6 @@ const App: Component = () => {
   const [closeConfirmTarget, setCloseConfirmTarget] =
     createSignal<CloseConfirmTarget | null>(null);
 
-  // Mission Control state — single discriminated union, no impossible states
-  const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
-
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
@@ -110,6 +107,7 @@ const App: Component = () => {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
+    mruOrder: store.mruOrder,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
@@ -118,8 +116,6 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    mcMode,
-    setMcMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -177,7 +173,6 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
-    setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
@@ -249,20 +244,6 @@ const App: Component = () => {
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
-      <MissionControl
-        mcMode={mcMode()}
-        onMcModeChange={(mode) => {
-          setMcMode(mode);
-          if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
-        }}
-        terminalIds={store.terminalIds()}
-        mruOrder={store.mruOrder()}
-        activeId={store.activeId()}
-        getMetadata={store.getMetadata}
-        getDisplayInfo={store.getDisplayInfo}
-        getTerminalTheme={getTerminalTheme}
-        onSelect={store.setActiveId}
-      />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
@@ -319,7 +300,6 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        onMissionControl={() => setMcMode({ mode: "browse" })}
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
@@ -334,6 +314,10 @@ const App: Component = () => {
         activityAlerts={activityAlerts()}
         onActivityAlertsChange={(on) =>
           updatePreferences({ activityAlerts: on })
+        }
+        sidebarAgentPreviews={sidebarAgentPreviews()}
+        onSidebarAgentPreviewsChange={(on) =>
+          updatePreferences({ sidebarAgentPreviews: on })
         }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
@@ -354,6 +338,9 @@ const App: Component = () => {
           getMetadata={store.getMetadata}
           isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
+          getTerminalTheme={getTerminalTheme}
+          getDimensions={store.getDimensions}
+          showAgentPreviews={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
@@ -399,6 +386,9 @@ const App: Component = () => {
                     onCloseTerminal={closeTerminal}
                     activeMeta={store.activeMeta()}
                     scrollLockEnabled={scrollLock()}
+                    onDimensionsChange={(cols, rows) =>
+                      store.setDimensions(id, cols, rows)
+                    }
                   />
                 )}
               </For>

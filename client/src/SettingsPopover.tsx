@@ -26,6 +26,8 @@ const SettingsPopover: Component<{
   onStartupTipsChange: (on: boolean) => void;
   activityAlerts: boolean;
   onActivityAlertsChange: (on: boolean) => void;
+  sidebarAgentPreviews: boolean;
+  onSidebarAgentPreviewsChange: (on: boolean) => void;
 }> = (props) => {
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, right: 0 });
@@ -119,6 +121,15 @@ const SettingsPopover: Component<{
               testId="activity-alerts-toggle"
               enabled={props.activityAlerts}
               onChange={props.onActivityAlertsChange}
+            />
+          </label>
+          {/* Sidebar agent previews */}
+          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
+            <span class="text-fg-2">Agent previews</span>
+            <Toggle
+              testId="sidebar-agent-previews-toggle"
+              enabled={props.sidebarAgentPreviews}
+              onChange={props.onSidebarAgentPreviewsChange}
             />
           </label>
           {/* Startup tips */}
