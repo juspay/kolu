@@ -8,6 +8,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { match, P } from "ts-pattern";
 import {
   GitHubPrStateSchema,
   type GitHubPrInfo,
@@ -38,6 +39,45 @@ const GH_TIMEOUT_MS = 5_000;
  *
  * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
  */
+type CheckOutcome = "fail" | "pending" | "pass";
+
+/**
+ * Classify a single rollup entry into fail / pending / pass.
+ *
+ * Two GitHub types share the rollup; `__typename` discriminates which enum to
+ * dispatch on. Within each branch, `match` + `P.union` groups the failure-
+ * and pending-class buckets so adding a new value (e.g. a future GitHub
+ * conclusion) is a one-line edit.
+ */
+function classifyCheck(check: {
+  __typename?: string;
+  status?: string;
+  conclusion?: string;
+  state?: string;
+}): CheckOutcome {
+  if (check.__typename === "StatusContext") {
+    return match(check.state?.toUpperCase())
+      .with(P.union("FAILURE", "ERROR"), () => "fail" as const)
+      .with(P.union("PENDING", "EXPECTED"), () => "pending" as const)
+      .otherwise(() => "pass" as const);
+  }
+  // CheckRun: anything not COMPLETED is still pending.
+  if (check.status?.toUpperCase() !== "COMPLETED") return "pending";
+  return match(check.conclusion?.toUpperCase())
+    .with(
+      P.union(
+        "FAILURE",
+        "CANCELLED",
+        "TIMED_OUT",
+        "STARTUP_FAILURE",
+        "ACTION_REQUIRED",
+        "STALE",
+      ),
+      () => "fail" as const,
+    )
+    .otherwise(() => "pass" as const);
+}
+
 export function deriveCheckStatus(
   rollup:
     | Array<{
@@ -49,44 +89,14 @@ export function deriveCheckStatus(
     | undefined,
 ): GitHubPrInfo["checks"] {
   if (!rollup || rollup.length === 0) return null;
-
-  let hasFailure = false;
-  let hasPending = false;
-
+  // "fail" is terminal — short-circuit; "pending" is sticky until something fails.
+  let worst: CheckOutcome = "pass";
   for (const check of rollup) {
-    if (check.__typename === "StatusContext") {
-      const state = check.state?.toUpperCase();
-      if (state === "FAILURE" || state === "ERROR") hasFailure = true;
-      else if (state === "PENDING" || state === "EXPECTED") hasPending = true;
-      // SUCCESS → neither flag set → pass
-    } else {
-      // CheckRun
-      const status = check.status?.toUpperCase();
-      const conclusion = check.conclusion?.toUpperCase();
-
-      if (status === "COMPLETED") {
-        // Terminal state — check conclusion
-        if (
-          conclusion === "FAILURE" ||
-          conclusion === "CANCELLED" ||
-          conclusion === "TIMED_OUT" ||
-          conclusion === "STARTUP_FAILURE" ||
-          conclusion === "ACTION_REQUIRED" ||
-          conclusion === "STALE"
-        ) {
-          hasFailure = true;
-        }
-        // SUCCESS, NEUTRAL, SKIPPED → pass (neither flag set)
-      } else {
-        // Non-terminal: QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED
-        hasPending = true;
-      }
-    }
+    const outcome = classifyCheck(check);
+    if (outcome === "fail") return "fail";
+    if (outcome === "pending") worst = "pending";
   }
-
-  if (hasFailure) return "fail";
-  if (hasPending) return "pending";
-  return "pass";
+  return worst;
 }
 
 /** Shape returned by `gh pr view --json ...`. */
