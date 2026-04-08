@@ -61,7 +61,25 @@ const PROJECTS_DIR =
 const SUMMARY_FETCH_ENABLED =
   process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
   process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
-const TAIL_BYTES = 16_384;
+/** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
+ *  entry so that at least one complete line is present after dropping the
+ *  (potentially partial) first line.
+ *
+ *  Sized at 256 KB because real-world claude-code sessions regularly emit
+ *  individual assistant entries in the 20–55 KB range (long thinking blocks,
+ *  batched tool_use calls, multi-file diffs), with user entries from pasted
+ *  content reaching 1 MB+. At 16 KB we silently miss state transitions when
+ *  the terminal assistant line overflows the window — `tailJsonlLines`
+ *  returns `[]`, `deriveState` returns `null`, and the previous state (often
+ *  "thinking") persists forever, leaving the sidebar stuck mid-response.
+ *
+ *  256 KB gives ~4.6× headroom over the largest assistant line observed
+ *  locally and matches the chunk size in mux's `historyService.ts` reverse
+ *  tail reader. Allocated transiently per watcher callback — no lasting
+ *  memory cost. If single entries ever exceed this, the correct upgrade is
+ *  a chunked reverse read that keeps extending until it finds a newline
+ *  (mux's pattern), not another bump. */
+const TAIL_BYTES = 256 * 1024;
 
 export interface SessionFile {
   pid: number;
