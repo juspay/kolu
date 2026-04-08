@@ -144,15 +144,15 @@ const AgentSidebarMeta: Component<{
                     </span>
                   </Show>
                   <Show when={info().meta.pr}>
-                    <Tip label={git().branch}>
-                      <span
+                    <Tip label={git().branch} class="flex-1 min-w-0">
+                      <div
                         data-testid="terminal-meta-branch"
                         class="truncate"
                         style={{ color: info().branchColor }}
                         classList={{ "text-fg-3": !info().branchColor }}
                       >
                         {git().branch}
-                      </span>
+                      </div>
                     </Tip>
                   </Show>
                 </>
@@ -160,7 +160,7 @@ const AgentSidebarMeta: Component<{
             </Show>
             <Show when={info().meta.pr?.checks}>
               {(checks) => (
-                <span class="ml-auto shrink-0">
+                <span class="shrink-0">
                   <ChecksIndicator status={checks()} />
                 </span>
               )}
