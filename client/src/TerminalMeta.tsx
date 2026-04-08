@@ -152,22 +152,20 @@ const TerminalMeta: Component<{
                *  already shown above — the two texts are near-duplicates
                *  (SDK summary vs claude-code's live activity indicator) and
                *  stacking them eats vertical space for no new information.
-               *  Fall back to the process name if the foreground info is
-               *  non-claude or the summary hasn't arrived yet. */}
+               *  `A && B` returns B when A is truthy, so `Show` narrows
+               *  `fg` to the foreground value directly. */}
               <Show
-                when={info().meta.foreground && !info().meta.claude?.summary}
+                when={!info().meta.claude?.summary && info().meta.foreground}
               >
-                <Show when={info().meta.foreground}>
-                  {(fg) => (
-                    <span
-                      class="text-xs text-fg-3 truncate min-w-0 flex-1"
-                      data-testid="process-name"
-                      title={fg().title ?? fg().name}
-                    >
-                      {fg().title ?? fg().name}
-                    </span>
-                  )}
-                </Show>
+                {(fg) => (
+                  <span
+                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                    data-testid="process-name"
+                    title={fg().title ?? fg().name}
+                  >
+                    {fg().title ?? fg().name}
+                  </span>
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto w-16 shrink-0">
