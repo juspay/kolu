@@ -1,11 +1,11 @@
 ---
-name: github-pr
-description: Write engaging GitHub PR titles and descriptions. Use when creating or updating PRs. Avoids boring bullet lists; uses narrative paragraphs with bold/italic for emphasis.
+name: forge-pr
+description: Write engaging PR titles and descriptions for any forge (GitHub today; Bitbucket planned). Use when creating or updating PRs. Avoids boring bullet lists; uses narrative paragraphs with bold/italic for emphasis.
 ---
 
-# GitHub PR Writing
+# Forge PR Writing
 
-Write PR descriptions that fellow devs actually want to read.
+Write PR descriptions that fellow devs actually want to read. The writing guidance below is forge-agnostic — only the `gh` commands in the "Updating existing PRs" section are GitHub-specific today. Bitbucket support is tracked in [srid/agency#10](https://github.com/srid/agency/issues/10).
 
 ## Anti-patterns (what LLMs typically produce)
 
@@ -40,7 +40,7 @@ Write PR descriptions that fellow devs actually want to read.
 
 ## Try it locally
 
-If the repo is a Nix flake and the PR branch contains a buildable output (package, NixOS config, etc.), include a "Try it locally" section at the end of the body. Use the GitHub owner/repo and branch name to construct the command, and put it in a **fenced `sh` code block** (not inline backticks) so GitHub renders a copy button and the command doesn't line-wrap awkwardly:
+If the repo is a **GitHub** Nix flake and the PR branch contains a buildable output (package, NixOS config, etc.), include a "Try it locally" section at the end of the body. Use the GitHub owner/repo and branch name to construct the command, and put it in a **fenced `sh` code block** (not inline backticks) so GitHub renders a copy button and the command doesn't line-wrap awkwardly:
 
 ````
 ### Try it locally
@@ -50,14 +50,14 @@ nix run github:<owner>/<repo>/<branch>
 ```
 ````
 
-Adjust the command as needed — `nix build` for non-runnable outputs, add `#<output>` if the default package isn't the relevant one. Omit this section entirely if the change isn't meaningfully testable via `nix run/build` (e.g., CI-only changes, documentation, non-Nix repos).
+Adjust the command as needed — `nix build` for non-runnable outputs, add `#<output>` if the default package isn't the relevant one. Omit this section entirely if the change isn't meaningfully testable via `nix run/build` (e.g., CI-only changes, documentation, non-Nix repos, or non-GitHub forges where flake refs would be awkward).
 
 ## Updating existing PRs
 
 When the user pushes further changes to an already-PR'd branch:
 
 1. Check if the PR title/description still accurately reflects the full scope
-2. If new commits meaningfully change what the PR does, update the title and/or body via `gh pr edit`
+2. If new commits meaningfully change what the PR does, update the title and/or body via the forge's edit command (`gh pr edit` on GitHub)
 3. Don't rewrite from scratch — amend the existing description to cover new ground
 4. Add a brief note about what changed if the scope expanded significantly
 
