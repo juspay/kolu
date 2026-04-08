@@ -31,7 +31,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
-import type { TerminalDimensions } from "./useViewState";
+import { viewportDimensions } from "./useViewport";
 
 type ClaudeState = ClaudeCodeInfo["state"];
 type CardTier = "waiting" | "active" | "idle";
@@ -88,8 +88,6 @@ const SidebarEntry: Component<{
   terminalTheme: ITheme;
   /** Preview mode — see {@link shouldShowPreview} for the semantics. */
   previewMode: SidebarAgentPreviews;
-  /** Current cols×rows of the main terminal — preview mirrors these exactly. */
-  dimensions: TerminalDimensions | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
@@ -98,17 +96,23 @@ const SidebarEntry: Component<{
    *  watch what their agents are saying without switching terminals.
    *  Non-agent terminals and "ambient" agent states keep the compact
    *  meta-only card to save vertical space (see {@link shouldShowPreview}
-   *  for the gating rationale). The preview only renders once dimensions
-   *  are known, so the preview xterm can size itself to match the main
-   *  terminal exactly. */
-  const showPreview = () =>
-    props.dimensions !== undefined &&
-    shouldShowPreview(
+   *  for the gating rationale). The preview waits until the viewport has
+   *  been measured at least once so the preview xterm can size itself to
+   *  match the main terminal exactly. Returns the current viewport dims
+   *  when the card should render, otherwise `undefined` — lets the JSX
+   *  `Show` narrow the type in the rendered branch. */
+  const showPreview = () => {
+    const vp = viewportDimensions();
+    if (!vp) return undefined;
+    return shouldShowPreview(
       props.previewMode,
       props.metadata?.claude != null,
       props.displayInfo?.meta.claude?.state,
       props.unread,
-    );
+    )
+      ? vp
+      : undefined;
+  };
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
@@ -229,17 +233,19 @@ const SidebarEntry: Component<{
             <TerminalMeta info={props.displayInfo} />
           </div>
           <Show when={showPreview()}>
-            <div
-              data-testid="sidebar-preview"
-              class="mx-2.5 mb-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
-            >
-              <TerminalPreview
-                terminalId={props.id}
-                theme={props.terminalTheme}
-                cols={props.dimensions!.cols}
-                rows={props.dimensions!.rows}
-              />
-            </div>
+            {(vp) => (
+              <div
+                data-testid="sidebar-preview"
+                class="mx-2.5 mb-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              >
+                <TerminalPreview
+                  terminalId={props.id}
+                  theme={props.terminalTheme}
+                  cols={vp().cols}
+                  rows={vp().rows}
+                />
+              </div>
+            )}
           </Show>
 
           <span
@@ -267,7 +273,6 @@ const Sidebar: Component<{
   isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
-  getDimensions: (id: TerminalId) => TerminalDimensions | undefined;
   previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
@@ -388,7 +393,6 @@ const Sidebar: Component<{
                       displayInfo={props.getDisplayInfo(id)}
                       terminalTheme={props.getTerminalTheme(id)}
                       previewMode={props.previewMode}
-                      dimensions={props.getDimensions(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}

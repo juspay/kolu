@@ -21,11 +21,6 @@ const TerminalPane: Component<{
   onCloseTerminal: (id: TerminalId) => void;
   activeMeta: TerminalMetadata | null;
   scrollLockEnabled?: boolean;
-  /** Publish this main terminal's cols×rows so sidebar previews can mirror. */
-  onDimensionsChange?: (cols: number, rows: number) => void;
-  /** Active terminal's cols×rows — hidden instances inherit this so their
-   *  xterm matches the viewport instead of staying at the 80×24 default. */
-  sharedDimensions?: { cols: number; rows: number };
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -67,8 +62,6 @@ const TerminalPane: Component<{
                 searchOpen={props.searchOpen}
                 onSearchOpenChange={props.onSearchOpenChange}
                 scrollLockEnabled={props.scrollLockEnabled}
-                onDimensionsChange={props.onDimensionsChange}
-                sharedDimensions={props.sharedDimensions}
               />
             </div>
             <SplitStrip
@@ -107,8 +100,6 @@ const TerminalPane: Component<{
               onSearchOpenChange={props.onSearchOpenChange}
               onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
               scrollLockEnabled={props.scrollLockEnabled}
-              onDimensionsChange={props.onDimensionsChange}
-              sharedDimensions={props.sharedDimensions}
             />
           </Resizable.Panel>
 
