@@ -24,7 +24,12 @@ import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { ClaudeCodeInfo, TerminalId, TerminalMetadata } from "kolu-common";
+import type {
+  ClaudeCodeInfo,
+  SidebarAgentPreviews,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalDimensions } from "./useViewState";
 
@@ -42,6 +47,37 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
     .exhaustive();
 }
 
+/** Decide whether a sidebar card should render a live xterm preview.
+ *
+ *  User-configurable via the `sidebarAgentPreviews` preference:
+ *
+ *  - `"none"`: never — the user opted out entirely.
+ *  - `"all"`: every terminal gets a preview, agent or not. Noisy, but
+ *    handy for testing the preview plumbing itself.
+ *  - `"agents"`: any terminal with a running code agent. This was the
+ *    behavior before the enum was introduced (legacy `true`).
+ *  - `"attention"` (**default**): only agents that actually want the
+ *    user's eyes — when Claude is **waiting** for input or when
+ *    there's an **unread** completion. Rationale: previews are
+ *    expensive vertically (only ~3 cards fit — see #388), so we
+ *    reserve them for the moments peeking without switching actually
+ *    helps. Thinking/tool_use agents are busy but don't need
+ *    attention; idle terminals have nothing to show. Edit this single
+ *    branch if the "needs attention" heuristic needs to change. */
+function shouldShowPreview(
+  mode: SidebarAgentPreviews,
+  hasAgent: boolean,
+  claudeState: ClaudeState | undefined,
+  unread: boolean,
+): boolean {
+  return match(mode)
+    .with("none", () => false)
+    .with("all", () => true)
+    .with("agents", () => hasAgent)
+    .with("attention", () => hasAgent && (claudeState === "waiting" || unread))
+    .exhaustive();
+}
+
 /** Single sortable sidebar entry — floating card with spinning border for agent states. */
 const SidebarEntry: Component<{
   id: TerminalId;
@@ -50,23 +86,29 @@ const SidebarEntry: Component<{
   unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   terminalTheme: ITheme;
-  /** When true, agent terminals render a live xterm preview above the meta. */
-  showAgentPreview: boolean;
+  /** Preview mode — see {@link shouldShowPreview} for the semantics. */
+  previewMode: SidebarAgentPreviews;
   /** Current cols×rows of the main terminal — preview mirrors these exactly. */
   dimensions: TerminalDimensions | undefined;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
 }> = (props) => {
-  /** Agent terminals get a live preview above the meta — lets the user watch
-   *  what their agents are saying without switching terminals. Non-agent
-   *  terminals keep the compact meta-only card to save vertical space. The
-   *  preview only renders once dimensions are known, so the preview xterm
-   *  can size itself to match the main terminal exactly. */
+  /** Agent terminals get a live preview below the meta — lets the user
+   *  watch what their agents are saying without switching terminals.
+   *  Non-agent terminals and "ambient" agent states keep the compact
+   *  meta-only card to save vertical space (see {@link shouldShowPreview}
+   *  for the gating rationale). The preview only renders once dimensions
+   *  are known, so the preview xterm can size itself to match the main
+   *  terminal exactly. */
   const showPreview = () =>
-    props.showAgentPreview &&
-    props.metadata?.claude != null &&
-    props.dimensions !== undefined;
+    props.dimensions !== undefined &&
+    shouldShowPreview(
+      props.previewMode,
+      props.metadata?.claude != null,
+      props.displayInfo?.meta.claude?.state,
+      props.unread,
+    );
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
 
@@ -156,21 +198,40 @@ const SidebarEntry: Component<{
           }}
           style={{
             /* Active card uses the actual xterm theme bg — same material as the terminal.
-             * --active-terminal-bg is published by App.tsx on the layout root. */
+             * --active-terminal-bg is published by App.tsx on the layout root.
+             *
+             * Active card also scope-overrides the fg tier vars so every
+             * `text-fg-*` descendant re-tunes to the terminal theme's own
+             * foreground instead of the global one. color-mix against the
+             * active bg derives fg-2/fg-3 tiers that are guaranteed to
+             * stay readable regardless of whether the terminal theme is
+             * light or dark. Fixes #390. */
             "background-color": props.isActive
               ? "var(--active-terminal-bg)"
               : props.displayInfo?.repoColor
                 ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
+            ...(props.isActive
+              ? {
+                  "--color-fg": "var(--active-terminal-fg)",
+                  "--color-fg-2":
+                    "color-mix(in oklch, var(--active-terminal-fg) 75%, var(--active-terminal-bg))",
+                  "--color-fg-3":
+                    "color-mix(in oklch, var(--active-terminal-fg) 55%, var(--active-terminal-bg))",
+                }
+              : {}),
           }}
           onClick={() => props.onSelect(props.id)}
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
+          <div class="min-w-0 px-2.5 py-2 pr-6">
+            <TerminalMeta info={props.displayInfo} />
+          </div>
           <Show when={showPreview()}>
             <div
               data-testid="sidebar-preview"
-              class="mx-2.5 mt-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              class="mx-2.5 mb-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
             >
               <TerminalPreview
                 terminalId={props.id}
@@ -180,9 +241,6 @@ const SidebarEntry: Component<{
               />
             </div>
           </Show>
-          <div class="min-w-0 px-2.5 py-2 pr-6">
-            <TerminalMeta info={props.displayInfo} />
-          </div>
 
           <span
             data-testid="sidebar-close"
@@ -210,7 +268,7 @@ const Sidebar: Component<{
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
   getDimensions: (id: TerminalId) => TerminalDimensions | undefined;
-  showAgentPreviews: boolean;
+  previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
@@ -329,7 +387,7 @@ const Sidebar: Component<{
                       unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       terminalTheme={props.getTerminalTheme(id)}
-                      showAgentPreview={props.showAgentPreviews}
+                      previewMode={props.previewMode}
                       dimensions={props.getDimensions(id)}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}

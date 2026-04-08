@@ -5,7 +5,7 @@
  *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
  *                                                    ↓
  *   title:<id>  →  process provider  ────────→  metadata:<id>
- *   claude provider (polling)  ──────────────→  metadata:<id>
+ *   title:<id> + fs.watch  →  claude provider  →  metadata:<id>
  *
  * Each provider calls updateMetadata() to atomically mutate+publish.
  * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.

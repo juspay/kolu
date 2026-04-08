@@ -11,8 +11,8 @@ Unlike agent command centers that wrap a single model behind their own chat UI, 
 ## Usage
 
 ```sh
-nix run github:juspay/kolu       # serve on 0.0.0.0:7681
-nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
+nix run github:juspay/kolu       # serve on 127.0.0.1:7681
+nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 ```
 
 ## Features
@@ -28,7 +28,7 @@ nix run github:juspay/kolu -- --host 127.0.0.1 --port 8080  # custom bind
 ### Navigation
 
 - Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
-- Sidebar agent previews — terminals running code agents show a live xterm preview directly in the sidebar card, so you can watch what they're doing without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Sidebar agent previews — when an agent is waiting on you (or has finished with an unread completion), its sidebar card expands with a live xterm preview so you can peek without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
 ### Git & GitHub
@@ -141,13 +141,13 @@ flowchart TB
 
 **Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
-**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider independently polls each terminal's pty foreground pid. All providers feed a single metadata channel streamed to the client as a subscription[^providers].
+**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider wakes on title events (OSC 2) and `fs.watch` on `~/.claude/sessions/` to check each terminal's pty foreground pid. All providers feed a single metadata channel streamed to the client as a subscription[^providers].
 
 **User actions** — command palette and sidebar dispatch plain oRPC client calls ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
-[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly.
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates.
 
 [^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from server-derived subscription state.
 

@@ -40,12 +40,15 @@ Write PR descriptions that fellow devs actually want to read.
 
 ## Try it locally
 
-If the repo is a Nix flake and the PR branch contains a buildable output (package, NixOS config, etc.), include a "Try it locally" section at the end of the body. Use the GitHub owner/repo and branch name to construct the command:
+If the repo is a Nix flake and the PR branch contains a buildable output (package, NixOS config, etc.), include a "Try it locally" section at the end of the body. Use the GitHub owner/repo and branch name to construct the command, and put it in a **fenced `sh` code block** (not inline backticks) so GitHub renders a copy button and the command doesn't line-wrap awkwardly:
 
-```
+````
 ### Try it locally
-`nix run github:<owner>/<repo>/<branch>`
+
+```sh
+nix run github:<owner>/<repo>/<branch>
 ```
+````
 
 Adjust the command as needed — `nix build` for non-runnable outputs, add `#<output>` if the default package isn't the relevant one. Omit this section entirely if the change isn't meaningfully testable via `nix run/build` (e.g., CI-only changes, documentation, non-Nix repos).
 

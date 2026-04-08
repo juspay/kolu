@@ -314,20 +314,23 @@ const App: Component = () => {
           updatePreferences({ activityAlerts: on })
         }
         sidebarAgentPreviews={sidebarAgentPreviews()}
-        onSidebarAgentPreviewsChange={(on) =>
-          updatePreferences({ sidebarAgentPreviews: on })
+        onSidebarAgentPreviewsChange={(mode) =>
+          updatePreferences({ sidebarAgentPreviews: mode })
         }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile.
-       *  --active-terminal-bg published here so child components (Sidebar)
-       *  can read it via CSS without prop drilling. */}
+       *  --active-terminal-{bg,fg} published here so child components
+       *  (Sidebar) can read them via CSS without prop drilling. The fg
+       *  lets the active sidebar card re-tune its text tiers against
+       *  the terminal theme's own foreground (see #390). */}
       <div
         class="relative flex flex-1 min-h-0"
         style={{
           "--active-terminal-bg":
             activeTheme().background ?? "var(--color-surface-1)",
+          "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
         }}
       >
         <Sidebar
@@ -338,7 +341,7 @@ const App: Component = () => {
           getDisplayInfo={store.getDisplayInfo}
           getTerminalTheme={getTerminalTheme}
           getDimensions={store.getDimensions}
-          showAgentPreviews={sidebarAgentPreviews()}
+          previewMode={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}

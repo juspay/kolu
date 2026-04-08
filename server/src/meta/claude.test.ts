@@ -221,23 +221,23 @@ describe("findTranscriptPath", () => {
     expect(result).toBe(transcriptPath);
   });
 
-  it("falls back to most recently modified JSONL", () => {
-    const cwd = "/home/user/fallback-project";
+  it("returns null when session JSONL doesn't exist, ignoring other files in dir", () => {
+    // Regression: MRU fallback used to return an unrelated recent JSONL,
+    // causing the watcher to attach to a stale previous-session transcript
+    // while the current session's file was still being created.
+    const cwd = "/home/user/multi-session-project";
     const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
     fs.mkdirSync(projectDir, { recursive: true });
 
-    // Write a JSONL with a different session ID but recent mtime
     const otherPath = path.join(projectDir, "other-session.jsonl");
     fs.writeFileSync(otherPath, JSON.stringify({ type: "user" }) + "\n");
-    // Touch it to ensure it's recent
-    fs.utimesSync(otherPath, new Date(), new Date());
 
     const result = findTranscriptPath({
       pid: 1,
-      sessionId: "nonexistent-id",
+      sessionId: "current-session-id",
       cwd,
     });
-    expect(result).toBe(otherPath);
+    expect(result).toBeNull();
   });
 
   it("returns null when project dir does not exist", () => {
@@ -245,25 +245,6 @@ describe("findTranscriptPath", () => {
       pid: 1,
       sessionId: "any",
       cwd: "/nonexistent/path",
-    });
-    expect(result).toBeNull();
-  });
-
-  it("returns null when MRU file is stale", () => {
-    const cwd = "/home/user/stale-project";
-    const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
-    fs.mkdirSync(projectDir, { recursive: true });
-
-    const stalePath = path.join(projectDir, "stale.jsonl");
-    fs.writeFileSync(stalePath, JSON.stringify({ type: "user" }) + "\n");
-    // Set mtime to 10 seconds ago (beyond 2 * POLL_INTERVAL_MS = 6s)
-    const staleTime = new Date(Date.now() - 10_000);
-    fs.utimesSync(stalePath, staleTime, staleTime);
-
-    const result = findTranscriptPath({
-      pid: 1,
-      sessionId: "nonexistent",
-      cwd,
     });
     expect(result).toBeNull();
   });
