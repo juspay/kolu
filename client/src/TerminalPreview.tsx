@@ -133,8 +133,18 @@ const TerminalPreview: Component<{
       {/* Pin the xterm to the bottom-left corner. The canvas is rendered at
        *  its natural 80×24 size and overflows both right (wider than the
        *  strip) and top (taller than the strip); the host's overflow-hidden
-       *  crops it to a bottom-left window showing the tail of recent output. */}
-      <div ref={innerRef} class="absolute bottom-0 left-0" />
+       *  crops it to a bottom-left window showing the tail of recent output.
+       *
+       *  inline-block is load-bearing: xterm's `term.open()` builds a
+       *  positioned subtree inside this element, and without an explicit
+       *  display mode the absolute-positioned wrapper collapses to zero
+       *  dimensions — xterm's canvas then has no layout space to render
+       *  into and the preview appears blank. */}
+      <div
+        ref={innerRef}
+        class="absolute bottom-0 left-0"
+        style={{ display: "inline-block" }}
+      />
     </div>
   );
 };
