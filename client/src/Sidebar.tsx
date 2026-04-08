@@ -329,13 +329,16 @@ const SidebarEntry: Component<{
               </div>
             }
           >
-            {/* Agent layout: thin preview strip as an ambient "something is
-             *  happening" signal, and a restructured meta below that
-             *  promotes the PR title (or branch, when no PR) to the
-             *  headline — the thing you actually scan the sidebar for. */}
+            {/* Agent layout: restructured meta promotes the PR title (or
+             *  branch, when no PR) to the headline — the thing you actually
+             *  scan the sidebar for — and the live preview sits below as an
+             *  ambient "something is happening" signal. */}
+            <div class="min-w-0 px-2.5 py-2 pr-6">
+              <AgentSidebarMeta info={props.displayInfo} />
+            </div>
             <div
               data-testid="sidebar-preview"
-              class="mx-2.5 mt-2 h-12 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              class="mx-2.5 mb-2 h-12 rounded-lg overflow-hidden border border-edge bg-surface-0"
             >
               <TerminalPreview
                 terminalId={props.id}
@@ -343,9 +346,6 @@ const SidebarEntry: Component<{
                 cols={props.dimensions!.cols}
                 rows={props.dimensions!.rows}
               />
-            </div>
-            <div class="min-w-0 px-2.5 py-2 pr-6">
-              <AgentSidebarMeta info={props.displayInfo} />
             </div>
           </Show>
 

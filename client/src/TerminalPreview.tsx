@@ -1,18 +1,11 @@
 /**
  * TerminalPreview — read-only miniature xterm.js instance for sidebar previews.
  *
- * Renders at the exact same cols×rows as the main terminal and scales the
- * whole canvas uniformly so the full height (all rows) fits the host strip.
- * Width is left to whatever that scale produces — if it overflows the host,
- * `overflow-hidden` clips the right side. We explicitly don't use the
- * min(widthFit, heightFit) approach: for a wide host, min would pick the
- * width-fit scale and crop rows off the top/bottom, defeating the point of
- * the "whole terminal at a glance" signal.
- *
- * Identical cols×rows with the main terminal means the server's stream
- * (cursor escapes, line wraps, clears) interprets the same way in the
- * preview as in the main terminal — the preview is a true cell-for-cell
- * mirror at a different rendering scale.
+ * Renders at the exact same cols×rows as the main terminal, then CSS-scales
+ * the canvas down to fit the host container. Identical dimensions mean the
+ * server's stream (cursor escapes, line wraps, clears) interprets the same
+ * way in the preview as in the main terminal — the preview is a true
+ * zoomed-out view of the same cell grid.
  *
  * No FitAddon: fitting would re-compute cols/rows from the container size
  * and diverge from the main. We size explicitly via term.resize().
@@ -27,7 +20,7 @@ import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 
 /** Font size for the internal xterm instance. Large enough to render crisp
- *  on canvas; the whole element is CSS-scaled down to fit the host height. */
+ *  on canvas; the whole element is CSS-scaled down to fit the host. */
 const PREVIEW_FONT_SIZE = 14;
 
 const TerminalPreview: Component<{
@@ -43,17 +36,19 @@ const TerminalPreview: Component<{
   let terminal: XTerm | null = null;
   let streamAbort: AbortController | null = null;
 
-  /** Recompute the CSS scale so the full natural height fits the host
-   *  height. Width scales with the same factor — whatever it ends up being
-   *  gets clipped by the host's overflow-hidden. */
+  /** Recompute the CSS scale so the inner natural size fits the host. */
   function applyScale() {
     if (!innerRef || !hostRef || !terminal) return;
     // Clear previous transform to measure natural size.
     innerRef.style.transform = "";
+    const naturalW = innerRef.offsetWidth;
     const naturalH = innerRef.offsetHeight;
-    if (naturalH === 0) return;
+    if (naturalW === 0 || naturalH === 0) return;
+    const hostW = hostRef.clientWidth;
     const hostH = hostRef.clientHeight;
-    innerRef.style.transform = `scale(${hostH / naturalH})`;
+    // Uniform scale — preserves aspect ratio. Whichever axis is tighter wins.
+    const scale = Math.min(hostW / naturalW, hostH / naturalH);
+    innerRef.style.transform = `scale(${scale})`;
   }
 
   createEffect(
@@ -97,7 +92,7 @@ const TerminalPreview: Component<{
     });
     terminal = term;
     term.open(innerRef);
-    // xterm measures cell dimensions on its first animation frame — offsetHeight
+    // xterm measures cell dimensions on its first animation frame — offsetWidth
     // is 0 on the same tick as term.open(), so defer the first scale.
     requestAnimationFrame(applyScale);
 
@@ -136,15 +131,19 @@ const TerminalPreview: Component<{
     <div
       ref={hostRef}
       class="w-full h-full overflow-hidden"
-      // Paint the host with the terminal theme bg so any clipped region
-      // reads as terminal padding rather than a generic-surface gap.
-      //
+      // The scaled xterm canvas almost never fills the host slot exactly:
+      // main terminal aspect ratio (cols × charW : rows × lineH) won't match
+      // the sidebar card's, and the mismatch shifts as the user opens/closes
+      // sub-panels (which resize main → changes cols/rows → changes the
+      // preview's natural ratio). Painting the host with the terminal theme
+      // background makes the unused bands read as terminal padding rather
+      // than a generic-surface gap that flashes on every layout change.
       // pointer-events: none — preview is purely visual (disableStdin: true,
       // scrollback: 0). Without this, xterm's wheel listener captures trackpad
       // scroll when the cursor is over the preview, blocking the sidebar from
       // scrolling. Disabling pointer events also lets clicks fall through to
-      // the parent SidebarEntry button, so clicking the preview selects the
-      // terminal.
+      // the parent SidebarEntry button, so clicking the preview now selects
+      // the terminal (previously xterm swallowed those clicks too).
       style={{
         "background-color": props.theme.background,
         "pointer-events": "none",
