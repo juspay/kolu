@@ -49,6 +49,14 @@ const SESSIONS_DIR =
 const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
+/** True when the e2e harness has redirected the projects/sessions dirs at
+ *  test fixtures. The Claude Agent SDK has no equivalent override and would
+ *  silently scan the user's real ~/.claude/projects, adding fs.watch and
+ *  inotify pressure that has been observed to race with the mock harness
+ *  on Linux. Skip summary fetching entirely under test. */
+const SUMMARY_FETCH_ENABLED =
+  process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
+  process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
 const TAIL_BYTES = 16_384;
 
 export interface SessionFile {
@@ -378,7 +386,18 @@ export function startClaudeCodeProvider(
    * having to parse those entries ourselves.
    */
   function refreshSummary(session: SessionFile) {
-    getSessionInfo(session.sessionId, { dir: session.cwd })
+    if (!SUMMARY_FETCH_ENABLED) return;
+    // Wrap in try/catch in case the SDK throws synchronously before
+    // returning a Promise (e.g. argument validation). The .catch on the
+    // chain only catches async rejections.
+    let p: Promise<unknown>;
+    try {
+      p = getSessionInfo(session.sessionId, { dir: session.cwd });
+    } catch (err) {
+      plog.debug({ err, session: session.sessionId }, "getSessionInfo threw");
+      return;
+    }
+    (p as ReturnType<typeof getSessionInfo>)
       .then((sdkInfo) => {
         // Bail if the session changed under us while the lookup was in flight.
         if (matchedSession?.sessionId !== session.sessionId) return;
