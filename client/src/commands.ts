@@ -33,6 +33,7 @@ export interface CommandDeps {
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
+  setClaudeTranscriptOpen: (open: boolean) => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -149,6 +150,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
+        ...(deps.activeMeta()?.claude != null
+          ? [
+              {
+                name: "Show Claude transcript",
+                onSelect: () => deps.setClaudeTranscriptOpen(true),
+              },
+            ]
+          : []),
         {
           name: "Trigger server error",
           onSelect: () =>

@@ -164,6 +164,12 @@ export const appRouter = t.router({
       }
     }),
   },
+  claude: {
+    getTranscript: t.claude.getTranscript.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      return entry.getClaudeDebug?.() ?? null;
+    }),
+  },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) =>
       worktreeCreate(input.repoPath),

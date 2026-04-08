@@ -59,6 +59,8 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 - **Wrapped invocations** — if claude-code is launched via a wrapper (e.g. `script -q out.log claude`), the foreground pid is the wrapper, not claude itself, so the session lookup misses
 - **Sub-agents** — nested agent spawns appear as tool use, not as separate tracked sessions
 
+**Debugging detection:** the command palette has a `Debug → Show Claude transcript` entry (visible only when the active terminal has a Claude session) that opens a side-by-side view of the server's state-change log next to the raw JSONL events from disk since monitoring began. Use it when state seems stuck or transitions feel missed.
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
