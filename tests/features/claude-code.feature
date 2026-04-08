@@ -37,17 +37,32 @@ Feature: Claude Code status detection
     Then the header should show a Claude indicator with state "thinking"
     And there should be no page errors
 
-  Scenario: Sidebar shows a live preview for terminals running agents
-    When a Claude Code session is mocked with state "thinking"
+  # Preview shows only when the agent is waiting on the user or has an unread completion.
+  # A "thinking" agent is busy but doesn't need attention — see shouldShowPreview() in Sidebar.tsx.
+  Scenario: Sidebar shows a live preview for agents waiting on the user
+    When a Claude Code session is mocked with state "waiting"
     Then the sidebar should show a terminal preview
     And there should be no page errors
 
-  Scenario: Disabling the agent previews setting hides the sidebar preview
+  Scenario: Sidebar hides the preview for thinking agents
     When a Claude Code session is mocked with state "thinking"
+    Then the sidebar should not show a terminal preview
+    And there should be no page errors
+
+  Scenario: Setting agent previews to "none" hides the sidebar preview
+    When a Claude Code session is mocked with state "waiting"
     Then the sidebar should show a terminal preview
     When I click the settings button
-    And I click the agent previews toggle
+    And I set the agent previews mode to "none"
     Then the sidebar should not show a terminal preview
+    And there should be no page errors
+
+  Scenario: Setting agent previews to "agents" shows preview for any agent regardless of state
+    When a Claude Code session is mocked with state "thinking"
+    Then the sidebar should not show a terminal preview
+    When I click the settings button
+    And I set the agent previews mode to "agents"
+    Then the sidebar should show a terminal preview
     And there should be no page errors
 
   Scenario: Claude Code indicator disappears when session ends

@@ -88,7 +88,7 @@ const TerminalMeta: Component<{
           <Show when={info().meta.pr}>
             {(pr) => (
               <div
-                class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
+                class={`flex items-center gap-1 ${detailClass()} text-fg-2 truncate`}
                 data-testid="terminal-meta-pr"
                 title={`#${pr().number} ${pr().title}`}
               >

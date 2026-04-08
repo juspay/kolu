@@ -285,10 +285,13 @@ Then(
   },
 );
 
-When("I click the agent previews toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="sidebar-agent-previews-toggle"]');
-  await this.waitForFrame();
-});
+When(
+  "I set the agent previews mode to {string}",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="sidebar-agent-previews-${mode}"]`);
+    await this.waitForFrame();
+  },
+);
 
 Then(
   "the header should not show a Claude indicator",

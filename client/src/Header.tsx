@@ -16,7 +16,7 @@ import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
-import type { TerminalMetadata } from "kolu-common";
+import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
 
 /** WS connection status indicator colors and animations. */
@@ -45,8 +45,8 @@ const Header: Component<{
   onStartupTipsChange?: (on: boolean) => void;
   activityAlerts?: boolean;
   onActivityAlertsChange?: (on: boolean) => void;
-  sidebarAgentPreviews?: boolean;
-  onSidebarAgentPreviewsChange?: (on: boolean) => void;
+  sidebarAgentPreviews?: SidebarAgentPreviews;
+  onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -176,9 +176,9 @@ const Header: Component<{
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
             activityAlerts={props.activityAlerts ?? true}
             onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
-            sidebarAgentPreviews={props.sidebarAgentPreviews ?? true}
-            onSidebarAgentPreviewsChange={(on) =>
-              props.onSidebarAgentPreviewsChange?.(on)
+            sidebarAgentPreviews={props.sidebarAgentPreviews ?? "attention"}
+            onSidebarAgentPreviewsChange={(mode) =>
+              props.onSidebarAgentPreviewsChange?.(mode)
             }
             startupTips={props.startupTips ?? true}
             onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}

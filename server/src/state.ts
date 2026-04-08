@@ -22,7 +22,7 @@ import { publishSystem } from "./publisher.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.3.0";
+const SCHEMA_VERSION = "1.4.0";
 
 const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
@@ -31,7 +31,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
-  sidebarAgentPreviews: true,
+  sidebarAgentPreviews: "attention",
 };
 
 export const store = new Conf<PersistedState>({
@@ -63,6 +63,23 @@ export const store = new Conf<PersistedState>({
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...current,
+      });
+    },
+    // sidebarAgentPreviews: boolean → enum. Previously `true` meant
+    // "preview every agent terminal" (now "agents"), `false` meant off
+    // (now "none"). New installs default to "attention".
+    "1.4.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | (Partial<Preferences> & { sidebarAgentPreviews?: unknown })
+        | undefined;
+      const old = current?.sidebarAgentPreviews;
+      const migrated = old === true ? "agents" : old === false ? "none" : old;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...current,
+        sidebarAgentPreviews:
+          (migrated as Preferences["sidebarAgentPreviews"]) ??
+          DEFAULT_PREFERENCES.sidebarAgentPreviews,
       });
     },
   },
