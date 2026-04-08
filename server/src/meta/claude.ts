@@ -576,10 +576,16 @@ export function startClaudeCodeProvider(
   };
 
   // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.
+  // A title event drives FULL reconciliation: session detection AND transcript
+  // re-derivation. Treating one trigger as a complete sync (rather than each
+  // source covering only "its half") removes the asymmetry where missed
+  // fs.watch events on the transcript file would silently leave state stale.
+  // The cost is one tail read per prompt cycle, deduped by infoEqual.
   const abort = new AbortController();
-  subscribeForTerminal("title", terminalId, abort.signal, () =>
-    onSessionMaybeChanged(),
-  );
+  subscribeForTerminal("title", terminalId, abort.signal, () => {
+    onSessionMaybeChanged();
+    onTranscriptMaybeChanged();
+  });
 
   // Watch the sessions dir so session file appearance/disappearance drives
   // reconciliation. On fresh systems (~/.claude/ missing), this walks up
