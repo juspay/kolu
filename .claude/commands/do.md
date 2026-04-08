@@ -48,7 +48,7 @@ After each step's verification, write/update `.do-results.json`:
 Print a progress line before each step:
 
 ```
-[do] ✓sync ✓research ▸hickey · branch · implement · docs · police · fmt · commit · test · ci · update-pr · done
+[do] ✓sync ✓research ▸hickey · branch · implement · check · docs · police · fmt · commit · test · ci · update-pr · done
 ```
 
 ### sync
@@ -120,6 +120,17 @@ Otherwise: implement the planned changes. Prefer simplicity. Do the boring obvio
 **E2E coverage**: When the change introduces multiple user-facing paths (e.g., a dialog that appears under different conditions), write e2e scenarios for **each distinct path**. Enumerate the user-visible paths, then check that every one has a corresponding test.
 
 **Verify**: Code changes match the planned approach. All distinct user-facing paths have test coverage.
+
+---
+
+### check
+
+Read the project's instructions to find the check command — a fast static-correctness gate (e.g. `tsc --noEmit`, `cargo check`, `cabal build`, `mypy`, `dune build @check`). Run it.
+
+This is the cheapest gate in the pipeline, so it runs first — fail fast on broken code before any downstream step does work over it. If no check command is documented, skip this step with a note.
+
+**Verify**: Check ran without errors, or no command configured.
+**If failed** (max 3 attempts): Fix the errors and re-run check. Do not fall back to **implement** — the agent is already in fix mode and the failure is local to just-written code.
 
 ---
 

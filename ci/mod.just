@@ -40,7 +40,7 @@ home-manager: nix
     just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
 
 typecheck:
-    just ci::_run typecheck just watch
+    just ci::_run typecheck just check
 
 e2e: nix
     just ci::_run e2e just test

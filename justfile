@@ -29,8 +29,8 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking across all packages
-watch: install
+# Run TypeScript type checking across all packages — fast static-correctness gate
+check: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
