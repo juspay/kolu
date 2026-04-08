@@ -52,9 +52,6 @@ test: install
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
     {{ nix_shell }} pnpm install
-    # Temp dirs for Claude Code status detection mock tests
-    export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
-    export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
@@ -77,9 +74,6 @@ test-quick *args: install
     KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
-    # Temp dirs for Claude Code status detection mock tests
-    export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
-    export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \

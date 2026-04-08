@@ -16,11 +16,27 @@ import getPort from "get-port";
 import { KoluWorld } from "./world.ts";
 import * as fs from "node:fs";
 import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
+
+/** Per-worker temp dirs for the Claude Code mock harness — see
+ *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
+ *  workers (the previous setup, exported once before `pnpm test`) puts
+ *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
+ *  events get dropped under load and detection silently misses the mock
+ *  session. Each worker getting its own dir eliminates the contention. */
+const claudeSessionsDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), `kolu-claude-sessions-${workerId}-`),
+);
+const claudeProjectsDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), `kolu-claude-projects-${workerId}-`),
+);
+process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
+process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
 
 let baseUrl: string;
 let browser: Browser;
@@ -134,7 +150,12 @@ BeforeAll(async function () {
       ],
       {
         stdio: "pipe",
-        env: { ...process.env, KOLU_STATE_SUFFIX: `test-${workerId}` },
+        env: {
+          ...process.env,
+          KOLU_STATE_SUFFIX: `test-${workerId}`,
+          KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+          KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+        },
       },
     );
     serverProcess.stderr?.on("data", (data: Buffer) => {
