@@ -23,7 +23,11 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getServerState, updateServerState } from "./state.ts";
+import {
+  getServerState,
+  testSetServerState,
+  updateServerState,
+} from "./state.ts";
 
 const t = implement(contract);
 
@@ -189,7 +193,7 @@ export const appRouter = t.router({
       updateServerState(input);
     }),
     test__set: t.state.test__set.handler(async ({ input }) => {
-      updateServerState(input);
+      testSetServerState(input);
     }),
   },
 });

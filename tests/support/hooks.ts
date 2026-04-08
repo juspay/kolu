@@ -185,6 +185,7 @@ Before(async function (this: KoluWorld) {
     postJSON(`${baseUrl}/rpc/state/test__set`, {
       json: {
         session: null,
+        recentRepos: [],
         // Reset all preferences to defaults (randomTheme off for deterministic tests)
         preferences: {
           seenTips: [],
