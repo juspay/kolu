@@ -5,7 +5,7 @@ applyTo: "**"
 
 ## Workflow
 
-- Use `/do` to execute tasks end-to-end: sync → research → hickey → branch+PR → implement → docs → police → fmt → commit → test → CI → update-pr → done. Each step has a verification check.
+- Use `/do` to execute tasks end-to-end: sync → research → hickey → branch+PR → implement → check → docs → police → fmt → commit → test → CI → update-pr → done. Each step has a verification check.
 - For standalone quality checks, run `/code-police` (includes rules checklist + fact-check + elegance passes).
 - Run `just fmt` (formatting) before declaring done.
 - **Quick e2e tests**: Run `just test-quick` (or `just test-quick features/foo.feature:42` for a single scenario) to verify UI changes. Fast — no nix build, no separate dev server.
@@ -13,7 +13,11 @@ applyTo: "**"
 
 ## Execute Pipeline Commands
 
-These commands are used by the `/do` workflow's fmt, test, and ci steps.
+These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
+
+### Check command
+
+`just check` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci::typecheck` step uses the same recipe.
 
 ### Format command
 
