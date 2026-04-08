@@ -107,6 +107,7 @@ describe("encodeProjectPath", () => {
 
 describe("infoEqual", () => {
   const info: ClaudeCodeInfo = {
+    kind: "claude-code",
     state: "thinking",
     sessionId: "abc-123",
     model: "claude-opus-4-6",

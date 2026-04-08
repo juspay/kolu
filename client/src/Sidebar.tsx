@@ -25,7 +25,7 @@ import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type {
-  ClaudeCodeInfo,
+  AgentState,
   SidebarAgentPreviews,
   TerminalId,
   TerminalMetadata,
@@ -33,14 +33,13 @@ import type {
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "./useViewport";
 
-type ClaudeState = ClaudeCodeInfo["state"];
 type CardTier = "waiting" | "active" | "idle";
 
-/** Derive the visual tier for the sidebar card from live Claude state.
+/** Derive the visual tier for the sidebar card from live agent state.
  *  Note: `unread` (unseen completion) is orthogonal — rendered as a
  *  separate dot, not folded into this tier. */
-function cardTier(claudeState: ClaudeState | undefined): CardTier {
-  return match(claudeState)
+function cardTier(agentState: AgentState | undefined): CardTier {
+  return match(agentState)
     .with("waiting", () => "waiting" as const)
     .with(P.union("thinking", "tool_use"), () => "active" as const)
     .with(undefined, () => "idle" as const)
@@ -57,7 +56,7 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
  *  - `"agents"`: any terminal with a running code agent. This was the
  *    behavior before the enum was introduced (legacy `true`).
  *  - `"attention"` (**default**): only agents that actually want the
- *    user's eyes — when Claude is **waiting** for input or when
+ *    user's eyes — when the agent is **waiting** for input or when
  *    there's an **unread** completion. Rationale: previews are
  *    expensive vertically (only ~3 cards fit — see #388), so we
  *    reserve them for the moments peeking without switching actually
@@ -67,14 +66,14 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
 function shouldShowPreview(
   mode: SidebarAgentPreviews,
   hasAgent: boolean,
-  claudeState: ClaudeState | undefined,
+  agentState: AgentState | undefined,
   unread: boolean,
 ): boolean {
   return match(mode)
     .with("none", () => false)
     .with("all", () => true)
     .with("agents", () => hasAgent)
-    .with("attention", () => hasAgent && (claudeState === "waiting" || unread))
+    .with("attention", () => hasAgent && (agentState === "waiting" || unread))
     .exhaustive();
 }
 
@@ -106,15 +105,15 @@ const SidebarEntry: Component<{
     if (!vp) return undefined;
     return shouldShowPreview(
       props.previewMode,
-      props.metadata?.claude != null,
-      props.displayInfo?.meta.claude?.state,
+      props.metadata?.agent != null,
+      props.displayInfo?.meta.agent?.state,
       props.unread,
     )
       ? vp
       : undefined;
   };
   const sortable = createSortable(props.id);
-  const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
+  const tier = () => cardTier(props.displayInfo?.meta.agent?.state);
 
   /** When this entry becomes active, scroll itself into view. Handles both
    *  switching to an existing terminal AND creating a new one: in either

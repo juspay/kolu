@@ -1,5 +1,5 @@
-/** Terminal alerts — reactively detect Claude state transitions and fire notifications.
- *  Watches metadata subscriptions for Claude state changes. */
+/** Terminal alerts — reactively detect agent state transitions and fire notifications.
+ *  Watches metadata subscriptions for agent state changes (any recognized agent). */
 
 import { type Accessor, createEffect, on } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -19,23 +19,23 @@ export function useTerminalAlerts(deps: {
   // Request browser notification permission eagerly when alerts are enabled
   if (deps.activityAlerts()) requestNotificationPermission();
 
-  // Reactively watch Claude state for all terminals.
+  // Reactively watch agent state for all terminals.
   // SolidJS's on() tracks previous values natively — no manual Map needed.
   createEffect(
     on(
-      () => deps.terminalIds().map((id) => deps.getMetadata(id)?.claude?.state),
+      () => deps.terminalIds().map((id) => deps.getMetadata(id)?.agent?.state),
       (states, prevStates) => {
         const ids = deps.terminalIds();
         for (let i = 0; i < ids.length; i++) {
           if (prevStates && prevStates[i] !== undefined) {
-            checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
+            checkAgentFinished(ids[i]!, prevStates[i], states[i]);
           }
         }
       },
     ),
   );
 
-  function checkClaudeFinished(
+  function checkAgentFinished(
     id: TerminalId,
     prev: string | undefined,
     next: string | undefined,

@@ -37,6 +37,7 @@ import os from "node:os";
 import { match } from "ts-pattern";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  AgentState,
   ClaudeCodeInfo,
   ClaudeStateChange,
   ClaudeTranscriptDebug,
@@ -217,7 +218,7 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 /** Derive Claude Code state from the last relevant JSONL message. */
 export function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): { state: AgentState; model: string | null } | null {
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -263,6 +264,7 @@ export function infoEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return (
+    a.kind === b.kind &&
     a.state === b.state &&
     a.sessionId === b.sessionId &&
     a.model === b.model &&
@@ -450,20 +452,21 @@ export function startClaudeCodeProvider(
     }
 
     const info: ClaudeCodeInfo = {
+      kind: "claude-code",
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
       summary: lastSummary,
     };
 
-    if (!infoEqual(info, entry.info.meta.claude)) {
+    if (!infoEqual(info, entry.info.meta.agent)) {
       plog.info(
         { state: info.state, model: info.model, session: info.sessionId },
         "claude code state updated",
       );
       transcriptWatching.stateChanges.push({ ts: Date.now(), info });
       updateMetadata(entry, terminalId, (m) => {
-        m.claude = info;
+        m.agent = info;
       });
     }
 
@@ -499,14 +502,14 @@ export function startClaudeCodeProvider(
         const summary = sdkInfo?.summary ?? null;
         if (summary === lastSummary) return;
         lastSummary = summary;
-        const current = entry.info.meta.claude;
+        const current = entry.info.meta.agent;
         if (!current) return;
         plog.info(
           { summary, session: session.sessionId },
           "claude summary updated",
         );
         updateMetadata(entry, terminalId, (m) => {
-          m.claude = { ...current, summary };
+          m.agent = { ...current, summary };
         });
       })
       .catch((err) => {
@@ -540,9 +543,9 @@ export function startClaudeCodeProvider(
 
     if (!newSession) {
       plog.info("claude code session ended");
-      if (entry.info.meta.claude !== null) {
+      if (entry.info.meta.agent !== null) {
         updateMetadata(entry, terminalId, (m) => {
-          m.claude = null;
+          m.agent = null;
         });
       }
       return;

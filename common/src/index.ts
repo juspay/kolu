@@ -49,25 +49,34 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
-// --- Claude Code context ---
+// --- AI coding agent context ---
 
-export const ClaudeCodeStateSchema = z.enum([
-  "thinking",
-  "tool_use",
-  "waiting",
-]);
+/** Coarse runtime state shared across agent backends. Vocabulary is Claude-derived
+ *  today (thinking / tool_use / waiting); new agents map onto these three buckets. */
+export const AgentStateSchema = z.enum(["thinking", "tool_use", "waiting"]);
 
+/** Claude Code agent info. The `kind` discriminator lets `AgentInfoSchema` grow
+ *  sibling variants (OpenCode, etc.) without reshaping the metadata envelope. */
 export const ClaudeCodeInfoSchema = z.object({
+  kind: z.literal("claude-code"),
   /** Current state derived from session JSONL. */
-  state: ClaudeCodeStateSchema,
+  state: AgentStateSchema,
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
   /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
-   *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
+   *  Refreshed best-effort on each transcript change; null until the first lookup resolves.
+   *  Claude-specific: sourced from @anthropic-ai/claude-agent-sdk's getSessionInfo. */
   summary: z.string().nullable(),
 });
+
+/** Discriminated union of all supported coding agents. Single variant today;
+ *  the union shape is deliberate so adding new agents is a schema add + reader,
+ *  not a surgery across every read site. */
+export const AgentInfoSchema = z.discriminatedUnion("kind", [
+  ClaudeCodeInfoSchema,
+]);
 
 /** A single state transition the server observed. `info: null` = session ended. */
 export const ClaudeStateChangeSchema = z.object({
@@ -103,7 +112,10 @@ export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
-  claude: ClaudeCodeInfoSchema.nullable(),
+  /** Rich status for a recognized AI coding agent running in this terminal.
+   *  Null when no known agent is active (the `foreground` field still carries
+   *  any program name, including unrecognized agents). */
+  agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
   themeName: z.string().optional(),
@@ -264,6 +276,9 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type AgentState = z.infer<typeof AgentStateSchema>;
+export type AgentInfo = z.infer<typeof AgentInfoSchema>;
+export type AgentKind = AgentInfo["kind"];
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
 export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
