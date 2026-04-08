@@ -23,7 +23,7 @@
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
-    "hono": "^4.7.0",
+    "hono": "^4.12.12",
     "hono-pino": "^0.10.3",
     "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
