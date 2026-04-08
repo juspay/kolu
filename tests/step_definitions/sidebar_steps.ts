@@ -151,3 +151,59 @@ Then(
     await pollUntilBufferContains(this.page, expected);
   },
 );
+
+Then(
+  "all terminals should report the same grid dimensions",
+  async function (this: KoluWorld) {
+    // Read every mounted xterm's cols/rows from the main terminal viewport.
+    // Terminal.tsx exposes each xterm via containerRef.__xterm — we pull
+    // cols/rows directly off it. Non-active terminals stuck at the default
+    // 80×24 (because fit() can't measure a display:none container) will
+    // disagree with the active terminal's fitted grid. Regression guard for
+    // #398.
+    await this.page.waitForFunction(
+      () => {
+        const nodes = Array.from(
+          document.querySelectorAll(
+            '[data-testid="terminal-viewport"] [data-terminal-id]',
+          ),
+        ) as (HTMLElement & {
+          __xterm?: { cols: number; rows: number };
+        })[];
+        if (nodes.length < 2) return false;
+        const first = nodes[0]!.__xterm;
+        if (!first || first.cols <= 0 || first.rows <= 0) return false;
+        return nodes.every(
+          (n) =>
+            n.__xterm &&
+            n.__xterm.cols === first.cols &&
+            n.__xterm.rows === first.rows,
+        );
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+    const dims = await this.page.evaluate(() => {
+      const nodes = Array.from(
+        document.querySelectorAll(
+          '[data-testid="terminal-viewport"] [data-terminal-id]',
+        ),
+      ) as (HTMLElement & {
+        __xterm?: { cols: number; rows: number };
+      })[];
+      return nodes.map((n) => ({
+        id: n.getAttribute("data-terminal-id"),
+        cols: n.__xterm?.cols ?? null,
+        rows: n.__xterm?.rows ?? null,
+      }));
+    });
+    assert.ok(dims.length >= 2, `Expected ≥2 terminals, got ${dims.length}`);
+    const first = dims[0]!;
+    for (const d of dims) {
+      assert.strictEqual(
+        `${d.cols}x${d.rows}`,
+        `${first.cols}x${first.rows}`,
+        `Terminal ${d.id} grid ${d.cols}x${d.rows} differs from ${first.id} ${first.cols}x${first.rows} — ${JSON.stringify(dims)}`,
+      );
+    }
+  },
+);

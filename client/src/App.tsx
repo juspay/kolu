@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   Show,
   For,
@@ -103,6 +104,26 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
+
+  // Grid shared across all mounted main terminals. Only the active terminal
+  // can measure its own container (others are display:none and FitAddon
+  // can't read zero-sized elements), so we lift the active terminal's
+  // cols×rows and hand them to hidden instances as a fallback size. Fixes
+  // sidebar previews rendering at the stale 80×24 default on cold page
+  // load (#398).
+  const sharedDimensions = createMemo(
+    () => {
+      const id = store.activeId();
+      if (!id) return undefined;
+      const d = store.getDimensions(id);
+      return d ? { cols: d.cols, rows: d.rows } : undefined;
+    },
+    undefined,
+    {
+      equals: (a, b) =>
+        a === b || (!!a && !!b && a.cols === b.cols && a.rows === b.rows),
+    },
+  );
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
@@ -400,6 +421,7 @@ const App: Component = () => {
                     onDimensionsChange={(cols, rows) =>
                       store.setDimensions(id, cols, rows)
                     }
+                    sharedDimensions={sharedDimensions()}
                   />
                 )}
               </For>

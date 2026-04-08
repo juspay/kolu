@@ -81,6 +81,11 @@ const Terminal: Component<{
   isSub?: boolean;
   /** Publish this terminal's cols×rows so sidebar previews can mirror them. */
   onDimensionsChange?: (cols: number, rows: number) => void;
+  /** Cols×rows from the currently-visible terminal — used to size this
+   *  instance when it's hidden (display:none means FitAddon can't measure
+   *  its container). Keeps all mounted xterms on the same grid so sidebar
+   *  previews render correctly on cold page load. */
+  sharedDimensions?: { cols: number; rows: number };
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
@@ -104,6 +109,24 @@ const Terminal: Component<{
   function clearTextureAtlas() {
     webgl?.clearTextureAtlas();
   }
+
+  // Mirror the active terminal's grid while we're hidden. FitAddon can't
+  // measure a display:none container, so hidden instances ride on whatever
+  // cols×rows the active terminal published to the store. Skipped while
+  // visible — the resize observer + fit() take over in that mode.
+  createEffect(
+    on(
+      () => {
+        const d = props.sharedDimensions;
+        return d ? ([d.cols, d.rows] as const) : null;
+      },
+      (dims) => {
+        if (!terminal || props.visible || !dims) return;
+        terminal.resize(dims[0], dims[1]);
+      },
+      { defer: true },
+    ),
+  );
 
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
@@ -257,8 +280,18 @@ const Terminal: Component<{
       return true;
     });
 
-    fitAddon.fit();
-    if (props.visible) term.focus();
+    // FitAddon.fit() only works when the container has real dimensions.
+    // Hidden terminals live inside a display:none ancestor (see the `hidden`
+    // classList on the wrapper div below) — fit() there silently no-ops and
+    // leaves xterm at its 80×24 default. Instead, inherit the active
+    // terminal's grid when we're hidden so the sidebar preview renders at
+    // the right cols×rows on cold page load (regression #398).
+    if (props.visible) {
+      fitAddon.fit();
+      term.focus();
+    } else if (props.sharedDimensions) {
+      term.resize(props.sharedDimensions.cols, props.sharedDimensions.rows);
+    }
 
     // Track user-initiated focus for "remember last focused" in sub-panel
     if (props.onFocus && term.textarea) {
@@ -280,9 +313,12 @@ const Terminal: Component<{
       "Terminal attach",
     );
 
-    // fitAddon.fit() above only fires onResize when dimensions actually change.
-    // If the default 80×24 matches the container, no event fires — sync manually.
-    void syncResize();
+    // fitAddon.fit() / term.resize() above only fire onResize when dimensions
+    // actually change. If the default 80×24 matches the target, no event
+    // fires — sync manually. Skip the sync when we're hidden and have no
+    // shared dimensions to publish: that would push the stale 80×24 default
+    // to the store and to the server PTY.
+    if (props.visible || props.sharedDimensions) void syncResize();
 
     // Filter terminal query responses from onData before sending to PTY.
     // The server's headless xterm already answers these; duplicates arriving
