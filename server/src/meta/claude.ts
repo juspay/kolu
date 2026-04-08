@@ -35,6 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { match } from "ts-pattern";
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ClaudeCodeInfo,
   ClaudeStateChange,
@@ -52,7 +53,33 @@ const SESSIONS_DIR =
 const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
-const TAIL_BYTES = 16_384;
+/** True when the e2e harness has redirected the projects/sessions dirs at
+ *  test fixtures. The Claude Agent SDK has no equivalent override and would
+ *  silently scan the user's real ~/.claude/projects, adding fs.watch and
+ *  inotify pressure that has been observed to race with the mock harness
+ *  on Linux. Skip summary fetching entirely under test. */
+const SUMMARY_FETCH_ENABLED =
+  process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
+  process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
+/** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
+ *  entry so that at least one complete line is present after dropping the
+ *  (potentially partial) first line.
+ *
+ *  Sized at 256 KB because real-world claude-code sessions regularly emit
+ *  individual assistant entries in the 20–55 KB range (long thinking blocks,
+ *  batched tool_use calls, multi-file diffs), with user entries from pasted
+ *  content reaching 1 MB+. At 16 KB we silently miss state transitions when
+ *  the terminal assistant line overflows the window — `tailJsonlLines`
+ *  returns `[]`, `deriveState` returns `null`, and the previous state (often
+ *  "thinking") persists forever, leaving the sidebar stuck mid-response.
+ *
+ *  256 KB gives ~4.6× headroom over the largest assistant line observed
+ *  locally and matches the chunk size in mux's `historyService.ts` reverse
+ *  tail reader. Allocated transiently per watcher callback — no lasting
+ *  memory cost. If single entries ever exceed this, the correct upgrade is
+ *  a chunked reverse read that keeps extending until it finds a newline
+ *  (mux's pattern), not another bump. */
+const TAIL_BYTES = 256 * 1024;
 
 export interface SessionFile {
   pid: number;
@@ -236,7 +263,10 @@ export function infoEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return (
-    a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
+    a.state === b.state &&
+    a.sessionId === b.sessionId &&
+    a.model === b.model &&
+    a.summary === b.summary
   );
 }
 
@@ -333,6 +363,11 @@ export function startClaudeCodeProvider(
 
   let matchedSession: SessionFile | null = null;
   let transcriptWatching: TranscriptWatching = { kind: "none" };
+  /** Latest known display summary from the Claude Agent SDK. Refreshed
+   *  best-effort on each transcript change; null between session matches
+   *  and until the first lookup resolves. Survives across transcript
+   *  events so deduped state updates can carry it forward. */
+  let lastSummary: string | null = null;
 
   plog.info("started");
 
@@ -418,17 +453,68 @@ export function startClaudeCodeProvider(
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
+      summary: lastSummary,
     };
 
-    if (infoEqual(info, entry.info.meta.claude)) return;
-    plog.info(
-      { state: info.state, model: info.model, session: info.sessionId },
-      "claude code state updated",
-    );
-    transcriptWatching.stateChanges.push({ ts: Date.now(), info });
-    updateMetadata(entry, terminalId, (m) => {
-      m.claude = info;
-    });
+    if (!infoEqual(info, entry.info.meta.claude)) {
+      plog.info(
+        { state: info.state, model: info.model, session: info.sessionId },
+        "claude code state updated",
+      );
+      transcriptWatching.stateChanges.push({ ts: Date.now(), info });
+      updateMetadata(entry, terminalId, (m) => {
+        m.claude = info;
+      });
+    }
+
+    // Refresh the SDK-derived summary off the critical path. Failure or
+    // latency here never blocks state updates — `infoEqual` dedupes the
+    // follow-up emit if the summary turns out unchanged.
+    refreshSummary(matchedSession);
+  }
+
+  /**
+   * Best-effort fetch of the current session's display summary from the
+   * Claude Agent SDK. Fire-and-forget — caller does not await. The SDK
+   * stays current with claude-code's on-disk format (custom titles,
+   * auto-generated summaries, first prompts), so this insulates us from
+   * having to parse those entries ourselves.
+   */
+  function refreshSummary(session: SessionFile) {
+    if (!SUMMARY_FETCH_ENABLED) return;
+    // Wrap in try/catch in case the SDK throws synchronously before
+    // returning a Promise (e.g. argument validation). The .catch on the
+    // chain only catches async rejections.
+    let p: Promise<unknown>;
+    try {
+      p = getSessionInfo(session.sessionId, { dir: session.cwd });
+    } catch (err) {
+      plog.debug({ err, session: session.sessionId }, "getSessionInfo threw");
+      return;
+    }
+    (p as ReturnType<typeof getSessionInfo>)
+      .then((sdkInfo) => {
+        // Bail if the session changed under us while the lookup was in flight.
+        if (matchedSession?.sessionId !== session.sessionId) return;
+        const summary = sdkInfo?.summary ?? null;
+        if (summary === lastSummary) return;
+        lastSummary = summary;
+        const current = entry.info.meta.claude;
+        if (!current) return;
+        plog.info(
+          { summary, session: session.sessionId },
+          "claude summary updated",
+        );
+        updateMetadata(entry, terminalId, (m) => {
+          m.claude = { ...current, summary };
+        });
+      })
+      .catch((err) => {
+        plog.debug(
+          { err, session: session.sessionId },
+          "getSessionInfo failed",
+        );
+      });
   }
 
   /**
@@ -450,6 +536,7 @@ export function startClaudeCodeProvider(
     // Session identity changed — tear down old watchers first.
     teardownTranscriptWatching();
     matchedSession = newSession;
+    lastSummary = null;
 
     if (!newSession) {
       plog.info("claude code session ended");

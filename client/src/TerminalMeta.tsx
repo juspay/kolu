@@ -115,11 +115,25 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Claude indicator — own row when active */}
+          {/* Claude indicator — own row when active. Summary line carries
+           *  the SDK-derived display title (custom title › auto-summary ›
+           *  first prompt) so a glance at the card tells you _what_ the
+           *  agent is working on, not just that it's working. */}
           <Show when={info().meta.claude}>
             {(claude) => (
               <div class="mt-1">
                 <ClaudeIndicator state={claude().state} />
+                <Show when={claude().summary}>
+                  {(summary) => (
+                    <div
+                      data-testid="claude-summary"
+                      class="text-xs text-fg-3 truncate mt-0.5"
+                      title={summary()}
+                    >
+                      {summary()}
+                    </div>
+                  )}
+                </Show>
               </div>
             )}
           </Show>
@@ -134,7 +148,15 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.foreground}>
+              {/* Suppress the OSC 2 title when the Claude summary row is
+               *  already shown above — the two texts are near-duplicates
+               *  (SDK summary vs claude-code's live activity indicator) and
+               *  stacking them eats vertical space for no new information.
+               *  `A && B` returns B when A is truthy, so `Show` narrows
+               *  `fg` to the foreground value directly. */}
+              <Show
+                when={!info().meta.claude?.summary && info().meta.foreground}
+              >
                 {(fg) => (
                   <span
                     class="text-xs text-fg-3 truncate min-w-0 flex-1"

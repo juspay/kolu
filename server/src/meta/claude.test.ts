@@ -110,6 +110,7 @@ describe("infoEqual", () => {
     state: "thinking",
     sessionId: "abc-123",
     model: "claude-opus-4-6",
+    summary: "Refactor sidebar layout",
   };
 
   it("returns true for identical references", () => {
@@ -133,6 +134,8 @@ describe("infoEqual", () => {
     { field: "state", value: "waiting" },
     { field: "sessionId", value: "other" },
     { field: "model", value: "claude-sonnet-4-6" },
+    { field: "summary", value: "Different topic" },
+    { field: "summary", value: null },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
   });
