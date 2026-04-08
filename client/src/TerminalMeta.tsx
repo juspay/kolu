@@ -148,16 +148,26 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.foreground}>
-                {(fg) => (
-                  <span
-                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
-                    data-testid="process-name"
-                    title={fg().title ?? fg().name}
-                  >
-                    {fg().title ?? fg().name}
-                  </span>
-                )}
+              {/* Suppress the OSC 2 title when the Claude summary row is
+               *  already shown above — the two texts are near-duplicates
+               *  (SDK summary vs claude-code's live activity indicator) and
+               *  stacking them eats vertical space for no new information.
+               *  Fall back to the process name if the foreground info is
+               *  non-claude or the summary hasn't arrived yet. */}
+              <Show
+                when={info().meta.foreground && !info().meta.claude?.summary}
+              >
+                <Show when={info().meta.foreground}>
+                  {(fg) => (
+                    <span
+                      class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                      data-testid="process-name"
+                      title={fg().title ?? fg().name}
+                    >
+                      {fg().title ?? fg().name}
+                    </span>
+                  )}
+                </Show>
               </Show>
               <Show when={info().activityHistory.length > 0}>
                 <div class="ml-auto w-16 shrink-0">
