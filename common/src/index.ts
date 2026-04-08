@@ -66,6 +66,24 @@ export const ClaudeCodeInfoSchema = z.object({
   model: z.string().nullable(),
 });
 
+/** A single state transition the server observed. `info: null` = session ended. */
+export const ClaudeStateChangeSchema = z.object({
+  ts: z.number(),
+  info: ClaudeCodeInfoSchema.nullable(),
+});
+
+/** Diagnostic snapshot comparing what the server saw against the on-disk JSONL.
+ *  Used by the Debug → "Show Claude transcript" command. */
+export const ClaudeTranscriptDebugSchema = z.object({
+  transcriptPath: z.string(),
+  /** epoch ms when kolu attached its transcript watcher (= start of monitoring). */
+  startedAt: z.number(),
+  /** What the server believes happened — every transition that passed `infoEqual`. */
+  stateChanges: z.array(ClaudeStateChangeSchema),
+  /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
+  rawEvents: z.array(z.unknown()),
+});
+
 // --- Foreground process context ---
 
 /** Foreground process info from PTY. */
@@ -244,6 +262,8 @@ export type TerminalId = TerminalInfo["id"];
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
+export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;

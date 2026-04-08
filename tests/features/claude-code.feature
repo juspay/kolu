@@ -65,6 +65,23 @@ Feature: Claude Code status detection
     Then the sidebar should show a terminal preview
     And there should be no page errors
 
+  Scenario: Debug command shows the Claude transcript when a session is active
+    When a Claude Code session is mocked with state "waiting"
+    Then the header should show a Claude indicator with state "waiting"
+    When I open the command palette
+    And I select "Debug" in the palette
+    Then palette item "Show Claude transcript" should be visible
+    When I select "Show Claude transcript" in the palette
+    Then the Claude transcript dialog should be visible
+    And the Claude transcript dialog should show at least 1 disk event
+    And there should be no page errors
+
+  Scenario: Debug command is hidden when no Claude session is active
+    When I open the command palette
+    And I select "Debug" in the palette
+    Then palette item "Show Claude transcript" should not be visible
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the header should show a Claude indicator with state "thinking"

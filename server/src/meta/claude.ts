@@ -35,7 +35,11 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { match } from "ts-pattern";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type {
+  ClaudeCodeInfo,
+  ClaudeStateChange,
+  ClaudeTranscriptDebug,
+} from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
 import { subscribeForTerminal } from "../publisher.ts";
@@ -116,6 +120,48 @@ export function findTranscriptPath(session: SessionFile): string | null {
     return exactPath;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Read JSONL lines from a file starting at the given byte offset.
+ * Used by the debug transcript procedure to surface every event since
+ * monitoring began (not just the state-derivation tail).
+ *
+ * Unlike `tailJsonlLines`, this never trims a partial first line — the
+ * caller anchors `offset` at a known line boundary (the file size at
+ * watcher-attach time).
+ */
+export function readJsonlFromOffset(
+  filePath: string,
+  offset: number,
+): unknown[] {
+  try {
+    const stat = fs.statSync(filePath);
+    if (offset >= stat.size) return [];
+    const length = stat.size - offset;
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(length);
+    fs.readSync(fd, buf, 0, length, offset);
+    fs.closeSync(fd);
+    const out: unknown[] = [];
+    for (const line of buf.toString("utf8").split("\n")) {
+      if (line.length === 0) continue;
+      try {
+        out.push(JSON.parse(line));
+      } catch {
+        out.push({ __unparsed: line });
+      }
+    }
+    return out;
+  } catch (err) {
+    // Best-effort: a debug RPC handler can't usefully recover from fs
+    // errors here (file deleted between watcher attach and dialog open,
+    // EACCES, EIO). Surface at debug level for diagnosis without
+    // failing the RPC — empty rawEvents is rendered honestly by the
+    // dialog header ("0 events").
+    log.debug({ err, filePath, offset }, "readJsonlFromOffset failed");
+    return [];
   }
 }
 
@@ -253,11 +299,27 @@ function watchOrWaitForDir(dir: string, onChange: () => void): () => void {
 /**
  * Transcript-watching lifecycle as a sum type — mutually exclusive states,
  * checked exhaustively via ts-pattern on every transition.
+ *
+ * The `watching` variant carries the diagnostic state used by the Debug
+ * transcript command: `startOffset` anchors "events since kolu attached"
+ * for the on-demand disk read, and `stateChanges` is an in-memory log of
+ * every transition the server believed happened. Both vanish naturally
+ * when the watcher tears down — no separate cleanup path to forget.
  */
 type TranscriptWatching =
   | { kind: "none" }
   | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+  | {
+      kind: "watching";
+      path: string;
+      fileWatcher: fs.FSWatcher;
+      /** File size at watcher-attach time. Always at a JSONL line boundary. */
+      startOffset: number;
+      /** epoch ms when the watcher attached — start of monitoring. */
+      startedAt: number;
+      /** Mutated in place; defensive-copied on read by the accessor. */
+      stateChanges: ClaudeStateChange[];
+    };
 
 /**
  * Start the Claude Code metadata provider for a terminal entry.
@@ -285,8 +347,22 @@ export function startClaudeCodeProvider(
 
   function attachTranscriptWatcher(tp: string) {
     try {
+      // Attach the watcher BEFORE measuring the offset. Any write that lands
+      // between the watch attach and the stat fires the watcher (so it shows
+      // up in stateChanges) AND is included in the disk read via the offset
+      // we capture next — both columns of the debug view stay aligned. The
+      // reverse order would let bytes slip into rawEvents without a matching
+      // stateChange entry, producing a false "server missed an event" report.
       const fileWatcher = fs.watch(tp, () => onTranscriptMaybeChanged());
-      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+      const startOffset = fs.statSync(tp).size;
+      transcriptWatching = {
+        kind: "watching",
+        path: tp,
+        fileWatcher,
+        startOffset,
+        startedAt: Date.now(),
+        stateChanges: [],
+      };
     } catch (err) {
       plog.warn({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
@@ -349,6 +425,7 @@ export function startClaudeCodeProvider(
       { state: info.state, model: info.model, session: info.sessionId },
       "claude code state updated",
     );
+    transcriptWatching.stateChanges.push({ ts: Date.now(), info });
     updateMetadata(entry, terminalId, (m) => {
       m.claude = info;
     });
@@ -391,6 +468,26 @@ export function startClaudeCodeProvider(
     setupTranscriptWatching(newSession);
   }
 
+  // Expose a debug accessor for the `claude.getTranscript` RPC. Reads
+  // closure-local state on demand and defensive-copies the state-change log.
+  // Raw events are pulled from disk by the caller (we hand them the path +
+  // start offset).
+  entry.getClaudeDebug = (): ClaudeTranscriptDebug | null => {
+    if (transcriptWatching.kind !== "watching") return null;
+    const {
+      path: tp,
+      startOffset,
+      startedAt,
+      stateChanges,
+    } = transcriptWatching;
+    return {
+      transcriptPath: tp,
+      startedAt,
+      stateChanges: [...stateChanges],
+      rawEvents: readJsonlFromOffset(tp, startOffset),
+    };
+  };
+
   // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.
   const abort = new AbortController();
   subscribeForTerminal("title", terminalId, abort.signal, () =>
@@ -413,6 +510,7 @@ export function startClaudeCodeProvider(
     abort.abort();
     sessionsDirWatcher();
     teardownTranscriptWatching();
+    delete entry.getClaudeDebug;
     plog.info("stopped");
   };
 }
