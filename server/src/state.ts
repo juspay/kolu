@@ -69,17 +69,25 @@ export const store = new Conf<PersistedState>({
     // "preview every agent terminal" (now "agents"), `false` meant off
     // (now "none"). New installs default to "attention".
     "1.4.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as
-        | (Partial<Preferences> & { sidebarAgentPreviews?: unknown })
+      // Cast through `unknown` because the persisted shape predates
+      // the enum — on disk the field may still be a boolean.
+      const current = store.get("preferences") as unknown as
+        | (Record<string, unknown> & { sidebarAgentPreviews?: unknown })
         | undefined;
       const old = current?.sidebarAgentPreviews;
-      const migrated = old === true ? "agents" : old === false ? "none" : old;
+      const migrated =
+        old === true
+          ? "agents"
+          : old === false
+            ? "none"
+            : typeof old === "string"
+              ? (old as Preferences["sidebarAgentPreviews"])
+              : undefined;
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
-        ...current,
+        ...(current as Partial<Preferences>),
         sidebarAgentPreviews:
-          (migrated as Preferences["sidebarAgentPreviews"]) ??
-          DEFAULT_PREFERENCES.sidebarAgentPreviews,
+          migrated ?? DEFAULT_PREFERENCES.sidebarAgentPreviews,
       });
     },
   },
