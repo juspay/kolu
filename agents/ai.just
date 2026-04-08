@@ -11,6 +11,12 @@ apm:
     rm -f .claude/settings.json
     {{ apm_cmd }} install
 
+# Advance locked APM dependencies to latest refs (all, or specific packages)
+apm-update *packages:
+    # Same hook-dup workaround as `apm` recipe — see apm#561.
+    rm -f .claude/settings.json
+    {{ apm_cmd }} deps update {{ packages }}
+
 # Audit APM packages for security issues (Unicode, lockfile consistency)
 apm-audit:
     {{ apm_cmd }} audit --ci
