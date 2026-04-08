@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
-    "@hono/node-server": "^1.14.0",
+    "@hono/node-server": "^1.19.13",
     "@hono/node-ws": "^1.1.0",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
@@ -23,7 +23,7 @@
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
-    "hono": "^4.7.0",
+    "hono": "^4.12.12",
     "hono-pino": "^0.10.3",
     "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
