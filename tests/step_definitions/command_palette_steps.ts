@@ -204,6 +204,24 @@ Then(
 );
 
 Then(
+  "palette hint {string} should be visible",
+  async function (this: KoluWorld, text: string) {
+    const hint = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-hint"]`,
+      { hasText: text },
+    );
+    await hint.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then("no palette hint should be visible", async function (this: KoluWorld) {
+  const count = await this.page
+    .locator(`${PALETTE_SELECTOR} [data-testid="palette-hint"]`)
+    .count();
+  assert.strictEqual(count, 0, `Expected no palette hints, got ${count}`);
+});
+
+Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
     const messages: string[] = await this.page.evaluate(
