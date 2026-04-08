@@ -39,6 +39,8 @@ gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | star
 
 **Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`).
 
+**Log flaky tests**: If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
+
 ## Local CI
 
 Run `just ci` to build and test across all systems. It:
