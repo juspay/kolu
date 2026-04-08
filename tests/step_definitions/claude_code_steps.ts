@@ -19,8 +19,11 @@ import { readBufferText } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
-const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
-const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
+// Read these lazily rather than at module load — `hooks.ts` sets per-worker
+// temp dirs on `process.env`, and cucumber's step/support module import
+// order is not guaranteed, so a top-level capture here would race.
+const getSessionsDir = () => process.env.KOLU_CLAUDE_SESSIONS_DIR;
+const getProjectsDir = () => process.env.KOLU_CLAUDE_PROJECTS_DIR;
 
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
@@ -120,7 +123,9 @@ After(function () {
 When(
   "a Claude Code session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
-    if (!SESSIONS_DIR || !PROJECTS_DIR) {
+    const sessionsDir = getSessionsDir();
+    const projectsDir = getProjectsDir();
+    if (!sessionsDir || !projectsDir) {
       throw new Error(
         "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
       );
@@ -135,18 +140,18 @@ When(
     const encodedCwd = mockCwd.replace(/[/.]/g, "-");
 
     // Create session file
-    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    fs.mkdirSync(sessionsDir, { recursive: true });
     const sessionData = {
       pid,
       sessionId: SESSION_ID,
       cwd: mockCwd,
       startedAt: Date.now(),
     };
-    mockSessionFile = path.join(SESSIONS_DIR, `${pid}.json`);
+    mockSessionFile = path.join(sessionsDir, `${pid}.json`);
     fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
 
     // Create project dir and transcript
-    mockProjectDir = path.join(PROJECTS_DIR, encodedCwd);
+    mockProjectDir = path.join(projectsDir, encodedCwd);
     fs.mkdirSync(mockProjectDir, { recursive: true });
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(
@@ -167,10 +172,11 @@ When(
     // This step bumps the stale file's mtime into the future so an MRU
     // scan would always prefer it over the mock's current-session JSONL.
     // With the fix, exact-match lookup ignores the stale file entirely.
-    if (!PROJECTS_DIR) throw new Error("KOLU_CLAUDE_PROJECTS_DIR must be set");
+    const projectsDir = getProjectsDir();
+    if (!projectsDir) throw new Error("KOLU_CLAUDE_PROJECTS_DIR must be set");
     if (!mockCwd) throw new Error("mockCwd not set — call mock step first");
     const encodedCwd = mockCwd.replace(/[/.]/g, "-");
-    const projectDir = path.join(PROJECTS_DIR, encodedCwd);
+    const projectDir = path.join(projectsDir, encodedCwd);
     const stalePath = path.join(projectDir, "stale-previous-session.jsonl");
     fs.writeFileSync(
       stalePath,
@@ -270,11 +276,7 @@ Then(
   async function (this: KoluWorld) {
     const sidebar = this.page.locator('[data-testid="sidebar"]');
     const preview = sidebar.locator('[data-testid="sidebar-preview"]');
-    // Generous timeout: the preview gates on `viewportDimensions` being
-    // published from the visible main terminal's FitAddon (see useViewport.ts),
-    // which under parallel e2e load can take noticeably longer than the
-    // claude detection itself. The previous 10s ceiling occasionally tripped.
-    await preview.first().waitFor({ state: "visible", timeout: 30_000 });
+    await preview.first().waitFor({ state: "visible", timeout: 10_000 });
     const count = await preview.count();
     assert.ok(count > 0, "Expected at least one sidebar preview");
   },
