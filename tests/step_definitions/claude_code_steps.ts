@@ -294,6 +294,56 @@ When(
 );
 
 Then(
+  "the Claude transcript dialog should be visible",
+  async function (this: KoluWorld) {
+    const dialog = this.page.locator('[data-testid="claude-transcript"]');
+    await dialog.waitFor({ state: "visible", timeout: 10_000 });
+  },
+);
+
+Then(
+  "the Claude transcript dialog should show at least {int} server transition(s)",
+  async function (this: KoluWorld, min: number) {
+    const dialog = this.page.locator('[data-testid="claude-transcript"]');
+    await dialog.waitFor({ state: "visible", timeout: 10_000 });
+    // The "Server saw" header includes the count from `stateChanges`. After
+    // `setupTranscriptWatching` runs the initial derive, an existing JSONL
+    // tail produces ≥1 transition — that's the value we assert against.
+    // (rawEvents stays empty by design when content predates the watcher.)
+    const count = await pollUntil(
+      this.page,
+      async () => {
+        const text = (await dialog.textContent()) ?? "";
+        const m = text.match(/Server saw \((\d+) transitions?\)/);
+        return m ? parseInt(m[1]!, 10) : 0;
+      },
+      (n) => n >= min,
+      { attempts: 30, intervalMs: 200 },
+    );
+    assert.ok(
+      count >= min,
+      `Expected at least ${min} server transition(s) in Claude transcript dialog, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "palette item {string} should not be visible",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator('[data-testid="command-palette"]');
+    const item = palette
+      .locator("li")
+      .filter({ hasText: new RegExp(`^${text}`) });
+    const count = await item.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected palette item "${text}" to be hidden, but found ${count}`,
+    );
+  },
+);
+
+Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {
     // Wait for it to disappear (may take a poll cycle)

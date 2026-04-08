@@ -8,6 +8,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  ClaudeTranscriptDebug,
 } from "kolu-common";
 import {
   ACTIVITY_IDLE_THRESHOLD_S,
@@ -44,6 +45,10 @@ export interface TerminalProcess {
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
+  /** Installed by the claude-code provider while a transcript watcher is active.
+   *  Returns a snapshot suitable for the Debug → "Show Claude transcript" view,
+   *  or null if no claude session is currently being watched. */
+  getClaudeDebug?: () => ClaudeTranscriptDebug | null;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();

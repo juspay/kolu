@@ -6,6 +6,7 @@ import {
   deriveState,
   encodeProjectPath,
   infoEqual,
+  readJsonlFromOffset,
   tailJsonlLines,
 } from "./claude.ts";
 import type { ClaudeCodeInfo } from "kolu-common";
@@ -189,6 +190,51 @@ describe("tailJsonlLines", () => {
     fs.writeFileSync(filePath, line);
     const result = tailJsonlLines(filePath, 16_384);
     expect(result).toEqual([line]);
+  });
+});
+
+describe("readJsonlFromOffset", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-offset-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns events appended after the offset", () => {
+    const filePath = path.join(tmpDir, "appended.jsonl");
+    const before = JSON.stringify({ type: "user", before: true });
+    fs.writeFileSync(filePath, before + "\n");
+    const offset = fs.statSync(filePath).size;
+    const after1 = JSON.stringify({ type: "assistant", after: 1 });
+    const after2 = JSON.stringify({ type: "user", after: 2 });
+    fs.appendFileSync(filePath, after1 + "\n" + after2 + "\n");
+    expect(readJsonlFromOffset(filePath, offset)).toEqual([
+      { type: "assistant", after: 1 },
+      { type: "user", after: 2 },
+    ]);
+  });
+
+  it("returns empty when offset equals file size", () => {
+    const filePath = path.join(tmpDir, "noop.jsonl");
+    fs.writeFileSync(filePath, JSON.stringify({ type: "user" }) + "\n");
+    const offset = fs.statSync(filePath).size;
+    expect(readJsonlFromOffset(filePath, offset)).toEqual([]);
+  });
+
+  it("wraps unparseable lines in __unparsed", () => {
+    const filePath = path.join(tmpDir, "bad.jsonl");
+    fs.writeFileSync(filePath, "not-json\n");
+    expect(readJsonlFromOffset(filePath, 0)).toEqual([
+      { __unparsed: "not-json" },
+    ]);
+  });
+
+  it("returns empty array for nonexistent file", () => {
+    expect(readJsonlFromOffset(path.join(tmpDir, "nope.jsonl"), 0)).toEqual([]);
   });
 });
 
