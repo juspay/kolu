@@ -22,24 +22,6 @@ const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
 const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
 
-/**
- * Press Enter at an idle shell prompt to deterministically fire OSC 2 from
- * `__kolu_title_precmd`. The server's title-event subscription drives full
- * Claude reconciliation (session detection + transcript re-derivation), so
- * this gives the test a deterministic synchronization primitive that does
- * not depend on `fs.watch` event delivery.
- *
- * Why we need it: `KOLU_CLAUDE_SESSIONS_DIR` is shared across all parallel
- * cucumber workers (8 by default). On Linux under inotify pressure, the
- * server's `fs.watch(SESSIONS_DIR)` is not a reliable trigger — events get
- * dropped, the server never notices the mock session, and the indicator
- * never updates. Title events flow through a normal in-memory publisher,
- * so they don't share that fragility.
- */
-async function kickTitleEvent(world: KoluWorld): Promise<void> {
-  await world.page.keyboard.press("Enter");
-}
-
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
   const marker = `PID_MARKER_${Date.now()}`;
@@ -171,8 +153,6 @@ When(
       mockTranscriptPath,
       buildTranscript(state as "thinking" | "tool_use" | "waiting"),
     );
-
-    await kickTitleEvent(this);
   },
 );
 
@@ -218,13 +198,11 @@ When(
       mockTranscriptPath,
       buildTranscript(state as "thinking" | "tool_use" | "waiting"),
     );
-    await kickTitleEvent(this);
   },
 );
 
 When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
-  await kickTitleEvent(this);
 });
 
 Then(
@@ -292,7 +270,11 @@ Then(
   async function (this: KoluWorld) {
     const sidebar = this.page.locator('[data-testid="sidebar"]');
     const preview = sidebar.locator('[data-testid="sidebar-preview"]');
-    await preview.first().waitFor({ state: "visible", timeout: 10_000 });
+    // Generous timeout: the preview gates on `viewportDimensions` being
+    // published from the visible main terminal's FitAddon (see useViewport.ts),
+    // which under parallel e2e load can take noticeably longer than the
+    // claude detection itself. The previous 10s ceiling occasionally tripped.
+    await preview.first().waitFor({ state: "visible", timeout: 30_000 });
     const count = await preview.count();
     assert.ok(count > 0, "Expected at least one sidebar preview");
   },

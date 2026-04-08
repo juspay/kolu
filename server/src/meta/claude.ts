@@ -579,8 +579,7 @@ export function startClaudeCodeProvider(
   // A title event drives FULL reconciliation: session detection AND transcript
   // re-derivation. Treating one trigger as a complete sync (rather than each
   // source covering only "its half") removes the asymmetry where missed
-  // fs.watch events on the transcript file would silently leave state stale.
-  // The cost is one tail read per prompt cycle, deduped by infoEqual.
+  // fs.watch events would silently leave state stale.
   const abort = new AbortController();
   subscribeForTerminal("title", terminalId, abort.signal, () => {
     onSessionMaybeChanged();
@@ -595,12 +594,48 @@ export function startClaudeCodeProvider(
     onSessionMaybeChanged(),
   );
 
+  // Heartbeat reconcile — backstop for missed fs.watch events.
+  //
+  // fs.watch on Linux is event-driven and almost always fires, but inotify
+  // is not 100% reliable: under high concurrent watcher pressure (e.g. the
+  // e2e suite running 8 parallel cucumber workers against a shared
+  // KOLU_CLAUDE_SESSIONS_DIR), individual events get dropped, the queue
+  // can overflow, and the watcher silently stops noticing changes. The
+  // result is a flake where the mock session file (or transcript) exists
+  // on disk but the server never reacts.
+  //
+  // Rather than try to make fs.watch perfectly reliable (chokidar, inotify
+  // queue tuning, multiple watchers), we accept that fs.watch is best-effort
+  // and add a low-frequency backstop that re-reads disk on a fixed cadence.
+  // All three reconcilers are idempotent and deduped by infoEqual — when
+  // fs.watch is doing its job (production, single user, non-contended
+  // ~/.claude/), the backstop is a no-op heartbeat. When fs.watch drops
+  // events (parallel tests), it's the load-bearing path.
+  //
+  // We tick all three legs because each leg only handles one transition:
+  // `onSessionMaybeChanged` covers session file appearance/disappearance,
+  // `onProjectDirChanged` covers the JSONL transcript appearing in a
+  // project dir we're already waiting on (otherwise the heartbeat would
+  // be stuck in `kind: "waiting"` forever after a missed fs.watch event),
+  // and `onTranscriptMaybeChanged` covers JSONL content updates.
+  //
+  // 1 second is fast enough that the e2e indicator-state assertions (30s
+  // timeout) reliably catch the next reconcile, and slow enough that the
+  // cost is negligible: one tcgetpgrp + one stat per terminal per second
+  // when idle, plus one 256 KB tail read when watching a transcript.
+  const heartbeat = setInterval(() => {
+    onSessionMaybeChanged();
+    onProjectDirChanged();
+    onTranscriptMaybeChanged();
+  }, 1000);
+
   // Initial reconcile for a terminal that already hosts a claude session
   // (e.g. across kolu restarts).
   onSessionMaybeChanged();
 
   return () => {
     abort.abort();
+    clearInterval(heartbeat);
     sessionsDirWatcher();
     teardownTranscriptWatching();
     delete entry.getClaudeDebug;
