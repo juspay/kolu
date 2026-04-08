@@ -193,6 +193,19 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
+/** Which sidebar cards render a live xterm preview.
+ *  - `all`: every terminal (noisy; mostly useful for testing)
+ *  - `agents`: any terminal with a running code agent
+ *  - `attention`: only agents that need the user (waiting or unread) — **default**
+ *  - `none`: never */
+export const SidebarAgentPreviewsSchema = z.enum([
+  "all",
+  "agents",
+  "attention",
+  "none",
+]);
+export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
+
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
@@ -200,8 +213,7 @@ export const PreferencesSchema = z.object({
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
-  /** Show live xterm previews in the sidebar for terminals running code agents. */
-  sidebarAgentPreviews: z.boolean(),
+  sidebarAgentPreviews: SidebarAgentPreviewsSchema,
 });
 
 // --- Server state ---

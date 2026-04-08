@@ -31,7 +31,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
-  sidebarAgentPreviews: true,
+  sidebarAgentPreviews: "attention",
 };
 
 // Singleton store — all callers share one reactive source of truth for preferences.

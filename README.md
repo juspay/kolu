@@ -28,7 +28,7 @@ nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 ### Navigation
 
 - Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
-- Sidebar agent previews — terminals running code agents show a live xterm preview directly in the sidebar card, so you can watch what they're doing without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Sidebar agent previews — when an agent is waiting on you (or has finished with an unread completion), its sidebar card expands with a live xterm preview so you can peek without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
 ### Git & GitHub
