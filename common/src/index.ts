@@ -64,6 +64,9 @@ export const ClaudeCodeInfoSchema = z.object({
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
+  /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
+   *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
+  summary: z.string().nullable(),
 });
 
 // --- Foreground process context ---

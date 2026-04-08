@@ -35,6 +35,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { match } from "ts-pattern";
+import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { ClaudeCodeInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
@@ -190,7 +191,10 @@ export function infoEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return (
-    a.state === b.state && a.sessionId === b.sessionId && a.model === b.model
+    a.state === b.state &&
+    a.sessionId === b.sessionId &&
+    a.model === b.model &&
+    a.summary === b.summary
   );
 }
 
@@ -271,6 +275,11 @@ export function startClaudeCodeProvider(
 
   let matchedSession: SessionFile | null = null;
   let transcriptWatching: TranscriptWatching = { kind: "none" };
+  /** Latest known display summary from the Claude Agent SDK. Refreshed
+   *  best-effort on each transcript change; null between session matches
+   *  and until the first lookup resolves. Survives across transcript
+   *  events so deduped state updates can carry it forward. */
+  let lastSummary: string | null = null;
 
   plog.info("started");
 
@@ -342,16 +351,56 @@ export function startClaudeCodeProvider(
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
+      summary: lastSummary,
     };
 
-    if (infoEqual(info, entry.info.meta.claude)) return;
-    plog.info(
-      { state: info.state, model: info.model, session: info.sessionId },
-      "claude code state updated",
-    );
-    updateMetadata(entry, terminalId, (m) => {
-      m.claude = info;
-    });
+    if (!infoEqual(info, entry.info.meta.claude)) {
+      plog.info(
+        { state: info.state, model: info.model, session: info.sessionId },
+        "claude code state updated",
+      );
+      updateMetadata(entry, terminalId, (m) => {
+        m.claude = info;
+      });
+    }
+
+    // Refresh the SDK-derived summary off the critical path. Failure or
+    // latency here never blocks state updates — `infoEqual` dedupes the
+    // follow-up emit if the summary turns out unchanged.
+    refreshSummary(matchedSession);
+  }
+
+  /**
+   * Best-effort fetch of the current session's display summary from the
+   * Claude Agent SDK. Fire-and-forget — caller does not await. The SDK
+   * stays current with claude-code's on-disk format (custom titles,
+   * auto-generated summaries, first prompts), so this insulates us from
+   * having to parse those entries ourselves.
+   */
+  function refreshSummary(session: SessionFile) {
+    getSessionInfo(session.sessionId, { dir: session.cwd })
+      .then((sdkInfo) => {
+        // Bail if the session changed under us while the lookup was in flight.
+        if (matchedSession?.sessionId !== session.sessionId) return;
+        const summary = sdkInfo?.summary ?? null;
+        if (summary === lastSummary) return;
+        lastSummary = summary;
+        const current = entry.info.meta.claude;
+        if (!current) return;
+        plog.info(
+          { summary, session: session.sessionId },
+          "claude summary updated",
+        );
+        updateMetadata(entry, terminalId, (m) => {
+          m.claude = { ...current, summary };
+        });
+      })
+      .catch((err) => {
+        plog.debug(
+          { err, session: session.sessionId },
+          "getSessionInfo failed",
+        );
+      });
   }
 
   /**
@@ -373,6 +422,7 @@ export function startClaudeCodeProvider(
     // Session identity changed — tear down old watchers first.
     teardownTranscriptWatching();
     matchedSession = newSession;
+    lastSummary = null;
 
     if (!newSession) {
       plog.info("claude code session ended");

@@ -50,7 +50,7 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 | Tool use | Pulsing yellow dot | Claude is executing tools or waiting for permission  |
 | Waiting  | Dim dot            | Claude finished responding, waiting for user input   |
 
-**How it works:** asks each terminal for its current foreground process pid via `tcgetpgrp(fd)` (exposed by node-pty's `foregroundPid` accessor), then checks whether `~/.claude/sessions/<fgpid>.json` exists. If it does, that terminal is running claude-code — we tail the session's JSONL transcript to derive state from the last message. Cross-platform (Linux + macOS) since `tcgetpgrp` is POSIX.
+**How it works:** asks each terminal for its current foreground process pid via `tcgetpgrp(fd)` (exposed by node-pty's `foregroundPid` accessor), then checks whether `~/.claude/sessions/<fgpid>.json` exists. If it does, that terminal is running claude-code — we tail the session's JSONL transcript to derive state from the last message. Cross-platform (Linux + macOS) since `tcgetpgrp` is POSIX. Each card also surfaces the session's display title (custom title › auto-generated summary › first prompt) via the [Claude Agent SDK](https://platform.claude.com/docs/en/api/agent-sdk/typescript)'s `getSessionInfo()`, refreshed best-effort on each transcript change.
 
 **What we can't detect:**
 
@@ -147,7 +147,7 @@ flowchart TB
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
-[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates.
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates. The session display title comes from a fire-and-forget [`getSessionInfo()`](https://platform.claude.com/docs/en/api/agent-sdk/typescript) call piggybacking on the same transcript watcher.
 
 [^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from server-derived subscription state.
 
