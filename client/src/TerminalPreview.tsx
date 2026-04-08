@@ -1,32 +1,33 @@
 /**
  * TerminalPreview — read-only miniature xterm.js instance for sidebar previews.
  *
- * Renders at the exact same cols×rows as the main terminal and at the same
- * font size. Identical dimensions mean the server's stream (cursor escapes,
- * line wraps, clears) interprets the same way in the preview as in the main
- * terminal — the preview is a true cell-for-cell mirror.
+ * Renders at the exact same cols×rows as the main terminal and scales the
+ * whole canvas uniformly so the full height (all rows) fits the host strip.
+ * Width is left to whatever that scale produces — if it overflows the host,
+ * `overflow-hidden` clips the right side. We explicitly don't use the
+ * min(widthFit, heightFit) approach: for a wide host, min would pick the
+ * width-fit scale and crop rows off the top/bottom, defeating the point of
+ * the "whole terminal at a glance" signal.
  *
- * We don't scale the canvas down to fit the host. Instead, the host is a
- * short `overflow-hidden` strip and the inner xterm is pinned to the
- * bottom-left, so only the last few rows (and leftmost ~24 columns) show
- * through. That keeps the visible text readable at native font size —
- * scaling the full 80×24 canvas to fit a 200×48 strip made text unreadable
- * and wasted space on letterboxing.
+ * Identical cols×rows with the main terminal means the server's stream
+ * (cursor escapes, line wraps, clears) interprets the same way in the
+ * preview as in the main terminal — the preview is a true cell-for-cell
+ * mirror at a different rendering scale.
  *
  * No FitAddon: fitting would re-compute cols/rows from the container size
  * and diverge from the main. We size explicitly via term.resize().
  */
 
 import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 
-/** Font size for the preview xterm. Matches the main-terminal default so
- *  the bottom-left crop looks identical to the corresponding region of the
- *  full terminal — no scaling, no blur. */
+/** Font size for the internal xterm instance. Large enough to render crisp
+ *  on canvas; the whole element is CSS-scaled down to fit the host height. */
 const PREVIEW_FONT_SIZE = 14;
 
 const TerminalPreview: Component<{
@@ -35,12 +36,25 @@ const TerminalPreview: Component<{
   cols: number;
   rows: number;
 }> = (props) => {
-  /** Inner: the xterm canvas at natural size, absolute-positioned at the
-   *  bottom-left of the host so the host's overflow clip reveals just the
-   *  last few rows and leftmost columns. */
+  /** Host: the sidebar card slot; variable size. */
+  let hostRef!: HTMLDivElement;
+  /** Inner: the xterm canvas at natural (cols × charWidth × rows × lineHeight) size. */
   let innerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let streamAbort: AbortController | null = null;
+
+  /** Recompute the CSS scale so the full natural height fits the host
+   *  height. Width scales with the same factor — whatever it ends up being
+   *  gets clipped by the host's overflow-hidden. */
+  function applyScale() {
+    if (!innerRef || !hostRef || !terminal) return;
+    // Clear previous transform to measure natural size.
+    innerRef.style.transform = "";
+    const naturalH = innerRef.offsetHeight;
+    if (naturalH === 0) return;
+    const hostH = hostRef.clientHeight;
+    innerRef.style.transform = `scale(${hostH / naturalH})`;
+  }
 
   createEffect(
     on(
@@ -52,16 +66,14 @@ const TerminalPreview: Component<{
     ),
   );
 
-  // Keep the xterm in sync with the main terminal's dimensions so the
-  // server's stream stays consistent. No scale recompute needed — the host
-  // just reveals a fixed bottom-left window onto whatever size the canvas
-  // happens to be.
+  // Resize xterm when the main terminal's dimensions change.
   createEffect(
     on(
       () => [props.cols, props.rows] as const,
       ([cols, rows]) => {
         if (!terminal) return;
         terminal.resize(cols, rows);
+        requestAnimationFrame(applyScale);
       },
       { defer: true },
     ),
@@ -85,6 +97,9 @@ const TerminalPreview: Component<{
     });
     terminal = term;
     term.open(innerRef);
+    // xterm measures cell dimensions on its first animation frame — offsetHeight
+    // is 0 on the same tick as term.open(), so defer the first scale.
+    requestAnimationFrame(applyScale);
 
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
@@ -104,6 +119,13 @@ const TerminalPreview: Component<{
       }
     })();
 
+    // Recompute scale whenever the host card changes size (sidebar resize,
+    // viewport breakpoint change, etc.)
+    createResizeObserver(
+      () => hostRef,
+      () => applyScale(),
+    );
+
     onCleanup(() => {
       streamAbort?.abort();
       terminal?.dispose();
@@ -112,10 +134,10 @@ const TerminalPreview: Component<{
 
   return (
     <div
-      class="relative w-full h-full overflow-hidden"
-      // Paint the host with the terminal theme bg so any gap between the
-      // pinned xterm and the host edges reads as terminal padding rather
-      // than a generic-surface gap.
+      ref={hostRef}
+      class="w-full h-full overflow-hidden"
+      // Paint the host with the terminal theme bg so any clipped region
+      // reads as terminal padding rather than a generic-surface gap.
       //
       // pointer-events: none — preview is purely visual (disableStdin: true,
       // scrollback: 0). Without this, xterm's wheel listener captures trackpad
@@ -130,20 +152,14 @@ const TerminalPreview: Component<{
       data-testid="terminal-preview"
       data-terminal-id={props.terminalId}
     >
-      {/* Pin the xterm to the bottom-left corner. The canvas is rendered at
-       *  its natural 80×24 size and overflows both right (wider than the
-       *  strip) and top (taller than the strip); the host's overflow-hidden
-       *  crops it to a bottom-left window showing the tail of recent output.
-       *
-       *  inline-block is load-bearing: xterm's `term.open()` builds a
-       *  positioned subtree inside this element, and without an explicit
-       *  display mode the absolute-positioned wrapper collapses to zero
-       *  dimensions — xterm's canvas then has no layout space to render
-       *  into and the preview appears blank. */}
       <div
         ref={innerRef}
-        class="absolute bottom-0 left-0"
-        style={{ display: "inline-block" }}
+        style={{
+          "transform-origin": "top left",
+          // Inline-block so offsetWidth/Height reflect the xterm canvas size,
+          // not the parent host's width. We measure natural size before scaling.
+          display: "inline-block",
+        }}
       />
     </div>
   );
