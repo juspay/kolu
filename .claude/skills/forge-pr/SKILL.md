@@ -52,6 +52,19 @@ nix run github:<owner>/<repo>/<branch>
 
 Adjust the command as needed — `nix build` for non-runnable outputs, add `#<output>` if the default package isn't the relevant one. Omit this section entirely if the change isn't meaningfully testable via `nix run/build` (e.g., CI-only changes, documentation, non-Nix repos, or non-GitHub forges where flake refs would be awkward).
 
+## Passing the body to `gh` safely
+
+**MANDATORY**: Always pass `--body` to `gh pr create` / `gh pr edit` / `gh pr comment` via a **single-quoted heredoc** so backticks, `$`, and `!` survive unescaped. Double-quoted `--body "..."` triggers shell command substitution on backticks, and escaping them with `\`` produces literal backslashes in the rendered PR (breaking code fences — see [juspay/kolu#402](https://github.com/juspay/kolu/pull/402)).
+
+```sh
+gh pr create --draft --title "..." --body "$(cat <<'EOF'
+...body with ```sh fenced blocks``` intact...
+EOF
+)"
+```
+
+The `'EOF'` (quoted delimiter) is load-bearing — it disables interpolation inside the heredoc. Never write backticks in the body as `\``.
+
 ## Updating existing PRs
 
 When the user pushes further changes to an already-PR'd branch:

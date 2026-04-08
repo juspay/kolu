@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-08T15:15:58.602902+00:00'
+generated_at: '2026-04-08T17:04:03.435525+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -19,7 +19,7 @@ dependencies:
   local_path: ./agents
 - repo_url: anthropics/skills
   host: github.com
-  resolved_commit: 98669c11ca63e9c81c11501e1437e5c47b556621
+  resolved_commit: ca1e7dc13c0ab5e2dfaa6de71991cd951b8f1cf2
   virtual_path: skills/frontend-design
   is_virtual: true
   package_type: claude_skill
@@ -46,7 +46,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: ff91c01b44b02b56d7946fbb727a7d6a1eb4aa74
+  resolved_commit: 59fdb9879cfe49c0095d25e2d23c8f4d0eb5b574
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -57,4 +57,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:905777db8cb0d177869ff767c5e6801ed4cbe587d728960fb2cc0222b3dc2748
+  content_hash: sha256:50a863b06f45d845c85e2e959849cf2973752682ab1763adb51743196beaf487

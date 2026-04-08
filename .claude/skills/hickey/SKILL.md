@@ -29,7 +29,21 @@ Work through these layers in order. **Every finding must survive `/fact-check`**
 
 Name the independent concerns the code addresses. Write them out explicitly. If you can't cleanly name distinct concerns, that is itself a finding.
 
-### Layer 2: Check for Concept Multiplication
+### Layer 2: Fragmentation Check
+
+Hickey's "don't complect" has a dual the rest of this skill doesn't cover: **don't fragment what belongs together**. When one domain concept is split across multiple fields, state locations, signals, modules, or call sites, and their coherence depends on an unenforced rule, you have the same structural bug as complecting — you just arrived at it from the opposite direction. The fix for complecting is separation. The fix for fragmentation is **reunification** at whatever layer the one thing naturally lives: one type, one signal, one module, one function, one file.
+
+For every group of related fields, state locations, or entities in the changed code, ask: **does the domain model this as one thing?**
+
+If yes, is the code representing it as one thing, or has it been shattered into parts whose coherence depends on an unenforced rule? The rule can live anywhere — type shape, code convention, doc comment, "we remember to update both", runtime ordering, a reactive pipeline that rebuilds the unity at read time.
+
+1. **Enumerate invariants.** Write out every rule coupling the parts, in plain language: "if A then B", "all Xs agree on Y", "when kind=X then field F is present", "at most one of A/B/C is set", "every update of P must update Q".
+2. **Check consumption sites, not just definitions.** Fragmentation is most visible at the reader. If every consumer projects the same value out of a per-entity structure, the per-entity part is lying — the projection is the fingerprint. If multiple modules derive the same value from different sources, the derivation is the fingerprint.
+3. **Watch for reconciliation machinery.** A memo that lifts one value out of a collection; a callback that writes back into the collection; an effect that copies one entity's state onto others; a config loader that cross-validates two files; a convention comment that says "keep X in sync with Y". All are the shape of *the state is fragmented and we're rebuilding the unity somewhere downstream*. The machinery is the bug, not the fix.
+4. **Collapse at the natural layer.** Pick the representation layer where the one thing naturally lives. Sometimes that's a discriminated union in a type; sometimes it's a module-level signal; sometimes it's moving two files into one. The layer is wherever the unity stops needing a rule to hold.
+5. **Silence is the bug.** A review that skips this layer because "no invariants came to mind" is the same review that misses the fragmentation. When the review genuinely finds nothing, writing "no invariants found" explicitly is the required cheap output. The enumeration is what forces the check, not the outcome.
+
+### Layer 3: Check for Concept Multiplication
 
 Hickey: _"Be particularly careful not to be fooled by code organization. There are tons of libraries that look — oh, look, there's different classes; there's separate classes. They call each other in these nice ways."_
 
@@ -41,9 +55,13 @@ For each new abstraction (component, module, signal, type) the code introduces:
 
 Two abstractions serving one user-level concern = accidental concept multiplication, even if each is internally clean. The structural layers below won't catch this — they check _within_ abstractions, not _across_ them.
 
-### Layer 3: Check the Complecting Catalog
+**Concept Multiplication vs. Fragmentation**: these are close cousins but distinct bugs. Concept Multiplication is about *duplicated wholes* (two classes for one domain concept → delete one). Fragmentation (Layer 2) is about *split wholes* (one domain concept shattered across multiple locations → collapse to one). A single finding can trigger both layers from different angles; that's redundancy, not muddling.
 
-Scan for known complecting patterns **and any additional complecting patterns from project instructions**:
+### Layer 4: Check the Structural Pattern Catalog
+
+Scan for known structural patterns **and any additional patterns from project instructions**. The catalog has two halves: complecting (things braided together that should be separate) and fragmentation (things split apart that should be one). Both directions are "interleaved vs. not-interleaved" — Hickey's principle is bidirectional.
+
+**Complecting patterns (things-that-should-be-separate braided together)**
 
 | Construct | What it complects | Simpler alternative |
 |---|---|---|
@@ -59,9 +77,23 @@ Scan for known complecting patterns **and any additional complecting patterns fr
 | Conditionals scattered across code | One decision braided across many sites | Rules, declarative policies, lookup tables |
 | Callbacks/closures over mutable state | Control flow + state + time | Streams, queues, immutable values |
 
-When you find a catalog match, **do not dismiss it**. Design the concrete alternative first (Layer 6), then evaluate whether the current approach is actually justified. The proof burden is on the current code, not on you to prove it's wrong. Hickey: _"what matters are the artifacts not the authoring."_
+**Fragmentation patterns (things-that-belong-together split apart)**
 
-### Layer 4: Structural Entanglement Analysis
+| Construct | What it fragments | Simpler alternative |
+|---|---|---|
+| Parallel optional/nullable fields with coupled presence | "Thing exists + its shape" into independent slots whose combinations include illegal states | Discriminated union / single container encoding the coupling |
+| Per-entity state the domain says must agree across entities | One value into N copies indexed by identity, with an unenforced "all agree" rule | Single source-of-truth at the containing scope (type, signal, module-level value) |
+| Reactive pipeline projecting one value out of a per-entity structure (memo + prop-drill + effect) | Sharedness reconstituted at read time | Make the underlying state shared; delete the pipeline |
+| Callback-down + value-up across module boundaries | One state location into a cycle across N modules | Lift the state to the layer all consumers share |
+| Sum type modeled as parallel optional fields per variant | A discriminator scattered into its projections | Actual sum type with the discriminator as the key |
+| Booleans whose combinations encode a state machine | One state into several independent flags | Enum / union naming each reachable state |
+| "Convention: update X when Y changes" maintained by memory | A rule into documentation or code review discipline | Structure so the coupling is mechanical, not memorized |
+| Duplicated derivations (same value computed in N places) | One computation into N copies | Compute once, read N times |
+| Config or data split across files/modules by accident of history | A concept into shards held together by cross-reference | Collapse into the one file or module that owns the concept |
+
+When you find a catalog match in either half, **do not dismiss it**. Design the concrete alternative first (Layer 7), then evaluate whether the current approach is actually justified. The proof burden is on the current code, not on you to prove it's wrong. Hickey: _"what matters are the artifacts not the authoring."_
+
+### Layer 5: Structural Entanglement Analysis
 
 For each file or module touched:
 
@@ -72,7 +104,7 @@ For each file or module touched:
 5. **Lifecycle nesting.** New lifecycle scopes (AbortControllers, watchers, timers) inside a handler that already has its own lifecycle = braiding "when" concerns.
 6. **Temporal coupling.** Correctness depending on execution order beyond what types enforce = invisible braid.
 
-### Layer 5: Assess Severity
+### Layer 6: Assess Severity
 
 For every finding, assess — but **severity does not grant dismissal**. A low-severity finding is still a finding. Report it. The user decides what to act on, not you.
 
@@ -80,7 +112,7 @@ For every finding, assess — but **severity does not grant dismissal**. A low-s
 - **Change friction.** Can the complected concerns be modified independently?
 - **Reasoning load.** Can you explain the code without "and then" or "but only if"?
 
-### Layer 6: Suggest Simplifications
+### Layer 7: Suggest Simplifications
 
 For **every** finding — not just "significant" ones — propose a concrete structural alternative. Write out what it would look like, even as pseudocode. This is mandatory.
 
@@ -102,16 +134,29 @@ After completing all layers, **invoke `/fact-check` on your own output**. The fa
 - Bogus "essential complexity" labels without a concrete simplified alternative
 - Claims about code behavior that you didn't verify by reading the code
 
+**Also flag your own output for phrase shapes that mean you stopped reasoning one step early.** These aren't findings you talked yourself out of — they're findings you never let form. If any of these phrase shapes appear in your evaluation, re-open the question they're dismissing:
+
+- _"X and Y share Z but are separate concerns"_ — verified at the *domain* level, or just at the current implementation layout? Shared input is a precondition; work it through.
+- _"different consumers read different fields/signals/modules"_ — is the split justified by domain difference, or by how today's UI happens to be organized?
+- _"technically could diverge, but in practice doesn't"_ — if it's technical, the representation can fix it; "in practice" is a promise that won't hold across refactors.
+- _"each X could theoretically have its own Y"_ — theoretical divergence is the classic fragmentation cover story.
+- _"this is a convention, not a constraint"_ — conventions are fragmentation dressed as discipline.
+- _"we agree to update both"_ / _"we remember to clear X when Y changes"_ — discipline is not a type system.
+- _"lift X to be shared"_ — if you're lifting X to make it shared, X wants to *be* shared at its home, not projected from elsewhere.
+
+These catch fragmentation (Layer 2) that the reviewer glossed over. The prosecutor stance applies equally to findings never made and findings made-then-dismissed.
+
 If fact-check finds issues with your evaluation, revise before presenting to the user.
 
 ## Output Format
 
 1. **Concerns identified** — Name the distinct concerns.
-2. **Concept multiplication** — Layer 2 findings.
-3. **Complecting found** — Layers 3–4 findings, with line references.
-4. **Severity** — For each finding: blast radius, change friction, reasoning load.
-5. **Simplifications** — Concrete alternative for every finding.
-6. **Fact-check result** — Output of `/fact-check` on this evaluation.
+2. **Fragmentation findings** — Layer 2 findings. If none, write "no invariants found" explicitly.
+3. **Concept multiplication** — Layer 3 findings.
+4. **Structural pattern matches** — Layers 4–5 findings (both complecting and fragmentation halves of the catalog), with line references.
+5. **Severity** — For each finding: blast radius, change friction, reasoning load.
+6. **Simplifications** — Concrete alternative for every finding.
+7. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
 
 Do NOT include a "What's simple" section. Praise biases toward positive framing and makes findings feel like minor quibbles. Report what you found. The absence of findings is its own praise.
 
