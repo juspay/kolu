@@ -73,7 +73,7 @@ Feature: Claude Code status detection
     Then palette item "Show Claude transcript" should be visible
     When I select "Show Claude transcript" in the palette
     Then the Claude transcript dialog should be visible
-    And the Claude transcript dialog should show at least 1 disk event
+    And the Claude transcript dialog should show at least 1 server transition
     And there should be no page errors
 
   Scenario: Debug command is hidden when no Claude session is active

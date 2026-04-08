@@ -302,15 +302,19 @@ Then(
 );
 
 Then(
-  "the Claude transcript dialog should show at least {int} disk event(s)",
+  "the Claude transcript dialog should show at least {int} server transition(s)",
   async function (this: KoluWorld, min: number) {
     const dialog = this.page.locator('[data-testid="claude-transcript"]');
     await dialog.waitFor({ state: "visible", timeout: 10_000 });
+    // The "Server saw" header includes the count from `stateChanges`. After
+    // `setupTranscriptWatching` runs the initial derive, an existing JSONL
+    // tail produces ≥1 transition — that's the value we assert against.
+    // (rawEvents stays empty by design when content predates the watcher.)
     const count = await pollUntil(
       this.page,
       async () => {
         const text = (await dialog.textContent()) ?? "";
-        const m = text.match(/Disk JSONL \((\d+) events?\)/);
+        const m = text.match(/Server saw \((\d+) transitions?\)/);
         return m ? parseInt(m[1]!, 10) : 0;
       },
       (n) => n >= min,
@@ -318,7 +322,7 @@ Then(
     );
     assert.ok(
       count >= min,
-      `Expected at least ${min} disk event(s) in Claude transcript dialog, got ${count}`,
+      `Expected at least ${min} server transition(s) in Claude transcript dialog, got ${count}`,
     );
   },
 );
