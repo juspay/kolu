@@ -13,6 +13,7 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
+import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
@@ -361,9 +362,9 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0">
+        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
           <div
-            class="h-full overflow-hidden"
+            class="flex-1 min-h-0 overflow-hidden"
             style={{ "background-color": activeTheme().background }}
             data-testid="terminal-viewport"
           >
@@ -402,6 +403,7 @@ const App: Component = () => {
               </For>
             </Show>
           </div>
+          <MobileKeyBar activeId={store.activeId} />
         </div>
       </div>
     </div>
