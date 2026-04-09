@@ -5,6 +5,7 @@ import {
   createEffect,
   createSignal,
 } from "solid-js";
+import { createMediaQuery } from "@solid-primitives/media";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -115,6 +116,12 @@ const SidebarEntry: Component<{
   };
   const sortable = createSortable(props.id);
   const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
+  /** On touch devices, drag-anywhere conflicts with vertical scrolling
+   *  (every swipe becomes a drag candidate via `touch-action: none`).
+   *  When coarse, drag activation moves to a small grip handle inside
+   *  the card and the button switches to `touch-action: pan-y` so the
+   *  list scrolls. Desktop keeps the drag-anywhere behavior unchanged. */
+  const isCoarse = createMediaQuery("(pointer: coarse)");
 
   /** When this entry becomes active, scroll itself into view. Handles both
    *  switching to an existing terminal AND creating a new one: in either
@@ -183,7 +190,10 @@ const SidebarEntry: Component<{
             sortable.ref(el);
             buttonRef = el;
           }}
-          {...sortable.dragActivators}
+          // Drag activators only on the button when NOT coarse — desktop
+          // keeps drag-anywhere; on coarse, the grip span below owns
+          // activation so the button surface stays scroll-friendly.
+          {...(isCoarse() ? {} : sortable.dragActivators)}
           data-terminal-id={props.id}
           data-active={props.isActive ? "" : undefined}
           data-activity={
@@ -192,8 +202,13 @@ const SidebarEntry: Component<{
               : "sleeping"
           }
           data-unread={props.unread ? "" : undefined}
-          class="group relative w-full text-sm text-left touch-none transition-all duration-200"
+          class="group relative w-full text-sm text-left transition-all duration-200"
           classList={{
+            // touch-pan-y on coarse lets vertical scroll pass through;
+            // touch-none on non-coarse preserves the existing desktop
+            // drag-anywhere activation surface.
+            "touch-pan-y": isCoarse(),
+            "touch-none": !isCoarse(),
             "rounded-[14px]": !props.isActive,
             "rounded-l-[14px] rounded-r-none": props.isActive,
             "text-fg": props.isActive || tier() !== "idle",
@@ -259,6 +274,37 @@ const SidebarEntry: Component<{
           >
             ×
           </span>
+          {/* Drag handle — only on coarse-pointer devices. Owns drag
+           *  activation so the rest of the card surface can stay
+           *  scrollable (touch-pan-y). touch-none on the handle itself
+           *  ensures the browser hands the gesture to dnd-kit. */}
+          <Show when={isCoarse()}>
+            <span
+              {...sortable.dragActivators}
+              data-testid="sidebar-drag-handle"
+              // stopPropagation: a tap on the grip is a drag affordance,
+              // not a terminal selector — don't bubble to the button's
+              // onClick (which would switch terminals on every grab).
+              onClick={(e) => e.stopPropagation()}
+              class="absolute bottom-1 right-1 flex items-center justify-center w-7 h-7 text-fg-3 touch-none cursor-grab"
+              aria-label="Drag to reorder"
+              title="Drag to reorder"
+            >
+              <svg
+                class="w-4 h-4"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <circle cx="5" cy="4" r="1.2" />
+                <circle cx="5" cy="8" r="1.2" />
+                <circle cx="5" cy="12" r="1.2" />
+                <circle cx="11" cy="4" r="1.2" />
+                <circle cx="11" cy="8" r="1.2" />
+                <circle cx="11" cy="12" r="1.2" />
+              </svg>
+            </span>
+          </Show>
         </button>
       </div>
     </div>
