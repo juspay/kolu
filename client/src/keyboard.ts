@@ -138,6 +138,10 @@ export const SHORTCUTS = {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     label: "Copy terminal text",
   },
+  exportSessionAsPdf: {
+    keybind: { key: "p", code: "KeyP", mod: true },
+    label: "Export session as PDF",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

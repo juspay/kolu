@@ -22,6 +22,7 @@ import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
+import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverRestarted } from "./rpc";
@@ -108,6 +109,12 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  function handleExportSessionAsPdf() {
+    const id = store.activeId();
+    if (id === null) return;
+    exportSessionAsPdf(id, store.getMetadata(id));
+  }
+
   useShortcuts({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -131,6 +138,7 @@ const App: Component = () => {
       ),
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf,
   });
 
   function openPalette() {
@@ -168,7 +176,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
-    handleExportSessionAsPdf: () => crud.handleExportSessionAsPdf(),
+    handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     committedThemeName,

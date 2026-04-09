@@ -100,6 +100,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           {
             name: "Export session as PDF",
+            keybind: SHORTCUTS.exportSessionAsPdf.keybind,
             onSelect: () => deps.handleExportSessionAsPdf(),
           },
         ]
