@@ -157,7 +157,7 @@ flowchart TB
 
 [^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
 
-[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; server restarts are detected via a `processId` probe. Streaming procedures (terminal attach, subscriptions) opt into oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) via a shared `STREAM_RETRY` context, so async-iterator consumers transparently re-subscribe when the underlying socket reconnects — every server-side streaming handler is already snapshot-then-deltas, so re-invocation resumes with a fresh full state.
+[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; the `stream` namespace in `client/src/rpc.ts` routes every async-iterator procedure through oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so consumers transparently re-subscribe after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal; a same-process reconnect is silent to users, a genuine server-process change (new `processId`) surfaces the "Server updated — Reload" rescue toast and dims the app.
 
 ### Build & packaging
 

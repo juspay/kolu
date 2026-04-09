@@ -15,13 +15,15 @@
  *  No manual Map, AbortController, or version signals needed. */
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
+import { match } from "ts-pattern";
 import { createSubscription, type Subscription } from "./createSubscription";
-import { client, STREAM_RETRY } from "./rpc";
+import { stream } from "./rpc";
 import type {
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  ActivityStreamEvent,
 } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 import {
@@ -54,22 +56,27 @@ export function useTerminalMetadata(deps: {
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
-    const meta = createSubscription(() =>
-      client.terminal.onMetadataChange({ id }, { context: STREAM_RETRY }),
-    );
-    const activity = createSubscription(
-      () => client.terminal.onActivityChange({ id }, { context: STREAM_RETRY }),
+    const meta = createSubscription(() => stream.metadata(id));
+    // Reducer pattern-matches the server's discriminated union: snapshot
+    // REPLACES the accumulator, delta APPENDS. This makes reconnect-safety
+    // structural — the plugin's transparent re-subscribe just delivers
+    // another snapshot on the first post-retry yield, which naturally
+    // overwrites whatever stale samples the accumulator held.
+    const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
+      () => stream.activity(id),
       {
-        reduce: (acc: ActivitySample[], sample: ActivitySample) => {
+        reduce: (acc, event) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
-          // Dedupe by timestamp: on reconnect, the server replays the full
-          // activity history (router.ts onActivityChange) before streaming
-          // live samples. Without this guard, retained samples inside the
-          // window would double up until they age out.
-          if (acc.some(([t]) => t === sample[0])) return acc;
-          return [...acc.filter(([t]) => t >= cutoff), sample].slice(
-            -MAX_ACTIVITY_CHUNKS,
-          );
+          return match(event)
+            .with({ kind: "snapshot" }, ({ samples }) =>
+              samples.filter(([t]) => t >= cutoff).slice(-MAX_ACTIVITY_CHUNKS),
+            )
+            .with({ kind: "delta" }, ({ sample }) =>
+              [...acc.filter(([t]) => t >= cutoff), sample].slice(
+                -MAX_ACTIVITY_CHUNKS,
+              ),
+            )
+            .exhaustive();
         },
         initial: [] as ActivitySample[],
       },

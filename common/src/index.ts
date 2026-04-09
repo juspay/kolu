@@ -119,6 +119,28 @@ export const TerminalMetadataSchema = z.object({
 export const ActivitySampleSchema = z.tuple([z.number(), z.boolean()]);
 export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
 
+/**
+ * Discriminated union yielded by the `onActivityChange` stream.
+ *
+ * The first yield on every (re)subscribe is a `snapshot` carrying the
+ * entire activity history the server currently retains; every later
+ * yield is a `delta` carrying one new sample. Clients that accumulate
+ * samples use the discriminator to REPLACE on snapshot and APPEND on
+ * delta, so a ClientRetryPlugin-induced re-subscribe after a WebSocket
+ * reconnect restores the correct state without duplicating samples.
+ */
+export const ActivityStreamEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    samples: z.array(ActivitySampleSchema),
+  }),
+  z.object({
+    kind: z.literal("delta"),
+    sample: ActivitySampleSchema,
+  }),
+]);
+export type ActivityStreamEvent = z.infer<typeof ActivityStreamEventSchema>;
+
 // --- Terminal ---
 
 export const TerminalInfoSchema = z.object({

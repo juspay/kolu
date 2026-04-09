@@ -6,14 +6,12 @@
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
 import { createSubscription } from "./createSubscription";
-import { client, STREAM_RETRY } from "./rpc";
+import { stream } from "./rpc";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  const listSub = createSubscription(() =>
-    client.terminal.list(undefined, { context: STREAM_RETRY }),
-  );
+  const listSub = createSubscription(() => stream.terminalList());
 
   const view = useViewState();
   const metadata = useTerminalMetadata({

@@ -16,7 +16,8 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
-import { client, STREAM_RETRY } from "./rpc";
+import { stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import type { TerminalId } from "kolu-common";
 
 /** Font size for the internal xterm instance. Large enough to render crisp
@@ -99,27 +100,22 @@ const TerminalPreview: Component<{
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
-    // Stream screen state + live data. STREAM_RETRY transparently
-    // re-subscribes on WebSocket reconnect; onRetry resets the preview's
-    // xterm first so the fresh screen state yielded by re-attach doesn't
-    // get double-painted on top of stale buffer contents.
+    // Stream screen state + live data. `stream.attach` re-subscribes
+    // transparently on reconnect; `onRetry` clears the preview's xterm
+    // so the fresh screen snapshot doesn't double-paint stale contents.
     void (async () => {
       try {
-        const stream = await client.terminal.attach(
-          { id: props.terminalId },
-          {
-            signal,
-            context: {
-              ...STREAM_RETRY,
-              onRetry: () => terminal?.reset(),
-            },
-          },
-        );
-        for await (const data of stream) {
+        const iter = await stream.attach(props.terminalId, {
+          signal,
+          onRetry: () => terminal?.reset(),
+        });
+        for await (const data of iter) {
           terminal?.write(data);
         }
-      } catch {
-        // Stream aborted — expected on cleanup
+      } catch (err) {
+        if (!isExpectedCleanupError(err)) {
+          console.error("Terminal preview stream error:", err);
+        }
       }
     })();
 

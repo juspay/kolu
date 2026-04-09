@@ -12,7 +12,8 @@
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
-import { client, STREAM_RETRY } from "./rpc";
+import { stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useSessionRestore } from "./useSessionRestore";
@@ -35,20 +36,19 @@ export function useTerminals(deps: {
   });
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
-   *  Uses STREAM_RETRY so the subscription survives WebSocket reconnects.
+   *  Routed through `stream.exit` so the subscription survives WebSocket
+   *  reconnects via ClientRetryPlugin.
+   *
    *  Race: if the terminal exits while the socket is down, the retried
-   *  re-subscribe throws TerminalNotFoundError (not retried, per shouldRetry),
-   *  and the exit toast is missed — the terminal itself is still removed via
-   *  the list subscription in useTerminalStore. Acceptable; correctness is
-   *  preserved even if one toast is lost. */
+   *  re-subscribe throws `TerminalNotFoundError` (not retried, per
+   *  shouldRetry in rpc.ts), and the exit toast is missed — the terminal
+   *  itself is still removed via the list subscription in useTerminalStore.
+   *  Acceptable; correctness is preserved even if one toast is lost. */
   function subscribeExit(id: TerminalId) {
     (async () => {
       try {
-        const stream = await client.terminal.onExit(
-          { id },
-          { context: STREAM_RETRY },
-        );
-        for await (const code of stream) {
+        const iter = await stream.exit(id);
+        for await (const code of iter) {
           const label = store.terminalLabel(id);
           if (code === 0) {
             toast(`${label} exited`);
@@ -57,8 +57,15 @@ export function useTerminals(deps: {
           }
           crud.removeAndAutoSwitch(id);
         }
-      } catch {
-        // Stream aborted or terminal gone — expected on cleanup
+      } catch (err) {
+        if (!isExpectedCleanupError(err)) {
+          // Post-ClientRetryPlugin: shouldRetry rejects ORPCError, so a
+          // TerminalNotFoundError from a server-restart re-subscribe lands
+          // here. The list subscription still removes the terminal visually;
+          // we just lose the exit-code toast. Log so the failure is
+          // diagnosable rather than invisible.
+          console.error("Exit stream error:", err);
+        }
       }
     })();
   }
