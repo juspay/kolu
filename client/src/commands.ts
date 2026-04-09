@@ -17,6 +17,7 @@ export interface CommandDeps {
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   handleCopyTerminalText: () => void;
+  handleExportSessionAsPdf: () => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
@@ -96,6 +97,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Copy terminal text",
             keybind: SHORTCUTS.copyTerminalText.keybind,
             onSelect: () => deps.handleCopyTerminalText(),
+          },
+          {
+            name: "Export session as PDF",
+            keybind: SHORTCUTS.exportSessionAsPdf.keybind,
+            onSelect: () => deps.handleExportSessionAsPdf(),
           },
         ]
       : []),

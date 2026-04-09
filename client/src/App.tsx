@@ -13,6 +13,7 @@ import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
+import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
@@ -21,6 +22,7 @@ import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
+import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc";
@@ -108,6 +110,12 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  function handleExportSessionAsPdf() {
+    const id = store.activeId();
+    if (id === null) return;
+    exportSessionAsPdf(id, store.getMetadata(id));
+  }
+
   useShortcuts({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -131,6 +139,7 @@ const App: Component = () => {
       ),
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf,
   });
 
   function openPalette() {
@@ -168,6 +177,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     committedThemeName,
@@ -364,9 +374,9 @@ const App: Component = () => {
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0">
+        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
           <div
-            class="h-full overflow-hidden"
+            class="flex-1 min-h-0 overflow-hidden"
             style={{ "background-color": activeTheme().background }}
             data-testid="terminal-viewport"
           >
@@ -405,6 +415,7 @@ const App: Component = () => {
               </For>
             </Show>
           </div>
+          <MobileKeyBar activeId={store.activeId} />
         </div>
       </div>
     </div>

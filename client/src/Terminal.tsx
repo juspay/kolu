@@ -38,6 +38,7 @@ import { createZoom } from "./zoom";
 import { createScrollLock } from "./scrollLock";
 import { refitOnTabVisible } from "./refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "./useViewport";
+import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -234,11 +235,18 @@ const Terminal: Component<{
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.loadAddon(new ImageAddon());
-    term.loadAddon(new SerializeAddon());
+    const serializeAddon = new SerializeAddon();
+    term.loadAddon(serializeAddon);
 
     term.open(containerRef);
     // Expose for e2e tests: read buffer content at viewport position.
     (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
+    // Production path for handlers that need live xterm/addon refs
+    // (e.g. export-as-PDF reads serializeAddon).
+    registerTerminalRefs(props.terminalId, {
+      xterm: term,
+      serialize: serializeAddon,
+    });
 
     scrollLock.attachToTerminal(term);
 
@@ -409,6 +417,7 @@ const Terminal: Component<{
 
     onCleanup(() => {
       streamAbort?.abort();
+      unregisterTerminalRefs(props.terminalId);
       terminal?.dispose();
     });
   });
