@@ -167,6 +167,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf: () => crud.handleExportSessionAsPdf(),
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     committedThemeName,

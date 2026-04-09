@@ -5,8 +5,9 @@
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
-import { availableThemes } from "./theme";
+import { availableThemes, FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
+import { getTerminalRefs } from "./terminalRefs";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -139,6 +140,60 @@ export function useTerminalCrud(deps: {
     }
   }
 
+  /** Export the active terminal's buffer as a themed HTML print preview.
+   *  The user picks "Save as PDF" from the browser print dialog. */
+  function handleExportSessionAsPdf() {
+    const id = store.activeId();
+    if (id === null) return;
+    const refs = getTerminalRefs(id);
+    if (!refs) {
+      toast.error("Terminal not ready");
+      return;
+    }
+    const bodyHtml = refs.serialize.serializeAsHTML({
+      includeGlobalBackground: true,
+    });
+    const label = store.terminalLabel(id);
+    const win = window.open("", "_blank");
+    if (!win) {
+      toast.error("Popup blocked — allow popups to export as PDF");
+      return;
+    }
+    const doc = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(label)} — kolu export</title>
+    <style>
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: ${FONT_FAMILY};
+        white-space: pre;
+        font-variant-ligatures: none;
+      }
+      @page { margin: 1cm; }
+    </style>
+  </head>
+  <body>${bodyHtml}</body>
+</html>`;
+    win.document.open();
+    win.document.write(doc);
+    win.document.close();
+    // Wait for fonts to load before printing so glyph metrics are stable.
+    // Fall through to print() on any fonts.ready failure — unstyled print is
+    // still better than a silent no-op.
+    const print = () => {
+      win.focus();
+      win.print();
+    };
+    const fontsReady = win.document.fonts?.ready;
+    if (fontsReady) {
+      fontsReady.then(print, print);
+    } else {
+      print();
+    }
+  }
+
   async function handleCloseAll() {
     try {
       await client.terminal.killAll();
@@ -157,6 +212,15 @@ export function useTerminalCrud(deps: {
     handleKill,
     handleKillWithSubs,
     handleCopyTerminalText,
+    handleExportSessionAsPdf,
     handleCloseAll,
   };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
