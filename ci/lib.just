@@ -12,7 +12,14 @@ _preflight:
         fi
     done
 
-# Post GitHub commit status
+# Post GitHub commit status.
+#
+# NOTE: agents/.apm/instructions/workflow.instructions.md contains a Monitor
+# filter that greps `just ci` stdout for the literal pattern
+# `context="ci/X" -f description="..."` emitted by this command. If you change
+# the gh api invocation here (flags, ordering, wrap in a function, etc.),
+# update the filter regex in workflow.instructions.md too — otherwise Claude's
+# Monitor will silently emit zero events on `just ci` runs.
 _signoff name status description="":
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
       -f state="{{ status }}" -f context="ci/{{ name }}" \
