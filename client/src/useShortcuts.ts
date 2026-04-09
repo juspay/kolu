@@ -23,6 +23,7 @@ interface ShortcutDeps {
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
   handleCopyTerminalText: () => void;
+  handleExportSessionAsPdf: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -175,6 +176,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.copyTerminalText.keybind)) {
     deps.handleCopyTerminalText();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.exportSessionAsPdf.keybind)) {
+    deps.handleExportSessionAsPdf();
     return true;
   }
 
