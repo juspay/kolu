@@ -37,6 +37,30 @@ function hasGitDir(cwd: string): boolean {
 export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
   try {
     const git = simpleGit(cwd);
+    // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
+    // throws on them. Detect up front and return a GitInfo rooted at cwd —
+    // the palette consumer treats the result as "a repo you can spawn a
+    // worktree from," which is exactly right for a bare repo.
+    const isBare =
+      (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
+    if (isBare) {
+      const realCwd = fs.realpathSync(cwd);
+      let branch: string;
+      try {
+        branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
+      } catch {
+        // Detached HEAD in a bare repo (unusual but possible).
+        branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
+      }
+      return {
+        repoRoot: realCwd,
+        repoName: path.basename(realCwd),
+        worktreePath: realCwd,
+        branch,
+        isWorktree: false,
+        mainRepoRoot: realCwd,
+      };
+    }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
     let branch: string;
     try {
@@ -62,7 +86,10 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
       isWorktree,
       mainRepoRoot,
     };
-  } catch {
+  } catch (err) {
+    // Log so unexpected failures (permission errors, missing git binary)
+    // surface instead of being silently treated as "not a repo".
+    log.debug({ err, cwd }, "git: resolveGitInfo failed");
     return null;
   }
 }

@@ -15,3 +15,13 @@ Feature: Recent repos in command palette
     Then the palette breadcrumb should show "New terminal"
     And palette item "kolu-recent-test" should be visible
     And there should be no page errors
+
+  Scenario: Bare repo is tracked as a recent repo after cd
+    When I set up a bare git repo at "/tmp/kolu-bare-test"
+    And I run "cd /tmp/kolu-bare-test"
+    Then the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    Then the palette breadcrumb should show "New terminal"
+    And palette item "kolu-bare-test" should be visible
+    And there should be no page errors
