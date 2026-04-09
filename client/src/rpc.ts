@@ -21,6 +21,11 @@ const wsUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
 
 const ws = new PartySocket(wsUrl);
 
+// Expose for e2e tests: the reconnect regression test (#410) needs to
+// drop and restore the socket directly. Same pattern as __xterm on the
+// terminal container. Harmless in production — just an attribute on window.
+(window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
+
 // Cast: PartySocket is API-compatible with WebSocket but types don't overlap
 const link = new RPCLink({ websocket: ws as unknown as WebSocket });
 
