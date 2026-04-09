@@ -23,7 +23,7 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 
 import type { TerminalId } from "kolu-common";
-import { client, wsStatus, serverRestarted } from "./rpc";
+import { client, wsStatus, serverRestarted, serverProcessId } from "./rpc";
 import { useTerminals } from "./useTerminals";
 import { useServerState } from "./useServerState";
 import { useThemeManager } from "./useThemeManager";
@@ -281,6 +281,12 @@ const App: Component = () => {
               ) : (
                 <span class="text-fg-2">dev</span>
               )}
+            </p>
+            <p>
+              Server:{" "}
+              <span class="font-mono text-fg-2">
+                {serverProcessId() ?? "—"}
+              </span>
             </p>
           </div>
         </Dialog.Content>

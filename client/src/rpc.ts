@@ -99,14 +99,16 @@ export const stream = {
 /**
  * Single discriminated union describing every observable state of the
  * client/server connection. The header indicator, the dim overlay, the
- * session-restore gate, and the toast driver all read this one signal.
+ * session-restore gate, the toast driver, and the About dialog all
+ * read this one signal. Variants that carry a `processId` are the ones
+ * where the client has a confirmed server identity.
  */
 export type ServerLifecycleEvent =
   | { kind: "connecting" }
-  | { kind: "connected" }
+  | { kind: "connected"; processId: string }
   | { kind: "disconnected" }
-  | { kind: "reconnected" }
-  | { kind: "restarted" };
+  | { kind: "reconnected"; processId: string }
+  | { kind: "restarted"; processId: string };
 
 const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
   kind: "connecting",
@@ -125,7 +127,16 @@ const wsStatus = createMemo<WsStatus>(() =>
 /** True when the server process has changed — app state is stale, reload required. */
 const serverRestarted = createMemo(() => lifecycle().kind === "restarted");
 
-export { wsStatus, serverRestarted };
+/** The server process UUID, once the identity probe has resolved. `undefined`
+ *  only during the initial "connecting" phase before the first `info()` reply. */
+const serverProcessId = createMemo(() => {
+  const ev = lifecycle();
+  return ev.kind === "connecting" || ev.kind === "disconnected"
+    ? undefined
+    : ev.processId;
+});
+
+export { wsStatus, serverRestarted, serverProcessId };
 
 // IIFE scopes `connectCount` and `knownProcessId` — no module-level
 // mutables leak; external observers read `lifecycle()` instead.
@@ -143,15 +154,16 @@ export { wsStatus, serverRestarted };
       .then(({ processId }) => {
         if (isFirstConnect) {
           knownProcessId = processId;
-          setLifecycle({ kind: "connected" });
+          setLifecycle({ kind: "connected", processId });
           return;
         }
-        if (knownProcessId && processId !== knownProcessId) {
-          setLifecycle({ kind: "restarted" });
-        } else {
-          setLifecycle({ kind: "reconnected" });
-        }
+        const restarted =
+          knownProcessId !== null && processId !== knownProcessId;
         knownProcessId = processId;
+        setLifecycle({
+          kind: restarted ? "restarted" : "reconnected",
+          processId,
+        });
       })
       .catch((err: unknown) => {
         // Don't transition — the next partysocket `open` will retry. Log
