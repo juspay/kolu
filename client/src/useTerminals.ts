@@ -12,7 +12,7 @@
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
-import { client } from "./rpc";
+import { client, STREAM_RETRY } from "./rpc";
 import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useSessionRestore } from "./useSessionRestore";
@@ -34,11 +34,20 @@ export function useTerminals(deps: {
     terminalLabel: store.terminalLabel,
   });
 
-  /** Subscribe to exit events for a terminal (one-shot action, not queryable state). */
+  /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
+   *  Uses STREAM_RETRY so the subscription survives WebSocket reconnects.
+   *  Race: if the terminal exits while the socket is down, the retried
+   *  re-subscribe throws TerminalNotFoundError (not retried, per shouldRetry),
+   *  and the exit toast is missed — the terminal itself is still removed via
+   *  the list subscription in useTerminalStore. Acceptable; correctness is
+   *  preserved even if one toast is lost. */
   function subscribeExit(id: TerminalId) {
     (async () => {
       try {
-        const stream = await client.terminal.onExit({ id });
+        const stream = await client.terminal.onExit(
+          { id },
+          { context: STREAM_RETRY },
+        );
         for await (const code of stream) {
           const label = store.terminalLabel(id);
           if (code === 0) {

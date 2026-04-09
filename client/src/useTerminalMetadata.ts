@@ -16,7 +16,7 @@
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { createSubscription, type Subscription } from "./createSubscription";
-import { client } from "./rpc";
+import { client, STREAM_RETRY } from "./rpc";
 import type {
   TerminalId,
   TerminalInfo,
@@ -55,13 +55,18 @@ export function useTerminalMetadata(deps: {
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
     const meta = createSubscription(() =>
-      client.terminal.onMetadataChange({ id }),
+      client.terminal.onMetadataChange({ id }, { context: STREAM_RETRY }),
     );
     const activity = createSubscription(
-      () => client.terminal.onActivityChange({ id }),
+      () => client.terminal.onActivityChange({ id }, { context: STREAM_RETRY }),
       {
         reduce: (acc: ActivitySample[], sample: ActivitySample) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
+          // Dedupe by timestamp: on reconnect, the server replays the full
+          // activity history (router.ts onActivityChange) before streaming
+          // live samples. Without this guard, retained samples inside the
+          // window would double up until they age out.
+          if (acc.some(([t]) => t === sample[0])) return acc;
           return [...acc.filter(([t]) => t >= cutoff), sample].slice(
             -MAX_ACTIVITY_CHUNKS,
           );

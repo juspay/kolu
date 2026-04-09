@@ -1,8 +1,7 @@
-@skip
 Feature: Reconnect
   WebSocket disconnect → reconnect must not leave terminal streams dead.
-  Regression harness for issue #410. Tagged @skip until the bug is fixed —
-  run locally with `just test-quick features/reconnect.feature --tags @skip`.
+  Regression test for issue #410 — the oRPC ClientRetryPlugin transparently
+  re-subscribes streaming procedures on transport reconnect.
 
   Scenario: Terminal output flows again after WebSocket drop and restore
     Given the terminal is ready

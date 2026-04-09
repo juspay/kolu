@@ -16,7 +16,7 @@ import { createEffect, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSubscription } from "./createSubscription";
-import { client } from "./rpc";
+import { client, STREAM_RETRY } from "./rpc";
 import type {
   ServerState,
   Preferences,
@@ -39,7 +39,9 @@ const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
 let storeInitialized = false;
 
 export function useServerState() {
-  const sub = createSubscription(() => client.state.get());
+  const sub = createSubscription(() =>
+    client.state.get(undefined, { context: STREAM_RETRY }),
+  );
 
   // Sync singleton store from subscription — only the first caller wires this up.
   if (!storeInitialized) {

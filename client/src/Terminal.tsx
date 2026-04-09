@@ -28,7 +28,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "./theme";
-import { client } from "./rpc";
+import { client, STREAM_RETRY } from "./rpc";
 import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
@@ -305,8 +305,26 @@ const Terminal: Component<{
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
+    // On WebSocket reconnect the oRPC ClientRetryPlugin transparently
+    // re-subscribes. The server's first yield after re-attach is a fresh
+    // scrollback snapshot — reset xterm before it writes so the old buffer
+    // doesn't get double-painted. onRetry fires before the retried iterator
+    // emits its first item (see @orpc/client/plugins ClientRetryPlugin).
     consumeStream(
-      () => client.terminal.attach({ id: props.terminalId }, { signal }),
+      () =>
+        client.terminal.attach(
+          { id: props.terminalId },
+          {
+            signal,
+            context: {
+              ...STREAM_RETRY,
+              onRetry: () => {
+                terminal?.reset();
+                scrollLock.reset();
+              },
+            },
+          },
+        ),
       (data) => {
         if (terminal) scrollLock.writeData(terminal, data);
       },
