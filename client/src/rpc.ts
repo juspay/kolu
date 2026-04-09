@@ -4,13 +4,7 @@
  * Uses partysocket for auto-reconnect. All terminal procedures
  * (create, attach, sendInput, resize) go through this link.
  */
-import {
-  createEffect,
-  createMemo,
-  createRoot,
-  createSignal,
-  on,
-} from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { match } from "ts-pattern";
 import { createORPCClient, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/websocket";
@@ -19,7 +13,6 @@ import {
   type ClientRetryPluginContext,
 } from "@orpc/client/plugins";
 import { WebSocket as PartySocket } from "partysocket";
-import { toast } from "solid-sonner";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common";
@@ -124,9 +117,6 @@ const wsStatus = createMemo<WsStatus>(() =>
     .exhaustive(),
 );
 
-/** True when the server process has changed — app state is stale, reload required. */
-const serverRestarted = createMemo(() => lifecycle().kind === "restarted");
-
 /** The server process UUID, once the identity probe has resolved. `undefined`
  *  only during the initial "connecting" phase before the first `info()` reply. */
 const serverProcessId = createMemo(() => {
@@ -136,7 +126,7 @@ const serverProcessId = createMemo(() => {
     : ev.processId;
 });
 
-export { wsStatus, serverRestarted, serverProcessId };
+export { wsStatus, serverProcessId };
 
 // IIFE scopes `connectCount` and `knownProcessId` — no module-level
 // mutables leak; external observers read `lifecycle()` instead.
@@ -178,38 +168,3 @@ export { wsStatus, serverRestarted, serverProcessId };
     if (connectCount > 0) setLifecycle({ kind: "disconnected" });
   });
 })();
-
-// `createRoot` because rpc.ts is a module, not a component — nothing
-// else owns the effect's reactive scope. HMR dispose hook tears the
-// root down on hot-reload so edits don't stack reactive owners.
-createRoot((dispose) => {
-  createEffect(
-    on(
-      lifecycle,
-      (ev) => {
-        match(ev)
-          .with({ kind: "disconnected" }, () =>
-            toast.error("Disconnected from server"),
-          )
-          .with({ kind: "reconnected" }, () =>
-            toast.success("Reconnected to server"),
-          )
-          .with({ kind: "restarted" }, () =>
-            toast.info("Server updated", {
-              description: "Reload to apply the latest version.",
-              action: {
-                label: "Reload",
-                onClick: () => location.reload(),
-              },
-              duration: Infinity,
-            }),
-          )
-          // Silent on initial boot.
-          .with({ kind: "connecting" }, { kind: "connected" }, () => {})
-          .exhaustive();
-      },
-      { defer: true },
-    ),
-  );
-  if (import.meta.hot) import.meta.hot.dispose(() => dispose());
-});
