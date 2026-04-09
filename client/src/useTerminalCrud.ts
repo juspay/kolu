@@ -154,6 +154,13 @@ export function useTerminalCrud(deps: {
       includeGlobalBackground: true,
     });
     const label = store.terminalLabel(id);
+    // Pull the active theme off the live xterm so the popup matches exactly
+    // what the user sees — serializeAsHTML only emits a global background,
+    // not a default foreground, so unset text would fall back to browser
+    // black without this.
+    const theme = refs.xterm.options.theme ?? {};
+    const fg = theme.foreground ?? "#000000";
+    const bg = theme.background ?? "#ffffff";
     const win = window.open("", "_blank");
     if (!win) {
       toast.error("Popup blocked — allow popups to export as PDF");
@@ -164,14 +171,20 @@ export function useTerminalCrud(deps: {
   <head>
     <meta charset="utf-8" />
     <title>${escapeHtml(label)} — kolu export</title>
+    <link rel="stylesheet" href="/fonts/fonts.css" />
     <style>
       html, body { margin: 0; padding: 0; }
       body {
         font-family: ${FONT_FAMILY};
+        color: ${fg};
+        background-color: ${bg};
         white-space: pre;
         font-variant-ligatures: none;
       }
       @page { margin: 1cm; }
+      @media print {
+        html, body { background-color: ${bg}; }
+      }
     </style>
   </head>
   <body>${bodyHtml}</body>
