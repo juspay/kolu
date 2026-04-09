@@ -37,6 +37,7 @@ export class KoluWorld extends World {
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
   savedSidebarCount?: number;
+  savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;
   _scrollFifo?: string;
@@ -62,11 +63,30 @@ export class KoluWorld extends World {
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
+    // On mobile (@mobile tag) the sidebar starts collapsed (`-translate-x-full`)
+    // so the create button sits at a negative x. `isVisible()` doesn't catch
+    // this — translated-offscreen elements still have a non-empty bounding box.
+    // Check the actual x coordinate and click the hamburger if needed.
+    const createBtn = this.page.locator('[data-testid="create-terminal"]');
+    const box = await createBtn.boundingBox();
+    if (!box || box.x < 0) {
+      await this.page.locator('[data-testid="sidebar-toggle"]').click();
+      await this.page.waitForFunction(
+        () => {
+          const btn = document.querySelector('[data-testid="create-terminal"]');
+          if (!btn) return false;
+          const r = btn.getBoundingClientRect();
+          return r.x >= 0;
+        },
+        { timeout },
+      );
+    }
+
     // Note the last sidebar entry before creating, so we can identify the new one
     const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
     const countBefore = await entries.count();
 
-    await this.page.locator('[data-testid="create-terminal"]').click();
+    await createBtn.click();
 
     // Wait for the new entry to appear in the sidebar
     await entries.nth(countBefore).waitFor({ state: "visible", timeout });
