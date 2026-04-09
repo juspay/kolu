@@ -29,13 +29,14 @@ import Kbd from "./Kbd";
 
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {
+  kind?: "command";
   name: string;
   /** Secondary text shown after the name, de-emphasized. */
   description?: string;
   /** Execute this command (leaf). Mutually exclusive with `children`. */
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
-  children?: PaletteCommand[] | (() => PaletteCommand[]);
+  children?: PaletteItem[] | (() => PaletteItem[]);
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
@@ -44,8 +45,25 @@ export interface PaletteCommand {
   onCancel?: () => void;
 }
 
+/** A non-interactive informational row shown inside a palette group. */
+export interface PaletteHint {
+  kind: "hint";
+  text: string;
+}
+
+/** Anything renderable at a palette level — a command or a hint. */
+export type PaletteItem = PaletteCommand | PaletteHint;
+
+function isCommand(item: PaletteItem): item is PaletteCommand {
+  return item.kind !== "hint";
+}
+
+function isHint(item: PaletteItem): item is PaletteHint {
+  return item.kind === "hint";
+}
+
 /** Resolve children, handling both static arrays and accessors. */
-function resolveChildren(cmd: PaletteCommand): PaletteCommand[] {
+function resolveChildren(cmd: PaletteCommand): PaletteItem[] {
   if (!cmd.children) return [];
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
 }
@@ -59,7 +77,7 @@ function isGroup(cmd: PaletteCommand): boolean {
 const CTRL_KEY_MAP: Record<string, string> = { n: "ArrowDown", p: "ArrowUp" };
 
 const CommandPalette: Component<{
-  commands: Accessor<PaletteCommand[]>;
+  commands: Accessor<PaletteItem[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** If set, auto-drill into the group with this name on open. */
@@ -77,23 +95,30 @@ const CommandPalette: Component<{
   // Navigation path: list of group commands we've drilled into
   const [path, setPath] = createSignal<PaletteCommand[]>([]);
 
-  /** Commands at the current navigation level. */
-  const currentItems = createMemo(() => {
+  /** Items at the current navigation level (may include hints). */
+  const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
     if (p.length === 0) return props.commands();
     return resolveChildren(p[p.length - 1]!);
   });
 
-  const filtered = createMemo(() => {
+  /** Commands at the current level, filtered by the search query. Hints are excluded. */
+  const filtered = createMemo((): PaletteCommand[] => {
     const q = query().toLowerCase();
-    // Search within the current level only (groups + leaves)
-    return currentItems().filter(
-      (cmd) =>
-        !q ||
-        cmd.name.toLowerCase().includes(q) ||
-        cmd.description?.toLowerCase().includes(q),
-    );
+    return currentItems()
+      .filter(isCommand)
+      .filter(
+        (cmd) =>
+          !q ||
+          cmd.name.toLowerCase().includes(q) ||
+          cmd.description?.toLowerCase().includes(q),
+      );
   });
+
+  /** Hints at the current level — rendered as non-interactive rows below the list. */
+  const hintsAtLevel = createMemo((): PaletteHint[] =>
+    currentItems().filter(isHint),
+  );
 
   function drillIn(cmd: PaletteCommand) {
     setPath((p) => [...p, cmd]);
@@ -187,7 +212,12 @@ const CommandPalette: Component<{
           setAmbientTip(randomAmbientTip());
           mouseActive = false;
           const group = props.initialGroup
-            ? props.commands().find((c) => c.name === props.initialGroup)
+            ? props
+                .commands()
+                .find(
+                  (c): c is PaletteCommand =>
+                    isCommand(c) && c.name === props.initialGroup,
+                )
             : undefined;
           setPath(group ? [group] : []);
           didSelect = false;
@@ -326,6 +356,20 @@ const CommandPalette: Component<{
                         </For>
                       </span>
                     </Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+          <Show when={hintsAtLevel().length > 0}>
+            <ul class="py-1">
+              <For each={hintsAtLevel()}>
+                {(hint) => (
+                  <li
+                    data-testid="palette-hint"
+                    class="px-4 py-2 text-xs text-fg-3 italic"
+                  >
+                    {hint.text}
                   </li>
                 )}
               </For>

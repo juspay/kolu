@@ -159,3 +159,13 @@ export function updateServerState(patch: ServerStatePatch): void {
   // Notify live query subscribers
   publishSystem("state:changed", getServerState());
 }
+
+/** Test-only: apply a full patch including `recentRepos`. Used by e2e hooks to
+ *  reset state between scenarios. Production callers must go through
+ *  `updateServerState`, which (correctly) ignores `recentRepos`. */
+export function testSetServerState(patch: ServerStatePatch): void {
+  if (patch.recentRepos !== undefined) {
+    store.set("recentRepos", patch.recentRepos);
+  }
+  updateServerState(patch);
+}

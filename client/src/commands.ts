@@ -2,7 +2,7 @@
 
 import { createMemo, batch } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { PaletteCommand } from "./CommandPalette";
+import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -42,7 +42,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   return createMemo((): PaletteCommand[] => [
     {
       name: "New terminal",
-      children: () => {
+      children: (): PaletteItem[] => {
         const repos = recentRepos();
         return [
           {
@@ -54,6 +54,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             description: `New worktree in ${r.repoRoot}`,
             onSelect: () => deps.handleCreateWorktree(r.repoRoot),
           })),
+          ...(repos.length === 0
+            ? [
+                {
+                  kind: "hint" as const,
+                  text: "Repos you cd into will appear here",
+                },
+              ]
+            : []),
         ];
       },
     },
