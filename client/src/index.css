@@ -1,6 +1,16 @@
 @import "kolu-fonts";
 @import "tailwindcss";
 
+/* Suppress the browser's pull-to-refresh and scroll-chaining at the
+ * document level. Without this, swiping down at the top of the
+ * sidebar or terminal viewport hijacks the gesture into a page
+ * reload — destroying every open terminal session. `contain` keeps
+ * the local rubber-band feel intact while killing chain-up. */
+html,
+body {
+  overscroll-behavior: contain;
+}
+
 /*
  * @theme registers color names with Tailwind and generates :root CSS custom properties.
  * Values here double as the dark palette — :root:not(.dark) overrides them for light mode.
