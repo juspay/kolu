@@ -57,11 +57,8 @@ export function useTerminalMetadata(deps: {
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
     const meta = createSubscription(() => stream.metadata(id));
-    // Reducer pattern-matches the server's discriminated union: snapshot
-    // REPLACES the accumulator, delta APPENDS. This makes reconnect-safety
-    // structural — the plugin's transparent re-subscribe just delivers
-    // another snapshot on the first post-retry yield, which naturally
-    // overwrites whatever stale samples the accumulator held.
+    // Snapshot replaces, delta appends — every re-subscribe begins with
+    // a fresh snapshot, so reconnect-safety is structural (no dedupe).
     const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
       () => stream.activity(id),
       {

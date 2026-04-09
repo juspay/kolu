@@ -75,13 +75,8 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
-  // The subscription keeps state fresh — just read from it.
-  //
-  // Gate on lifecycle: when the server has restarted, the dim overlay
-  // (App.tsx, reads `serverRestarted`) owns the screen and the "Reload"
-  // toast is the authoritative rescue UI. Surfacing a restore button
-  // underneath the overlay creates competing messaging for the same
-  // underlying event.
+  // Gated on lifecycle: on a genuine server restart, the dim overlay is
+  // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     if (store.terminalIds().length === 0 && hydrated) {

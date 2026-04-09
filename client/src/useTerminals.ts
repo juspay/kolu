@@ -36,14 +36,12 @@ export function useTerminals(deps: {
   });
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
-   *  Routed through `stream.exit` so the subscription survives WebSocket
-   *  reconnects via ClientRetryPlugin.
    *
    *  Race: if the terminal exits while the socket is down, the retried
    *  re-subscribe throws `TerminalNotFoundError` (not retried, per
-   *  shouldRetry in rpc.ts), and the exit toast is missed — the terminal
-   *  itself is still removed via the list subscription in useTerminalStore.
-   *  Acceptable; correctness is preserved even if one toast is lost. */
+   *  shouldRetry in rpc.ts) and the exit toast is missed. The terminal
+   *  itself is still removed via the list subscription in useTerminalStore,
+   *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
     (async () => {
       try {
@@ -58,12 +56,9 @@ export function useTerminals(deps: {
           crud.removeAndAutoSwitch(id);
         }
       } catch (err) {
+        // Non-cleanup errors land here — notably `TerminalNotFoundError`
+        // from a server-restart re-subscribe. Log so it's diagnosable.
         if (!isExpectedCleanupError(err)) {
-          // Post-ClientRetryPlugin: shouldRetry rejects ORPCError, so a
-          // TerminalNotFoundError from a server-restart re-subscribe lands
-          // here. The list subscription still removes the terminal visually;
-          // we just lose the exit-code toast. Log so the failure is
-          // diagnosable rather than invisible.
           console.error("Exit stream error:", err);
         }
       }

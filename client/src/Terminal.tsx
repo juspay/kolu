@@ -306,11 +306,8 @@ const Terminal: Component<{
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
-    // The `stream.attach` wrapper layers ClientRetryPlugin's STREAM_RETRY
-    // context over the call, so the iterator transparently re-subscribes
-    // on WebSocket reconnect. `onRetry` runs before the new iterator's
-    // first yield — reset xterm so the fresh screen snapshot doesn't
-    // double-paint onto the stale buffer.
+    // onRetry resets xterm before the retried iterator's first yield
+    // (a fresh screenState snapshot) — otherwise it double-paints.
     consumeStream(
       () =>
         stream.attach(props.terminalId, {

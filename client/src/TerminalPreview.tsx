@@ -100,9 +100,8 @@ const TerminalPreview: Component<{
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
-    // Stream screen state + live data. `stream.attach` re-subscribes
-    // transparently on reconnect; `onRetry` clears the preview's xterm
-    // so the fresh screen snapshot doesn't double-paint stale contents.
+    // onRetry clears the preview xterm before the retried iterator's
+    // fresh screenState snapshot — otherwise it double-paints.
     void (async () => {
       try {
         const iter = await stream.attach(props.terminalId, {

@@ -26,8 +26,8 @@ import type { TerminalId } from "kolu-common";
 
 export type WsStatus = "connecting" | "open" | "closed";
 
-// Client context carries per-call retry config. All fields are optional,
-// so unary calls (mutations) omit it and fail fast per the plugin default.
+// Parameterize with ClientRetryPluginContext so `{ context: STREAM_RETRY }`
+// and `onRetry` overrides are type-checked at every call site.
 type Client = ContractRouterClient<typeof contract, ClientRetryPluginContext>;
 
 const { protocol, host } = window.location;
@@ -41,10 +41,8 @@ const ws = new PartySocket(wsUrl);
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
 // Cast: PartySocket is API-compatible with WebSocket but types don't overlap.
-// ClientRetryPlugin with default retry=0 means mutations and one-shot unary
-// calls (e.g. server.info, terminal.create, terminal.resize) fail fast with
-// no retries. Streaming procedures opt into infinite retry via the private
-// STREAM_RETRY context, applied through the `stream` namespace below.
+// Plugin default retry=0: mutations and unary calls fail fast. Streaming
+// calls opt into infinite retry via the `stream` namespace below.
 const link = new RPCLink<ClientRetryPluginContext>({
   websocket: ws as unknown as WebSocket,
   plugins: [new ClientRetryPlugin()],
@@ -53,18 +51,12 @@ const link = new RPCLink<ClientRetryPluginContext>({
 export const client = createORPCClient<Client>(link);
 
 /**
- * Private retry context for streaming procedures. Do NOT import directly —
- * route new streaming calls through the `stream` namespace below so
- * adherence is mechanical and impossible to forget.
- *
- * - Transport errors (WS drop → AsyncIdQueue aborted) retry forever.
- * - Application errors (`ORPCError`, e.g. `TerminalNotFoundError`) surface
- *   immediately so consumers can handle them.
- * - Every kolu streaming procedure is snapshot-then-deltas and idempotent
- *   on re-subscribe (see `server/src/router.ts`), so re-invoking on retry
- *   transparently resumes with a fresh full state.
- * - `retryDelay` honors server-sent `lastEventRetry` metadata if present
- *   (none of today's procedures set it; future-proofs the config).
+ * Private retry context for streaming procedures — route new streaming
+ * calls through the `stream` namespace below instead of importing this.
+ * Transport errors (WS drop → aborted iterator) retry forever; application
+ * errors (`ORPCError`) propagate so consumers can handle them. Every kolu
+ * streaming procedure is snapshot-then-deltas on every subscribe (see
+ * `server/src/router.ts`), so re-invoking resumes with fresh full state.
  */
 const STREAM_RETRY: ClientRetryPluginContext = {
   retry: Number.POSITIVE_INFINITY,
@@ -73,16 +65,12 @@ const STREAM_RETRY: ClientRetryPluginContext = {
 };
 
 /**
- * Streaming procedure wrappers. Every async-iterator RPC the client
- * cares about goes through here, so `STREAM_RETRY` cannot be forgotten
- * at a call site. Adding a new streaming procedure = adding one entry
- * to this object; adherence is mechanical, not cultural.
- *
- * `attach` takes an `onRetry` callback because the server's first yield
- * after re-attach is a fresh `getScreenState()` snapshot — consumers
- * writing imperatively to xterm.js must clear the buffer before the
- * new snapshot lands, or scrollback double-paints. `onRetry` fires
- * before the retried iterator emits its first item.
+ * Streaming procedure wrappers. Adding a new streaming procedure = adding
+ * one entry here, so retry adherence is mechanical rather than cultural.
+ * `attach` takes an `onRetry` callback because `ClientRetryPlugin` fires
+ * `onRetry` before the new iterator emits its first yield, and the server's
+ * first yield post-reconnect is a fresh `getScreenState()` snapshot that
+ * would double-paint onto a stale xterm buffer without an explicit reset.
  */
 export const stream = {
   state: (signal?: AbortSignal) =>
@@ -109,14 +97,9 @@ export const stream = {
 };
 
 /**
- * Server lifecycle — one signal, one discriminated union, one place to
- * describe every observable state of the client/server connection.
- *
- * Replaces an earlier cluster of `wasConnected`/`knownProcessId` module
- * mutables plus a one-shot `serverRestarted` signal plus scattered toast
- * calls inside ws.on('open')/on('close'). Every UI that cares about the
- * lifecycle (header indicator, dim overlay, session-restore gating,
- * toasts) reads this one signal.
+ * Single discriminated union describing every observable state of the
+ * client/server connection. The header indicator, the dim overlay, the
+ * session-restore gate, and the toast driver all read this one signal.
  */
 export type ServerLifecycleEvent =
   | { kind: "connecting" }
@@ -130,7 +113,7 @@ const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
 });
 export { lifecycle };
 
-/** Backwards-compatible transport-status accessor for the header dot. */
+/** Transport status for the header dot. */
 const wsStatus = createMemo<WsStatus>(() =>
   match(lifecycle().kind)
     .with("connecting", () => "connecting" as const)
@@ -139,14 +122,13 @@ const wsStatus = createMemo<WsStatus>(() =>
     .exhaustive(),
 );
 
-/** Backwards-compatible "app state is fatally stale" memo. */
+/** True when the server process has changed — app state is stale, reload required. */
 const serverRestarted = createMemo(() => lifecycle().kind === "restarted");
 
 export { wsStatus, serverRestarted };
 
-// Transport observer — translates partysocket open/close events into
-// lifecycle transitions. Mutables are scoped inside the IIFE so no module
-// state leaks out; every external observer reads `lifecycle()` instead.
+// IIFE scopes `connectCount` and `knownProcessId` — no module-level
+// mutables leak; external observers read `lifecycle()` instead.
 (() => {
   let connectCount = 0;
   let knownProcessId: string | null = null;
@@ -154,9 +136,8 @@ export { wsStatus, serverRestarted };
   ws.addEventListener("open", () => {
     connectCount++;
     const isFirstConnect = connectCount === 1;
-    // server.info() uses the plugin default retry=0 (mutations/unary) so
-    // it fails fast if the peer isn't ready; partysocket will fire open
-    // again on the next successful connect.
+    // server.info() uses the plugin default retry=0, so a not-ready peer
+    // fails fast; partysocket will fire another `open` after reconnect.
     client.server
       .info()
       .then(({ processId }) => {
@@ -173,26 +154,22 @@ export { wsStatus, serverRestarted };
         knownProcessId = processId;
       })
       .catch((err: unknown) => {
-        // Probe failed — don't transition. Partysocket will reconnect
-        // and the next successful open will try again. Log so a
-        // persistently-broken probe (e.g. server 500 on /rpc/server.info)
-        // is diagnosable instead of leaving the UI stuck in "connecting".
+        // Don't transition — the next partysocket `open` will retry. Log
+        // so a persistently-broken probe doesn't silently leave the UI
+        // stuck in "connecting".
         console.warn("server.info probe failed:", err);
       });
   });
 
   ws.addEventListener("close", () => {
-    // Only emit disconnected after the first successful connect — the
-    // initial "connecting" phase doesn't count as a drop.
+    // Initial "connecting" phase doesn't count as a drop.
     if (connectCount > 0) setLifecycle({ kind: "disconnected" });
   });
 })();
 
-// Toast driver — one effect, pattern-matches lifecycle to user-facing
-// messaging. Runs under a root because rpc.ts is a module, not a
-// component; the effect lives for the lifetime of the page. In dev,
-// the HMR dispose hook tears the old root down so a rpc.ts edit doesn't
-// leak stacked reactive owners across hot-reloads.
+// `createRoot` because rpc.ts is a module, not a component — nothing
+// else owns the effect's reactive scope. HMR dispose hook tears the
+// root down on hot-reload so edits don't stack reactive owners.
 createRoot((dispose) => {
   createEffect(
     on(
@@ -215,9 +192,8 @@ createRoot((dispose) => {
               duration: Infinity,
             }),
           )
-          .with({ kind: "connecting" }, { kind: "connected" }, () => {
-            // Silent — no toast for initial boot.
-          })
+          // Silent on initial boot.
+          .with({ kind: "connecting" }, { kind: "connected" }, () => {})
           .exhaustive();
       },
       { defer: true },
