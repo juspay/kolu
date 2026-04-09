@@ -4,7 +4,8 @@
  *  in xterm's hidden textarea instead of dispatching a keydown).
  *
  *  Shown only on coarse-pointer devices. Stateless — writes escape
- *  sequences straight to the PTY via client.terminal.sendInput. */
+ *  sequences straight to the PTY via client.terminal.sendInput, with
+ *  a 10ms haptic tick on devices that support navigator.vibrate. */
 
 import { type Component, For, Show } from "solid-js";
 import { createMediaQuery } from "@solid-primitives/media";
@@ -38,6 +39,9 @@ const MobileKeyBar: Component<{
   function send(data: string) {
     const id = props.activeId();
     if (!id) return;
+    // 10ms haptic tick — Android only; iOS Safari doesn't implement
+    // navigator.vibrate, so the guard makes it a silent no-op there.
+    if ("vibrate" in navigator) navigator.vibrate(10);
     void client.terminal.sendInput({ id, data });
   }
 
