@@ -30,6 +30,16 @@ When(
   },
 );
 
+When(
+  "I set up a bare git repo at {string}",
+  async function (this: KoluWorld, repoPath: string) {
+    execFileSync("bash", [
+      "-c",
+      `rm -rf "${repoPath}" && git init --bare "${repoPath}"`,
+    ]);
+  },
+);
+
 Then(
   "the close confirmation should be visible",
   async function (this: KoluWorld) {
