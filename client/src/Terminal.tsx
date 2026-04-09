@@ -28,7 +28,8 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "./theme";
-import { client } from "./rpc";
+import { client, stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
@@ -53,7 +54,7 @@ function consumeStream<T>(
     try {
       for await (const item of await streamFn()) onItem(item);
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
+      if (!isExpectedCleanupError(err)) {
         console.error(`${label} error:`, err);
       }
     }
@@ -313,8 +314,17 @@ const Terminal: Component<{
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
+    // onRetry resets xterm before the retried iterator's first yield
+    // (a fresh screenState snapshot) — otherwise it double-paints.
     consumeStream(
-      () => client.terminal.attach({ id: props.terminalId }, { signal }),
+      () =>
+        stream.attach(props.terminalId, {
+          signal,
+          onRetry: () => {
+            terminal?.reset();
+            scrollLock.reset();
+          },
+        }),
       (data) => {
         if (terminal) scrollLock.writeData(terminal, data);
       },

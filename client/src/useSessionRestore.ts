@@ -4,6 +4,7 @@ import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
 import { useServerState } from "./useServerState";
+import { lifecycle } from "./rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -74,8 +75,10 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
-  // The subscription keeps state fresh — just read from it.
+  // Gated on lifecycle: on a genuine server restart, the dim overlay is
+  // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
+    if (lifecycle().kind === "restarted") return;
     if (store.terminalIds().length === 0 && hydrated) {
       setSavedSession(serverState.savedSession());
     }

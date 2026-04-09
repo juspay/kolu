@@ -25,7 +25,8 @@ import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
 import type { TerminalId } from "kolu-common";
-import { client, wsStatus, serverRestarted } from "./rpc";
+import { client, wsStatus, serverProcessId } from "./rpc";
+import TransportOverlay from "./TransportOverlay";
 import { useTerminals } from "./useTerminals";
 import { useServerState } from "./useServerState";
 import { useThemeManager } from "./useThemeManager";
@@ -222,10 +223,7 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
-      {/* Dim the app when the server process has changed — state is stale */}
-      <Show when={serverRestarted()}>
-        <div class="absolute inset-0 bg-black/60 z-50 pointer-events-auto" />
-      </Show>
+      <TransportOverlay />
       <Toaster
         position="bottom-right"
         theme={colorScheme()}
@@ -291,6 +289,12 @@ const App: Component = () => {
               ) : (
                 <span class="text-fg-2">dev</span>
               )}
+            </p>
+            <p>
+              Server:{" "}
+              <span class="font-mono text-fg-2">
+                {serverProcessId() ?? "—"}
+              </span>
             </p>
           </div>
         </Dialog.Content>

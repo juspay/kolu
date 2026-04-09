@@ -144,15 +144,13 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      // Snapshot: yield full history so late-joining clients get the sparkline
-      for (const sample of entry.activityHistory) yield sample;
-      // Live: yield individual transitions as they happen
+      yield { kind: "snapshot" as const, samples: [...entry.activityHistory] };
       for await (const sample of subscribeForTerminal_(
         "activity",
         input.id,
         signal,
       )) {
-        yield sample;
+        yield { kind: "delta" as const, sample };
       }
     }),
 

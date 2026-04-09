@@ -12,7 +12,8 @@
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
-import { client } from "./rpc";
+import { stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useSessionRestore } from "./useSessionRestore";
@@ -34,12 +35,18 @@ export function useTerminals(deps: {
     terminalLabel: store.terminalLabel,
   });
 
-  /** Subscribe to exit events for a terminal (one-shot action, not queryable state). */
+  /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
+   *
+   *  Race: if the terminal exits while the socket is down, the retried
+   *  re-subscribe throws `TerminalNotFoundError` (not retried, per
+   *  shouldRetry in rpc.ts) and the exit toast is missed. The terminal
+   *  itself is still removed via the list subscription in useTerminalStore,
+   *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
     (async () => {
       try {
-        const stream = await client.terminal.onExit({ id });
-        for await (const code of stream) {
+        const iter = await stream.exit(id);
+        for await (const code of iter) {
           const label = store.terminalLabel(id);
           if (code === 0) {
             toast(`${label} exited`);
@@ -48,8 +55,12 @@ export function useTerminals(deps: {
           }
           crud.removeAndAutoSwitch(id);
         }
-      } catch {
-        // Stream aborted or terminal gone — expected on cleanup
+      } catch (err) {
+        // Non-cleanup errors land here — notably `TerminalNotFoundError`
+        // from a server-restart re-subscribe. Log so it's diagnosable.
+        if (!isExpectedCleanupError(err)) {
+          console.error("Exit stream error:", err);
+        }
       }
     })();
   }

@@ -16,7 +16,8 @@ import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { FONT_FAMILY } from "./theme";
-import { client } from "./rpc";
+import { stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import type { TerminalId } from "kolu-common";
 
 /** Font size for the internal xterm instance. Large enough to render crisp
@@ -99,18 +100,21 @@ const TerminalPreview: Component<{
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
-    // Stream screen state + live data
+    // onRetry clears the preview xterm before the retried iterator's
+    // fresh screenState snapshot — otherwise it double-paints.
     void (async () => {
       try {
-        const stream = await client.terminal.attach(
-          { id: props.terminalId },
-          { signal },
-        );
-        for await (const data of stream) {
+        const iter = await stream.attach(props.terminalId, {
+          signal,
+          onRetry: () => terminal?.reset(),
+        });
+        for await (const data of iter) {
           terminal?.write(data);
         }
-      } catch {
-        // Stream aborted — expected on cleanup
+      } catch (err) {
+        if (!isExpectedCleanupError(err)) {
+          console.error("Terminal preview stream error:", err);
+        }
       }
     })();
 

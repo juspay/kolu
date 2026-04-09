@@ -15,13 +15,15 @@
  *  No manual Map, AbortController, or version signals needed. */
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
+import { match } from "ts-pattern";
 import { createSubscription, type Subscription } from "./createSubscription";
-import { client } from "./rpc";
+import { stream } from "./rpc";
 import type {
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  ActivityStreamEvent,
 } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 import {
@@ -54,17 +56,24 @@ export function useTerminalMetadata(deps: {
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
-    const meta = createSubscription(() =>
-      client.terminal.onMetadataChange({ id }),
-    );
-    const activity = createSubscription(
-      () => client.terminal.onActivityChange({ id }),
+    const meta = createSubscription(() => stream.metadata(id));
+    // Snapshot replaces, delta appends — every re-subscribe begins with
+    // a fresh snapshot, so reconnect-safety is structural (no dedupe).
+    const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
+      () => stream.activity(id),
       {
-        reduce: (acc: ActivitySample[], sample: ActivitySample) => {
+        reduce: (acc, event) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
-          return [...acc.filter(([t]) => t >= cutoff), sample].slice(
-            -MAX_ACTIVITY_CHUNKS,
-          );
+          return match(event)
+            .with({ kind: "snapshot" }, ({ samples }) =>
+              samples.filter(([t]) => t >= cutoff).slice(-MAX_ACTIVITY_CHUNKS),
+            )
+            .with({ kind: "delta" }, ({ sample }) =>
+              [...acc.filter(([t]) => t >= cutoff), sample].slice(
+                -MAX_ACTIVITY_CHUNKS,
+              ),
+            )
+            .exhaustive();
         },
         initial: [] as ActivitySample[],
       },
