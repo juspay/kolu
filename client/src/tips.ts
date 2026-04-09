@@ -60,4 +60,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-random-theme",
     text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the terminal color theme`,
   },
+  {
+    id: "amb-export-pdf",
+    text: `${formatKeybind(SHORTCUTS.exportSessionAsPdf.keybind)} exports the current session as a PDF`,
+  },
 ];
