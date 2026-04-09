@@ -8,6 +8,7 @@ import { toast } from "solid-sonner";
 import { availableThemes, FONT_FAMILY } from "./theme";
 import { client } from "./rpc";
 import { getTerminalRefs } from "./terminalRefs";
+import { terminalName } from "./terminalDisplay";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
@@ -153,7 +154,14 @@ export function useTerminalCrud(deps: {
     const bodyHtml = refs.serialize.serializeAsHTML({
       includeGlobalBackground: true,
     });
-    const label = store.terminalLabel(id);
+    // Prefer repo + branch from git metadata for the document title; fall
+    // back to repo/cwd name, then to the sidebar "Terminal N" label.
+    const meta = store.getMetadata(id);
+    const label = meta?.git
+      ? `${meta.git.repoName} (${meta.git.branch})`
+      : meta
+        ? terminalName(meta)
+        : store.terminalLabel(id);
     // Pull the active theme off the live xterm so the popup matches exactly
     // what the user sees — serializeAsHTML only emits a global background,
     // not a default foreground, so unset text would fall back to browser
