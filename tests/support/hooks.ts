@@ -178,7 +178,7 @@ AfterAll(async function () {
   killServer();
 });
 
-Before(async function (this: KoluWorld) {
+Before(async function (this: KoluWorld, scenario) {
   // Kill leftover terminals and reset state so each scenario starts clean
   await Promise.all([
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
@@ -200,9 +200,17 @@ Before(async function (this: KoluWorld) {
     }),
   ]);
 
+  // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
+  // mounts the mobile drag handle, switches the sidebar into overlay mode).
+  // Without the tag, scenarios run in the desktop context unchanged.
+  const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
+
   this.browser = browser;
   this.context = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
+    viewport: isMobile
+      ? { width: 390, height: 844 }
+      : { width: 1280, height: 720 },
+    ...(isMobile && { hasTouch: true, isMobile: true }),
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
     // clipboard-write: lets tests place images in the clipboard for paste testing.
