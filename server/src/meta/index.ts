@@ -44,7 +44,7 @@ export function updateMetadata(
 ): void {
   mutate(entry.info.meta);
   const m = entry.info.meta;
-  log.info(
+  log.debug(
     {
       terminal: terminalId,
       cwd: m.cwd,

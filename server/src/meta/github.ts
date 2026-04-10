@@ -168,7 +168,7 @@ export function startGitHubPrProvider(
   let lastBranch: string | undefined = meta.git?.branch;
   let lastRepoRoot: string | undefined = meta.git?.repoRoot;
 
-  plog.info({ branch: lastBranch }, "started");
+  plog.debug({ branch: lastBranch }, "started");
 
   // Resolve immediately if we have git context
   if (lastBranch && lastRepoRoot) {
@@ -179,7 +179,10 @@ export function startGitHubPrProvider(
     const branch = git?.branch;
     const repoRoot = git?.repoRoot;
     if (branch === lastBranch && repoRoot === lastRepoRoot) return;
-    plog.info({ from: lastBranch, to: branch }, "branch changed, re-resolving");
+    plog.debug(
+      { from: lastBranch, to: branch },
+      "branch changed, re-resolving",
+    );
     lastBranch = branch;
     lastRepoRoot = repoRoot;
     if (branch && repoRoot) {
@@ -197,7 +200,7 @@ export function startGitHubPrProvider(
   async function resolve(repoRoot: string) {
     const pr = await resolveGitHubPr(repoRoot);
     if (prInfoEqual(pr, entry.info.meta.pr)) return;
-    plog.info(
+    plog.debug(
       pr
         ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }
         : { pr: null },
@@ -222,6 +225,6 @@ export function startGitHubPrProvider(
   return () => {
     abort.abort();
     clearInterval(pollTimer);
-    plog.info("stopped");
+    plog.debug("stopped");
   };
 }

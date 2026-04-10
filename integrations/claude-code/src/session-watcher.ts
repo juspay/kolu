@@ -153,7 +153,7 @@ export function createSessionWatcher(
   function setupTranscriptWatching() {
     const tp = findTranscriptPath(session);
     if (tp) {
-      plog.info({ path: tp }, "transcript found");
+      plog.debug({ path: tp }, "transcript found");
       attachTranscriptWatcher(tp);
       onTranscriptMaybeChanged();
       return;
@@ -174,7 +174,7 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "waiting") return;
     const tp = findTranscriptPath(session);
     if (!tp) return;
-    plog.info({ path: tp }, "transcript appeared");
+    plog.debug({ path: tp }, "transcript appeared");
     transcriptWatching.dirWatcher();
     attachTranscriptWatcher(tp);
     onTranscriptMaybeChanged();
@@ -206,7 +206,7 @@ export function createSessionWatcher(
     };
 
     if (!infoEqual(info, lastInfo)) {
-      plog.info(
+      plog.debug(
         { state: info.state, model: info.model, session: info.sessionId },
         "claude code state updated",
       );
@@ -248,7 +248,7 @@ export function createSessionWatcher(
       const changed = extractTasks(newLines, taskMap, plog);
       if (changed) {
         const progress = deriveTaskProgress(taskMap);
-        plog.info(
+        plog.debug(
           {
             tasks: taskMap.size,
             progress,
@@ -271,7 +271,7 @@ export function createSessionWatcher(
         if (summary === lastSummary) return;
         lastSummary = summary;
         if (!lastInfo) return;
-        plog.info(
+        plog.debug(
           { summary, session: session.sessionId },
           "claude summary updated",
         );
