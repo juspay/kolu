@@ -83,6 +83,7 @@ describe("infoEqual", () => {
     sessionId: "ses_abc",
     model: "litellm/glm-latest",
     summary: "Fix auth flow",
+    taskProgress: null,
   };
 
   it("returns true for identical references", () => {
@@ -108,9 +109,34 @@ describe("infoEqual", () => {
     { field: "model", value: "anthropic/claude-sonnet-4-5" },
     { field: "summary", value: "Different topic" },
     { field: "summary", value: null },
+    { field: "taskProgress", value: { total: 5, completed: 2 } },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(infoEqual(info, { ...info, [field]: value } as OpenCodeInfo)).toBe(
       false,
     );
+  });
+
+  it("detects different taskProgress completed count", () => {
+    const a: OpenCodeInfo = {
+      ...info,
+      taskProgress: { total: 5, completed: 2 },
+    };
+    const b: OpenCodeInfo = {
+      ...info,
+      taskProgress: { total: 5, completed: 3 },
+    };
+    expect(infoEqual(a, b)).toBe(false);
+  });
+
+  it("returns true for equal taskProgress", () => {
+    const a: OpenCodeInfo = {
+      ...info,
+      taskProgress: { total: 5, completed: 3 },
+    };
+    const b: OpenCodeInfo = {
+      ...info,
+      taskProgress: { total: 5, completed: 3 },
+    };
+    expect(infoEqual(a, b)).toBe(true);
   });
 });

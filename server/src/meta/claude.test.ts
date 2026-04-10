@@ -49,6 +49,7 @@ describe("infoEqual", () => {
       sessionId: "abc-123",
       model: null,
       summary: null,
+      taskProgress: null,
     };
     expect(infoEqual(info, opencode)).toBe(false);
   });

@@ -29,6 +29,18 @@ import { match } from "ts-pattern";
 
 // --- OpenCode schemas (single source of truth) ---
 
+/** Task progress for a session — total todos and completed count.
+ *  Defined locally (not imported from kolu-claude-code) to avoid an
+ *  integration↔integration dependency. Structurally identical to
+ *  ClaudeCodeInfoSchema's TaskProgress so the discriminated union in
+ *  kolu-common composes cleanly. */
+export const TaskProgressSchema = z.object({
+  total: z.number(),
+  completed: z.number(),
+});
+
+export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
   /** Current state derived from the latest session message. */
@@ -39,6 +51,8 @@ export const OpenCodeInfoSchema = z.object({
   model: z.string().nullable(),
   /** Session title from OpenCode. */
   summary: z.string().nullable(),
+  /** Todo progress from OpenCode's `todo` table. null when no todos. */
+  taskProgress: TaskProgressSchema.nullable(),
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
@@ -110,6 +124,34 @@ export function findSessionByDirectory(
     };
   } catch (err) {
     log?.warn({ err, directory }, "opencode session query failed");
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+// --- Todo progress ---
+
+/**
+ * Read todo progress for a session from the `todo` table.
+ * Returns null if the session has no todos. Closes the DB after the query.
+ */
+export function getSessionTaskProgress(
+  sessionId: string,
+  log?: Logger,
+): TaskProgress | null {
+  const db = openDb(log);
+  if (!db) return null;
+  try {
+    const row = db
+      .prepare(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
+      )
+      .get(sessionId) as { total: number; completed: number | null } | undefined;
+    if (!row || row.total === 0) return null;
+    return { total: row.total, completed: row.completed ?? 0 };
+  } catch (err) {
+    log?.warn({ err, sessionId }, "opencode todo query failed");
     return null;
   } finally {
     db.close();

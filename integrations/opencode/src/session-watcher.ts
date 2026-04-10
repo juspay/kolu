@@ -14,7 +14,9 @@
 import {
   type OpenCodeInfo,
   type OpenCodeSession,
+  type TaskProgress,
   deriveSessionState,
+  getSessionTaskProgress,
   watchOpenCodeDb,
 } from "./index.ts";
 
@@ -28,6 +30,16 @@ type Logger = {
 
 // --- Equality ---
 
+/** Compare two TaskProgress values for equality. */
+function taskProgressEqual(
+  a: TaskProgress | null,
+  b: TaskProgress | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.total === b.total && a.completed === b.completed;
+}
+
 /** Compare two OpenCodeInfo values for equality. */
 export function infoEqual(
   a: OpenCodeInfo | null,
@@ -39,7 +51,8 @@ export function infoEqual(
     a.state === b.state &&
     a.sessionId === b.sessionId &&
     a.model === b.model &&
-    a.summary === b.summary
+    a.summary === b.summary &&
+    taskProgressEqual(a.taskProgress, b.taskProgress)
   );
 }
 
@@ -75,12 +88,15 @@ export function createOpenCodeWatcher(
       return;
     }
 
+    const taskProgress = getSessionTaskProgress(session.id, log);
+
     const info: OpenCodeInfo = {
       kind: "opencode",
       state: derived.state,
       sessionId: session.id,
       model: derived.model,
       summary: session.title,
+      taskProgress,
     };
 
     if (infoEqual(lastInfo, info)) return;
