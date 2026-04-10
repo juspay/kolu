@@ -237,9 +237,9 @@ If changes are purely internal with no user-facing impact, unit tests may suffic
 
 ### ci
 
-Read the project's instructions to find the CI command, **how to invoke it**, and the verification method. Projects may specify a particular invocation mechanism (e.g., the `Monitor` tool with a stdout filter for live step events, or `Bash` with `run_in_background: true` for one-shot completion). If the project doesn't specify, default to `Bash` with `run_in_background: true` for commands that take more than a few seconds.
+Read the project's instructions to find the CI command and verification method. Run CI with `run_in_background: true` if the command takes more than a few seconds.
 
-**Never pipe CI to `tail`/`head`** — broken pipes kill the CI process mid-run regardless of which tool you use. Other tool-specific stream-handling rules (e.g., the `2>&1` warning that applies to `Bash(run_in_background)` but not to `Monitor`) belong in the project's instructions next to the chosen invocation.
+**Never pipe CI to `tail`/`head`**, and **never append `2>&1`** — background mode captures both streams.
 
 CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
@@ -339,7 +339,7 @@ COMMENT
 - **Never skip steps.** Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
-- **Background for CI.** Don't block on CI. Use whatever async invocation the project specifies (e.g., `Bash` with `run_in_background: true`, or the `Monitor` tool with a step-event filter). Default to `Bash(run_in_background)` if the project doesn't say.
+- **Background for CI.** Run CI with `run_in_background: true`.
 - **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey pause.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
 - **Complete the full workflow.** Implementing code is one step of many. The task is not done until a PR URL (GitHub), a pushed branch name (non-GitHub forges), or a working-tree summary (`--no-git`) is reported.

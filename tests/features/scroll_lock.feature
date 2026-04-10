@@ -45,6 +45,13 @@ Feature: Scroll lock
     And I fire the output trigger with 200 lines
     Then the visible terminal text should be unchanged
 
+  Scenario: Switching back to a terminal with scrollback auto-scrolls to bottom
+    When I create a terminal
+    And I generate 200 lines of output
+    And I create a terminal
+    And I select terminal 1 in the sidebar
+    Then the terminal should be scrolled to the bottom
+
   Scenario: Disabling scroll lock prevents freezing
     When I click the settings button
     And I click the scroll lock toggle

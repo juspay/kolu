@@ -12,6 +12,7 @@ export function useTerminalAlerts(deps: {
   activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
+  isUnread: (id: TerminalId) => boolean;
   markUnread: (id: TerminalId) => void;
   clearAcknowledged: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
@@ -19,6 +20,18 @@ export function useTerminalAlerts(deps: {
 }) {
   // Request browser notification permission eagerly when alerts are enabled
   if (deps.activityAlerts()) requestNotificationPermission();
+
+  // Badge the PWA dock icon with the unread agent count (Badging API).
+  // Clears automatically when the user visits all unread terminals.
+  createEffect(() => {
+    if (!("setAppBadge" in navigator)) return;
+    const count = deps.terminalIds().filter((id) => deps.isUnread(id)).length;
+    if (count > 0) {
+      void navigator.setAppBadge(count);
+    } else {
+      void navigator.clearAppBadge();
+    }
+  });
 
   // Reactively watch Claude state for all terminals.
   // SolidJS's on() tracks previous values natively — no manual Map needed.
