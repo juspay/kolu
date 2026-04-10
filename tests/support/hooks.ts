@@ -229,6 +229,23 @@ Before(async function (this: KoluWorld, scenario) {
       style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
       document.head.appendChild(style);
     });
+    // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,
+    // readBufferText, and getTerminalPid via page.evaluate / page.waitForFunction.
+    // Single definition avoids the buffer-read loop being duplicated across files.
+    window.__readXtermBuffer = function(sel, idx) {
+      var containers = document.querySelectorAll(sel);
+      var container = containers[idx];
+      if (!container) return "";
+      var term = container.__xterm;
+      if (!term) return "";
+      var buf = term.buffer.active;
+      var lines = [];
+      for (var i = 0; i < buf.length; i++) {
+        var line = buf.getLine(i);
+        lines.push(line ? line.translateToString(true) : "");
+      }
+      return lines.join("\\n");
+    };
   `);
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));

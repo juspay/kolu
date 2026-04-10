@@ -2,7 +2,7 @@ import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { pollUntilBufferContains } from "../support/buffer.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 
 /** Per-scenario FIFO path (avoids collisions when CI runs parallel workers). */
 function scrollFifo(world: KoluWorld): string {
@@ -20,7 +20,7 @@ When(
     await this.terminalRun(
       `for i in $(seq 1 ${count}); do echo scroll-test-$i; done`,
     );
-    await pollUntilBufferContains(this.page, `scroll-test-${count}`);
+    await waitForBufferContains(this.page, `scroll-test-${count}`);
   },
 );
 
@@ -38,7 +38,7 @@ When(
         .locator('[data-testid="scroll-to-bottom"][data-active]')
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     } else {
-      await pollUntilBufferContains(this.page, `extra-line-${count}`);
+      await waitForBufferContains(this.page, `extra-line-${count}`);
     }
   },
 );

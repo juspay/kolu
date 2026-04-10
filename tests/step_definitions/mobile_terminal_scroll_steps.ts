@@ -1,6 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { pollUntilBufferContains } from "../support/buffer.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 /** Read xterm's current viewportY (top row of the visible window). When the
@@ -27,7 +27,7 @@ When(
     // Wait for `seq` output to fill scrollback past the viewport so there's
     // somewhere to scroll TO. Polling on a high line number guarantees the
     // buffer is deeper than the visible window.
-    await pollUntilBufferContains(this.page, "200");
+    await waitForBufferContains(this.page, "200");
     this.savedScrollTop = await readViewportY(this);
   },
 );

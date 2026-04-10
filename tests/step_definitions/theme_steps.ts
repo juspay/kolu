@@ -6,7 +6,6 @@ import {
   POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
-import { pollUntil } from "../support/poll.ts";
 
 /** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
 function hexToRgb(hex: string): string {
@@ -32,24 +31,19 @@ Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
     // The terminal viewport div has inline background-color set by the active theme.
-    // Poll since theme change involves async reset + screen state restore.
+    // waitForFunction since theme change involves async reset + screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
-    const bgColor = await pollUntil(
-      this.page,
-      () =>
-        this.page.evaluate(() => {
-          const container = document.querySelector(
-            '[data-testid="terminal-viewport"]',
-          );
-          return container ? getComputedStyle(container).backgroundColor : "";
-        }),
-      (bg) => bg === expectedRgb,
-      { attempts: 50 },
-    );
-    assert.strictEqual(
-      bgColor,
+    await this.page.waitForFunction(
+      (expected) => {
+        const container = document.querySelector(
+          '[data-testid="terminal-viewport"]',
+        );
+        return container
+          ? getComputedStyle(container).backgroundColor === expected
+          : false;
+      },
       expectedRgb,
-      `Expected terminal background ${expectedColor}`,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -64,15 +58,14 @@ Then(
   async function (this: KoluWorld, notExpected: string) {
     const themeName = this.page.locator('[data-testid="theme-name"]');
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await pollUntil(
-      this.page,
-      async () => (await themeName.textContent()) ?? "",
-      (t) => t !== notExpected,
-      { attempts: 30 },
-    );
-    assert.ok(
-      text !== notExpected,
-      `Expected theme to differ from "${notExpected}" but got "${text}"`,
+    await this.page.waitForFunction(
+      (not) => {
+        const el = document.querySelector('[data-testid="theme-name"]');
+        const text = el?.textContent ?? "";
+        return text.length > 0 && text !== not;
+      },
+      notExpected,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -89,16 +82,13 @@ Then(
   async function (this: KoluWorld, expectedTheme: string) {
     const themeName = this.page.locator('[data-testid="theme-name"]');
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await pollUntil(
-      this.page,
-      async () => (await themeName.textContent()) ?? "",
-      (t) => t === expectedTheme,
-      { attempts: 30 },
-    );
-    assert.strictEqual(
-      text,
+    await this.page.waitForFunction(
+      (expected) => {
+        const el = document.querySelector('[data-testid="theme-name"]');
+        return el?.textContent === expected;
+      },
       expectedTheme,
-      `Expected theme "${expectedTheme}" but got "${text}"`,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
