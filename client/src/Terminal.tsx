@@ -134,6 +134,7 @@ const Terminal: Component<{
       (visible) => {
         if (!visible || !terminal) return;
         scrollLock.reset();
+        terminal.scrollToBottom();
         debouncedFit();
         clearTextureAtlas();
         if (props.focused !== false) terminal.focus();

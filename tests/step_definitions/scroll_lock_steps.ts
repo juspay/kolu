@@ -172,6 +172,24 @@ Then(
 );
 
 Then(
+  "the terminal should be scrolled to the bottom",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () => {
+        const container = document.querySelector(
+          "[data-visible][data-terminal-id]",
+        );
+        const term = (container as any)?.__xterm;
+        if (!term) return false;
+        const buf = term.buffer.active;
+        return buf.baseY <= buf.viewportY;
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the scroll position should be unchanged",
   async function (this: KoluWorld) {
     assert.ok(
