@@ -27,7 +27,7 @@ After each step's verification, write/update `.do-results.json`:
 {
   "workflow": "do",
   "startedAt": "<ISO timestamp>",
-  "active": true,
+  "active": "working",
   "status": "running",
   "forge": "github",
   "noGit": false,
@@ -47,7 +47,7 @@ After each step's verification, write/update `.do-results.json`:
 - `noGit` is `true` if the user passed `--no-git`. When set, git-mutating steps (**branch**, **commit**, **update-pr**) record status `skipped` with reason `"--no-git"`.
 - Step `status` is one of `passed`, `failed`, or `skipped`. A `skipped` step must include a `reason` field explaining why (e.g., `"non-github forge: bitbucket"`, `"--no-git"`, `"no check command configured"`).
 
-- Set `active` to `true` when the workflow starts (**sync**), and `false` when it ends (**done**). The stop hook uses this field to block premature exits.
+- `active` is a state enum, not a boolean. Set it to `"working"` when the workflow starts (**sync**), `"waiting"` when the agent is idle waiting for an external process (e.g., background CI), back to `"working"` when the external process returns, and `false` when the workflow ends (**done**). The stop hook uses this field: `"working"` blocks exits, `"waiting"` allows them (with a resume hint), `false` allows them.
 - Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
 - Use the Write tool to update the file after each step.
 - Capture timestamps via Bash: `date -u +%Y-%m-%dT%H:%M:%SZ`. Do not guess or hallucinate timestamps.
@@ -240,6 +240,8 @@ If changes are purely internal with no user-facing impact, unit tests may suffic
 Read the project's instructions to find the CI command and verification method. Run CI with `run_in_background: true` if the command takes more than a few seconds.
 
 **Never pipe CI to `tail`/`head`**, and **never append `2>&1`** — background mode captures both streams.
+
+**Active state**: Before waiting for background CI, set `active` to `"waiting"` in `.do-results.json`. When CI returns (success or failure), set it back to `"working"` before proceeding. This lets the stop hook allow graceful exits while the agent is idle.
 
 CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
