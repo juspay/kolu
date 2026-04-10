@@ -62,6 +62,18 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 **Debugging detection:** the command palette has a `Debug → Show Claude transcript` entry (visible only when the active terminal has a Claude session) that opens a side-by-side view of the server's state-change log next to the raw JSONL events from disk since monitoring began. Use it when state seems stuck or transitions feel missed.
 
+### OpenCode Status
+
+Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows their state alongside Claude Code in the sidebar and header.
+
+**How it works:** when the foreground process is `opencode`, the provider connects to OpenCode's local HTTP server (default port 4096) via REST to discover sessions matching the terminal's CWD, then subscribes to the `/event` SSE stream for real-time status updates. OpenCode's status model (`idle`/`busy`/`retry`) maps to Kolu's `waiting`/`thinking`/`thinking` states. Session titles are surfaced from the OpenCode API.
+
+**What we can't detect:**
+
+- **Tool use vs thinking** — OpenCode's `busy` status doesn't distinguish between LLM generation and tool execution (v1 maps both to "thinking")
+- **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the busy one (or most recently listed)
+- **Custom ports** — if OpenCode's server port is changed from the default 4096, set `KOLU_OPENCODE_PORT` or `KOLU_OPENCODE_URL`
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
@@ -75,13 +87,15 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 ## Architecture
 
-pnpm monorepo, three packages:
+pnpm monorepo:
 
-| Package   | Stack                                                                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
-| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
-| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+| Package                     | Stack                                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
+| `server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+| `integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
+| `integrations/opencode/`    | OpenCode detection — REST/SSE client for OpenCode's local HTTP API                                                                               |
 
 ### Communication
 
@@ -144,13 +158,13 @@ flowchart TB
 
 **Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
-**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). A Claude provider wakes on title events (OSC 2) and `fs.watch` on `~/.claude/sessions/` to check each terminal's pty foreground pid. All providers feed a single metadata channel streamed to the client as a subscription[^providers].
+**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent providers detect coding agents: the Claude provider wakes on title events (OSC 2) and `fs.watch` on `~/.claude/sessions/` to check each terminal's pty foreground pid; the OpenCode provider connects to OpenCode's local HTTP server via REST+SSE when `opencode` is the foreground process. All providers feed a single metadata channel streamed to the client as a subscription[^providers].
 
 **User actions** — command palette and sidebar dispatch plain oRPC client calls ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
-[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates. The session display title comes from a fire-and-forget [`getSessionInfo()`](https://platform.claude.com/docs/en/api/agent-sdk/typescript) call piggybacking on the same transcript watcher.
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates. The session display title comes from a fire-and-forget [`getSessionInfo()`](https://platform.claude.com/docs/en/api/agent-sdk/typescript) call piggybacking on the same transcript watcher. OpenCode provider activates when `opencode` is the foreground process, connects to OpenCode's local HTTP server via REST+SSE for session discovery and real-time status updates.
 
 [^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from server-derived subscription state.
 

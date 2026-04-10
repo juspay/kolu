@@ -72,6 +72,9 @@ export function infoEqual(a: AgentInfo | null, b: AgentInfo | null): boolean {
       taskProgressEqual(a.taskProgress, b.taskProgress)
     );
   }
+  if (a.kind === "opencode" && b.kind === "opencode") {
+    return a.model === b.model && a.summary === b.summary;
+  }
   return true;
 }
 

@@ -15,6 +15,17 @@ function asClaudeCode(agent: AgentInfo): ClaudeCodeInfo | undefined {
   return agent.kind === "claude-code" ? agent : undefined;
 }
 
+/** Extract the summary/title from any agent kind.
+ *  Both Claude Code and OpenCode carry `summary`. */
+function agentSummary(agent: AgentInfo): string | null {
+  switch (agent.kind) {
+    case "claude-code":
+      return agent.summary;
+    case "opencode":
+      return agent.summary;
+  }
+}
+
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
 
@@ -152,7 +163,7 @@ const TerminalMeta: Component<{
                     )}
                   </Show>
                 </div>
-                <Show when={asClaudeCode(agent())?.summary}>
+                <Show when={agentSummary(agent())}>
                   {(summary) => (
                     <div
                       data-testid="agent-summary"
@@ -185,10 +196,8 @@ const TerminalMeta: Component<{
                *  `fg` to the foreground value directly. */}
               <Show
                 when={
-                  !(
-                    info().meta.agent &&
-                    asClaudeCode(info().meta.agent!)?.summary
-                  ) && info().meta.foreground
+                  !(info().meta.agent && agentSummary(info().meta.agent!)) &&
+                  info().meta.foreground
                 }
               >
                 {(fg) => (

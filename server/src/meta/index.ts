@@ -17,6 +17,7 @@ import { publishForTerminal } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
+import { startOpenCodeProvider } from "./opencode.ts";
 import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
@@ -72,11 +73,13 @@ export function startProviders(
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startClaudeCodeProvider(entry, terminalId);
+  const stopOpenCode = startOpenCodeProvider(entry, terminalId);
   const stopProcess = startProcessProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
     stopClaude();
+    stopOpenCode();
     stopProcess();
   };
 }

@@ -5,9 +5,10 @@
 
 import { z } from "zod";
 import { ClaudeCodeInfoSchema, TaskProgressSchema } from "kolu-claude-code";
+import { OpenCodeInfoSchema } from "kolu-opencode";
 
 // Re-export integration schemas so consumers import from kolu-common only.
-export { ClaudeCodeInfoSchema, TaskProgressSchema };
+export { ClaudeCodeInfoSchema, TaskProgressSchema, OpenCodeInfoSchema };
 
 // --- Zod schemas ---
 
@@ -58,12 +59,6 @@ export const GitHubPrInfoSchema = z.object({
 // --- AI coding agent context ---
 
 export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
-
-export const OpenCodeInfoSchema = z.object({
-  kind: z.literal("opencode"),
-  state: z.enum(["thinking", "tool_use", "waiting"]),
-  sessionId: z.string(),
-});
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
@@ -288,6 +283,7 @@ export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
 export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;

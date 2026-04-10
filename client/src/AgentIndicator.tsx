@@ -4,7 +4,7 @@
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { AgentInfo } from "kolu-common";
-import { ClaudeCodeIcon } from "./Icons";
+import { ClaudeCodeIcon, OpenCodeIcon } from "./Icons";
 
 /** Busy = actively working (thinking or running tools). Warning = needs user input. */
 const BUSY_COLOR = "text-busy";
@@ -36,7 +36,7 @@ const stateConfig: Record<
 
 const agentIcons: Record<AgentInfo["kind"], Component<{ class?: string }>> = {
   "claude-code": ClaudeCodeIcon,
-  opencode: ClaudeCodeIcon, // placeholder until OpenCode gets its own icon
+  opencode: OpenCodeIcon,
 };
 
 const agentNames: Record<AgentInfo["kind"], string> = {

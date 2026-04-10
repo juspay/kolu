@@ -47,7 +47,35 @@ describe("infoEqual", () => {
       kind: "opencode",
       state: "thinking",
       sessionId: "abc-123",
+      model: null,
+      summary: null,
     };
     expect(infoEqual(info, opencode)).toBe(false);
+  });
+
+  describe("opencode variants", () => {
+    const ocInfo: AgentInfo = {
+      kind: "opencode",
+      state: "thinking",
+      sessionId: "oc-123",
+      model: "anthropic/claude-sonnet-4-5",
+      summary: "Fix auth flow",
+    };
+
+    it("returns true for equal opencode values", () => {
+      expect(infoEqual(ocInfo, { ...ocInfo })).toBe(true);
+    });
+
+    it.each([
+      { field: "state", value: "waiting" },
+      { field: "sessionId", value: "other" },
+      { field: "model", value: "openai/gpt-4o" },
+      { field: "summary", value: "Different topic" },
+      { field: "summary", value: null },
+    ] as const)("detects different $field", ({ field, value }) => {
+      expect(
+        infoEqual(ocInfo, { ...ocInfo, [field]: value } as AgentInfo),
+      ).toBe(false);
+    });
   });
 });
