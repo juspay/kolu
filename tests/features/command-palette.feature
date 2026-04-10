@@ -162,6 +162,18 @@ Feature: Command Palette
     Then the shortcuts help should be visible
     And there should be no page errors
 
+  Scenario: Ambient tip shown in palette footer on desktop
+    When I open the command palette
+    Then the palette tip should be visible
+    And there should be no page errors
+
+  @mobile
+  Scenario: Tips suppressed on mobile
+    When I open the command palette
+    Then the command palette should be visible
+    And no palette tip should be visible
+    And there should be no page errors
+
   Scenario: Cmd/Ctrl+K does not leak to terminal
     Given I intercept oRPC sendInput calls
     When I open the command palette

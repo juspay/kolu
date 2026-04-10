@@ -239,6 +239,15 @@ const Terminal: Component<{
     term.loadAddon(serializeAddon);
 
     term.open(containerRef);
+    // Mobile virtual keyboards autocorrect/autocapitalize xterm's hidden
+    // textarea by default, mangling shell input. Disable all correction
+    // features — terminal input is never prose.
+    if (term.textarea) {
+      term.textarea.setAttribute("autocorrect", "off");
+      term.textarea.setAttribute("autocapitalize", "off");
+      term.textarea.setAttribute("autocomplete", "off");
+      term.textarea.setAttribute("spellcheck", "false");
+    }
     // Expose for e2e tests: read buffer content at viewport position.
     (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
     // Production path for handlers that need live xterm/addon refs

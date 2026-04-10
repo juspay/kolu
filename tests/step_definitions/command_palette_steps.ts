@@ -214,6 +214,20 @@ Then(
   },
 );
 
+Then("the palette tip should be visible", async function (this: KoluWorld) {
+  const tip = this.page.locator(
+    `${PALETTE_SELECTOR} [data-testid="palette-tip"]`,
+  );
+  await tip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then("no palette tip should be visible", async function (this: KoluWorld) {
+  const count = await this.page
+    .locator(`${PALETTE_SELECTOR} [data-testid="palette-tip"]`)
+    .count();
+  assert.strictEqual(count, 0, `Expected no palette tip, got ${count}`);
+});
+
 Then("no palette hint should be visible", async function (this: KoluWorld) {
   const count = await this.page
     .locator(`${PALETTE_SELECTOR} [data-testid="palette-hint"]`)
