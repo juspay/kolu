@@ -30,6 +30,7 @@ export function useTerminals(deps: {
     activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
     getMetadata: store.getMetadata,
+    isUnread: store.isUnread,
     markUnread: store.markUnread,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
