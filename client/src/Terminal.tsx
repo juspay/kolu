@@ -371,6 +371,56 @@ const Terminal: Component<{
       e.preventDefault(),
     );
 
+    // Touch-scroll the scrollback. xterm.js 6.0.0 declares
+    // IViewport.handleTouchStart/Move types but Viewport.ts has zero
+    // touch wiring, and the WebGL canvas eats touch events on the way
+    // to the parent .xterm-viewport — so swipes inside the terminal
+    // do nothing on mobile until we bridge them ourselves.
+    //
+    // Single-variable state machine: touchAnchorY is the Y baseline
+    // that line conversion is measured from. null when idle, a number
+    // while a swipe is in progress. On every emitted line the anchor
+    // advances by exactly the consumed pixels, so the sub-line residue
+    // lives implicitly in (currentY - touchAnchorY) on the next move
+    // — no separate accumulator to keep in sync.
+    //
+    // scrollLock picks up the resulting term.onScroll for free, so
+    // freezing live output while the user reads scrollback works
+    // without any extra wiring.
+    let touchAnchorY: number | null = null;
+    makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
+      // Multi-touch (pinch-zoom) passes through to the browser
+      if (e.touches.length !== 1) return;
+      touchAnchorY = e.touches[0]!.clientY;
+    });
+    makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
+      // Multi-touch interrupts a swipe — drop the anchor so the next
+      // single-finger move starts a fresh gesture instead of resuming
+      // from a stale (possibly far-away) reference point.
+      if (e.touches.length !== 1) {
+        touchAnchorY = null;
+        return;
+      }
+      if (touchAnchorY === null || !terminal) return;
+      const screen = terminal.element?.querySelector(
+        ".xterm-screen",
+      ) as HTMLElement | null;
+      if (!screen) return;
+      const cellHeight = screen.clientHeight / terminal.rows;
+      // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
+      // a bare `<= 0` check would miss — NaN poisons the anchor.
+      if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
+      const currentY = e.touches[0]!.clientY;
+      const lines = Math.trunc((currentY - touchAnchorY) / cellHeight);
+      if (lines === 0) return;
+      // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
+      terminal.scrollLines(-lines);
+      touchAnchorY += lines * cellHeight;
+    });
+    makeEventListener(containerRef, "touchend", () => {
+      touchAnchorY = null;
+    });
+
     // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
     // Capture phase fires before xterm's own paste handler on the textarea,
     // letting us intercept images while text paste falls through to xterm.
