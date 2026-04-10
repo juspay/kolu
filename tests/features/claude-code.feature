@@ -49,6 +49,17 @@ Feature: Claude Code status detection
     And the sidebar should show a terminal preview
     And there should be no page errors
 
+  Scenario: Visiting an unread agent clears its preview
+    When a Claude Code session is mocked with state "waiting"
+    And I create a terminal
+    And I simulate an activity alert
+    Then a sidebar entry should be notified
+    And the sidebar should show a terminal preview
+    When I click the notified sidebar entry
+    Then no sidebar entry should be notified
+    And the sidebar should not show a terminal preview
+    And there should be no page errors
+
   Scenario: Sidebar hides the preview for waiting agents the user has already seen
     When a Claude Code session is mocked with state "waiting"
     Then the sidebar should not show a terminal preview
