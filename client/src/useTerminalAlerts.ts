@@ -28,9 +28,15 @@ export function useTerminalAlerts(deps: {
       (states, prevStates) => {
         const ids = deps.terminalIds();
         for (let i = 0; i < ids.length; i++) {
-          if (prevStates && prevStates[i] !== undefined) {
+          if (prevStates) {
             if (prevStates[i] !== states[i]) deps.clearAcknowledged(ids[i]!);
-            checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
+            if (prevStates[i] !== undefined)
+              checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
+          } else if (states[i] !== undefined) {
+            // First effect run — agent already present when effect
+            // mounted (e.g. metadata arrived before the effect ran).
+            // Clear any stale acknowledged flag.
+            deps.clearAcknowledged(ids[i]!);
           }
         }
       },
