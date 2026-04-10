@@ -128,6 +128,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      kolu-claude-code:
+        specifier: workspace:*
+        version: link:../integrations/claude-code
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -141,12 +144,12 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.3.6)
-      kolu-common:
-        specifier: workspace:*
-        version: link:../../common
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

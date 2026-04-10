@@ -16,9 +16,37 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { z } from "zod";
 import { match } from "ts-pattern";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { ClaudeCodeInfo, TaskProgress } from "kolu-common";
+
+// --- Claude Code schemas (single source of truth) ---
+
+export const TaskProgressSchema = z.object({
+  /** Total number of tasks created (excluding deleted). */
+  total: z.number(),
+  /** Number of tasks with status "completed". */
+  completed: z.number(),
+});
+
+export const ClaudeCodeInfoSchema = z.object({
+  kind: z.literal("claude-code"),
+  /** Current state derived from session JSONL. */
+  state: z.enum(["thinking", "tool_use", "waiting"]),
+  /** Session UUID from ~/.claude/sessions/. */
+  sessionId: z.string(),
+  /** Model name if available (e.g. "claude-opus-4-6"). */
+  model: z.string().nullable(),
+  /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
+   *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
+  summary: z.string().nullable(),
+  /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
+   *  null when no tasks have been created in the session. */
+  taskProgress: TaskProgressSchema.nullable(),
+});
+
+export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
 // --- Configuration ---
 

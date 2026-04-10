@@ -1,7 +1,13 @@
 // Shared types for kolu server↔client communication.
 // Zod schemas are the single source of truth; TS types are derived.
+// Integration packages define their own schemas (e.g. kolu-claude-code);
+// this module re-exports them and composes the AgentInfo union.
 
 import { z } from "zod";
+import { ClaudeCodeInfoSchema, TaskProgressSchema } from "kolu-claude-code";
+
+// Re-export integration schemas so consumers import from kolu-common only.
+export { ClaudeCodeInfoSchema, TaskProgressSchema };
 
 // --- Zod schemas ---
 
@@ -52,29 +58,6 @@ export const GitHubPrInfoSchema = z.object({
 // --- AI coding agent context ---
 
 export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
-
-export const TaskProgressSchema = z.object({
-  /** Total number of tasks created (excluding deleted). */
-  total: z.number(),
-  /** Number of tasks with status "completed". */
-  completed: z.number(),
-});
-
-export const ClaudeCodeInfoSchema = z.object({
-  kind: z.literal("claude-code"),
-  /** Current state derived from session JSONL. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
-  /** Session UUID from ~/.claude/sessions/. */
-  sessionId: z.string(),
-  /** Model name if available (e.g. "claude-opus-4-6"). */
-  model: z.string().nullable(),
-  /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
-   *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
-  summary: z.string().nullable(),
-  /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
-   *  null when no tasks have been created in the session. */
-  taskProgress: TaskProgressSchema.nullable(),
-});
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
