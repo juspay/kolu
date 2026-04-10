@@ -362,6 +362,7 @@ const App: Component = () => {
           activeId={store.activeId()}
           getMetadata={store.getMetadata}
           isUnread={store.isUnread}
+          isAcknowledged={store.isAcknowledged}
           getDisplayInfo={store.getDisplayInfo}
           getTerminalTheme={getTerminalTheme}
           previewMode={sidebarAgentPreviews()}

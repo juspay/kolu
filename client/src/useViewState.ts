@@ -23,12 +23,20 @@ export function useViewState() {
   /** Terminals with unseen Claude completions (cleared when user visits). */
   const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
 
+  /** Terminals whose waiting state the user has already seen (set on visit,
+   *  cleared when Claude's state transitions — so the preview reappears on
+   *  the *next* waiting transition). */
+  const [acknowledged, setAcknowledged] = createStore<Record<TerminalId, true>>(
+    {},
+  );
+
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
       if (unread[id]) setUnread(produce((s) => delete s[id]));
+      setAcknowledged(id, true);
     }),
   );
 
@@ -40,10 +48,19 @@ export function useViewState() {
     return !!unread[id];
   }
 
+  function clearAcknowledged(id: TerminalId) {
+    if (acknowledged[id]) setAcknowledged(produce((s) => delete s[id]));
+  }
+
+  function isAcknowledged(id: TerminalId): boolean {
+    return !!acknowledged[id];
+  }
+
   function reset() {
     setActiveId(null);
     setMruOrder([]);
     setUnread(reconcile({}));
+    setAcknowledged(reconcile({}));
   }
 
   return {
@@ -53,6 +70,8 @@ export function useViewState() {
     setMruOrder,
     markUnread,
     isUnread,
+    clearAcknowledged,
+    isAcknowledged,
     reset,
   };
 }

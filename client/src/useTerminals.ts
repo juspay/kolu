@@ -31,6 +31,7 @@ export function useTerminals(deps: {
     activeId: store.activeId,
     getMetadata: store.getMetadata,
     markUnread: store.markUnread,
+    clearAcknowledged: store.clearAcknowledged,
     terminalIds: store.terminalIds,
     terminalLabel: store.terminalLabel,
   });

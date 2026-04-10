@@ -59,23 +59,27 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
  *    behavior before the enum was introduced (legacy `true`).
  *  - `"attention"` (**default**): only agents that actually want the
  *    user's eyes — when Claude is **waiting** for input or when
- *    there's an **unread** completion. Rationale: previews are
- *    expensive vertically (only ~3 cards fit — see #388), so we
- *    reserve them for the moments peeking without switching actually
- *    helps. Thinking/tool_use agents are busy but don't need
- *    attention; idle terminals have nothing to show. Edit this single
- *    branch if the "needs attention" heuristic needs to change. */
+ *    there's an **unread** completion, *and* the user hasn't already
+ *    acknowledged this state by visiting the terminal. Once visited,
+ *    the preview collapses until the next Claude state transition
+ *    re-raises it. Rationale: previews are expensive vertically
+ *    (only ~3 cards fit — see #388), so we reserve them for moments
+ *    the user hasn't already seen. */
 function shouldShowPreview(
   mode: SidebarAgentPreviews,
   hasAgent: boolean,
   claudeState: ClaudeState | undefined,
   unread: boolean,
+  acknowledged: boolean,
 ): boolean {
   return match(mode)
     .with("none", () => false)
     .with("all", () => true)
     .with("agents", () => hasAgent)
-    .with("attention", () => hasAgent && (claudeState === "waiting" || unread))
+    .with(
+      "attention",
+      () => hasAgent && (claudeState === "waiting" || unread) && !acknowledged,
+    )
     .exhaustive();
 }
 
@@ -85,6 +89,7 @@ const SidebarEntry: Component<{
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
   unread: boolean;
+  acknowledged: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   terminalTheme: ITheme;
   /** Preview mode — see {@link shouldShowPreview} for the semantics. */
@@ -110,6 +115,7 @@ const SidebarEntry: Component<{
       props.metadata?.claude != null,
       props.displayInfo?.meta.claude?.state,
       props.unread,
+      props.acknowledged,
     )
       ? vp
       : undefined;
@@ -317,6 +323,7 @@ const Sidebar: Component<{
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   isUnread: (id: TerminalId) => boolean;
+  isAcknowledged: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
   previewMode: SidebarAgentPreviews;
@@ -436,6 +443,7 @@ const Sidebar: Component<{
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
                       unread={props.isUnread(id)}
+                      acknowledged={props.isAcknowledged(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       terminalTheme={props.getTerminalTheme(id)}
                       previewMode={props.previewMode}

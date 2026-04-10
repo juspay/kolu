@@ -65,6 +65,18 @@ Feature: Claude Code status detection
     Then the sidebar should show a terminal preview
     And there should be no page errors
 
+  Scenario: Visiting a waiting agent collapses its preview until the next state change
+    When a Claude Code session is mocked with state "waiting"
+    Then the sidebar should show a terminal preview
+    When I create a terminal
+    Then the sidebar should show a terminal preview
+    When I press the switch to terminal 1 shortcut
+    Then the sidebar should not show a terminal preview
+    When the Claude Code session state changes to "thinking"
+    And the Claude Code session state changes to "waiting"
+    Then the sidebar should show a terminal preview
+    And there should be no page errors
+
   Scenario: Debug command shows the Claude transcript when a session is active
     When a Claude Code session is mocked with state "waiting"
     Then the header should show a Claude indicator with state "waiting"

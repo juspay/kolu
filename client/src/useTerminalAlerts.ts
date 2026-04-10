@@ -13,6 +13,7 @@ export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   markUnread: (id: TerminalId) => void;
+  clearAcknowledged: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
@@ -28,6 +29,7 @@ export function useTerminalAlerts(deps: {
         const ids = deps.terminalIds();
         for (let i = 0; i < ids.length; i++) {
           if (prevStates && prevStates[i] !== undefined) {
+            if (prevStates[i] !== states[i]) deps.clearAcknowledged(ids[i]!);
             checkClaudeFinished(ids[i]!, prevStates[i], states[i]);
           }
         }
