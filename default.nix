@@ -60,6 +60,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./common
+      ./integrations
       ./server
       ./client
       # pnpm.patchedDependencies entries — read by pnpm during install and
