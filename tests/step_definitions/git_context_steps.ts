@@ -68,13 +68,7 @@ Then(
 Then(
   "the sidebar label should show {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "terminal-meta-name", (t) =>
-      t.includes(expected),
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected sidebar label to contain "${expected}", got "${text}"`,
-    );
+    await waitForTestIdText(this, "terminal-meta-name", expected);
   },
 );
 
