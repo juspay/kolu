@@ -620,7 +620,12 @@ export function startClaudeCodeProvider(
       if (changed) {
         const progress = deriveTaskProgress(taskMap);
         plog.info(
-          { tasks: taskMap.size, progress, bytesScanned: length, from: prevOffset },
+          {
+            tasks: taskMap.size,
+            progress,
+            bytesScanned: length,
+            from: prevOffset,
+          },
           "task progress updated",
         );
       }
