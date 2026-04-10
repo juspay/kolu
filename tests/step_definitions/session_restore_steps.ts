@@ -31,37 +31,21 @@ Given(
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    // Under parallel-worker load, the initial app mount can race the
-    // server's session-state propagation: the client fetches state before
-    // the server has finished applying the test__set POST, sees an empty
-    // session, and never re-renders the restore card. The 20s budget on
-    // a single waitForFunction doesn't help — the state is "wrong" until
-    // we re-fetch it.
-    //
-    // Self-healing fix: poll briefly, then page.reload() to force a fresh
-    // state fetch. Reload is cheap (bundle is cached) and idempotent.
-    const cardVisible = () =>
-      this.page.evaluate(() => {
-        const card = document.querySelector('[data-testid="session-restore"]');
-        return !!(card && card.getBoundingClientRect().height > 0);
-      });
-
-    const pollFor = async (budgetMs: number) => {
-      const start = Date.now();
-      while (Date.now() - start < budgetMs) {
-        if (await cardVisible()) return true;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-      return false;
+    // Browser-side poll (cheap, no CDP roundtrip per tick). On stall, do
+    // one reload to force a fresh state fetch — covers the case where
+    // the initial mount raced the server's test__set POST visibility.
+    const predicate = () => {
+      const card = document.querySelector('[data-testid="session-restore"]');
+      return !!(card && card.getBoundingClientRect().height > 0);
     };
-
-    if (await pollFor(5000)) return;
-    // Stalled — reload to re-fetch state and try again.
+    try {
+      await this.page.waitForFunction(predicate, undefined, { timeout: 8000 });
+      return;
+    } catch {
+      // First poll stalled — reload and try again with the remaining budget.
+    }
     await this.page.reload({ waitUntil: "load" });
-    if (await pollFor(15000)) return;
-    throw new Error(
-      "session restore card never became visible (after initial poll + reload)",
-    );
+    await this.page.waitForFunction(predicate, undefined, { timeout: 12000 });
   },
 );
 
