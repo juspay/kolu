@@ -1,40 +1,26 @@
 import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
-import { pollUntil } from "../support/poll.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
-/** Check if the sidebar entry for a terminal (1-based index) shows active. */
-async function getIndicatorActive(
-  world: KoluWorld,
-  index: number,
-): Promise<boolean> {
-  const id = world.createdTerminalIds[index - 1];
-  assert.ok(id, `No terminal created at index ${index}`);
-  const entry = world.page.locator(
-    `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
-  );
-  const activity = await entry.getAttribute("data-activity");
-  return activity === "active";
-}
-
-/** Poll until terminal reaches expected activity state, then assert. */
+/** Wait until terminal reaches expected activity state via waitForFunction. */
 async function assertActivity(
   world: KoluWorld,
   index: number,
   expectActive: boolean,
-  pollOpts?: { attempts: number; intervalMs: number },
+  timeout = POLL_TIMEOUT,
 ): Promise<void> {
-  const isActive = await pollUntil(
-    world.page,
-    () => getIndicatorActive(world, index),
-    (val) => val === expectActive,
-    pollOpts,
-  );
-  const label = expectActive ? "active" : "sleeping";
-  assert.strictEqual(
-    isActive,
-    expectActive,
-    `Expected terminal ${index} to be ${label}`,
+  const id = world.createdTerminalIds[index - 1];
+  assert.ok(id, `No terminal created at index ${index}`);
+  const expectedAttr = expectActive ? "active" : "sleeping";
+  await world.page.waitForFunction(
+    ({ id, expected }) => {
+      const entry = document.querySelector(
+        `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+      );
+      return entry?.getAttribute("data-activity") === expected;
+    },
+    { id, expected: expectedAttr },
+    { timeout },
   );
 }
 
@@ -64,16 +50,16 @@ Then("the activity graph should have data", async function (this: KoluWorld) {
   const index = this.createdTerminalIds.length;
   const id = this.createdTerminalIds[index - 1];
   assert.ok(id, `No terminal created at index ${index}`);
-  const graph = this.page.locator(
-    `[data-testid="sidebar"] [data-terminal-id="${id}"] [data-testid="activity-graph"]`,
+  await this.page.waitForFunction(
+    (id) => {
+      const graph = document.querySelector(
+        `[data-testid="sidebar"] [data-terminal-id="${id}"] [data-testid="activity-graph"]`,
+      );
+      return graph?.getAttribute("data-has-data") === "true";
+    },
+    id,
+    { timeout: POLL_TIMEOUT },
   );
-  const hasData = await pollUntil(
-    this.page,
-    async () => (await graph.getAttribute("data-has-data")) === "true",
-    (val) => val === true,
-    { attempts: 30, intervalMs: 200 },
-  );
-  assert.ok(hasData, "Expected activity graph to have data");
 });
 
 When(
@@ -81,10 +67,7 @@ When(
   async function (this: KoluWorld) {
     // The idle threshold is 5s, but shell init (starship, nix env, etc.) may
     // produce sporadic output that resets the timer. Under load from the full
-    // test suite, init can take 10-15s. Poll up to ~30s for safety.
-    await assertActivity(this, this.createdTerminalIds.length, false, {
-      attempts: 60,
-      intervalMs: 500,
-    });
+    // test suite, init can take 10-15s. Wait up to 30s for safety.
+    await assertActivity(this, this.createdTerminalIds.length, false, 30_000);
   },
 );

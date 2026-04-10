@@ -4,7 +4,7 @@ import {
   SIDEBAR_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import { pollUntilBufferContains } from "../support/buffer.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 When("I create a terminal", async function (this: KoluWorld) {
@@ -148,7 +148,7 @@ Then(
 Then(
   "the active terminal should show {string}",
   async function (this: KoluWorld, expected: string) {
-    await pollUntilBufferContains(this.page, expected);
+    await waitForBufferContains(this.page, expected);
   },
 );
 

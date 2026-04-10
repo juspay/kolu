@@ -1,27 +1,16 @@
 import { Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
-import * as assert from "node:assert";
-import { pollUntil } from "../support/poll.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 Then(
   "the header CWD should show {string}",
   async function (this: KoluWorld, expected: string) {
-    const cwdEl = this.page.locator('[data-testid="header-cwd"]');
-    const text = await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return (await cwdEl.textContent({ timeout: 1000 })) ?? "";
-        } catch {
-          return "";
-        }
+    await this.page.waitForFunction(
+      (exp) => {
+        const el = document.querySelector('[data-testid="header-cwd"]');
+        return (el?.textContent ?? "").includes(exp);
       },
-      (t) => t.includes(expected),
-      { attempts: 40, intervalMs: 200 },
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected header CWD to contain "${expected}" but got "${text}"`,
+      expected,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

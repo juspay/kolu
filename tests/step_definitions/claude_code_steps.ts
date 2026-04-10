@@ -14,9 +14,8 @@ import { When, Then, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as assert from "node:assert";
-import { KoluWorld } from "../support/world.ts";
-import { readBufferText } from "../support/buffer.ts";
-import { pollUntil } from "../support/poll.ts";
+import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { readBufferText, ACTIVE_TERMINAL } from "../support/buffer.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
@@ -30,18 +29,18 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
   const marker = `PID_MARKER_${Date.now()}`;
   await world.page.keyboard.type(`echo $$; echo ${marker}`);
   await world.page.keyboard.press("Enter");
-  // Poll until we can actually parse the PID from the buffer. The marker
-  // appears in the echoed command line BEFORE the shell prints its output,
-  // so polling on the substring alone races the output. Instead poll until
-  // the structure we want — PID line + marker output line — is present.
-  const pid = await pollUntil(
-    world.page,
-    async () => {
-      const text = await readBufferText(world.page);
-      const lines = text.split("\n").map((l) => l.trim());
+  // Wait for the marker to appear in the buffer, then parse the PID from
+  // the surrounding lines — all inside waitForFunction so the buffer read
+  // and parse happen atomically in the browser context per rAF cycle.
+  // Uses the shared __readXtermBuffer helper (injected by hooks.ts).
+  const handle = await world.page.waitForFunction(
+    ({ marker, sel }) => {
+      const text = (window as any).__readXtermBuffer(sel, 0) as string;
+      if (!text) return null;
+      const lines = text.split("\n").map((l: string) => l.trim());
       // Find the marker on a line that's NOT the typed echo command.
       const markerIdx = lines.findIndex(
-        (l) => l.includes(marker) && !l.includes("echo"),
+        (l: string) => l.includes(marker) && !l.includes("echo"),
       );
       if (markerIdx <= 0) return null;
       // Walk backwards from marker to find the PID (first purely numeric line).
@@ -51,9 +50,10 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
       }
       return null;
     },
-    (val) => val !== null,
-    { attempts: 50, intervalMs: 100 },
+    { marker, sel: ACTIVE_TERMINAL },
+    { timeout: POLL_TIMEOUT },
   );
+  const pid = await handle.jsonValue();
   if (pid === null) {
     const text = await readBufferText(world.page);
     throw new Error(
@@ -214,53 +214,26 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
 Then(
   "the header should show a Claude indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    const el = this.page.locator('[data-testid="claude-indicator"]');
-    const state = await pollUntil(
-      this.page,
-      async () => {
-        try {
-          // There may be multiple (header + sidebar). Check the first one.
-          const first = el.first();
-          return (
-            (await first.getAttribute("data-claude-state", {
-              timeout: 1000,
-            })) ?? ""
-          );
-        } catch {
-          return "";
-        }
+    await this.page.waitForFunction(
+      (expected) => {
+        const el = document.querySelector('[data-testid="claude-indicator"]');
+        return el?.getAttribute("data-claude-state") === expected;
       },
-      (s) => s === expectedState,
-      { attempts: 30, intervalMs: 200 },
-    );
-    assert.strictEqual(
-      state,
       expectedState,
-      `Expected Claude indicator state "${expectedState}", got "${state}"`,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
 
 /** Assert a claude-indicator exists within the given container testid. */
 async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
-  const container = world.page.locator(`[data-testid="${testId}"]`);
-  const indicator = container.locator('[data-testid="claude-indicator"]');
-  await pollUntil(
-    world.page,
-    async () => {
-      try {
-        return await indicator.count();
-      } catch {
-        return 0;
-      }
-    },
-    (count) => count > 0,
-    { attempts: 30, intervalMs: 200 },
-  );
-  const count = await indicator.count();
-  assert.ok(
-    count > 0,
-    `Expected Claude indicator in [data-testid="${testId}"]`,
+  await world.page.waitForFunction(
+    (testId) =>
+      document.querySelector(
+        `[data-testid="${testId}"] [data-testid="claude-indicator"]`,
+      ) !== null,
+    testId,
+    { timeout: POLL_TIMEOUT },
   );
 }
 
@@ -316,19 +289,17 @@ Then(
     // `setupTranscriptWatching` runs the initial derive, an existing JSONL
     // tail produces ≥1 transition — that's the value we assert against.
     // (rawEvents stays empty by design when content predates the watcher.)
-    const count = await pollUntil(
-      this.page,
-      async () => {
-        const text = (await dialog.textContent()) ?? "";
+    await this.page.waitForFunction(
+      (min) => {
+        const dialog = document.querySelector(
+          '[data-testid="claude-transcript"]',
+        );
+        const text = dialog?.textContent ?? "";
         const m = text.match(/Server saw \((\d+) transitions?\)/);
-        return m ? parseInt(m[1]!, 10) : 0;
+        return m ? parseInt(m[1]!, 10) >= min : false;
       },
-      (n) => n >= min,
-      { attempts: 30, intervalMs: 200 },
-    );
-    assert.ok(
-      count >= min,
-      `Expected at least ${min} server transition(s) in Claude transcript dialog, got ${count}`,
+      min,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -445,28 +416,9 @@ Then(
 Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {
-    // Wait for it to disappear (may take a poll cycle)
-    await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return await this.page
-            .locator('[data-testid="claude-indicator"]')
-            .count();
-        } catch {
-          return 0;
-        }
-      },
-      (count) => count === 0,
-      { attempts: 30, intervalMs: 200 },
-    );
-    const count = await this.page
-      .locator('[data-testid="claude-indicator"]')
-      .count();
-    assert.strictEqual(
-      count,
-      0,
-      `Expected no Claude indicator but found ${count}`,
+    await this.page.waitForFunction(
+      () => document.querySelector('[data-testid="claude-indicator"]') === null,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
