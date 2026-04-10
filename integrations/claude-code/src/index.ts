@@ -429,3 +429,34 @@ export async function fetchSessionSummary(
   const info = await getSessionInfo(sessionId, { dir: cwd });
   return info?.summary ?? null;
 }
+
+// --- Debug schemas ---
+
+/** A single state transition the server observed. `info: null` = session ended. */
+export const ClaudeStateChangeSchema = z.object({
+  ts: z.number(),
+  info: ClaudeCodeInfoSchema.nullable(),
+});
+
+/** Diagnostic snapshot comparing what the server saw against the on-disk JSONL.
+ *  Used by the Debug → "Show Claude transcript" command. */
+export const ClaudeTranscriptDebugSchema = z.object({
+  transcriptPath: z.string(),
+  /** epoch ms when kolu attached its transcript watcher (= start of monitoring). */
+  startedAt: z.number(),
+  /** What the server believes happened — every transition that passed `infoEqual`. */
+  stateChanges: z.array(ClaudeStateChangeSchema),
+  /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
+  rawEvents: z.array(z.unknown()),
+});
+
+// --- Session watcher ---
+
+export {
+  createSessionWatcher,
+  infoEqual,
+  type SessionWatcher,
+  type ClaudeStateChange,
+  type ClaudeTranscriptDebug,
+  type WatcherLog,
+} from "./session-watcher.ts";

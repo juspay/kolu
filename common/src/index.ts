@@ -4,10 +4,20 @@
 // this module re-exports them and composes the AgentInfo union.
 
 import { z } from "zod";
-import { ClaudeCodeInfoSchema, TaskProgressSchema } from "kolu-claude-code";
+import {
+  ClaudeCodeInfoSchema,
+  TaskProgressSchema,
+  ClaudeStateChangeSchema,
+  ClaudeTranscriptDebugSchema,
+} from "kolu-claude-code";
 
 // Re-export integration schemas so consumers import from kolu-common only.
-export { ClaudeCodeInfoSchema, TaskProgressSchema };
+export {
+  ClaudeCodeInfoSchema,
+  TaskProgressSchema,
+  ClaudeStateChangeSchema,
+  ClaudeTranscriptDebugSchema,
+};
 
 // --- Zod schemas ---
 
@@ -69,24 +79,6 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   OpenCodeInfoSchema,
 ]);
-
-/** A single state transition the server observed. `info: null` = session ended. */
-export const ClaudeStateChangeSchema = z.object({
-  ts: z.number(),
-  info: ClaudeCodeInfoSchema.nullable(),
-});
-
-/** Diagnostic snapshot comparing what the server saw against the on-disk JSONL.
- *  Used by the Debug → "Show Claude transcript" command. */
-export const ClaudeTranscriptDebugSchema = z.object({
-  transcriptPath: z.string(),
-  /** epoch ms when kolu attached its transcript watcher (= start of monitoring). */
-  startedAt: z.number(),
-  /** What the server believes happened — every transition that passed `infoEqual`. */
-  stateChanges: z.array(ClaudeStateChangeSchema),
-  /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
-  rawEvents: z.array(z.unknown()),
-});
 
 // --- Foreground process context ---
 

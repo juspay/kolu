@@ -191,7 +191,7 @@ If no documentation files are documented, skip this step with a note.
 
 ### police
 
-Use `git diff <default-branch>...HEAD --name-only` to check if the PR contains code changes. If all changed files are documentation-only (e.g., `.md`, `.txt`, `README`, docs/) — skip this step with a note.
+Use `git diff origin/HEAD...HEAD --name-only` to check if the PR contains code changes. If all changed files are documentation-only (e.g., `.md`, `.txt`, `README`, docs/) — skip this step with a note.
 
 Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three passes: rule checklist, fact-check, and elegance.
 
@@ -226,7 +226,7 @@ Create a NEW commit (never amend) with a conventional commit message. Push to th
 
 Read the project's instructions to find the test command and strategy. Run only the tests relevant to the code paths changed in this PR.
 
-Use `git diff <default-branch>...HEAD --name-only` to identify changed files and determine which tests are relevant.
+Use `git diff origin/HEAD...HEAD --name-only` to identify changed files and determine which tests are relevant.
 
 If changes are purely internal with no user-facing impact, unit tests may suffice — skip e2e if no relevant scenarios exist. If no test command is documented, skip with a note.
 
