@@ -1,19 +1,29 @@
 /**
  * OpenCode integration — pure functions and IO helpers for detecting
- * OpenCode sessions and deriving state from the REST/SSE API.
+ * OpenCode sessions and deriving state from its SQLite database.
  *
  * No dependency on server internals (no updateMetadata, no TerminalProcess).
  * The server's provider imports these and wires them into the metadata system.
  *
- * Detection: queries OpenCode's HTTP API on localhost to find sessions
- * matching a given CWD, then subscribes to SSE events for live state updates.
+ * Architecture: OpenCode (TUI mode) is a single process that owns
+ * `~/.local/share/opencode/opencode.db` directly via SQLite WAL mode.
+ * The TUI does NOT expose an HTTP server by default — that's `opencode serve`.
+ * So the only way to observe TUI sessions is to read the SQLite DB directly.
  *
- * State derivation:
- *   - session.status → busy  → "thinking"
- *   - session.status → idle  → "waiting"
- *   - session.status → retry → "thinking"
+ * Read concurrency is safe because OpenCode uses WAL mode — readers don't
+ * block writers and vice versa. We open the DB read-only.
+ *
+ * State derivation from the latest message in a session:
+ *   - role: "user"                          → "thinking" (waiting for assistant)
+ *   - role: "assistant", no time.completed  → "thinking" (in flight)
+ *   - role: "assistant", finish: "stop"     → "waiting"  (assistant finished)
+ *   - role: "assistant", finish: other      → "thinking" (still working)
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { match } from "ts-pattern";
 
@@ -21,11 +31,11 @@ import { match } from "ts-pattern";
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
-  /** Current state derived from session status. */
+  /** Current state derived from the latest session message. */
   state: z.enum(["thinking", "tool_use", "waiting"]),
-  /** Session ID from OpenCode's API. */
+  /** Session ID from OpenCode's database (e.g. "ses_..."). */
   sessionId: z.string(),
-  /** Model identifier if available (e.g. "anthropic/claude-sonnet-4-5"). */
+  /** Model identifier if available (e.g. "litellm/glm-latest"). */
   model: z.string().nullable(),
   /** Session title from OpenCode. */
   summary: z.string().nullable(),
@@ -35,13 +45,15 @@ export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 
 // --- Configuration ---
 
-/** OpenCode server port, configurable via env for testing. */
-export const OPENCODE_PORT = process.env.KOLU_OPENCODE_PORT ?? "4096";
+/** Path to OpenCode's SQLite database. Configurable via env for testing. */
+export const OPENCODE_DB_PATH =
+  process.env.KOLU_OPENCODE_DB ??
+  path.join(os.homedir(), ".local", "share", "opencode", "opencode.db");
 
-export const OPENCODE_BASE_URL =
-  process.env.KOLU_OPENCODE_URL ?? `http://127.0.0.1:${OPENCODE_PORT}`;
+/** Path to the SQLite WAL file — fs.watch this to detect writes. */
+export const OPENCODE_DB_WAL_PATH = `${OPENCODE_DB_PATH}-wal`;
 
-// --- REST client ---
+// --- Logger type ---
 
 type Logger = {
   debug: (obj: Record<string, unknown>, msg: string) => void;
@@ -49,228 +61,161 @@ type Logger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 };
 
-/** Check if the OpenCode server is reachable. */
-export async function healthCheck(
-  signal?: AbortSignal,
-  log?: Logger,
-): Promise<boolean> {
-  try {
-    const res = await fetch(`${OPENCODE_BASE_URL}/health`, { signal });
-    return res.ok;
-  } catch (err) {
-    log?.debug({ err }, "opencode health check failed");
-    return false;
-  }
-}
+// --- Database session lookup ---
 
-/** OpenCode session info — subset of fields we care about. */
 export interface OpenCodeSession {
   id: string;
   title: string | null;
   directory: string;
 }
 
-/** List sessions matching a given directory. */
-export async function listSessions(
-  directory: string,
-  signal?: AbortSignal,
-  log?: Logger,
-): Promise<OpenCodeSession[]> {
+/** Open a read-only connection to OpenCode's database. Returns null if absent.
+ *  Caller MUST close the returned database when done. */
+export function openDb(log?: Logger): DatabaseSync | null {
   try {
-    const url = new URL(`${OPENCODE_BASE_URL}/session`);
-    url.searchParams.set("directory", directory);
-    const res = await fetch(url, {
-      signal,
-      headers: { "x-opencode-directory": directory },
-    });
-    if (!res.ok) {
-      log?.debug({ status: res.status }, "opencode session list failed");
-      return [];
-    }
-    const data: unknown = await res.json();
-    if (!Array.isArray(data)) return [];
-    return data
-      .filter(
-        (s): s is { id: string; title?: string; directory?: string } =>
-          typeof s === "object" &&
-          s !== null &&
-          "id" in s &&
-          typeof (s as Record<string, unknown>).id === "string",
-      )
-      .map((s) => ({
-        id: s.id,
-        title: typeof s.title === "string" ? s.title : null,
-        directory: typeof s.directory === "string" ? s.directory : directory,
-      }));
+    return new DatabaseSync(OPENCODE_DB_PATH, { readOnly: true });
   } catch (err) {
-    log?.debug({ err, directory }, "opencode session list failed");
-    return [];
+    log?.debug({ err, path: OPENCODE_DB_PATH }, "opencode db unavailable");
+    return null;
   }
 }
 
-/** Session status from the status endpoint. */
-export type SessionStatus =
-  | { type: "idle" }
-  | { type: "busy" }
-  | { type: "retry"; attempt: number; message: string; next: number };
-
-/** Get status of all sessions. Returns a map of sessionId → status. */
-export async function getSessionStatuses(
-  signal?: AbortSignal,
+/**
+ * Find the most recently updated session for a given directory.
+ * Returns null if no sessions exist for that directory or the DB is absent.
+ *
+ * Heuristic: pick the session with the largest `time_updated` — the one
+ * the user most recently interacted with. If multiple sessions share a
+ * directory, this picks the active one in practice.
+ */
+export function findSessionByDirectory(
+  directory: string,
   log?: Logger,
-): Promise<Map<string, SessionStatus>> {
+): OpenCodeSession | null {
+  const db = openDb(log);
+  if (!db) return null;
   try {
-    const res = await fetch(`${OPENCODE_BASE_URL}/session/status`, { signal });
-    if (!res.ok) {
-      log?.debug({ status: res.status }, "opencode session status failed");
-      return new Map();
-    }
-    const data: unknown = await res.json();
-    if (typeof data !== "object" || data === null) return new Map();
-    const result = new Map<string, SessionStatus>();
-    for (const [id, status] of Object.entries(
-      data as Record<string, unknown>,
-    )) {
-      if (typeof status === "object" && status !== null && "type" in status) {
-        result.set(id, status as SessionStatus);
-      }
-    }
-    return result;
+    const row = db
+      .prepare(
+        "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
+      )
+      .get(directory) as
+      | { id: string; title: string; directory: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      title: row.title || null,
+      directory: row.directory,
+    };
   } catch (err) {
-    log?.debug({ err }, "opencode session status failed");
-    return new Map();
+    log?.warn({ err, directory }, "opencode session query failed");
+    return null;
+  } finally {
+    db.close();
   }
 }
 
 // --- State derivation ---
 
-/** Map OpenCode session status to Kolu agent state. */
-export function deriveState(status: SessionStatus): OpenCodeInfo["state"] {
-  return match(status)
-    .with({ type: "busy" }, () => "thinking" as const)
-    .with({ type: "idle" }, () => "waiting" as const)
-    .with({ type: "retry" }, () => "thinking" as const)
-    .exhaustive();
+/** Shape of the JSON in `message.data`. Only the fields we read. */
+interface MessageData {
+  role?: "user" | "assistant";
+  modelID?: string;
+  providerID?: string;
+  finish?: string;
+  time?: { created?: number; completed?: number };
 }
 
-// --- SSE event stream ---
-
-/** Parsed SSE event from OpenCode's /event endpoint. */
-export type OpenCodeEvent =
-  | {
-      type: "session.status";
-      properties: { sessionID: string; status: SessionStatus };
-    }
-  | {
-      type: "session.updated";
-      properties: { id: string; title?: string };
-    }
-  | { type: "heartbeat" }
-  | { type: "unknown"; raw: string };
+export type DerivedState = {
+  state: OpenCodeInfo["state"];
+  model: string | null;
+};
 
 /**
- * Subscribe to OpenCode's SSE event stream. Calls `onEvent` for each
- * parsed event. Returns when the connection closes or is aborted.
- *
- * This is a blocking async function — the caller should run it in the
- * background and use the AbortSignal to stop it.
+ * Read the latest message for a session and derive Kolu state from it.
+ * Returns null if the session has no messages or the DB is absent.
  */
-export async function subscribeToEvents(
-  signal: AbortSignal,
-  onEvent: (event: OpenCodeEvent) => void,
+export function deriveSessionState(
+  sessionId: string,
   log?: Logger,
-): Promise<void> {
-  const res = await fetch(`${OPENCODE_BASE_URL}/event`, {
-    signal,
-    headers: { Accept: "text/event-stream", "Cache-Control": "no-cache" },
-  });
-
-  if (!res.ok || !res.body) {
-    log?.warn({ status: res.status }, "opencode SSE connection failed");
-    return;
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
+): DerivedState | null {
+  const db = openDb(log);
+  if (!db) return null;
   try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      // Keep the last (potentially incomplete) line in the buffer
-      buffer = lines.pop() ?? "";
-
-      let currentData = "";
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
-          currentData += line.slice(5).trimStart();
-        } else if (line === "" && currentData) {
-          // Empty line = end of SSE event
-          const event = parseSseData(currentData);
-          onEvent(event);
-          currentData = "";
-        }
-      }
-    }
+    const row = db
+      .prepare(
+        "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
+      )
+      .get(sessionId) as { data: string } | undefined;
+    if (!row) return null;
+    return parseMessageState(row.data);
   } catch (err) {
-    if (!signal.aborted) {
-      log?.debug({ err }, "opencode SSE stream error");
-    }
+    log?.warn({ err, sessionId }, "opencode message query failed");
+    return null;
   } finally {
-    reader.releaseLock();
+    db.close();
   }
 }
 
-/** Parse a single SSE data payload into a typed event. */
-function parseSseData(data: string): OpenCodeEvent {
+/** Parse a `message.data` JSON blob into derived state.
+ *  Exported for unit testing. */
+export function parseMessageState(data: string): DerivedState | null {
+  let parsed: MessageData;
   try {
-    const parsed: unknown = JSON.parse(data);
-    if (typeof parsed !== "object" || parsed === null || !("type" in parsed))
-      return { type: "unknown", raw: data };
-
-    const obj = parsed as Record<string, unknown>;
-    const eventType = obj.type;
-
-    if (eventType === "session.status") {
-      const props = obj.properties as
-        | { sessionID?: string; status?: SessionStatus }
-        | undefined;
-      if (props?.sessionID && props?.status) {
-        return {
-          type: "session.status",
-          properties: {
-            sessionID: props.sessionID,
-            status: props.status,
-          },
-        };
-      }
-    }
-
-    if (eventType === "session.updated") {
-      const props = obj.properties as
-        | { id?: string; title?: string }
-        | undefined;
-      if (props?.id) {
-        return {
-          type: "session.updated",
-          properties: { id: props.id, title: props.title },
-        };
-      }
-    }
-
-    if (eventType === "server.heartbeat") {
-      return { type: "heartbeat" };
-    }
-
-    return { type: "unknown", raw: data };
+    parsed = JSON.parse(data) as MessageData;
   } catch {
-    // Malformed JSON from the SSE stream — treat as unknown event.
-    // The caller (subscribeToEvents) already logs unrecognized events
-    // at debug level via the provider's plog, so no separate log here.
-    return { type: "unknown", raw: data };
+    return null;
+  }
+
+  return match(parsed)
+    .with({ role: "user" }, () => ({
+      state: "thinking" as const,
+      model: null,
+    }))
+    .with({ role: "assistant" }, (m) => {
+      const model = m.modelID
+        ? m.providerID
+          ? `${m.providerID}/${m.modelID}`
+          : m.modelID
+        : null;
+      // Assistant message with completion timestamp + clean stop = waiting
+      if (m.time?.completed && m.finish === "stop") {
+        return { state: "waiting" as const, model };
+      }
+      // Otherwise still working (no completion yet, or non-stop finish reason)
+      return { state: "thinking" as const, model };
+    })
+    .otherwise(() => null);
+}
+
+// --- File watching ---
+
+/** Watch the OpenCode WAL file for changes. Returns a cleanup function.
+ *  Falls back to watching the parent directory if the WAL doesn't exist
+ *  yet — OpenCode creates it lazily when the DB is first written to.
+ *  Returns a no-op cleanup if no watcher could be attached. */
+export function watchOpenCodeDb(
+  onChange: () => void,
+  log?: Logger,
+): () => void {
+  // Try the WAL file first
+  try {
+    const w = fs.watch(OPENCODE_DB_WAL_PATH, () => onChange());
+    return () => w.close();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.debug({ err, path: OPENCODE_DB_WAL_PATH }, "WAL fs.watch failed");
+    }
+  }
+
+  // Fall back to the parent directory — fires when WAL is created
+  const dir = path.dirname(OPENCODE_DB_PATH);
+  try {
+    const w = fs.watch(dir, () => onChange());
+    return () => w.close();
+  } catch (err) {
+    log?.debug({ err, dir }, "opencode db dir fs.watch failed");
+    return () => {};
   }
 }

@@ -66,13 +66,15 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows their state alongside Claude Code in the sidebar and header.
 
-**How it works:** when the foreground process is `opencode`, the provider connects to OpenCode's local HTTP server (default port 4096) via REST to discover sessions matching the terminal's CWD, then subscribes to the `/event` SSE stream for real-time status updates. OpenCode's status model (`idle`/`busy`/`retry`) maps to Kolu's `waiting`/`thinking`/`thinking` states. Session titles are surfaced from the OpenCode API.
+**How it works:** when the foreground process is `opencode`, the provider queries OpenCode's SQLite database directly at `~/.local/share/opencode/opencode.db` to find the most recently updated session whose `directory` matches the terminal's CWD. State is derived from the latest message: a user message means the assistant is _thinking_; an assistant message with `time.completed` set and `finish: "stop"` means _waiting_; otherwise still _thinking_. Live updates come from `fs.watch` on the SQLite WAL file (`opencode.db-wal`), which OpenCode writes to on every database mutation.
 
-**What we can't detect:**
+**Why SQLite, not REST?** The OpenCode TUI doesn't expose an HTTP server by default — that's a separate `opencode serve` mode. Reading the SQLite DB directly works against the actual TUI users run, with no port discovery and no extra processes. SQLite WAL mode allows concurrent readers while OpenCode is writing, so we can open the DB read-only without blocking it.
 
-- **Tool use vs thinking** — OpenCode's `busy` status doesn't distinguish between LLM generation and tool execution (v1 maps both to "thinking")
-- **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the busy one (or most recently listed)
-- **Custom ports** — if OpenCode's server port is changed from the default 4096, set `KOLU_OPENCODE_PORT` or `KOLU_OPENCODE_URL`
+**What we can't detect (yet):**
+
+- **Tool use vs thinking** — v1 maps both to "thinking"; future work can parse `part.data` for `tool` parts in the `running` state
+- **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the most recently updated one
+- **Non-default DB location** — set `KOLU_OPENCODE_DB` to override the path
 
 ### Theming
 
@@ -95,7 +97,7 @@ pnpm monorepo:
 | `server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
 | `client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
 | `integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
-| `integrations/opencode/`    | OpenCode detection — REST/SSE client for OpenCode's local HTTP API                                                                               |
+| `integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`                                                          |
 
 ### Communication
 
@@ -164,7 +166,7 @@ flowchart TB
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
-[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates. The session display title comes from a fire-and-forget [`getSessionInfo()`](https://platform.claude.com/docs/en/api/agent-sdk/typescript) call piggybacking on the same transcript watcher. OpenCode provider activates when `opencode` is the foreground process, connects to OpenCode's local HTTP server via REST+SSE for session discovery and real-time status updates.
+[^providers]: Git provider uses [simple-git](https://github.com/steveukx/git-js); GitHub provider derives combined CI status from `CheckRun` + `StatusContext`; Claude provider asks the pty for `tcgetpgrp(fd)` and stats `~/.claude/sessions/<fgpid>.json` directly — re-checked on each title event and `fs.watch` notification, then tails the session's JSONL transcript via another `fs.watch` for state updates. The session display title comes from a fire-and-forget [`getSessionInfo()`](https://platform.claude.com/docs/en/api/agent-sdk/typescript) call piggybacking on the same transcript watcher. OpenCode provider activates when `opencode` is the foreground process, queries `~/.local/share/opencode/opencode.db` (SQLite) for sessions matching the terminal's CWD, and watches the WAL file (`opencode.db-wal`) for live state updates via Node's built-in `node:sqlite` module.
 
 [^client-state]: Local-only view state (active terminal, MRU order, attention flags) lives in SolidJS [signals and stores](https://docs.solidjs.com/reference/store-utilities/create-store) inside singleton `useXxx.ts` modules — separate from server-derived subscription state.
 

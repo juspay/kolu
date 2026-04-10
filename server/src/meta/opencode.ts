@@ -2,19 +2,22 @@
  * OpenCode metadata provider — thin adapter that wires the
  * `kolu-opencode` integration library into the server's metadata system.
  *
- * All OpenCode-specific logic (REST client, SSE parsing, state derivation)
- * lives in `integrations/opencode`. This file owns the provider lifecycle:
- * subscribing to events, managing connection state, and calling
+ * All OpenCode-specific logic (DB queries, state derivation) lives in
+ * `integrations/opencode`. This file owns the provider lifecycle:
+ * subscribing to events, managing watcher state, and calling
  * `updateMetadata`.
  *
  * Event-driven — no polling. Trigger sources:
  *   - title event (subscribeForTerminal("title", ...)) — fires on shell
- *     preexec/precmd OSC 2, which is when foregroundPid is likely to change
- *   - SSE stream from OpenCode's /event endpoint — fires on session status
- *     changes, delivers real-time state updates
+ *     preexec/precmd OSC 2, when the foreground process may have changed
+ *   - fs.watch on opencode.db-wal — fires when OpenCode writes to its DB
+ *
+ * Detection: when the foreground process basename is "opencode", we look up
+ * the most recently updated session in OpenCode's SQLite DB whose `directory`
+ * matches the terminal's CWD, then re-derive state on each WAL file change.
  */
 
-import { match } from "ts-pattern";
+import path from "node:path";
 import type { OpenCodeInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
@@ -23,29 +26,16 @@ import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
 import {
-  healthCheck,
-  listSessions,
-  getSessionStatuses,
-  deriveState,
-  subscribeToEvents,
+  findSessionByDirectory,
+  deriveSessionState,
+  watchOpenCodeDb,
   type OpenCodeSession,
-  type OpenCodeEvent,
 } from "kolu-opencode";
-
-// --- SSE connection lifecycle ---
-
-/**
- * SSE connection state as a sum type — mutually exclusive states,
- * checked exhaustively via ts-pattern on every transition.
- */
-type SseState =
-  | { kind: "disconnected" }
-  | { kind: "connected"; abort: AbortController; sessionId: string };
 
 /**
  * Start the OpenCode metadata provider for a terminal entry.
- * Wakes on title events (foreground process change), then connects
- * to OpenCode's REST/SSE API when the foreground process is "opencode".
+ * Wakes on title events (foreground process change) and on OpenCode
+ * database writes (fs.watch on the WAL file).
  */
 export function startOpenCodeProvider(
   entry: TerminalProcess,
@@ -53,188 +43,126 @@ export function startOpenCodeProvider(
 ): () => void {
   const plog = log.child({ provider: "opencode", terminal: terminalId });
 
-  let sseState: SseState = { kind: "disconnected" };
-  let lastSummary: string | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let matchedSession: OpenCodeSession | null = null;
+  let dbWatcher: (() => void) | null = null;
 
   plog.info("started");
 
-  function teardownSse() {
-    match(sseState)
-      .with({ kind: "disconnected" }, () => {})
-      .with({ kind: "connected" }, ({ abort }) => abort.abort())
-      .exhaustive();
-    sseState = { kind: "disconnected" };
+  /**
+   * Read the foreground process basename directly from node-pty.
+   * Don't use entry.info.meta.foreground — it's set by the process provider,
+   * which may not have run yet on the initial check or may not run before
+   * us on a title event (subscriber order is not deterministic).
+   */
+  function currentForegroundName(): string | null {
+    try {
+      const proc = entry.handle.process;
+      return proc ? path.basename(proc) : null;
+    } catch (err) {
+      plog.debug({ err }, "failed to read entry.handle.process");
+      return null;
+    }
   }
 
-  /**
-   * Called when the foreground process changes. If it's "opencode",
-   * attempt to connect to the OpenCode API and discover the session.
-   */
-  async function onForegroundMaybeChanged() {
-    const fg = entry.info.meta.foreground;
-    const isOpenCode = fg?.name === "opencode";
+  function teardownDbWatcher() {
+    if (dbWatcher) {
+      dbWatcher();
+      dbWatcher = null;
+    }
+  }
 
-    if (!isOpenCode) {
-      if (sseState.kind !== "disconnected") {
-        plog.info("opencode no longer foreground, disconnecting");
-        teardownSse();
-        if (entry.info.meta.agent?.kind === "opencode") {
-          updateMetadata(entry, terminalId, (m) => {
-            m.agent = null;
-          });
-        }
-      }
+  function publishCleared() {
+    if (entry.info.meta.agent?.kind === "opencode") {
+      updateMetadata(entry, terminalId, (m) => {
+        m.agent = null;
+      });
+    }
+  }
+
+  /** Re-derive state for the matched session and publish if changed. */
+  function refreshState() {
+    if (!matchedSession) return;
+    const derived = deriveSessionState(matchedSession.id, plog);
+    if (!derived) {
+      plog.debug(
+        { session: matchedSession.id },
+        "no messages yet for opencode session",
+      );
       return;
     }
-
-    // Already connected — nothing to do
-    if (sseState.kind === "connected") return;
-
-    // Try to connect to the OpenCode server
-    const reachable = await healthCheck(undefined, plog);
-    if (!reachable) {
-      plog.debug({}, "opencode server not reachable");
-      return;
-    }
-
-    // Discover session by CWD
-    const cwd = entry.info.meta.cwd;
-    const sessions = await listSessions(cwd, undefined, plog);
-    if (sessions.length === 0) {
-      plog.debug({ cwd }, "no opencode sessions for this directory");
-      return;
-    }
-
-    // Prefer the busy session, fallback to the first one
-    const statuses = await getSessionStatuses(undefined, plog);
-    const busySession = sessions.find((s) => {
-      const status = statuses.get(s.id);
-      return status?.type === "busy";
-    });
-    const session = busySession ?? sessions[0]!;
-
-    plog.info(
-      { session: session.id, title: session.title, cwd },
-      "opencode session matched",
-    );
-
-    lastSummary = session.title;
-
-    // Derive initial state
-    const status = statuses.get(session.id) ?? { type: "idle" as const };
-    const initialState = deriveState(status);
 
     const info: OpenCodeInfo = {
       kind: "opencode",
-      state: initialState,
-      sessionId: session.id,
-      model: null,
-      summary: lastSummary,
+      state: derived.state,
+      sessionId: matchedSession.id,
+      model: derived.model,
+      summary: matchedSession.title,
     };
 
-    updateMetadata(entry, terminalId, (m) => {
-      m.agent = info;
-    });
-
-    // Start SSE subscription
-    const abort = new AbortController();
-    sseState = { kind: "connected", abort, sessionId: session.id };
-
-    startSseSubscription(abort.signal, session);
-  }
-
-  function startSseSubscription(signal: AbortSignal, session: OpenCodeSession) {
-    subscribeToEvents(signal, (event) => onSseEvent(event, session), plog)
-      .then(() => {
-        if (!signal.aborted) {
-          plog.info("opencode SSE stream ended, scheduling reconnect");
-          scheduleReconnect();
-        }
-      })
-      .catch((err) => {
-        if (!signal.aborted) {
-          plog.debug({ err }, "opencode SSE subscription failed");
-          scheduleReconnect();
-        }
+    if (!infoEqual(entry.info.meta.agent, info)) {
+      plog.info(
+        { state: info.state, model: info.model, session: info.sessionId },
+        "opencode state updated",
+      );
+      updateMetadata(entry, terminalId, (m) => {
+        m.agent = info;
       });
+    }
   }
 
-  function scheduleReconnect() {
-    sseState = { kind: "disconnected" };
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      if (sseState.kind === "disconnected") {
-        onForegroundMaybeChanged();
+  /** Called when the foreground process or session may have changed. */
+  function onForegroundMaybeChanged() {
+    const name = currentForegroundName();
+    const isOpenCode = name === "opencode";
+
+    if (!isOpenCode) {
+      if (matchedSession) {
+        plog.info(
+          { from: matchedSession.id, to: name },
+          "opencode no longer foreground",
+        );
+        teardownDbWatcher();
+        matchedSession = null;
+        publishCleared();
       }
-    }, 5000);
+      return;
+    }
+
+    // Look up the most recently updated session for this terminal's CWD
+    const cwd = entry.info.meta.cwd;
+    const session = findSessionByDirectory(cwd, plog);
+
+    if (!session) {
+      plog.debug({ cwd }, "no opencode session for this directory");
+      return;
+    }
+
+    // New session match (or first time) — set up the watcher
+    if (!matchedSession || matchedSession.id !== session.id) {
+      plog.info(
+        { session: session.id, title: session.title, cwd },
+        "opencode session matched",
+      );
+      teardownDbWatcher();
+      matchedSession = session;
+      dbWatcher = watchOpenCodeDb(() => refreshState(), plog);
+    }
+
+    refreshState();
   }
 
-  function onSseEvent(event: OpenCodeEvent, session: OpenCodeSession) {
-    if (sseState.kind !== "connected") return;
-
-    match(event)
-      .with({ type: "session.status" }, ({ properties }) => {
-        if (properties.sessionID !== session.id) return;
-        const newState = deriveState(properties.status);
-
-        const info: OpenCodeInfo = {
-          kind: "opencode",
-          state: newState,
-          sessionId: session.id,
-          model: null,
-          summary: lastSummary,
-        };
-
-        if (!infoEqual(entry.info.meta.agent, info)) {
-          plog.info(
-            { state: info.state, session: session.id },
-            "opencode state updated",
-          );
-          updateMetadata(entry, terminalId, (m) => {
-            m.agent = info;
-          });
-        }
-      })
-      .with({ type: "session.updated" }, ({ properties }) => {
-        if (properties.id !== session.id) return;
-        if (properties.title && properties.title !== lastSummary) {
-          lastSummary = properties.title;
-          const current = entry.info.meta.agent;
-          if (current?.kind === "opencode") {
-            plog.info(
-              { title: lastSummary, session: session.id },
-              "opencode summary updated",
-            );
-            updateMetadata(entry, terminalId, (m) => {
-              m.agent = { ...current, summary: lastSummary };
-            });
-          }
-        }
-      })
-      .with({ type: "heartbeat" }, () => {
-        // No-op — heartbeats keep the connection alive
-      })
-      .with({ type: "unknown" }, () => {
-        // Ignore unrecognized events
-      })
-      .exhaustive();
-  }
-
-  // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.
+  // Subscribe to title events — fires on shell OSC 2 / preexec.
   const titleAbort = new AbortController();
   subscribeForTerminal("title", terminalId, titleAbort.signal, () =>
     onForegroundMaybeChanged(),
   );
 
-  // Initial check for a terminal that already hosts an opencode session.
+  // Initial check — covers terminals that already host opencode at startup.
   onForegroundMaybeChanged();
 
   return () => {
     titleAbort.abort();
-    teardownSse();
-    if (reconnectTimer) clearTimeout(reconnectTimer);
+    teardownDbWatcher();
     plog.info("stopped");
   };
 }
