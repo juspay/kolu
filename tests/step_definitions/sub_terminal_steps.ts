@@ -1,7 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
-import { pollUntil } from "../support/poll.ts";
-import { pollUntilBufferContains } from "../support/buffer.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
 
 const PALETTE = '[data-testid="command-palette"]';
@@ -115,28 +114,9 @@ Then(
   async function (this: KoluWorld) {
     // Wait for focus to land inside a [data-sub-terminal] container directly —
     // no indirect ID comparison with the sidebar's active entry.
-    const result = await pollUntil(
-      this.page,
-      () =>
-        this.page.evaluate(() => {
-          const active = document.activeElement;
-          if (!active) return { focused: false, reason: "no activeElement" };
-          const sub = active.closest("[data-sub-terminal]");
-          if (sub) return { focused: true, reason: "focus in sub-terminal" };
-          const container = active.closest("[data-terminal-id]");
-          return {
-            focused: false,
-            reason: container
-              ? `focus in main terminal (${container.getAttribute("data-terminal-id")})`
-              : "focus not in any terminal",
-          };
-        }),
-      (val) => val.focused,
-      { attempts: 50, intervalMs: 100 },
-    );
-    assert.ok(
-      result.focused,
-      `Expected keyboard focus in the sub-terminal (${result.reason})`,
+    await this.page.waitForFunction(
+      () => !!document.activeElement?.closest("[data-sub-terminal]"),
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
@@ -161,10 +141,8 @@ Then(
     const marker = `focus-proof-${Date.now()}`;
     await this.page.keyboard.type(`echo ${marker}`);
     await this.page.keyboard.press("Enter");
-    await pollUntilBufferContains(this.page, marker, {
+    await waitForBufferContains(this.page, marker, {
       selector: "[data-terminal-id][data-visible]:not([data-sub-terminal])",
-      attempts: 50,
-      intervalMs: 100,
     });
   },
 );
@@ -298,10 +276,8 @@ Then(
     await this.page
       .locator('[data-testid="sub-panel-tab-bar"]')
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await pollUntilBufferContains(this.page, expected, {
+    await waitForBufferContains(this.page, expected, {
       selector: "[data-sub-terminal][data-visible]",
-      attempts: 50,
-      intervalMs: 100,
     });
   },
 );

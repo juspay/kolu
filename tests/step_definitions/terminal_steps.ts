@@ -1,6 +1,6 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import { KoluWorld } from "../support/world.ts";
-import { readBufferText, pollUntilBufferContains } from "../support/buffer.ts";
+import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
@@ -99,7 +99,7 @@ Given("I note the font size", async function (this: KoluWorld) {
 Then(
   "the screen state should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    await pollUntilBufferContains(this.page, expected);
+    await waitForBufferContains(this.page, expected);
   },
 );
 
