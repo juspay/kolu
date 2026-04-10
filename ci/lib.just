@@ -12,7 +12,14 @@ _preflight:
         fi
     done
 
-# Post GitHub commit status
+# Post GitHub commit status.
+#
+# NOTE: agents/.apm/instructions/workflow.instructions.md contains a Monitor
+# filter that greps `just ci` stdout for the literal pattern
+# `context="ci/X" -f description="..."` emitted by this command. If you change
+# the gh api invocation here (flags, ordering, wrap in a function, etc.),
+# update the filter regex in workflow.instructions.md too — otherwise Claude's
+# Monitor will silently emit zero events on `just ci` runs.
 _signoff name status description="":
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
       -f state="{{ status }}" -f context="ci/{{ name }}" \
@@ -118,22 +125,29 @@ _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
     just --dump --dump-format json | jq -r '
-      .modules.ci.recipes
-      | to_entries[]
+      .modules.ci.recipes as $r
+      # Expand a recipe name to its externally-visible step names.
+      # Underscore-prefixed recipes (e.g. _linux-fanout) are internal helpers,
+      # not CI contexts — replace them with their dependencies, recursively.
+      | def expand:
+          if startswith("_") then
+            [ $r[.].dependencies[]?.recipe | expand ] | add // []
+          else [.] end;
+      $r | to_entries[]
       | select(.key | startswith("_"))
       | .value.body[0][0] // "" as $first
       # Multi-system: CI_SYSTEM=<sys> just ci::<step> ...
       | if ($first | test("^CI_SYSTEM=")) then
-          .value.body[0][0]
+          $first
           | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
           | .system as $sys
-          | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
+          | ([ .steps | split(" ")[] | ltrimstr("ci::") | expand ] | add // [])[]
           | . + "@" + $sys
         # Local-only: just ci::<step> ... (exclude internal _helpers)
         elif ($first | test("^just ci::[a-z]")) then
           $first
           | capture("just (?<steps>.+?)( \\|\\| true)?$")
-          | .steps | split(" ") | map(ltrimstr("ci::")) | .[]
+          | ([ .steps | split(" ")[] | ltrimstr("ci::") | expand ] | add // [])[]
         else empty end'
 
 # Print summary table of all CI statuses for the current sha

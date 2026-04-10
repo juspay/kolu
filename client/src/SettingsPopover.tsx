@@ -5,11 +5,23 @@ import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Toggle from "./Toggle";
 import type { ColorScheme } from "./useColorScheme";
+import type { SidebarAgentPreviews } from "kolu-common";
 
 const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "System" },
+];
+
+/** Preview-mode options for the sidebar agent previews segmented control.
+ *  Order is intentional: narrowest ("none") to broadest ("all"), with
+ *  the default ("attention") sitting next to "none" so users can quickly
+ *  dial back from the default without overshooting into "all". */
+const PREVIEW_OPTIONS: { value: SidebarAgentPreviews; label: string }[] = [
+  { value: "none", label: "Off" },
+  { value: "attention", label: "Alert" },
+  { value: "agents", label: "Agents" },
+  { value: "all", label: "All" },
 ];
 
 const SettingsPopover: Component<{
@@ -26,6 +38,8 @@ const SettingsPopover: Component<{
   onStartupTipsChange: (on: boolean) => void;
   activityAlerts: boolean;
   onActivityAlertsChange: (on: boolean) => void;
+  sidebarAgentPreviews: SidebarAgentPreviews;
+  onSidebarAgentPreviewsChange: (mode: SidebarAgentPreviews) => void;
 }> = (props) => {
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, right: 0 });
@@ -65,7 +79,7 @@ const SettingsPopover: Component<{
             updatePos();
           }}
           data-testid="settings-popover"
-          class="fixed z-50 bg-surface-1 border border-edge-bright rounded-lg shadow-lg p-3 min-w-[200px] space-y-3"
+          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[200px] space-y-3"
           style={{ top: `${pos().top}px`, right: `${pos().right}px` }}
         >
           {/* Color scheme */}
@@ -73,7 +87,7 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Theme</span>
             <div
               data-testid="color-scheme-toggle"
-              class="flex rounded-md overflow-hidden border border-edge"
+              class="flex rounded-lg overflow-hidden border border-edge"
             >
               <For each={SCHEME_OPTIONS}>
                 {(opt) => (
@@ -121,6 +135,34 @@ const SettingsPopover: Component<{
               onChange={props.onActivityAlertsChange}
             />
           </label>
+          {/* Sidebar agent previews — 4-way segmented control */}
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-fg-2">Agent previews</span>
+            <div
+              data-testid="sidebar-agent-previews-toggle"
+              class="flex rounded-lg overflow-hidden border border-edge"
+            >
+              <For each={PREVIEW_OPTIONS}>
+                {(opt) => (
+                  <button
+                    data-testid={`sidebar-agent-previews-${opt.value}`}
+                    class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
+                    classList={{
+                      "bg-accent text-surface-0":
+                        props.sidebarAgentPreviews === opt.value,
+                      "bg-surface-2 text-fg-2 hover:text-fg":
+                        props.sidebarAgentPreviews !== opt.value,
+                    }}
+                    onClick={() =>
+                      props.onSidebarAgentPreviewsChange(opt.value)
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
           {/* Startup tips */}
           <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
             <span class="text-fg-2">Startup tips</span>

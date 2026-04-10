@@ -10,7 +10,7 @@ const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
-  { label: "Mission Control", shortcut: SHORTCUTS.missionControl.keybind },
+  { label: "Cycle terminals", shortcut: SHORTCUTS.cycleTerminalMru.keybind },
   { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
 ];
 
@@ -24,7 +24,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
     data-testid="empty-state"
     class="flex items-center justify-center h-full"
   >
-    <div class="bg-surface-1 border border-edge-bright rounded-lg p-5 max-w-xs w-full">
+    <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/40 p-5 max-w-xs w-full">
       <Show when={props.savedSession}>
         {(session) => {
           const topLevel = () => session().terminals.filter((t) => !t.parentId);
@@ -51,13 +51,13 @@ const EmptyState: Component<EmptyStateProps> = (props) => (
                 </For>
                 <Show when={subCount() > 0}>
                   <div class="text-xs text-fg-3/50">
-                    +{subCount()} sub-terminal{subCount() > 1 ? "s" : ""}
+                    +{subCount()} split{subCount() > 1 ? "s" : ""}
                   </div>
                 </Show>
               </div>
               <button
                 data-testid="restore-session"
-                class="w-full px-3 py-1.5 text-sm rounded bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+                class="w-full px-3 py-1.5 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
                 onClick={() => props.onRestore?.()}
               >
                 Restore {session().terminals.length} terminal

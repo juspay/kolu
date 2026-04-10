@@ -1,40 +1,46 @@
 /**
- * Tip state — singleton module. Persists seen tips in localStorage.
+ * Tip state — singleton module. Persists seen tips in server state.
  * Owns all tip timing: state-driven triggers live here, not in consuming components.
  */
 
-import { type Accessor, createEffect, createSignal } from "solid-js";
-import { makePersisted } from "@solid-primitives/storage";
+import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
 import type { TerminalId } from "kolu-common";
+import { useServerState } from "./useServerState";
 
-const [seenJson, setSeenJson] = makePersisted(createSignal("[]"), {
-  name: "kolu-seen-tips",
-});
+// Tips are suppressed on mobile: they reference keybinds the user can't press
+// and add toast clutter on a small viewport. Snapshot at module load — mirrors
+// the `isPWA` pattern in tips.ts. Crossing the breakpoint mid-session isn't a
+// real flow; a reload re-evaluates.
+const isMobile = window.matchMedia("(max-width: 639px)").matches;
 
-const [startupTips, setStartupTips] = makePersisted(createSignal(true), {
-  name: "kolu-startup-tips",
-});
+// Module-level references, set on first useTips() call.
+let _prefs: ReturnType<typeof useServerState>;
+let _initialized = false;
+
+function ensureInit() {
+  if (_initialized) return;
+  _initialized = true;
+  _prefs = useServerState();
+}
 
 function seen(): Set<TipId> {
-  try {
-    return new Set(JSON.parse(seenJson()));
-  } catch {
-    return new Set();
-  }
+  ensureInit();
+  return new Set(_prefs.preferences().seenTips);
 }
 
 function markSeen(id: TipId) {
   const s = seen();
   s.add(id);
-  setSeenJson(JSON.stringify([...s]));
+  _prefs.updatePreferences({ seenTips: [...s] });
 }
 
-const TIP_PREFIX = "💡 ";
+const TIP_PREFIX = "\u{1F4A1} ";
 
 /** Show a contextual tip toast if the user hasn't seen it yet. */
 function showTipOnce(tip: Tip) {
+  if (isMobile) return;
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
   toast(TIP_PREFIX + tip.text, { duration: 5000 });
@@ -42,6 +48,7 @@ function showTipOnce(tip: Tip) {
 
 /** Pick a random ambient tip (prefers unseen, falls back to any). */
 function randomAmbientTip(): string {
+  if (isMobile) return "";
   const unseen = AMBIENT_TIPS.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : AMBIENT_TIPS;
   const pick = pool[Math.floor(Math.random() * pool.length)]!;
@@ -51,11 +58,12 @@ function randomAmbientTip(): string {
 
 /** Show a random tip as a toast (for startup). Respects the startup-tips setting. */
 function showStartupTip() {
-  if (!startupTips()) return;
+  if (isMobile) return;
+  if (!_prefs.preferences().startupTips) return;
   const text = randomAmbientTip();
   toast(TIP_PREFIX + text, {
     duration: 4000,
-    description: "Startup tip · disable in Settings",
+    description: "Startup tip \u00B7 disable in Settings",
   });
 }
 
@@ -72,20 +80,16 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
       setTimeout(showStartupTip, 1000);
     }
   });
-
-  // Mission Control nudge at 3+ terminals
-  createEffect(() => {
-    if (deps.terminalIds().length >= 3)
-      showTipOnce(CONTEXTUAL_TIPS.missionControl);
-  });
 }
 
 export function useTips() {
+  ensureInit();
   return {
     showTipOnce,
     randomAmbientTip,
     initTipTriggers,
-    startupTips,
-    setStartupTips,
+    startupTips: () => _prefs.preferences().startupTips,
+    setStartupTips: (on: boolean) =>
+      _prefs.updatePreferences({ startupTips: on }),
   } as const;
 }

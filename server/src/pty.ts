@@ -22,11 +22,39 @@ const { Terminal } =
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
+/** Extract plain text from an xterm buffer within a line range. */
+export function getScreenText(
+  buffer: {
+    length: number;
+    getLine(
+      i: number,
+    ): { translateToString(trimRight: boolean): string } | undefined;
+  },
+  startLine?: number,
+  endLine?: number,
+): string {
+  const start = Math.max(0, startLine ?? 0);
+  const end = Math.min(buffer.length, endLine ?? buffer.length);
+  const lines: string[] = [];
+  for (let i = start; i < end; i++) {
+    lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
+  }
+  return lines.join("\n");
+}
+
 export interface PtyHandle {
   /** OS process ID of the spawned shell. */
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
   readonly cwd: string;
+  /** Current foreground process name (from node-pty). */
+  readonly process: string;
+  /**
+   * Pid of the pty's current foreground process group leader (from
+   * tcgetpgrp(3)), or `undefined` if not yet set. Used by metadata
+   * providers to identify which process is running in the terminal.
+   */
+  readonly foregroundPid: number | undefined;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -39,13 +67,15 @@ export interface PtyHandle {
   dispose(): void;
 }
 
-/** Spawn a shell in a PTY, calling back on data, exit, and CWD changes. */
+/** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
   tlog: Logger,
   opts: {
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
+    /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
+    onTitleChange?: (title: string) => void;
   },
   clipboard: { shimBinDir: string; clipboardDir: string },
   spawnCwd?: string,
@@ -69,6 +99,19 @@ export function spawnPty(
     env,
   });
   tlog.info({ pid: proc.pid }, "pty spawned");
+
+  // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
+  // changes drop it, fail loud here instead of silently breaking claude
+  // detection. The accessor returns 0 momentarily before the child finishes
+  // setsid, so any number (including 0) means the property exists.
+  if (
+    typeof (proc as unknown as { foregroundPid?: unknown }).foregroundPid !==
+    "number"
+  ) {
+    throw new Error(
+      "node-pty.foregroundPid accessor missing — fork patch may have regressed",
+    );
+  }
 
   // Headless terminal parses PTY output into screen state for serialization.
   // allowProposedApi is required for SerializeAddon to access the buffer.
@@ -101,6 +144,13 @@ export function spawnPty(
     },
   );
 
+  // OSC 0/2 title changes signal that the foreground process may have changed.
+  // The shell preexec hook (injected in shell.ts) emits OSC 2 before each command.
+  const titleDisposable = headless.onTitleChange((title: string) => {
+    tlog.info({ title }, "title changed (OSC 0/2)");
+    opts.onTitleChange?.(title);
+  });
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
@@ -123,24 +173,27 @@ export function spawnPty(
     get cwd() {
       return currentCwd;
     },
+    get process() {
+      return proc.process;
+    },
+    get foregroundPid() {
+      // node-pty's IPty type doesn't expose this; the UnixTerminal class does.
+      // tcgetpgrp can return 0 momentarily before the child finishes setsid —
+      // collapse that to undefined so callers don't have to special-case it.
+      const pid = (proc as unknown as { foregroundPid?: number }).foregroundPid;
+      return pid && pid > 0 ? pid : undefined;
+    },
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
       headless.resize(cols, rows);
     },
     getScreenState: () => serializeAddon.serialize(),
-    getScreenText: (startLine?: number, endLine?: number) => {
-      const buf = headless.buffer.active;
-      const start = Math.max(0, startLine ?? 0);
-      const end = Math.min(buf.length, endLine ?? buf.length);
-      const lines: string[] = [];
-      for (let i = start; i < end; i++) {
-        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-      }
-      return lines.join("\n");
-    },
+    getScreenText: (startLine?: number, endLine?: number) =>
+      getScreenText(headless.buffer.active, startLine, endLine),
     dispose() {
       oscDisposable.dispose();
+      titleDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();

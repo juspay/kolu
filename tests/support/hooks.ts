@@ -15,15 +15,85 @@ import type { Browser } from "playwright";
 import getPort from "get-port";
 import { KoluWorld } from "./world.ts";
 import * as fs from "node:fs";
+import * as http from "node:http";
+import * as os from "node:os";
 import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
 
+/** Per-worker temp dirs for the Claude Code mock harness — see
+ *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
+ *  workers (the previous setup, exported once before `pnpm test`) puts
+ *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
+ *  events get dropped under load and detection silently misses the mock
+ *  session. Each worker getting its own dir eliminates the contention. */
+const claudeSessionsDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), `kolu-claude-sessions-${workerId}-`),
+);
+const claudeProjectsDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), `kolu-claude-projects-${workerId}-`),
+);
+process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
+process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
+
 let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
+
+// Reuse TCP connections across scenarios to avoid TIME_WAIT socket
+// accumulation on macOS (see #334).
+const keepAliveAgent = new http.Agent({ keepAlive: true });
+
+/** POST JSON to a local URL, reusing TCP connections via keepAlive. */
+function postJSON(url: string, body: object): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname,
+        method: "POST",
+        agent: keepAliveAgent,
+        headers: { "Content-Type": "application/json" },
+      },
+      (res) => {
+        res.resume();
+        res.on("end", resolve);
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(body));
+  });
+}
+
+/** GET a URL, reusing TCP connections via keepAlive. */
+function httpGet(url: string): Promise<{ ok: boolean }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname,
+        method: "GET",
+        agent: keepAliveAgent,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", () =>
+          resolve({ ok: res.statusCode! >= 200 && res.statusCode! < 300 }),
+        );
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
 
 /** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
 function killServer() {
@@ -46,12 +116,12 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const resp = await fetch(url);
+      const resp = await httpGet(url);
       if (resp.ok) return;
     } catch {
       // server not up yet
     }
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(
     `Server did not become healthy at ${url} within ${timeoutMs}ms`,
@@ -80,7 +150,12 @@ BeforeAll(async function () {
       ],
       {
         stdio: "pipe",
-        env: { ...process.env, KOLU_STATE_SUFFIX: `test-${workerId}` },
+        env: {
+          ...process.env,
+          KOLU_STATE_SUFFIX: `test-${workerId}`,
+          KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+          KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+        },
       },
     );
     serverProcess.stderr?.on("data", (data: Buffer) => {
@@ -99,27 +174,43 @@ BeforeAll(async function () {
 
 AfterAll(async function () {
   if (browser) await browser.close();
+  keepAliveAgent.destroy();
   killServer();
 });
 
-Before(async function (this: KoluWorld) {
-  // Kill leftover terminals and clear saved session so each scenario starts clean
+Before(async function (this: KoluWorld, scenario) {
+  // Kill leftover terminals and reset state so each scenario starts clean
   await Promise.all([
-    fetch(`${baseUrl}/rpc/terminal/killAll`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    }),
-    fetch(`${baseUrl}/rpc/session/clear`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+    postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
+    postJSON(`${baseUrl}/rpc/state/test__set`, {
+      json: {
+        session: null,
+        recentRepos: [],
+        // Reset all preferences to defaults (randomTheme off for deterministic tests)
+        preferences: {
+          seenTips: [],
+          startupTips: true,
+          randomTheme: false,
+          scrollLock: true,
+          activityAlerts: true,
+          colorScheme: "dark",
+          sidebarAgentPreviews: "attention",
+        },
+      },
     }),
   ]);
 
+  // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
+  // mounts the mobile drag handle, switches the sidebar into overlay mode).
+  // Without the tag, scenarios run in the desktop context unchanged.
+  const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
+
   this.browser = browser;
   this.context = await browser.newContext({
-    viewport: { width: 1280, height: 720 },
+    viewport: isMobile
+      ? { width: 390, height: 844 }
+      : { width: 1280, height: 720 },
+    ...(isMobile && { hasTouch: true, isMobile: true }),
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
     // clipboard-write: lets tests place images in the clipboard for paste testing.
@@ -139,10 +230,6 @@ Before(async function (this: KoluWorld) {
       document.head.appendChild(style);
     });
   `);
-  // Disable random theme so tests get deterministic default theme
-  await this.page.addInitScript(() =>
-    localStorage.setItem("kolu-random-theme", "false"),
-  );
   this.errors = [];
   this.page.on("pageerror", (err) => this.errors.push(err.message));
 });

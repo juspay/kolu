@@ -2,11 +2,17 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
+cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
+
+mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 
 # List available recipes
 default:
     @just --list
+
+# Prepare repo for development — install deps and cache so future workflows run faster
+prepare: install
 
 # Install pnpm dependencies
 install:
@@ -25,8 +31,8 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking across all packages
-watch: install
+# Run TypeScript type checking across all packages — fast static-correctness gate
+check: install
     {{ nix_shell }} pnpm typecheck
 
 # Run server with auto-reload
@@ -37,6 +43,10 @@ server:
 client:
     cd client && {{ nix_shell }} pnpm dev
 
+# Run unit tests (vitest) across server and client packages
+test-unit: install
+    {{ nix_shell }} pnpm test:unit
+
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install
     #!/usr/bin/env bash
@@ -44,10 +54,7 @@ test: install
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
     {{ nix_shell }} pnpm install
-    # Temp dirs for Claude Code status detection mock tests
-    export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
-    export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -69,25 +76,24 @@ test-quick *args: install
     KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
-    # Temp dirs for Claude Code status detection mock tests
-    export KOLU_CLAUDE_SESSIONS_DIR="$(mktemp -d)"
-    export KOLU_CLAUDE_PROJECTS_DIR="$(mktemp -d)"
     cd tests
     {{ nix_shell }} pnpm install
-    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \
+    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Remove all gitignored files (node_modules, build artifacts, etc.)
+clean:
+    git clean -fdX
+
 # Format all files in-place
 fmt:
-    {{ nix_shell }} prettier --write --ignore-unknown .
-    {{ nix_shell }} nixpkgs-fmt *.nix nix/**/*.nix
+    {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
 
 # Check formatting without modifying files (used by CI)
 fmt-check:
-    {{ nix_shell }} prettier --check --ignore-unknown .
-    {{ nix_shell }} nixpkgs-fmt --check *.nix nix/**/*.nix
+    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
 # Nix build (server + client)
 build:

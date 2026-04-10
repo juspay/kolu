@@ -4,41 +4,63 @@
  * Mocks Claude Code sessions by creating fake session files and JSONL transcripts
  * in the test's configurable directories (KOLU_CLAUDE_SESSIONS_DIR / KOLU_CLAUDE_PROJECTS_DIR).
  *
- * Uses the terminal's own shell PID as the fake "Claude Code PID" — since
- * the shell PID is alive and its stdin points to the terminal's PTY, the
- * provider's PTY matching logic treats it as a match.
+ * Uses the terminal's own shell PID as the fake "Claude Code PID" — when
+ * nothing else is running, the pty's foreground process group leader is the
+ * shell itself, so a session file at ~/.claude/sessions/<shell-pid>.json
+ * makes the provider's foreground-pid lookup succeed.
  */
 
-import { When, Then, Before, After } from "@cucumber/cucumber";
+import { When, Then, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import * as assert from "node:assert";
 import { KoluWorld } from "../support/world.ts";
+import { readBufferText } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
-const SESSIONS_DIR = process.env.KOLU_CLAUDE_SESSIONS_DIR;
-const PROJECTS_DIR = process.env.KOLU_CLAUDE_PROJECTS_DIR;
+// Read these lazily rather than at module load — `hooks.ts` sets per-worker
+// temp dirs on `process.env`, and cucumber's step/support module import
+// order is not guaranteed, so a top-level capture here would race.
+const getSessionsDir = () => process.env.KOLU_CLAUDE_SESSIONS_DIR;
+const getProjectsDir = () => process.env.KOLU_CLAUDE_PROJECTS_DIR;
 
-// Skip on macOS — PTY matching relies on /proc which doesn't exist there
-Before({ tags: "@claude-mock" }, function () {
-  if (os.platform() !== "linux") {
-    return "skipped";
-  }
-});
-
-/** Get the terminal shell PID via the server API. */
+/** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
-  const resp = await world.page.request.fetch("/rpc/terminal/list", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({}),
-  });
-  const body = await resp.json();
-  const list = (body.json ?? body) as Array<{ pid: number; id: string }>;
-  if (list.length === 0) throw new Error("No terminals found");
-  return list[0]!.pid;
+  const marker = `PID_MARKER_${Date.now()}`;
+  await world.page.keyboard.type(`echo $$; echo ${marker}`);
+  await world.page.keyboard.press("Enter");
+  // Poll until we can actually parse the PID from the buffer. The marker
+  // appears in the echoed command line BEFORE the shell prints its output,
+  // so polling on the substring alone races the output. Instead poll until
+  // the structure we want — PID line + marker output line — is present.
+  const pid = await pollUntil(
+    world.page,
+    async () => {
+      const text = await readBufferText(world.page);
+      const lines = text.split("\n").map((l) => l.trim());
+      // Find the marker on a line that's NOT the typed echo command.
+      const markerIdx = lines.findIndex(
+        (l) => l.includes(marker) && !l.includes("echo"),
+      );
+      if (markerIdx <= 0) return null;
+      // Walk backwards from marker to find the PID (first purely numeric line).
+      for (let i = markerIdx - 1; i >= 0; i--) {
+        const num = parseInt(lines[i]!, 10);
+        if (!isNaN(num) && num > 0 && String(num) === lines[i]) return num;
+      }
+      return null;
+    },
+    (val) => val !== null,
+    { attempts: 50, intervalMs: 100 },
+  );
+  if (pid === null) {
+    const text = await readBufferText(world.page);
+    throw new Error(
+      `getTerminalPid: PID not parseable from buffer (marker=${marker}):\n${text.slice(0, 800)}`,
+    );
+  }
+  return pid;
 }
 
 /** Build a JSONL transcript with a specific final state. */
@@ -101,7 +123,9 @@ After(function () {
 When(
   "a Claude Code session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
-    if (!SESSIONS_DIR || !PROJECTS_DIR) {
+    const sessionsDir = getSessionsDir();
+    const projectsDir = getProjectsDir();
+    if (!sessionsDir || !projectsDir) {
       throw new Error(
         "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
       );
@@ -116,24 +140,59 @@ When(
     const encodedCwd = mockCwd.replace(/[/.]/g, "-");
 
     // Create session file
-    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    fs.mkdirSync(sessionsDir, { recursive: true });
     const sessionData = {
       pid,
       sessionId: SESSION_ID,
       cwd: mockCwd,
       startedAt: Date.now(),
     };
-    mockSessionFile = path.join(SESSIONS_DIR, `${pid}.json`);
+    mockSessionFile = path.join(sessionsDir, `${pid}.json`);
     fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
 
     // Create project dir and transcript
-    mockProjectDir = path.join(PROJECTS_DIR, encodedCwd);
+    mockProjectDir = path.join(projectsDir, encodedCwd);
     fs.mkdirSync(mockProjectDir, { recursive: true });
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(
       mockTranscriptPath,
       buildTranscript(state as "thinking" | "tool_use" | "waiting"),
     );
+  },
+);
+
+When(
+  "a newer stale previous-session JSONL exists in the same project dir",
+  async function (this: KoluWorld) {
+    // Regression guard: previously `findTranscriptPath` had an MRU fallback
+    // that picked the most recently modified JSONL in the project dir — so a
+    // previous session's transcript could capture the watcher while the
+    // current session's JSONL was still being created.
+    //
+    // This step bumps the stale file's mtime into the future so an MRU
+    // scan would always prefer it over the mock's current-session JSONL.
+    // With the fix, exact-match lookup ignores the stale file entirely.
+    const projectsDir = getProjectsDir();
+    if (!projectsDir) throw new Error("KOLU_CLAUDE_PROJECTS_DIR must be set");
+    if (!mockCwd) throw new Error("mockCwd not set — call mock step first");
+    const encodedCwd = mockCwd.replace(/[/.]/g, "-");
+    const projectDir = path.join(projectsDir, encodedCwd);
+    const stalePath = path.join(projectDir, "stale-previous-session.jsonl");
+    fs.writeFileSync(
+      stalePath,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-6",
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: "previous" }],
+        },
+      }) + "\n",
+    );
+    // Future mtime so an MRU fallback would always pick this over the
+    // current-session JSONL.
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(stalePath, future, future);
   },
 );
 
@@ -172,7 +231,7 @@ Then(
         }
       },
       (s) => s === expectedState,
-      { attempts: 30, intervalMs: 500 },
+      { attempts: 30, intervalMs: 200 },
     );
     assert.strictEqual(
       state,
@@ -196,7 +255,7 @@ async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
       }
     },
     (count) => count > 0,
-    { attempts: 30, intervalMs: 500 },
+    { attempts: 30, intervalMs: 200 },
   );
   const count = await indicator.count();
   assert.ok(
@@ -213,9 +272,80 @@ Then(
 );
 
 Then(
-  "Mission Control should show a Claude indicator",
+  "the sidebar should show a terminal preview",
   async function (this: KoluWorld) {
-    await expectClaudeIndicatorIn(this, "mission-control");
+    const sidebar = this.page.locator('[data-testid="sidebar"]');
+    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
+    await preview.first().waitFor({ state: "visible", timeout: 10_000 });
+    const count = await preview.count();
+    assert.ok(count > 0, "Expected at least one sidebar preview");
+  },
+);
+
+Then(
+  "the sidebar should not show a terminal preview",
+  async function (this: KoluWorld) {
+    const sidebar = this.page.locator('[data-testid="sidebar"]');
+    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
+    await preview.first().waitFor({ state: "hidden", timeout: 10_000 });
+  },
+);
+
+When(
+  "I set the agent previews mode to {string}",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="sidebar-agent-previews-${mode}"]`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the Claude transcript dialog should be visible",
+  async function (this: KoluWorld) {
+    const dialog = this.page.locator('[data-testid="claude-transcript"]');
+    await dialog.waitFor({ state: "visible", timeout: 10_000 });
+  },
+);
+
+Then(
+  "the Claude transcript dialog should show at least {int} server transition(s)",
+  async function (this: KoluWorld, min: number) {
+    const dialog = this.page.locator('[data-testid="claude-transcript"]');
+    await dialog.waitFor({ state: "visible", timeout: 10_000 });
+    // The "Server saw" header includes the count from `stateChanges`. After
+    // `setupTranscriptWatching` runs the initial derive, an existing JSONL
+    // tail produces ≥1 transition — that's the value we assert against.
+    // (rawEvents stays empty by design when content predates the watcher.)
+    const count = await pollUntil(
+      this.page,
+      async () => {
+        const text = (await dialog.textContent()) ?? "";
+        const m = text.match(/Server saw \((\d+) transitions?\)/);
+        return m ? parseInt(m[1]!, 10) : 0;
+      },
+      (n) => n >= min,
+      { attempts: 30, intervalMs: 200 },
+    );
+    assert.ok(
+      count >= min,
+      `Expected at least ${min} server transition(s) in Claude transcript dialog, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "palette item {string} should not be visible",
+  async function (this: KoluWorld, text: string) {
+    const palette = this.page.locator('[data-testid="command-palette"]');
+    const item = palette
+      .locator("li")
+      .filter({ hasText: new RegExp(`^${text}`) });
+    const count = await item.count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected palette item "${text}" to be hidden, but found ${count}`,
+    );
   },
 );
 
@@ -235,7 +365,7 @@ Then(
         }
       },
       (count) => count === 0,
-      { attempts: 30, intervalMs: 500 },
+      { attempts: 30, intervalMs: 200 },
     );
     const count = await this.page
       .locator('[data-testid="claude-indicator"]')

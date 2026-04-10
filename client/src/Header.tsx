@@ -1,7 +1,6 @@
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { shortenCwd } from "./path";
 import {
-  GridIcon,
   MenuIcon,
   PrStateIcon,
   SearchIcon,
@@ -17,7 +16,7 @@ import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
-import type { TerminalMetadata } from "kolu-common";
+import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
 
 /** WS connection status indicator colors and animations. */
@@ -31,7 +30,6 @@ const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
   onThemeClick?: () => void;
-  onMissionControl?: () => void;
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
@@ -47,6 +45,8 @@ const Header: Component<{
   onStartupTipsChange?: (on: boolean) => void;
   activityAlerts?: boolean;
   onActivityAlertsChange?: (on: boolean) => void;
+  sidebarAgentPreviews?: SidebarAgentPreviews;
+  onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -54,24 +54,28 @@ const Header: Component<{
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
-    <header class="flex items-center gap-2 px-2 sm:px-4 h-10 shrink-0 overflow-hidden bg-surface-1 border-b border-edge">
-      <Tip label="Toggle sidebar">
-        <button
-          data-testid="sidebar-toggle"
-          class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          onClick={() => props.onToggleSidebar?.()}
-        >
-          <MenuIcon />
-        </button>
-      </Tip>
-      <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
-      <span class="font-semibold text-sm hidden sm:inline">
-        {props.appTitle ?? "kolu"}
-      </span>
-      <Show when={props.meta}>
+    <header class="flex items-center h-10 shrink-0 bg-surface-1 border-b border-edge">
+      {/* Zone A: Identity — rigid, never compresses */}
+      <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
+        <Tip label="Toggle sidebar">
+          <button
+            data-testid="sidebar-toggle"
+            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={() => props.onToggleSidebar?.()}
+          >
+            <MenuIcon />
+          </button>
+        </Tip>
+        <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
+        <span class="font-semibold text-sm hidden sm:inline">
+          {props.appTitle ?? "kolu"}
+        </span>
+      </div>
+      {/* Zone B: Context — elastic shock absorber, truncates under pressure */}
+      <Show when={props.meta} fallback={<div class="flex-1" />}>
         {(meta) => (
-          <span
-            class="flex items-center gap-1 text-xs min-w-0"
+          <div
+            class="flex-1 min-w-0 flex items-center gap-1 text-xs overflow-hidden"
             data-testid="header-cwd"
           >
             <span class="text-fg-2 truncate" title={meta().cwd}>
@@ -79,7 +83,11 @@ const Header: Component<{
             </span>
             <Show when={meta().git}>
               {(git) => (
-                <span class="text-fg-3 shrink-0" data-testid="header-branch">
+                <span
+                  class="text-fg-3 min-w-0 truncate"
+                  data-testid="header-branch"
+                  title={git().branch}
+                >
                   &middot; {git().branch}
                   <Show when={git().isWorktree}>
                     <WorktreeIcon class="inline w-3 h-3 ml-0.5" />
@@ -113,25 +121,16 @@ const Header: Component<{
                 </span>
               )}
             </Show>
-          </span>
+          </div>
         )}
       </Show>
-      {/* Push remaining items to the right */}
-      <div class="ml-auto flex items-center gap-2">
-        <Tip label="Mission Control">
-          <button
-            data-testid="mission-control-trigger"
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onMissionControl?.()}
-          >
-            <GridIcon />
-          </button>
-        </Tip>
+      {/* Zone C: Controls — rigid, never clips */}
+      <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {props.themeName && (
-          <Tip label="Change theme">
+          <Tip label={`Theme: ${props.themeName}`}>
             <button
               data-testid="theme-name"
-              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded-lg transition-colors cursor-pointer max-w-[14ch] truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {
                 props.onThemeClick?.();
                 setTimeout(
@@ -148,7 +147,7 @@ const Header: Component<{
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
           <button
-            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onSearch?.()}
           >
             <SearchIcon />
@@ -159,7 +158,7 @@ const Header: Component<{
             <button
               ref={settingsTriggerRef}
               data-testid="settings-trigger"
-              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => setSettingsOpen(!settingsOpen())}
             >
               <SettingsIcon />
@@ -177,6 +176,10 @@ const Header: Component<{
             onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
             activityAlerts={props.activityAlerts ?? true}
             onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
+            sidebarAgentPreviews={props.sidebarAgentPreviews ?? "attention"}
+            onSidebarAgentPreviewsChange={(mode) =>
+              props.onSidebarAgentPreviewsChange?.(mode)
+            }
             startupTips={props.startupTips ?? true}
             onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />
@@ -184,7 +187,7 @@ const Header: Component<{
         <Tip label="Command palette">
           <button
             data-testid="palette-trigger"
-            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded border border-edge-bright transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette?.()}
           >
             <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>

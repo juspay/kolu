@@ -51,7 +51,7 @@ const TerminalMeta: Component<{
             <Show when={info().subCount > 0}>
               <span
                 data-testid="sub-count"
-                class="ml-auto text-[0.6rem] text-fg-3 bg-surface-2 px-1 rounded shrink-0"
+                class="ml-auto text-[0.6rem] text-fg-2 bg-fg/10 px-1 rounded shrink-0"
               >
                 +{info().subCount}
               </span>
@@ -88,7 +88,7 @@ const TerminalMeta: Component<{
           <Show when={info().meta.pr}>
             {(pr) => (
               <div
-                class={`flex items-center gap-1 ${detailClass()} text-fg-3 truncate`}
+                class={`flex items-center gap-1 ${detailClass()} text-fg-2 truncate`}
                 data-testid="terminal-meta-pr"
                 title={`#${pr().number} ${pr().title}`}
               >
@@ -115,20 +115,60 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Agent status + activity sparkline */}
-          <Show when={info().meta.claude || info().activityHistory.length > 0}>
+          {/* Claude indicator — own row when active. Summary line carries
+           *  the SDK-derived display title (custom title › auto-summary ›
+           *  first prompt) so a glance at the card tells you _what_ the
+           *  agent is working on, not just that it's working. */}
+          <Show when={info().meta.claude}>
+            {(claude) => (
+              <div class="mt-1">
+                <ClaudeIndicator state={claude().state} />
+                <Show when={claude().summary}>
+                  {(summary) => (
+                    <div
+                      data-testid="claude-summary"
+                      class="text-xs text-fg-3 truncate mt-0.5"
+                      title={summary()}
+                    >
+                      {summary()}
+                    </div>
+                  )}
+                </Show>
+              </div>
+            )}
+          </Show>
+
+          {/* Foreground process/title + activity sparkline (shared row) */}
+          <Show
+            when={info().meta.foreground || info().activityHistory.length > 0}
+          >
             <div
-              class="flex items-center gap-1.5"
+              class="flex items-center gap-2 min-w-0 mt-1"
               classList={{
-                "mt-0.5": mode() === "normal",
                 "mt-auto": mode() === "readonly",
               }}
             >
-              <Show when={info().meta.claude}>
-                {(claude) => <ClaudeIndicator state={claude().state} />}
+              {/* Suppress the OSC 2 title when the Claude summary row is
+               *  already shown above — the two texts are near-duplicates
+               *  (SDK summary vs claude-code's live activity indicator) and
+               *  stacking them eats vertical space for no new information.
+               *  `A && B` returns B when A is truthy, so `Show` narrows
+               *  `fg` to the foreground value directly. */}
+              <Show
+                when={!info().meta.claude?.summary && info().meta.foreground}
+              >
+                {(fg) => (
+                  <span
+                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                    data-testid="process-name"
+                    title={fg().title ?? fg().name}
+                  >
+                    {fg().title ?? fg().name}
+                  </span>
+                )}
               </Show>
               <Show when={info().activityHistory.length > 0}>
-                <div class="ml-auto">
+                <div class="ml-auto w-16 shrink-0">
                   <ActivityGraph samples={info().activityHistory} />
                 </div>
               </Show>

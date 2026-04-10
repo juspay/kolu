@@ -7,10 +7,12 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "KOLU_STATE_SUFFIX=dev node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "KOLU_STATE_SUFFIX=test vitest run"
   },
   "dependencies": {
-    "@hono/node-server": "^1.14.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.96",
+    "@hono/node-server": "^1.19.13",
     "@hono/node-ws": "^1.1.0",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
@@ -21,7 +23,7 @@
     "@xterm/headless": "^6.0.0",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
-    "hono": "^4.7.0",
+    "hono": "^4.12.12",
     "hono-pino": "^0.10.3",
     "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
@@ -29,6 +31,7 @@
     "pino-pretty": "^13.1.3",
     "selfsigned": "^5.5.0",
     "simple-git": "^3.33.0",
+    "ts-pattern": "^5.9.0",
     "ws": "^8.19.0",
     "zod": "^4.3.6"
   },
@@ -36,6 +39,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.2"
   }
 }

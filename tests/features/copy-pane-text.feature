@@ -4,11 +4,6 @@ Feature: Copy terminal text
   Background:
     Given the terminal is ready
 
-  Scenario: Server returns plain text via screenText API
-    When I run "echo copy-terminal-test-marker"
-    Then the screenText API should return text containing "copy-terminal-test-marker"
-    And there should be no page errors
-
   Scenario: Copy terminal text via command palette
     When I run "echo palette-copy-test"
     And the screen state should contain "palette-copy-test"

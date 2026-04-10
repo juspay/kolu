@@ -62,6 +62,13 @@ let
       ./common
       ./server
       ./client
+      # pnpm.patchedDependencies entries — read by pnpm during install and
+      # applied to the upstream tarball. Currently:
+      #   - node-pty@1.1.0.patch: adds a foregroundPid accessor wrapping
+      #     tcgetpgrp(masterFd). Upstream feature request:
+      #     https://github.com/microsoft/node-pty/issues/913 — drop this
+      #     patch once that lands.
+      ./patches
     ];
   };
 
@@ -69,7 +76,7 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-Uyx2byKrQHXyY+I7xV4p27Ar4cIpMK4ceGHD3vyPzgE=";
+    hash = "";
     fetcherVersion = 3;
   };
 

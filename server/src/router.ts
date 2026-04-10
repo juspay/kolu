@@ -1,8 +1,8 @@
 /**
  * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
  *
- * Streaming handlers subscribe to per-terminal publisher channels over WebSocket.
- * Terminal CRUD is request-response.
+ * Streaming handlers subscribe to publisher channels over WebSocket.
+ * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
  */
 import { implement } from "@orpc/server";
 
@@ -20,15 +20,14 @@ import {
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_ } from "./publisher.ts";
+import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getRecentRepos } from "./state.ts";
 import {
-  getSavedSession,
-  clearSavedSession,
-  setSavedSession,
-} from "./session.ts";
+  getServerState,
+  testSetServerState,
+  updateServerState,
+} from "./state.ts";
 import {
   getPlanContent,
   addPlanFeedback,
@@ -55,7 +54,12 @@ export const appRouter = t.router({
     create: t.terminal.create.handler(async ({ input }) =>
       createTerminal(input.cwd, input.parentId),
     ),
-    list: t.terminal.list.handler(async () => listTerminals()),
+    list: t.terminal.list.handler(async function* ({ signal }) {
+      yield listTerminals();
+      for await (const list of subscribeSystem_("terminal-list", signal)) {
+        yield list;
+      }
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);
@@ -145,15 +149,13 @@ export const appRouter = t.router({
       signal,
     }) {
       const entry = requireTerminal(input.id);
-      // Snapshot: yield full history so late-joining clients get the sparkline
-      for (const sample of entry.activityHistory) yield sample;
-      // Live: yield individual transitions as they happen
+      yield { kind: "snapshot" as const, samples: [...entry.activityHistory] };
       for await (const sample of subscribeForTerminal_(
         "activity",
         input.id,
         signal,
       )) {
-        yield sample;
+        yield { kind: "delta" as const, sample };
       }
     }),
 
@@ -169,6 +171,12 @@ export const appRouter = t.router({
       }
     }),
   },
+  claude: {
+    getTranscript: t.claude.getTranscript.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      return entry.getClaudeDebug?.() ?? null;
+    }),
+  },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) =>
       worktreeCreate(input.repoPath),
@@ -176,7 +184,6 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       await worktreeRemove(input.worktreePath);
     }),
-    recentRepos: t.git.recentRepos.handler(async () => getRecentRepos()),
   },
   plans: {
     get: t.plans.get.handler(async ({ input }) => getPlanContent(input.path)),
@@ -187,13 +194,18 @@ export const appRouter = t.router({
       removePlanFeedback(input.path, input.feedbackLine);
     }),
   },
-  session: {
-    get: t.session.get.handler(async () => getSavedSession()),
-    clear: t.session.clear.handler(async () => {
-      clearSavedSession();
+  state: {
+    get: t.state.get.handler(async function* ({ signal }) {
+      yield getServerState();
+      for await (const state of subscribeSystem_("state:changed", signal)) {
+        yield state;
+      }
     }),
-    test__set: t.session.test__set.handler(async ({ input }) => {
-      setSavedSession(input);
+    update: t.state.update.handler(async ({ input }) => {
+      updateServerState(input);
+    }),
+    test__set: t.state.test__set.handler(async ({ input }) => {
+      testSetServerState(input);
     }),
   },
 });

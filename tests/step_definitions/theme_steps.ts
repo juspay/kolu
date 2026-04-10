@@ -3,6 +3,7 @@ import {
   KoluWorld,
   SIDEBAR_ENTRY_SELECTOR,
   MOD_KEY,
+  POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
 import { pollUntil } from "../support/poll.ts";
@@ -23,26 +24,27 @@ When(
     assert.ok(id, `Sidebar entry ${position} has no terminal ID`);
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
-      .waitFor({ state: "attached", timeout: 5000 });
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
 
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The terminal area's parent container div has inline background-color.
+    // The terminal viewport div has inline background-color set by the active theme.
     // Poll since theme change involves async reset + screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
     const bgColor = await pollUntil(
       this.page,
       () =>
         this.page.evaluate(() => {
-          const el = document.querySelector("[data-visible]");
-          const container = el?.parentElement?.closest("[style]");
+          const container = document.querySelector(
+            '[data-testid="terminal-viewport"]',
+          );
           return container ? getComputedStyle(container).backgroundColor : "";
         }),
       (bg) => bg === expectedRgb,
-      { attempts: 100 },
+      { attempts: 50 },
     );
     assert.strictEqual(
       bgColor,
@@ -61,7 +63,7 @@ Then(
   "the header theme should differ from {string}",
   async function (this: KoluWorld, notExpected: string) {
     const themeName = this.page.locator('[data-testid="theme-name"]');
-    await themeName.waitFor({ state: "visible", timeout: 5_000 });
+    await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await pollUntil(
       this.page,
       async () => (await themeName.textContent()) ?? "",
@@ -77,7 +79,7 @@ Then(
 
 When("I click the theme name in the header", async function (this: KoluWorld) {
   const themeButton = this.page.locator('[data-testid="theme-name"]');
-  await themeButton.waitFor({ state: "visible", timeout: 3000 });
+  await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await themeButton.click();
   await this.waitForFrame();
 });
@@ -86,7 +88,7 @@ Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {
     const themeName = this.page.locator('[data-testid="theme-name"]');
-    await themeName.waitFor({ state: "visible", timeout: 5_000 });
+    await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await pollUntil(
       this.page,
       async () => (await themeName.textContent()) ?? "",

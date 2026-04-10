@@ -1,98 +1,98 @@
 /** Plan state — derives active plan from Claude metadata, fetches content, handles feedback. */
 
-import { type Accessor, createMemo } from "solid-js";
-import {
-  createQuery,
-  createMutation,
-  useQueryClient,
-} from "@tanstack/solid-query";
+import { type Accessor, createSignal, createEffect, on } from "solid-js";
 import { toast } from "solid-sonner";
-import { orpc } from "./orpc";
+import { client } from "./rpc";
 import type { PlanContent, TerminalMetadata } from "kolu-common";
 
 export function usePlans(deps: {
   activeMeta: Accessor<TerminalMetadata | null>;
 }) {
   /** Plan info from the active terminal's Claude session. */
-  const activePlanPath = createMemo(
-    () => deps.activeMeta()?.claude?.latestPlanPath ?? null,
-  );
-  /** Plan file mtime — pushed by server on fs change, used in query key to trigger refetch. */
-  const planModifiedAt = createMemo(
-    () => deps.activeMeta()?.claude?.planModifiedAt ?? null,
-  );
+  const activePlanPath = () =>
+    deps.activeMeta()?.claude?.latestPlanPath ?? null;
+  /** Plan file mtime — pushed by server on fs change, used to trigger refetch. */
+  const planModifiedAt = () =>
+    deps.activeMeta()?.claude?.planModifiedAt ?? null;
 
   /** Plan display name derived from file path. */
-  const planName = createMemo(() => {
+  const planName = () => {
     const p = activePlanPath();
     if (!p) return "Plan";
     const filename = p.split("/").pop() ?? "Plan";
     return filename.replace(/\.md$/, "");
-  });
+  };
 
-  /** Fetch content of the active plan.
-   *  The query key includes planModifiedAt so TanStack auto-refetches when the
-   *  server pushes a new mtime via the metadata stream (no polling needed). */
-  const planContent = createQuery(() => {
-    const p = activePlanPath();
-    const mtime = planModifiedAt();
-    const opts = orpc.plans.get.queryOptions({ input: { path: p! } });
-    return {
-      ...opts,
-      // Append mtime to the query key — when the server's fs watcher detects
-      // a plan file change, it publishes updated metadata with a new mtime,
-      // which changes this key, triggering a fresh fetch.
-      queryKey: [...opts.queryKey, mtime],
-      enabled: !!p,
-    };
-  });
+  const [planContent, setPlanContent] = createSignal<PlanContent | undefined>();
+  const [isPlanContentLoading, setIsPlanContentLoading] = createSignal(false);
 
-  /** Mutation to add feedback to a plan. */
-  const qc = useQueryClient();
-  const addFeedbackMut = createMutation(() => ({
-    ...orpc.plans.addFeedback.mutationOptions(),
-    onSuccess: () => {
-      const p = activePlanPath();
-      if (p) {
-        void qc.invalidateQueries({
-          queryKey: orpc.plans.get.queryOptions({ input: { path: p } })
-            .queryKey,
-        });
-      }
-      toast.success("Feedback added to plan");
-    },
-    onError: (err: Error) =>
-      toast.error(`Failed to add feedback: ${err.message}`),
-  }));
-
-  const removeFeedbackMut = createMutation(() => ({
-    ...orpc.plans.removeFeedback.mutationOptions(),
-    onSuccess: () => {
-      const p = activePlanPath();
-      if (p) {
-        void qc.invalidateQueries({
-          queryKey: orpc.plans.get.queryOptions({ input: { path: p } })
-            .queryKey,
-        });
-      }
-    },
-    onError: (err: Error) =>
-      toast.error(`Failed to remove feedback: ${err.message}`),
-  }));
+  // Refetch plan content when path or mtime changes
+  createEffect(
+    on(
+      () => [activePlanPath(), planModifiedAt()] as const,
+      ([p, _mtime]) => {
+        if (!p) {
+          setPlanContent(undefined);
+          return;
+        }
+        setIsPlanContentLoading(true);
+        client.plans
+          .get({ path: p })
+          .then((content) => {
+            // Only update if the path still matches (guard against stale responses)
+            if (activePlanPath() === p) {
+              setPlanContent(content);
+            }
+          })
+          .catch((err: Error) => {
+            console.error("Failed to fetch plan content:", err);
+            setPlanContent(undefined);
+          })
+          .finally(() => setIsPlanContentLoading(false));
+      },
+    ),
+  );
 
   function addFeedback(path: string, afterLine: number, text: string) {
-    addFeedbackMut.mutate({ path, afterLine, text });
+    client.plans
+      .addFeedback({ path, afterLine, text })
+      .then(() => {
+        toast.success("Feedback added to plan");
+        // Refetch content after adding feedback
+        return client.plans.get({ path });
+      })
+      .then((content) => {
+        if (activePlanPath() === path) {
+          setPlanContent(content);
+        }
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to add feedback: ${err.message}`),
+      );
   }
 
   function removeFeedback(path: string, feedbackLine: number) {
-    removeFeedbackMut.mutate({ path, feedbackLine });
+    client.plans
+      .removeFeedback({ path, feedbackLine })
+      .then(() => {
+        // Refetch content after removing feedback
+        return client.plans.get({ path });
+      })
+      .then((content) => {
+        if (activePlanPath() === path) {
+          setPlanContent(content);
+        }
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to remove feedback: ${err.message}`),
+      );
   }
 
   return {
     activePlanPath,
     planName,
-    planContent: () => planContent.data as PlanContent | undefined,
-    isPlanContentLoading: () => planContent.isLoading,
+    planContent,
+    isPlanContentLoading,
     addFeedback,
     removeFeedback,
   };

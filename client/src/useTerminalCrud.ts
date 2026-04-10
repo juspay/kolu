@@ -1,15 +1,16 @@
-/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text. */
+/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
+ *
+ *  Uses plain oRPC client calls. Server signals propagate list/metadata
+ *  changes via the live subscriptions — no optimistic cache needed. */
 
 import type { Accessor } from "solid-js";
-import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
 import { availableThemes } from "./theme";
 import { client } from "./rpc";
-import { orpc } from "./orpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -20,59 +21,25 @@ export function useTerminalCrud(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
-  const qc = useQueryClient();
 
-  // --- Mutations ---
+  // --- Handlers ---
 
-  const setThemeMut = createMutation(() => ({
-    ...orpc.terminal.setTheme.mutationOptions(),
-    onError: () => toast.error("Failed to set theme"),
-  }));
-
-  const setParentMut = createMutation(() => ({
-    ...orpc.terminal.setParent.mutationOptions(),
-    onError: () => toast.error("Failed to set parent"),
-  }));
-
-  const createMut = createMutation(() => ({
-    ...orpc.terminal.create.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to create terminal: ${err.message}`),
-  }));
-
-  const killMut = createMutation(() => ({
-    ...orpc.terminal.kill.mutationOptions(),
-  }));
-
-  const killAllMut = createMutation(() => ({
-    ...orpc.terminal.killAll.mutationOptions(),
-    onError: () => toast.error("Failed to close all terminals"),
-  }));
-
-  const reorderMut = createMutation(() => ({
-    ...orpc.terminal.reorder.mutationOptions(),
-    onError: () => toast.error("Failed to reorder terminals"),
-  }));
-
-  /** Set a terminal's theme name locally (optimistic) and on the server. */
+  /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string) {
-    const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-    qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-      old ? { ...old, themeName: name } : old,
-    );
-    setThemeMut.mutate({ id, themeName: name });
+    void client.terminal
+      .setTheme({ id, themeName: name })
+      .catch((err: Error) =>
+        toast.error(`Failed to set theme: ${err.message}`),
+      );
   }
 
-  /** Optimistic reorder — write sortOrder values to TanStack cache, then mutate. */
+  /** Reorder terminals on the server. */
   function reorderTerminals(ids: TerminalId[]) {
-    const SORT_GAP = 1000;
-    ids.forEach((id, i) => {
-      const key = orpc.terminal.onMetadataChange.key({ input: { id } });
-      qc.setQueryData(key, (old: TerminalMetadata | undefined) =>
-        old ? { ...old, sortOrder: (i + 1) * SORT_GAP } : old,
+    void client.terminal
+      .reorder({ ids })
+      .catch((err: Error) =>
+        toast.error(`Failed to reorder terminals: ${err.message}`),
       );
-    });
-    reorderMut.mutate({ ids });
   }
 
   /** Remove a terminal and auto-switch if it was active. */
@@ -89,19 +56,21 @@ export function useTerminalCrud(deps: {
           subPanel.setActiveSubTab(parentId, subs[0] ?? null);
         }
       }
-      store.removeKnownId(id);
       return;
     }
 
     // Top-level terminal — promote sub-terminals to top-level
     const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
-      setParentMut.mutate({ id: subId, parentId: null });
+      void client.terminal
+        .setParent({ id: subId, parentId: null })
+        .catch((err: Error) =>
+          toast.error(`Failed to set parent: ${err.message}`),
+        );
     }
 
     const ids = store.terminalIds();
     const idx = ids.indexOf(id);
-    store.removeKnownId(id);
     subPanel.removePanel(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
@@ -110,24 +79,32 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Create a new terminal on the server, add to known IDs, and make it active. */
-  async function handleCreate(cwd?: string) {
+  /** Create a new terminal on the server and make it active.
+   *  Returns the new terminal ID (for session restore mapping). */
+  async function handleCreate(cwd?: string): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    const info = await createMut.mutateAsync({ cwd });
+    const info = await client.terminal.create({ cwd }).catch((err: Error) => {
+      toast.error(`Failed to create terminal: ${err.message}`);
+      throw err;
+    });
     const themeName = deps.randomTheme()
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;
-    store.addKnownId(info.id);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (themeName) setThemeName(info.id, themeName);
+    return info.id;
   }
 
   async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    const info = await createMut.mutateAsync({ cwd, parentId });
-    store.addKnownId(info.id);
+    const info = await client.terminal
+      .create({ cwd, parentId })
+      .catch((err: Error) => {
+        toast.error(`Failed to create terminal: ${err.message}`);
+        throw err;
+      });
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
     deps.subscribeExit(info.id);
@@ -135,11 +112,18 @@ export function useTerminalCrud(deps: {
 
   async function handleKill(id: TerminalId) {
     try {
-      await killMut.mutateAsync({ id });
+      await client.terminal.kill({ id });
     } catch {
       // Terminal may already be gone
     }
     removeAndAutoSwitch(id);
+  }
+
+  /** Kill a terminal and all its sub-terminals (instead of promoting them). */
+  async function handleKillWithSubs(id: TerminalId) {
+    const subs = store.getSubTerminalIds(id);
+    for (const subId of subs) await handleKill(subId);
+    await handleKill(id);
   }
 
   async function handleCopyTerminalText() {
@@ -148,7 +132,7 @@ export function useTerminalCrud(deps: {
     try {
       const text = await client.terminal.screenText({ id });
       await navigator.clipboard.writeText(text);
-      toast("Copied terminal text to clipboard");
+      toast.success("Copied terminal text to clipboard");
     } catch (err) {
       console.error("Failed to copy terminal text:", err);
       toast.error("Failed to copy terminal text");
@@ -156,8 +140,12 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCloseAll() {
-    await killAllMut.mutateAsync(undefined);
-    store.reset();
+    try {
+      await client.terminal.killAll();
+      store.reset();
+    } catch (err) {
+      toast.error(`Failed to close all terminals: ${(err as Error).message}`);
+    }
   }
 
   return {
@@ -167,6 +155,7 @@ export function useTerminalCrud(deps: {
     handleCreate,
     handleCreateSubTerminal,
     handleKill,
+    handleKillWithSubs,
     handleCopyTerminalText,
     handleCloseAll,
   };

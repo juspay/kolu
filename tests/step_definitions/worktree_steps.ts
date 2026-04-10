@@ -1,6 +1,10 @@
 import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
-import { KoluWorld, SIDEBAR_ENTRY_SELECTOR } from "../support/world.ts";
+import {
+  KoluWorld,
+  SIDEBAR_ENTRY_SELECTOR,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 import * as assert from "node:assert";
 
 When(
@@ -26,6 +30,74 @@ When(
   },
 );
 
+When(
+  "I set up a bare git repo at {string}",
+  async function (this: KoluWorld, repoPath: string) {
+    execFileSync("bash", [
+      "-c",
+      `rm -rf "${repoPath}" && git init --bare "${repoPath}"`,
+    ]);
+  },
+);
+
+Then(
+  "the close confirmation should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="close-confirm"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I confirm close all in the close confirmation",
+  async function (this: KoluWorld) {
+    await this.page.locator('[data-testid="close-confirm-close-all"]').click();
+  },
+);
+
+When("I confirm worktree removal", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="close-confirm-remove"]').click();
+});
+
+When(
+  "I click close only in the close confirmation",
+  async function (this: KoluWorld) {
+    await this.page.locator('[data-testid="close-confirm-close-only"]').click();
+  },
+);
+
+When("I dismiss the close confirmation", async function (this: KoluWorld) {
+  // Press Escape to close the dialog
+  await this.page.keyboard.press("Escape");
+  await this.page
+    .locator('[data-testid="close-confirm"]')
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+});
+
+When("I cancel the close confirmation", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="close-confirm-cancel"]').click();
+  await this.page
+    .locator('[data-testid="close-confirm"]')
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the sidebar entry count should be unchanged",
+  async function (this: KoluWorld) {
+    assert.ok(
+      this.savedSidebarCount !== undefined,
+      "Must note sidebar count first",
+    );
+    const current = await this.page.locator(SIDEBAR_ENTRY_SELECTOR).count();
+    assert.strictEqual(
+      current,
+      this.savedSidebarCount,
+      `Expected sidebar count unchanged at ${this.savedSidebarCount}, got ${current}`,
+    );
+  },
+);
+
 Then(
   "the sidebar should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {
@@ -34,17 +106,11 @@ Then(
       "Must note sidebar count first",
     );
     const expected = this.savedSidebarCount! - fewer;
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    for (let attempt = 0; attempt < 20; attempt++) {
-      const count = await entries.count();
-      if (count === expected) return;
-      await this.waitForFrame();
-    }
-    const count = await entries.count();
-    assert.strictEqual(
-      count,
-      expected,
-      `Expected ${expected} sidebar entries (${this.savedSidebarCount} - ${fewer}), got ${count}`,
+    const sel = SIDEBAR_ENTRY_SELECTOR;
+    await this.page.waitForFunction(
+      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
+      { sel, exp: expected },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

@@ -1,4 +1,11 @@
-import { type Component, For, Show, createSignal } from "solid-js";
+import {
+  type Component,
+  For,
+  Show,
+  createEffect,
+  createSignal,
+} from "solid-js";
+import { createMediaQuery } from "@solid-primitives/media";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -9,33 +16,139 @@ import {
   transformStyle,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import { match, P } from "ts-pattern";
 import Tip from "./Tip";
+import Kbd from "./Kbd";
 import TerminalMeta from "./TerminalMeta";
+import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
+import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type {
+  ClaudeCodeInfo,
+  SidebarAgentPreviews,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common";
+import type { ITheme } from "@xterm/xterm";
+import { viewportDimensions } from "./useViewport";
 
-/** Single sortable sidebar entry. Extracted so `createSortable` runs inside `<For>`. */
+type ClaudeState = ClaudeCodeInfo["state"];
+type CardTier = "waiting" | "active" | "idle";
+
+/** Derive the visual tier for the sidebar card from live Claude state.
+ *  Note: `unread` (unseen completion) is orthogonal — rendered as a
+ *  separate dot, not folded into this tier. */
+function cardTier(claudeState: ClaudeState | undefined): CardTier {
+  return match(claudeState)
+    .with("waiting", () => "waiting" as const)
+    .with(P.union("thinking", "tool_use"), () => "active" as const)
+    .with(undefined, () => "idle" as const)
+    .exhaustive();
+}
+
+/** Decide whether a sidebar card should render a live xterm preview.
+ *
+ *  User-configurable via the `sidebarAgentPreviews` preference:
+ *
+ *  - `"none"`: never — the user opted out entirely.
+ *  - `"all"`: every terminal gets a preview, agent or not. Noisy, but
+ *    handy for testing the preview plumbing itself.
+ *  - `"agents"`: any terminal with a running code agent. This was the
+ *    behavior before the enum was introduced (legacy `true`).
+ *  - `"attention"` (**default**): only agents that actually want the
+ *    user's eyes — when Claude is **waiting** for input or when
+ *    there's an **unread** completion. Rationale: previews are
+ *    expensive vertically (only ~3 cards fit — see #388), so we
+ *    reserve them for the moments peeking without switching actually
+ *    helps. Thinking/tool_use agents are busy but don't need
+ *    attention; idle terminals have nothing to show. Edit this single
+ *    branch if the "needs attention" heuristic needs to change. */
+function shouldShowPreview(
+  mode: SidebarAgentPreviews,
+  hasAgent: boolean,
+  claudeState: ClaudeState | undefined,
+  unread: boolean,
+): boolean {
+  return match(mode)
+    .with("none", () => false)
+    .with("all", () => true)
+    .with("agents", () => hasAgent)
+    .with("attention", () => hasAgent && (claudeState === "waiting" || unread))
+    .exhaustive();
+}
+
+/** Single sortable sidebar entry — floating card with spinning border for agent states. */
 const SidebarEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
-  alerting: boolean;
+  unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
+  terminalTheme: ITheme;
+  /** Preview mode — see {@link shouldShowPreview} for the semantics. */
+  previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
-  /** "above" | "below" | null — where the drop line should render on this entry */
+  onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
 }> = (props) => {
+  /** Agent terminals get a live preview below the meta — lets the user
+   *  watch what their agents are saying without switching terminals.
+   *  Non-agent terminals and "ambient" agent states keep the compact
+   *  meta-only card to save vertical space (see {@link shouldShowPreview}
+   *  for the gating rationale). The preview waits until the viewport has
+   *  been measured at least once so the preview xterm can size itself to
+   *  match the main terminal exactly. Returns the current viewport dims
+   *  when the card should render, otherwise `undefined` — lets the JSX
+   *  `Show` narrow the type in the rendered branch. */
+  const showPreview = () => {
+    const vp = viewportDimensions();
+    if (!vp) return undefined;
+    return shouldShowPreview(
+      props.previewMode,
+      props.metadata?.claude != null,
+      props.displayInfo?.meta.claude?.state,
+      props.unread,
+    )
+      ? vp
+      : undefined;
+  };
   const sortable = createSortable(props.id);
+  const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
+  /** On touch devices, drag-anywhere conflicts with vertical scrolling
+   *  (every swipe becomes a drag candidate via `touch-action: none`).
+   *  When coarse, drag activation moves to a small grip handle inside
+   *  the card and the button switches to `touch-action: pan-y` so the
+   *  list scrolls. Desktop keeps the drag-anywhere behavior unchanged. */
+  const isCoarse = createMediaQuery("(pointer: coarse)");
+
+  /** When this entry becomes active, scroll itself into view. Handles both
+   *  switching to an existing terminal AND creating a new one: in either
+   *  case, the effect runs on the element that already has `buttonRef`
+   *  bound, so there's no race with DOM mount order (unlike a parent-level
+   *  effect that would have to querySelector by id). `block: "nearest"` is
+   *  a no-op when the card is already visible. */
+  let buttonRef!: HTMLButtonElement;
+  createEffect(() => {
+    if (props.isActive) {
+      buttonRef.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  });
 
   return (
-    <div class="relative" style={transformStyle(sortable.transform)}>
-      {/* Drop indicator line — positioned at the edge where the item will be inserted */}
+    <div
+      class="relative py-1 pl-1.5"
+      classList={{
+        "pr-0": props.isActive,
+        "pr-1.5": !props.isActive,
+      }}
+      style={transformStyle(sortable.transform)}
+    >
       <Show when={props.dropEdge}>
         {(edge) => (
           <div
-            class="absolute left-1 right-1 h-0.5 bg-accent rounded-full"
+            class="absolute left-2 right-2 h-0.5 bg-accent rounded-full z-10"
             classList={{
               "top-0": edge() === "above",
               "bottom-0": edge() === "below",
@@ -43,38 +156,157 @@ const SidebarEntry: Component<{
           />
         )}
       </Show>
-      <button
-        ref={sortable.ref}
-        {...sortable.dragActivators}
-        data-terminal-id={props.id}
-        data-active={props.isActive ? "" : undefined}
-        data-activity={
-          props.displayInfo?.activityHistory.at(-1)?.[1] ? "active" : "sleeping"
-        }
-        data-alerting={props.alerting ? "" : undefined}
-        class="group w-full py-2 px-2 text-sm text-left transition-colors duration-150 touch-none border-b border-edge"
+
+      {/* Unread dot — sits in the left gutter beside the card so it doesn't
+       *  overlap any card content or the close button. */}
+      <Show when={props.unread}>
+        <span
+          data-testid="unread-dot"
+          class="absolute left-0 top-1/2 -translate-y-1/2 flex h-2 w-2 z-20"
+          title="Unread completion"
+        >
+          <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+        </span>
+      </Show>
+
+      {/* Spinning border container — conic gradient rotates behind the card */}
+      <div
+        class="card-border-wrap transition-all duration-200"
         classList={{
-          "border-l-4 bg-accent/10 text-fg": props.isActive,
-          "border-l-4 border-l-transparent hover:bg-surface-2": !props.isActive,
-          "text-fg": !props.isActive && !!props.alerting,
-          "text-fg-3 hover:text-fg-2": !props.isActive && !props.alerting,
-          "opacity-25": sortable.isActiveDraggable,
+          "rounded-2xl": !props.isActive,
+          "rounded-l-2xl rounded-r-none card-active": props.isActive,
+          "card-spin-active": tier() === "active",
+          "card-spin-waiting": tier() === "waiting",
+          /* Active: lifted with depth (dark shadow) + identity (repo-colored glow) */
+          "z-10 card-active-shadow": props.isActive,
         }}
         style={{
-          "border-left-color": props.alerting
-            ? "var(--color-accent)"
-            : (props.displayInfo?.repoColor ??
-              (props.isActive ? "var(--accent)" : "transparent")),
-          ...(props.alerting
-            ? { animation: "alerting-glow 1.5s ease-in-out infinite" }
-            : {}),
+          "--card-color": props.displayInfo?.repoColor ?? "var(--color-accent)",
         }}
-        onClick={() => props.onSelect(props.id)}
-        onMouseDown={(e) => e.preventDefault()}
-        title={props.metadata?.cwd ?? String(props.id)}
       >
-        <TerminalMeta info={props.displayInfo} />
-      </button>
+        <button
+          ref={(el) => {
+            sortable.ref(el);
+            buttonRef = el;
+          }}
+          // Drag activators only on the button when NOT coarse — desktop
+          // keeps drag-anywhere; on coarse, the grip span below owns
+          // activation so the button surface stays scroll-friendly.
+          {...(isCoarse() ? {} : sortable.dragActivators)}
+          data-terminal-id={props.id}
+          data-active={props.isActive ? "" : undefined}
+          data-activity={
+            props.displayInfo?.activityHistory.at(-1)?.[1]
+              ? "active"
+              : "sleeping"
+          }
+          data-unread={props.unread ? "" : undefined}
+          class="group relative w-full text-sm text-left transition-all duration-200"
+          classList={{
+            // touch-pan-y on coarse lets vertical scroll pass through;
+            // touch-none on non-coarse preserves the existing desktop
+            // drag-anywhere activation surface.
+            "touch-pan-y": isCoarse(),
+            "touch-none": !isCoarse(),
+            "rounded-[14px]": !props.isActive,
+            "rounded-l-[14px] rounded-r-none": props.isActive,
+            "text-fg": props.isActive || tier() !== "idle",
+            "text-fg-3 hover:text-fg-2": !props.isActive && tier() === "idle",
+            "opacity-25": sortable.isActiveDraggable,
+          }}
+          style={{
+            /* Active card uses the actual xterm theme bg — same material as the terminal.
+             * --active-terminal-bg is published by App.tsx on the layout root.
+             *
+             * Active card also scope-overrides the fg tier vars so every
+             * `text-fg-*` descendant re-tunes to the terminal theme's own
+             * foreground instead of the global one. color-mix against the
+             * active bg derives fg-2/fg-3 tiers that are guaranteed to
+             * stay readable regardless of whether the terminal theme is
+             * light or dark. Fixes #390. */
+            "background-color": props.isActive
+              ? "var(--active-terminal-bg)"
+              : props.displayInfo?.repoColor
+                ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
+                : "var(--color-surface-1)",
+            ...(props.isActive
+              ? {
+                  "--color-fg": "var(--active-terminal-fg)",
+                  "--color-fg-2":
+                    "color-mix(in oklch, var(--active-terminal-fg) 75%, var(--active-terminal-bg))",
+                  "--color-fg-3":
+                    "color-mix(in oklch, var(--active-terminal-fg) 55%, var(--active-terminal-bg))",
+                }
+              : {}),
+          }}
+          onClick={() => props.onSelect(props.id)}
+          onMouseDown={(e) => e.preventDefault()}
+          title={props.metadata?.cwd ?? String(props.id)}
+        >
+          <div class="min-w-0 px-2.5 py-2 pr-6">
+            <TerminalMeta info={props.displayInfo} />
+          </div>
+          <Show when={showPreview()}>
+            {(vp) => (
+              <div
+                data-testid="sidebar-preview"
+                class="mx-2.5 mb-2 h-40 rounded-lg overflow-hidden border border-edge bg-surface-0"
+              >
+                <TerminalPreview
+                  terminalId={props.id}
+                  theme={props.terminalTheme}
+                  cols={vp().cols}
+                  rows={vp().rows}
+                />
+              </div>
+            )}
+          </Show>
+
+          <span
+            data-testid="sidebar-close"
+            class="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onClose(props.id);
+            }}
+            title="Close terminal"
+          >
+            ×
+          </span>
+          {/* Drag handle — only on coarse-pointer devices. Owns drag
+           *  activation so the rest of the card surface can stay
+           *  scrollable (touch-pan-y). touch-none on the handle itself
+           *  ensures the browser hands the gesture to dnd-kit. */}
+          <Show when={isCoarse()}>
+            <span
+              {...sortable.dragActivators}
+              data-testid="sidebar-drag-handle"
+              // stopPropagation: a tap on the grip is a drag affordance,
+              // not a terminal selector — don't bubble to the button's
+              // onClick (which would switch terminals on every grab).
+              onClick={(e) => e.stopPropagation()}
+              class="absolute bottom-1 right-1 flex items-center justify-center w-7 h-7 text-fg-3 touch-none cursor-grab"
+              aria-label="Drag to reorder"
+              title="Drag to reorder"
+            >
+              <svg
+                class="w-4 h-4"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <circle cx="5" cy="4" r="1.2" />
+                <circle cx="5" cy="8" r="1.2" />
+                <circle cx="5" cy="12" r="1.2" />
+                <circle cx="11" cy="4" r="1.2" />
+                <circle cx="11" cy="8" r="1.2" />
+                <circle cx="11" cy="12" r="1.2" />
+              </svg>
+            </span>
+          </Show>
+        </button>
+      </div>
     </div>
   );
 };
@@ -84,10 +316,14 @@ const Sidebar: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  needsAttention: (id: TerminalId) => boolean;
+  isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  getTerminalTheme: (id: TerminalId) => ITheme;
+  previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
+  onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
+  onNewTerminalMenu: () => void;
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
@@ -122,7 +358,6 @@ const Sidebar: Component<{
 
   return (
     <>
-      {/* Backdrop — mobile only, shown when sidebar is open */}
       <Show when={props.open}>
         <div
           data-testid="sidebar-backdrop"
@@ -131,10 +366,9 @@ const Sidebar: Component<{
         />
       </Show>
 
-      {/* Sidebar panel — absolute within content area on mobile, in-flow on desktop */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-48 lg:w-56 xl:w-60 bg-surface-1 transition-transform duration-200 ease-out z-40"
+        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 transition-transform duration-200 ease-out z-40"
         classList={{
           "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
           "-translate-x-full sm:hidden": !props.open,
@@ -142,15 +376,36 @@ const Sidebar: Component<{
         }}
       >
         <Tip label="New terminal" class="w-full">
-          <button
-            data-testid="create-terminal"
-            class="p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left border-b border-edge focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50 w-full"
-            onClick={props.onCreate}
-          >
-            + New terminal
-          </button>
+          <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
+            <button
+              data-testid="create-terminal"
+              class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onCreate}
+            >
+              + New terminal
+            </button>
+            <div class="w-px my-1.5 bg-edge" />
+            <button
+              data-testid="new-terminal-menu"
+              class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onNewTerminalMenu}
+              title="More options"
+            >
+              <svg
+                class="w-3 h-3"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M3 5l3 3 3-3" />
+              </svg>
+            </button>
+          </div>
         </Tip>
-        <nav class="flex-1 overflow-y-auto">
+        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
           <DragDropProvider
             collisionDetector={closestCenter}
             onDragStart={({ draggable }) => {
@@ -180,9 +435,12 @@ const Sidebar: Component<{
                       id={id}
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
-                      alerting={props.needsAttention(id)}
+                      unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
+                      terminalTheme={props.getTerminalTheme(id)}
+                      previewMode={props.previewMode}
                       onSelect={handleSelect}
+                      onClose={props.onCloseTerminal}
                       dropEdge={edge()}
                     />
                   );
@@ -194,10 +452,7 @@ const Sidebar: Component<{
                 {(dragId) => {
                   const d = () => props.getDisplayInfo(dragId());
                   return (
-                    <div
-                      class="py-1.5 px-2 text-sm bg-surface-2 border border-edge rounded shadow-lg"
-                      style={{ "border-left-color": d()?.repoColor }}
-                    >
+                    <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
                       <span style={{ color: d()?.repoColor }}>
                         {d()?.name ?? "terminal"}
                       </span>
@@ -208,6 +463,17 @@ const Sidebar: Component<{
             </DragOverlay>
           </DragDropProvider>
         </nav>
+        {/* Sticky footer hint — surfaces the MRU cycle keybind without
+         *  needing the user to discover it via the shortcuts help dialog. */}
+        <Show when={props.terminalIds.length > 1}>
+          <div
+            data-testid="sidebar-footer-hint"
+            class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
+          >
+            <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
+            <span>cycle terminals</span>
+          </div>
+        </Show>
       </aside>
     </>
   );

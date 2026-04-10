@@ -77,9 +77,8 @@ Feature: Command Palette
   Scenario: Create terminal via command palette
     Given I note the sidebar entry count
     When I open the command palette
-    And I type "Create new" in the palette
-    Then the command palette should show 1 result
-    When I press Enter
+    And I select "New terminal" in the palette
+    And I select "In current directory" in the palette
     Then the command palette should not be visible
     And the sidebar should have 1 more terminal entry
     And the terminal canvas should be visible
@@ -135,7 +134,7 @@ Feature: Command Palette
 
   Scenario: Keyboard shortcut hints shown on commands
     When I open the command palette
-    Then palette item "Create new terminal" should show shortcut "T"
+    Then palette item "Keyboard shortcuts" should show shortcut "/"
     And there should be no page errors
 
   Scenario: Shortcut hints shown in nested group
@@ -161,6 +160,18 @@ Feature: Command Palette
     And I type "Keyboard" in the palette
     And I press Enter
     Then the shortcuts help should be visible
+    And there should be no page errors
+
+  Scenario: Ambient tip shown in palette footer on desktop
+    When I open the command palette
+    Then the palette tip should be visible
+    And there should be no page errors
+
+  @mobile
+  Scenario: Tips suppressed on mobile
+    When I open the command palette
+    Then the command palette should be visible
+    And no palette tip should be visible
     And there should be no page errors
 
   Scenario: Cmd/Ctrl+K does not leak to terminal

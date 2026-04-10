@@ -1,48 +1,33 @@
 /** Terminal store — composes view state and metadata modules.
- *  Server-derived state (including ordering) lives in TanStack cache.
- *  Client view state (activeId, attention, mruOrder) lives in local signals. */
+ *  Server-derived state streams via createSubscription.
+ *  Client view state (activeId, attention, mruOrder) lives in local signals.
+ *
+ *  The terminal list is a live subscription — the server pushes updates on
+ *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
-import { createSignal } from "solid-js";
-import type { TerminalId } from "kolu-common";
+import { createSubscription } from "./createSubscription";
+import { stream } from "./rpc";
 import { useViewState } from "./useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  /** Unordered set of known terminal IDs — drives TanStack query subscriptions.
-   *  Order is derived from metadata sortOrder, not from this array. */
-  const [knownIds, setKnownIds] = createSignal<TerminalId[]>([]);
+  const listSub = createSubscription(() => stream.terminalList());
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    knownIds,
+    listSub,
     activeId: view.activeId,
   });
 
-  function addKnownId(id: TerminalId) {
-    setKnownIds((prev) => [...prev, id]);
-  }
-
-  function removeKnownId(id: TerminalId) {
-    setKnownIds((prev) => prev.filter((x) => x !== id));
-  }
-
-  function reset() {
-    setKnownIds([]);
-    view.reset();
-  }
-
   return {
-    // Known IDs (unordered — for subscription management)
-    knownIds,
-    setKnownIds,
-    addKnownId,
-    removeKnownId,
+    // Live terminal list from server
+    listSub,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
     ...metadata,
-    // Lifecycle
-    reset,
+    // Lifecycle (view-state only — list is server-driven)
+    reset: view.reset,
   };
 }
 

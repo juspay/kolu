@@ -1,3 +1,8 @@
+---
+argument-hint: <timeframe> (e.g. 'last week', 'last 2 weeks', 'since 2026-03-01')
+description: List features added to Kolu during a timeframe
+---
+
 List features added to Kolu during: $ARGUMENTS (e.g. "last week", "last 2 weeks", "since 2026-03-01")
 
 ## Instructions

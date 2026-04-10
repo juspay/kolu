@@ -6,7 +6,13 @@
  *  System events ("session:changed") are broadcast channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import type { TerminalMetadata, GitInfo, ActivitySample } from "kolu-common";
+import type {
+  TerminalInfo,
+  TerminalMetadata,
+  GitInfo,
+  ActivitySample,
+  ServerState,
+} from "kolu-common";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
@@ -17,6 +23,8 @@ type TerminalChannels = {
   activity: ActivitySample;
   /** CWD changed (OSC 7 from PTY) — triggers git provider */
   cwd: string;
+  /** Terminal title changed (OSC 0/2 from PTY) — triggers process provider */
+  title: string;
   /** Git context changed — triggers github PR provider */
   git: GitInfo | null;
   /** Raw PTY output bytes — high frequency, drives xterm.js */
@@ -29,6 +37,10 @@ type TerminalChannels = {
 type SystemChannels = {
   /** Terminal state changed — triggers debounced session auto-save */
   "session:changed": Record<string, never>;
+  /** Terminal list changed (create/kill/reorder) — drives live list query */
+  "terminal-list": TerminalInfo[];
+  /** Server state changed (preferences, session, repos) — drives live state query */
+  "state:changed": ServerState;
 };
 
 // The publisher accepts any string channel at runtime.
@@ -51,6 +63,17 @@ export function publishSystem<C extends keyof SystemChannels>(
   payload: SystemChannels[C],
 ): void {
   void publisher.publish(channel, payload);
+}
+
+/** Subscribe to a system-wide broadcast channel, returning an AsyncIterable.
+ *  Used by router handlers (yield) for system-level streams. */
+export function subscribeSystem_<C extends keyof SystemChannels>(
+  channel: C,
+  signal: AbortSignal | undefined,
+): AsyncIterable<SystemChannels[C]> {
+  return publisher.subscribe(channel, { signal }) as AsyncIterable<
+    SystemChannels[C]
+  >;
 }
 
 /** Subscribe to a per-terminal channel, returning an AsyncIterable.

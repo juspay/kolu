@@ -1,0 +1,80 @@
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index 1ec12f796a822c78fba9ad7f6448c3987e325c23..ebf97b4eca3a246f7a7d50ea0505267cb91cb291 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -166,6 +166,11 @@ var UnixTerminal = /** @class */ (function (_super) {
+         enumerable: false,
+         configurable: true
+     });
++    Object.defineProperty(UnixTerminal.prototype, "foregroundPid", {
++        get: function () { return pty.foregroundPid(this._fd); },
++        enumerable: false,
++        configurable: true
++    });
+     /**
+      * openpty
+      */
+diff --git a/package.json b/package.json
+index 94a2c14381727674b8964c1b50e5e47a9205ffbc..255123d93509a4ad00e4ab5605b96d3b4927bc26 100644
+--- a/package.json
++++ b/package.json
+@@ -38,7 +38,7 @@
+     "build": "tsc -b ./src/tsconfig.json",
+     "watch": "tsc -b -w ./src/tsconfig.json",
+     "lint": "eslint -c .eslintrc.js --ext .ts src/",
+-    "install": "node scripts/prebuild.js || node-gyp rebuild",
++    "install": "node-gyp rebuild",
+     "postinstall": "node scripts/post-install.js",
+     "compileCommands": "node scripts/gen-compile-commands.js",
+     "test": "cross-env NODE_ENV=test mocha -R spec --exit lib/*.test.js",
+diff --git a/src/unix/pty.cc b/src/unix/pty.cc
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..319dd5782b347e459dd7f16a335f0dc91e299ac0 100644
+--- a/src/unix/pty.cc
++++ b/src/unix/pty.cc
+@@ -220,6 +220,7 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info);
+ Napi::Value PtyOpen(const Napi::CallbackInfo& info);
+ Napi::Value PtyResize(const Napi::CallbackInfo& info);
+ Napi::Value PtyGetProc(const Napi::CallbackInfo& info);
++Napi::Value PtyGetForegroundPid(const Napi::CallbackInfo& info);
+ 
+ /**
+  * Functions
+@@ -575,6 +576,30 @@ Napi::Value PtyGetProc(const Napi::CallbackInfo& info) {
+   return name_;
+ }
+ 
++/**
++ * Foreground Process Group PID
++ *
++ * Returns the pid of the foreground process group attached to the pty
++ * referenced by `fd`, or undefined if the lookup fails. Cross-platform
++ * (Linux + macOS) — wraps tcgetpgrp(3), which `pty_getproc` already
++ * calls internally to resolve the foreground process name.
++ */
++Napi::Value PtyGetForegroundPid(const Napi::CallbackInfo& info) {
++  Napi::Env env(info.Env());
++  Napi::HandleScope scope(env);
++
++  if (info.Length() != 1 || !info[0].IsNumber()) {
++    throw Napi::Error::New(env, "Usage: pty.foregroundPid(fd)");
++  }
++
++  int fd = info[0].As<Napi::Number>().Int32Value();
++  pid_t pgrp = tcgetpgrp(fd);
++  if (pgrp == -1) {
++    return env.Undefined();
++  }
++  return Napi::Number::New(env, static_cast<double>(pgrp));
++}
++
+ /**
+  * Nonblocking FD
+  */
+@@ -793,6 +818,7 @@ Napi::Object init(Napi::Env env, Napi::Object exports) {
+   exports.Set("open",    Napi::Function::New(env, PtyOpen));
+   exports.Set("resize",  Napi::Function::New(env, PtyResize));
+   exports.Set("process", Napi::Function::New(env, PtyGetProc));
++  exports.Set("foregroundPid", Napi::Function::New(env, PtyGetForegroundPid));
+   return exports;
+ }
+ 

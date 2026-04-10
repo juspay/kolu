@@ -140,12 +140,12 @@ const SearchBar: Component<{
 
   return (
     <Show when={props.open}>
-      <div class="absolute top-1 right-3 z-10 flex items-center gap-1.5 bg-surface-1 border border-edge-bright rounded-md shadow-lg px-2 py-1.5">
+      <div class="absolute top-1 right-3 z-10 flex items-center gap-1.5 bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/40 px-2 py-1.5">
         <input
           ref={inputRef}
           type="text"
           placeholder="Find…"
-          class="bg-surface-2 text-fg text-sm rounded px-2 py-1 w-48 outline-none border border-edge focus:border-accent"
+          class="bg-surface-2 text-fg text-sm rounded-lg px-2 py-1 w-48 outline-none border border-edge focus:border-accent"
           value={query()}
           onInput={(e) => handleInput(e.currentTarget.value)}
         />

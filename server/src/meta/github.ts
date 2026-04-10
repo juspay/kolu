@@ -8,6 +8,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { match, P } from "ts-pattern";
 import {
   GitHubPrStateSchema,
   type GitHubPrInfo,
@@ -38,7 +39,46 @@ const GH_TIMEOUT_MS = 5_000;
  *
  * See: https://docs.github.com/en/graphql/reference/unions#statuscheckrollupcontext
  */
-function deriveCheckStatus(
+type CheckOutcome = "fail" | "pending" | "pass";
+
+/**
+ * Classify a single rollup entry into fail / pending / pass.
+ *
+ * Two GitHub types share the rollup; `__typename` discriminates which enum to
+ * dispatch on. Within each branch, `match` + `P.union` groups the failure-
+ * and pending-class buckets so adding a new value (e.g. a future GitHub
+ * conclusion) is a one-line edit.
+ */
+function classifyCheck(check: {
+  __typename?: string;
+  status?: string;
+  conclusion?: string;
+  state?: string;
+}): CheckOutcome {
+  if (check.__typename === "StatusContext") {
+    return match(check.state?.toUpperCase())
+      .with(P.union("FAILURE", "ERROR"), () => "fail" as const)
+      .with(P.union("PENDING", "EXPECTED"), () => "pending" as const)
+      .otherwise(() => "pass" as const);
+  }
+  // CheckRun: anything not COMPLETED is still pending.
+  if (check.status?.toUpperCase() !== "COMPLETED") return "pending";
+  return match(check.conclusion?.toUpperCase())
+    .with(
+      P.union(
+        "FAILURE",
+        "CANCELLED",
+        "TIMED_OUT",
+        "STARTUP_FAILURE",
+        "ACTION_REQUIRED",
+        "STALE",
+      ),
+      () => "fail" as const,
+    )
+    .otherwise(() => "pass" as const);
+}
+
+export function deriveCheckStatus(
   rollup:
     | Array<{
         __typename?: string;
@@ -49,81 +89,41 @@ function deriveCheckStatus(
     | undefined,
 ): GitHubPrInfo["checks"] {
   if (!rollup || rollup.length === 0) return null;
-
-  let hasFailure = false;
-  let hasPending = false;
-
+  // "fail" is terminal — short-circuit; "pending" is sticky until something fails.
+  let worst: CheckOutcome = "pass";
   for (const check of rollup) {
-    if (check.__typename === "StatusContext") {
-      const state = check.state?.toUpperCase();
-      if (state === "FAILURE" || state === "ERROR") hasFailure = true;
-      else if (state === "PENDING" || state === "EXPECTED") hasPending = true;
-      // SUCCESS → neither flag set → pass
-    } else {
-      // CheckRun
-      const status = check.status?.toUpperCase();
-      const conclusion = check.conclusion?.toUpperCase();
-
-      if (status === "COMPLETED") {
-        // Terminal state — check conclusion
-        if (
-          conclusion === "FAILURE" ||
-          conclusion === "CANCELLED" ||
-          conclusion === "TIMED_OUT" ||
-          conclusion === "STARTUP_FAILURE" ||
-          conclusion === "ACTION_REQUIRED" ||
-          conclusion === "STALE"
-        ) {
-          hasFailure = true;
-        }
-        // SUCCESS, NEUTRAL, SKIPPED → pass (neither flag set)
-      } else {
-        // Non-terminal: QUEUED, IN_PROGRESS, WAITING, PENDING, REQUESTED
-        hasPending = true;
-      }
-    }
+    const outcome = classifyCheck(check);
+    if (outcome === "fail") return "fail";
+    if (outcome === "pending") worst = "pending";
   }
-
-  if (hasFailure) return "fail";
-  if (hasPending) return "pending";
-  return "pass";
+  return worst;
 }
 
-/** Shape of a single entry returned by `gh pr list --json ...`. */
-interface GhPrListEntry {
+/** Shape returned by `gh pr view --json ...`. */
+interface GhPrViewResult {
   number: number;
   title: string;
   url: string;
   state: string;
   statusCheckRollup?: Parameters<typeof deriveCheckStatus>[0];
-  updatedAt: string;
 }
 
-/** Look up the GitHub PR for the current branch. Returns null if none found. */
-async function resolveGitHubPr(
-  repoRoot: string,
-  branch: string,
-): Promise<GitHubPrInfo | null> {
+/**
+ * Look up the GitHub PR for the current branch.
+ *
+ * Uses `gh pr view` which resolves via git remote tracking — it finds the PR
+ * opened from this repo (or fork) for the current branch, unlike `gh pr list
+ * --head <name>` which matches by branch name alone and picks up unrelated
+ * fork PRs.
+ */
+async function resolveGitHubPr(repoRoot: string): Promise<GitHubPrInfo | null> {
   try {
     const { stdout } = await execFileAsync(
       "gh",
-      [
-        "pr",
-        "list",
-        "--head",
-        branch,
-        "--state",
-        "all",
-        "--json",
-        "number,title,url,state,statusCheckRollup,updatedAt",
-      ],
+      ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
-    const results = JSON.parse(stdout) as GhPrListEntry[];
-    if (results.length === 0) return null;
-    // Pick the most recently updated PR regardless of state
-    results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    const data = results[0]!;
+    const data = JSON.parse(stdout) as GhPrViewResult;
     return {
       number: data.number,
       title: data.title,
@@ -132,13 +132,18 @@ async function resolveGitHubPr(
       checks: deriveCheckStatus(data.statusCheckRollup),
     };
   } catch (err) {
-    log.warn({ err: String(err), branch }, "failed to resolve GitHub PR");
+    // gh pr view exits non-zero when no PR exists for the branch — expected.
+    // Also catches gh-not-installed / auth failures; debug-log so they're discoverable.
+    log.debug({ err: String(err) }, "no PR for current branch");
     return null;
   }
 }
 
 /** Compare two GitHubPrInfo values for equality. */
-function prInfoEqual(a: GitHubPrInfo | null, b: GitHubPrInfo | null): boolean {
+export function prInfoEqual(
+  a: GitHubPrInfo | null,
+  b: GitHubPrInfo | null,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return (
@@ -167,7 +172,7 @@ export function startGitHubPrProvider(
 
   // Resolve immediately if we have git context
   if (lastBranch && lastRepoRoot) {
-    void resolve(lastRepoRoot, lastBranch);
+    void resolve(lastRepoRoot);
   }
 
   function onGitChange(git: GitInfo | null) {
@@ -178,7 +183,7 @@ export function startGitHubPrProvider(
     lastBranch = branch;
     lastRepoRoot = repoRoot;
     if (branch && repoRoot) {
-      void resolve(repoRoot, branch);
+      void resolve(repoRoot);
     } else {
       // No longer in a git repo
       if (entry.info.meta.pr !== null) {
@@ -189,8 +194,8 @@ export function startGitHubPrProvider(
     }
   }
 
-  async function resolve(repoRoot: string, branch: string) {
-    const pr = await resolveGitHubPr(repoRoot, branch);
+  async function resolve(repoRoot: string) {
+    const pr = await resolveGitHubPr(repoRoot);
     if (prInfoEqual(pr, entry.info.meta.pr)) return;
     plog.info(
       pr
@@ -207,7 +212,7 @@ export function startGitHubPrProvider(
   const pollTimer = setInterval(() => {
     if (lastBranch && lastRepoRoot) {
       plog.debug("poll tick");
-      void resolve(lastRepoRoot, lastBranch);
+      void resolve(lastRepoRoot);
     }
   }, POLL_INTERVAL_MS);
 

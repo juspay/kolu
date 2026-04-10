@@ -19,10 +19,16 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck || true
+    just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
 
 _linux:
-    CI_SYSTEM=x86_64-linux just ci::nix ci::home-manager ci::e2e || true
+    CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
+
+# Runs home-manager and e2e in parallel after nix has completed.
+# Within the same just process, their `: nix` deps are already satisfied,
+# so nix is not rebuilt.
+[parallel]
+_linux-fanout: home-manager e2e
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
@@ -34,10 +40,18 @@ home-manager: nix
     just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
 
 typecheck:
-    just ci::_run typecheck just watch
+    just ci::_run typecheck just check
 
 e2e: nix
     just ci::_run e2e just test
+
+# Run vitest unit tests (server + client)
+unit:
+    just ci::_run unit just test-unit
+
+# Verify vendored .claude/ matches .apm/ sources + security audit
+apm-sync:
+    just ci::_run apm-sync just ai::apm-sync
 
 fmt:
     just ci::_run fmt just fmt-check

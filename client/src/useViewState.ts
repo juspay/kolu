@@ -1,5 +1,7 @@
 /** View state — per-browser-tab UI state that has no server representation.
- *  Which terminal is selected, which need attention, MRU switch history. */
+ *  Which terminal is selected, which have unread completions, MRU switch
+ *  history. Viewport grid lives in `useViewport.ts` — it's shared across
+ *  every main terminal, not keyed per id. */
 
 import { createSignal, createEffect, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
@@ -19,29 +21,29 @@ export function useViewState() {
   );
 
   /** Terminals with unseen Claude completions (cleared when user visits). */
-  const [attention, setAttention] = createStore<Record<TerminalId, true>>({});
+  const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
-      if (attention[id]) setAttention(produce((s) => delete s[id]));
+      if (unread[id]) setUnread(produce((s) => delete s[id]));
     }),
   );
 
-  function markAttention(id: TerminalId) {
-    setAttention(id, true);
+  function markUnread(id: TerminalId) {
+    setUnread(id, true);
   }
 
-  function needsAttention(id: TerminalId): boolean {
-    return !!attention[id];
+  function isUnread(id: TerminalId): boolean {
+    return !!unread[id];
   }
 
   function reset() {
     setActiveId(null);
     setMruOrder([]);
-    setAttention(reconcile({}));
+    setUnread(reconcile({}));
   }
 
   return {
@@ -49,8 +51,8 @@ export function useViewState() {
     setActiveId,
     mruOrder,
     setMruOrder,
-    markAttention,
-    needsAttention,
+    markUnread,
+    isUnread,
     reset,
   };
 }

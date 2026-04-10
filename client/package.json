@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "@corvu/dialog": "^0.2.4",
@@ -16,13 +17,11 @@
     "@corvu/tooltip": "^0.2.2",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
-    "@orpc/tanstack-query": "^1.13.13",
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/media": "^2.3.5",
     "@solid-primitives/resize-observer": "^2.1.5",
     "@solid-primitives/storage": "^4.3.4",
     "@solidjs/meta": "^0.29.4",
-    "@tanstack/solid-query": "^5.95.2",
     "@thisbeyond/solid-dnd": "^0.7.5",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
@@ -36,15 +35,17 @@
     "marked": "^17.0.5",
     "partysocket": "^1.1.16",
     "solid-js": "^1.9.0",
-    "solid-sonner": "^0.2.0"
+    "solid-sonner": "^0.2.0",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
     "kolu-common": "workspace:*",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",
-    "vite": "^6.3.0",
+    "vite": "^6.4.2",
     "vite-plugin-pwa": "^1.2.0",
-    "vite-plugin-solid": "^2.11.0"
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^4.1.2"
   }
 }

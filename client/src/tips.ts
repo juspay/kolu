@@ -22,17 +22,13 @@ export function sidebarSwitchTip(index: number): Tip {
 }
 
 export const CONTEXTUAL_TIPS = {
-  missionControl: {
-    id: "mission-control",
-    text: `Tip: ${formatKeybind(SHORTCUTS.missionControl.keybind)} opens Mission Control`,
-  },
   themeFromPalette: {
     id: "theme-palette",
     text: `Tip: ${formatKeybind(SHORTCUTS.commandPalette.keybind)} → Theme for quick switching`,
   },
   worktree: {
     id: "worktree",
-    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New worktree for parallel sessions`,
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New terminal → worktree for parallel sessions`,
   },
 } as const satisfies Record<string, Tip>;
 
@@ -49,12 +45,12 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     : []),
   {
     id: "amb-sub",
-    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal with a sub-panel`,
+    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
   {
     id: "amb-mru",
-    text: `${formatKeybind(SHORTCUTS.nextTerminalTab.keybind)} quick-switches by most recent use`,
+    text: `${formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
   },
   {
     id: "amb-search",
@@ -63,5 +59,9 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-random-theme",
     text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the terminal color theme`,
+  },
+  {
+    id: "amb-export-pdf",
+    text: `${formatKeybind(SHORTCUTS.exportSessionAsPdf.keybind)} exports the current session as a PDF`,
   },
 ];

@@ -19,8 +19,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
     ...SHORTCUTS.createTerminal,
     altKeybind: SHORTCUTS.createTerminalAlt.keybind,
   },
-  SHORTCUTS.nextTerminalTab,
-  SHORTCUTS.prevTerminalTab,
+  SHORTCUTS.cycleTerminalMru,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
   SHORTCUTS.findInTerminal,
   SHORTCUTS.zoomIn,
@@ -40,9 +39,9 @@ const ShortcutsHelp: Component<{
   <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
     <Dialog.Content
       data-testid="shortcuts-help"
-      class="w-full max-w-sm bg-surface-1 border border-edge-bright rounded-lg shadow-2xl overflow-hidden"
+      class="w-full max-w-sm bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
     >
-      <Dialog.Label class="block px-4 py-3 border-b border-edge-bright text-sm font-semibold text-fg">
+      <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">
         Keyboard Shortcuts
       </Dialog.Label>
       <div class="px-4 py-2">

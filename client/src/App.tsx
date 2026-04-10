@@ -4,49 +4,47 @@ import {
   type Component,
   createSignal,
   createEffect,
-  createMemo,
   on,
   Show,
   For,
 } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
-import { orpc } from "./orpc";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
+import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import MissionControl, { type MCMode } from "./MissionControl";
+import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import PlanPane from "./PlanPane";
 import Resizable from "@corvu/resizable";
+import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
+import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
-import { client, wsStatus, serverRestarted } from "./rpc";
+import type { TerminalId } from "kolu-common";
+import { client, wsStatus, serverProcessId } from "./rpc";
+import TransportOverlay from "./TransportOverlay";
 import { useTerminals } from "./useTerminals";
-import { usePreferences } from "./usePreferences";
+import { useServerState } from "./useServerState";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
-import { useRecentRepos } from "./useRecentRepos";
 import { usePlans } from "./usePlans";
 
 const App: Component = () => {
-  const {
-    randomTheme,
-    setRandomTheme,
-    scrollLock,
-    setScrollLock,
-    activityAlerts,
-    setActivityAlerts,
-  } = usePreferences();
+  const { preferences, updatePreferences } = useServerState();
+  const randomTheme = () => preferences().randomTheme;
+  const scrollLock = () => preferences().scrollLock;
+  const activityAlerts = () => preferences().activityAlerts;
+  const sidebarAgentPreviews = () => preferences().sidebarAgentPreviews;
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -76,9 +74,15 @@ const App: Component = () => {
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
-  const serverInfo = createQuery(() => orpc.server.info.queryOptions());
+  const [hostname, setHostname] = createSignal<string>();
+  void client.server
+    .info()
+    .then((info) => setHostname(info.hostname))
+    .catch(() => {
+      // Server info is cosmetic (document title) — safe to ignore on failure
+    });
   const appTitle = () => {
-    const h = serverInfo.data?.hostname;
+    const h = hostname();
     return h ? `kolu@${h}` : "kolu";
   };
 
@@ -94,8 +98,13 @@ const App: Component = () => {
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
-  // Mission Control state — single discriminated union, no impossible states
-  const [mcMode, setMcMode] = createSignal<MCMode>({ mode: "closed" });
+  // Claude transcript debug dialog state
+  const [claudeTranscriptOpen, setClaudeTranscriptOpen] = createSignal(false);
+
+  // Close confirmation — snapshot ID + meta + split count at open time to prevent
+  // stale-target bugs if the user switches terminals while the dialog is open.
+  const [closeConfirmTarget, setCloseConfirmTarget] =
+    createSignal<CloseConfirmTarget | null>(null);
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -113,19 +122,25 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  function handleExportSessionAsPdf() {
+    const id = store.activeId();
+    if (id === null) return;
+    exportSessionAsPdf(id, store.getMetadata(id));
+  }
+
   useShortcuts({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
+    mruOrder: store.mruOrder,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
+    openNewTerminalMenu: () => openPaletteGroup("New terminal"),
     activeMeta: store.activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    mcMode,
-    setMcMode,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -136,16 +151,8 @@ const App: Component = () => {
       ),
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf,
   });
-
-  const { refetch: refetchRecentRepos } = useRecentRepos();
-
-  // Refetch recent repos whenever the palette opens, regardless of how (Ctrl+K, header click, etc.)
-  createEffect(
-    on(paletteOpen, (open) => {
-      if (open) refetchRecentRepos();
-    }),
-  );
 
   function openPalette() {
     setPaletteInitialGroup(undefined);
@@ -165,6 +172,14 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Close a terminal — always shows the confirmation dialog. */
+  function closeTerminal(id: TerminalId) {
+    const meta = store.getMetadata(id);
+    if (!meta) return;
+    const splitCount = store.getSubTerminalIds(id).length;
+    setCloseConfirmTarget({ id, meta, splitCount });
+  }
+
   const commands = createCommands({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -173,22 +188,25 @@ const App: Component = () => {
     handleCreate: (cwd) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
-    handleKill: (id) => void crud.handleKill(id),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
-    setMcMode,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath) =>
       void worktree.handleCreateWorktree(repoPath),
-    handleKillWorktree: () => void worktree.handleKillWorktree(),
+    handleClose: () => {
+      const id = store.activeId();
+      if (id) closeTerminal(id);
+    },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
+    setClaudeTranscriptOpen,
   });
 
   // Reset state on close and return focus to terminal
@@ -217,16 +235,13 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
-      {/* Dim the app when the server process has changed — state is stale */}
-      <Show when={serverRestarted()}>
-        <div class="absolute inset-0 bg-black/60 z-50 pointer-events-auto" />
-      </Show>
+      <TransportOverlay />
       <Toaster
         position="bottom-right"
-        theme="dark"
+        theme={colorScheme()}
+        richColors
         toastOptions={{
           style: {
-            background: "var(--color-surface-1)",
             color: "var(--color-fg)",
             border: "1px solid var(--color-edge-bright)",
           },
@@ -250,22 +265,13 @@ const App: Component = () => {
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
-      <MissionControl
-        mcMode={mcMode()}
-        onMcModeChange={(mode) => {
-          setMcMode(mode);
-          if (mode.mode === "closed") requestAnimationFrame(refocusTerminal);
-        }}
-        terminalIds={store.terminalIds()}
-        mruOrder={store.mruOrder()}
-        activeId={store.activeId()}
-        getMetadata={store.getMetadata}
-        getDisplayInfo={store.getDisplayInfo}
-        getTerminalTheme={getTerminalTheme}
-        onSelect={store.setActiveId}
+      <ClaudeTranscriptDialog
+        open={claudeTranscriptOpen()}
+        onOpenChange={withRefocus(setClaudeTranscriptOpen)}
+        terminalId={store.activeId}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
-        <Dialog.Content class="bg-surface-1 border border-edge-bright rounded-lg p-6 max-w-sm text-sm">
+        <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
@@ -296,52 +302,98 @@ const App: Component = () => {
                 <span class="text-fg-2">dev</span>
               )}
             </p>
+            <p>
+              Server:{" "}
+              <span class="font-mono text-fg-2">
+                {serverProcessId() ?? "—"}
+              </span>
+            </p>
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <CloseConfirm
+        target={closeConfirmTarget()}
+        onCancel={() => {
+          setCloseConfirmTarget(null);
+          requestAnimationFrame(refocusTerminal);
+        }}
+        onClose={() => {
+          const target = closeConfirmTarget();
+          setCloseConfirmTarget(null);
+          // Don't refocus — the natural reactive focus handlers (sub-panel,
+          // active terminal) restore focus to the right place after the kill.
+          if (target) void crud.handleKillWithSubs(target.id);
+        }}
+        onCloseAndRemove={() => {
+          const target = closeConfirmTarget();
+          setCloseConfirmTarget(null);
+          if (target) void worktree.handleKillWorktree(target.id);
+        }}
+      />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        onMissionControl={() => setMcMode({ mode: "browse" })}
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         randomTheme={randomTheme()}
-        onRandomThemeChange={setRandomTheme}
+        onRandomThemeChange={(on) => updatePreferences({ randomTheme: on })}
         scrollLock={scrollLock()}
-        onScrollLockChange={setScrollLock}
+        onScrollLockChange={(on) => updatePreferences({ scrollLock: on })}
         colorScheme={colorScheme()}
         onColorSchemeChange={setColorScheme}
         activityAlerts={activityAlerts()}
-        onActivityAlertsChange={setActivityAlerts}
+        onActivityAlertsChange={(on) =>
+          updatePreferences({ activityAlerts: on })
+        }
+        sidebarAgentPreviews={sidebarAgentPreviews()}
+        onSidebarAgentPreviewsChange={(mode) =>
+          updatePreferences({ sidebarAgentPreviews: mode })
+        }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
       />
-      {/* relative: anchor for sidebar's absolute overlay on mobile */}
-      <div class="relative flex flex-1 min-h-0">
+      {/* relative: anchor for sidebar's absolute overlay on mobile.
+       *  --active-terminal-{bg,fg} published here so child components
+       *  (Sidebar) can read them via CSS without prop drilling. The fg
+       *  lets the active sidebar card re-tune its text tiers against
+       *  the terminal theme's own foreground (see #390). */}
+      <div
+        class="relative flex flex-1 min-h-0"
+        style={{
+          "--active-terminal-bg":
+            activeTheme().background ?? "var(--color-surface-1)",
+          "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
+        }}
+      >
         <Sidebar
           terminalIds={store.terminalIds()}
           activeId={store.activeId()}
           getMetadata={store.getMetadata}
-          needsAttention={store.needsAttention}
+          isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
+          getTerminalTheme={getTerminalTheme}
+          previewMode={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
+          onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
+          onNewTerminalMenu={() => openPaletteGroup("New terminal")}
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0">
+        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
           <Show
             when={activePlanPath()}
             fallback={
               <div
-                class="h-full overflow-hidden"
+                class="flex-1 min-h-0 overflow-hidden"
                 style={{ "background-color": activeTheme().background }}
+                data-testid="terminal-viewport"
               >
                 <Show
                   when={!session.isLoading()}
@@ -370,6 +422,7 @@ const App: Component = () => {
                         onCreateSubTerminal={(parentId, cwd) =>
                           void crud.handleCreateSubTerminal(parentId, cwd)
                         }
+                        onCloseTerminal={closeTerminal}
                         activeMeta={store.activeMeta()}
                         scrollLockEnabled={scrollLock()}
                       />
@@ -380,7 +433,7 @@ const App: Component = () => {
             }
           >
             {/* Plan pane open — resizable horizontal split: terminal left, plan right */}
-            <Resizable orientation="horizontal" class="h-full">
+            <Resizable orientation="horizontal" class="flex-1 min-h-0">
               <Resizable.Panel
                 as="div"
                 class="min-w-0 overflow-hidden"
@@ -389,6 +442,7 @@ const App: Component = () => {
                 <div
                   class="h-full overflow-hidden"
                   style={{ "background-color": activeTheme().background }}
+                  data-testid="terminal-viewport"
                 >
                   <Show
                     when={!session.isLoading()}
@@ -411,6 +465,7 @@ const App: Component = () => {
                           onCreateSubTerminal={(parentId, cwd) =>
                             void crud.handleCreateSubTerminal(parentId, cwd)
                           }
+                          onCloseTerminal={closeTerminal}
                           activeMeta={store.activeMeta()}
                           scrollLockEnabled={scrollLock()}
                         />
@@ -447,6 +502,7 @@ const App: Component = () => {
               </Resizable.Panel>
             </Resizable>
           </Show>
+          <MobileKeyBar activeId={store.activeId} />
         </div>
       </div>
     </div>

@@ -28,6 +28,8 @@ just test-dev
 just test
 ```
 
+Scenarios tagged `@skip` are excluded by default (regression harnesses for known-broken behavior). Run them with `CUCUMBER_TAGS='@skip' just test-quick features/foo.feature`.
+
 Set `HEADLESS=false` to see the browser:
 
 ```bash

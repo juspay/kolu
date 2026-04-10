@@ -17,15 +17,16 @@ import {
   TerminalReorderInputSchema,
   TerminalSetParentInputSchema,
   TerminalMetadataSchema,
-  ActivitySampleSchema,
+  ActivityStreamEventSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
   ServerInfoSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
-  RecentRepoSchema,
-  SavedSessionSchema,
+  ServerStateSchema,
+  ServerStatePatchSchema,
+  ClaudeTranscriptDebugSchema,
   PlanContentSchema,
   PlanFeedbackInputSchema,
 } from "./index";
@@ -37,7 +38,8 @@ export const contract = oc.router({
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
-    list: oc.output(z.array(TerminalInfoSchema)),
+    // Stream terminal list changes (create/kill/reorder). Yields current list immediately.
+    list: oc.output(eventIterator(z.array(TerminalInfoSchema))),
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
@@ -55,10 +57,14 @@ export const contract = oc.router({
     onMetadataChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalMetadataSchema)),
-    // Stream activity transitions [epochMs, isActive]. Snapshot on connect, then live samples.
+    // Stream activity transitions as a discriminated union. First yield
+    // on every (re)subscribe is `{ kind: "snapshot", samples: [...] }`
+    // carrying the full retained history; subsequent yields are
+    // `{ kind: "delta", sample }`. Clients replace on snapshot, append
+    // on delta — reconnect-safe by construction.
     onActivityChange: oc
       .input(TerminalAttachInputSchema)
-      .output(eventIterator(ActivitySampleSchema)),
+      .output(eventIterator(ActivityStreamEventSchema)),
     // Save image data to the terminal's clipboard shim for Ctrl+V paste
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     // Kill a single terminal
@@ -75,7 +81,6 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-    recentRepos: oc.output(z.array(RecentRepoSchema)),
   },
   plans: {
     // Read a plan file's content
@@ -87,11 +92,20 @@ export const contract = oc.router({
       .input(z.object({ path: z.string(), feedbackLine: z.number() }))
       .output(z.void()),
   },
-  session: {
-    get: oc.output(SavedSessionSchema.nullable()),
-    // Clear saved session (test-only: reset state between scenarios)
-    clear: oc.output(z.void()),
-    // Set saved session (test-only: seed state for scenarios)
-    test__set: oc.input(SavedSessionSchema).output(z.void()),
+  claude: {
+    /** Diagnostic snapshot of the active terminal's Claude transcript:
+     *  the server's state-change log alongside raw JSONL since monitoring started.
+     *  Returns null if the terminal has no active Claude session. */
+    getTranscript: oc
+      .input(TerminalAttachInputSchema)
+      .output(ClaudeTranscriptDebugSchema.nullable()),
+  },
+  state: {
+    // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
+    get: oc.output(eventIterator(ServerStateSchema)),
+    // Partial update — merge into current state
+    update: oc.input(ServerStatePatchSchema).output(z.void()),
+    // Reset state (test-only: seed/clear state between scenarios)
+    test__set: oc.input(ServerStatePatchSchema).output(z.void()),
   },
 });

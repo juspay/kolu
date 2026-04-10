@@ -1,10 +1,4 @@
-import {
-  type Component,
-  createEffect,
-  createMemo,
-  createSignal,
-  onCleanup,
-} from "solid-js";
+import { type Component, createMemo, createSignal, onCleanup } from "solid-js";
 import type { ActivitySample } from "kolu-common";
 import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
 
@@ -63,24 +57,13 @@ function computeBuckets(
 const ActivityGraph: Component<{
   samples: ActivitySample[];
 }> = (props) => {
-  // Use a signal (not memo) so setInterval can trigger updates from outside reactive scope.
-  const [buckets, setBuckets] = createSignal<readonly number[]>(
-    new Array(BUCKET_COUNT).fill(0),
-    { equals: false },
-  );
-
-  const recompute = () => setBuckets(computeBuckets(props.samples, Date.now()));
-
-  // Recompute when samples change (reactive subscription via effect)
-  createEffect(() => {
-    // Access samples to subscribe to store changes
-    props.samples;
-    recompute();
-  });
-
-  // Periodic recompute: shifts the time window even when no new events arrive
-  const timer = setInterval(recompute, REFRESH_INTERVAL_MS);
+  // Periodic tick signal — shifts the time window even when no new events arrive.
+  const [tick, setTick] = createSignal(Date.now());
+  const timer = setInterval(() => setTick(Date.now()), REFRESH_INTERVAL_MS);
   onCleanup(() => clearInterval(timer));
+
+  // Reactive memo: recomputes when samples change OR tick advances.
+  const buckets = createMemo(() => computeBuckets(props.samples, tick()));
 
   const hasData = createMemo(() => buckets().some((v) => v > 0));
 

@@ -28,7 +28,8 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "./theme";
-import { client } from "./rpc";
+import { client, stream } from "./rpc";
+import { isExpectedCleanupError } from "./streamCleanup";
 import { matchesAnyShortcut } from "./keyboard";
 import type { TerminalId } from "kolu-common";
 import SearchBar from "./SearchBar";
@@ -36,6 +37,8 @@ import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "./zoom";
 import { createScrollLock } from "./scrollLock";
 import { refitOnTabVisible } from "./refitOnTabVisible";
+import { viewportDimensions, setViewportDimensions } from "./useViewport";
+import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 
 export type RendererType = "webgl" | "canvas";
 const [renderer, setRenderer] = createSignal<RendererType>("canvas");
@@ -51,7 +54,7 @@ function consumeStream<T>(
     try {
       for await (const item of await streamFn()) onItem(item);
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === "AbortError")) {
+      if (!isExpectedCleanupError(err)) {
         console.error(`${label} error:`, err);
       }
     }
@@ -77,6 +80,10 @@ const Terminal: Component<{
   onFocus?: () => void;
   /** When true, viewport freezes when user scrolls up (default: true). */
   scrollLockEnabled?: boolean;
+  /** When true, this terminal lives in a sub-panel — it owns its own grid
+   *  (its container is independent of the main viewport) and stays out of
+   *  the viewport signal. Also used for e2e test selectors. */
+  isSub?: boolean;
 }> = (props) => {
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
@@ -101,6 +108,23 @@ const Terminal: Component<{
     webgl?.clearTextureAtlas();
   }
 
+  // Main terminals inherit the viewport grid while they're hidden.
+  // FitAddon can't measure a display:none container, so hidden instances
+  // trust the value the visible terminal's FitAddon already published.
+  // Sub-terminals measure their own pane via fit() and never read from
+  // this signal. Visible main terminals ignore this too — their fit() is
+  // authoritative, not a follower.
+  createEffect(
+    on(
+      () => (props.isSub ? undefined : viewportDimensions()),
+      (dims) => {
+        if (!terminal || props.visible || !dims) return;
+        terminal.resize(dims.cols, dims.rows);
+      },
+      { defer: true },
+    ),
+  );
+
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -110,6 +134,7 @@ const Terminal: Component<{
       (visible) => {
         if (!visible || !terminal) return;
         scrollLock.reset();
+        terminal.scrollToBottom();
         debouncedFit();
         clearTextureAtlas();
         if (props.focused !== false) terminal.focus();
@@ -155,12 +180,14 @@ const Terminal: Component<{
     ),
   );
 
-  /** Resize PTY to match frontend dimensions. */
-  async function syncResize() {
+  /** Push the terminal's current cols×rows to the world: publish to the
+   *  shared viewport signal (main terminals only — sub-terminals have
+   *  their own grid) and resize the server-side PTY so node-pty matches. */
+  async function publishDimensions() {
     if (!terminal) return;
-    const cols = terminal.cols;
-    const rows = terminal.rows;
+    const { cols, rows } = terminal;
     if (cols <= 0 || rows <= 0) return;
+    if (props.visible && !props.isSub) setViewportDimensions(cols, rows);
     try {
       await client.terminal.resize({ id: props.terminalId, cols, rows });
     } catch {
@@ -209,11 +236,27 @@ const Terminal: Component<{
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.loadAddon(new ImageAddon());
-    term.loadAddon(new SerializeAddon());
+    const serializeAddon = new SerializeAddon();
+    term.loadAddon(serializeAddon);
 
     term.open(containerRef);
+    // Mobile virtual keyboards autocorrect/autocapitalize xterm's hidden
+    // textarea by default, mangling shell input. Disable all correction
+    // features — terminal input is never prose.
+    if (term.textarea) {
+      term.textarea.setAttribute("autocorrect", "off");
+      term.textarea.setAttribute("autocapitalize", "off");
+      term.textarea.setAttribute("autocomplete", "off");
+      term.textarea.setAttribute("spellcheck", "false");
+    }
     // Expose for e2e tests: read buffer content at viewport position.
     (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
+    // Production path for handlers that need live xterm/addon refs
+    // (e.g. export-as-PDF reads serializeAddon).
+    registerTerminalRefs(props.terminalId, {
+      xterm: term,
+      serialize: serializeAddon,
+    });
 
     scrollLock.attachToTerminal(term);
 
@@ -252,32 +295,61 @@ const Terminal: Component<{
       return true;
     });
 
-    fitAddon.fit();
-    if (props.visible) term.focus();
+    // Attach the resize listener before any initial sizing so the very
+    // first fit()/resize() publishes and pings the PTY through the same
+    // code path as every subsequent resize.
+    term.onResize(() => void publishDimensions());
+
+    // FitAddon.fit() only works when the container has real pixel
+    // dimensions. Hidden main terminals live inside a display:none ancestor
+    // (see `hidden` classList on the wrapper below), so we can't measure
+    // them — instead inherit whatever cols×rows the visible main terminal
+    // already published to the viewport signal. Hidden sub-terminals have
+    // no shared signal to read, so they wait until they become visible.
+    // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
+    if (props.visible) {
+      fitAddon.fit();
+      term.focus();
+    } else if (!props.isSub) {
+      const vp = viewportDimensions();
+      if (vp) term.resize(vp.cols, vp.rows);
+    }
 
     // Track user-initiated focus for "remember last focused" in sub-panel
     if (props.onFocus && term.textarea) {
       makeEventListener(term.textarea, "focus", props.onFocus);
     }
 
-    // Sync PTY size after fit and on subsequent resizes
-    term.onResize(() => void syncResize());
-
     streamAbort = new AbortController();
     const signal = streamAbort.signal;
 
     // Attach stream: yields scrollback first, then live PTY output.
+    // onRetry resets xterm before the retried iterator's first yield
+    // (a fresh screenState snapshot) — otherwise it double-paints.
     consumeStream(
-      () => client.terminal.attach({ id: props.terminalId }, { signal }),
+      () =>
+        stream.attach(props.terminalId, {
+          signal,
+          onRetry: () => {
+            terminal?.reset();
+            scrollLock.reset();
+          },
+        }),
       (data) => {
         if (terminal) scrollLock.writeData(terminal, data);
       },
       "Terminal attach",
     );
 
-    // fitAddon.fit() above only fires onResize when dimensions actually change.
-    // If the default 80×24 matches the container, no event fires — sync manually.
-    void syncResize();
+    // fit() and term.resize() above only fire onResize when the grid
+    // actually changes. If xterm's default 80×24 already matched the
+    // target, the listener didn't run — publish manually. Skip when we
+    // haven't sized ourselves yet (hidden main terminal before the
+    // viewport signal arrives, or hidden sub-terminal): publishing the
+    // untouched 80×24 default would corrupt the viewport signal and
+    // send a bogus PTY resize.
+    const sized = props.visible || (!props.isSub && viewportDimensions());
+    if (sized) void publishDimensions();
 
     // Filter terminal query responses from onData before sending to PTY.
     // The server's headless xterm already answers these; duplicates arriving
@@ -308,6 +380,56 @@ const Terminal: Component<{
     makeEventListener(containerRef, "contextmenu", (e: Event) =>
       e.preventDefault(),
     );
+
+    // Touch-scroll the scrollback. xterm.js 6.0.0 declares
+    // IViewport.handleTouchStart/Move types but Viewport.ts has zero
+    // touch wiring, and the WebGL canvas eats touch events on the way
+    // to the parent .xterm-viewport — so swipes inside the terminal
+    // do nothing on mobile until we bridge them ourselves.
+    //
+    // Single-variable state machine: touchAnchorY is the Y baseline
+    // that line conversion is measured from. null when idle, a number
+    // while a swipe is in progress. On every emitted line the anchor
+    // advances by exactly the consumed pixels, so the sub-line residue
+    // lives implicitly in (currentY - touchAnchorY) on the next move
+    // — no separate accumulator to keep in sync.
+    //
+    // scrollLock picks up the resulting term.onScroll for free, so
+    // freezing live output while the user reads scrollback works
+    // without any extra wiring.
+    let touchAnchorY: number | null = null;
+    makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
+      // Multi-touch (pinch-zoom) passes through to the browser
+      if (e.touches.length !== 1) return;
+      touchAnchorY = e.touches[0]!.clientY;
+    });
+    makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
+      // Multi-touch interrupts a swipe — drop the anchor so the next
+      // single-finger move starts a fresh gesture instead of resuming
+      // from a stale (possibly far-away) reference point.
+      if (e.touches.length !== 1) {
+        touchAnchorY = null;
+        return;
+      }
+      if (touchAnchorY === null || !terminal) return;
+      const screen = terminal.element?.querySelector(
+        ".xterm-screen",
+      ) as HTMLElement | null;
+      if (!screen) return;
+      const cellHeight = screen.clientHeight / terminal.rows;
+      // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
+      // a bare `<= 0` check would miss — NaN poisons the anchor.
+      if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
+      const currentY = e.touches[0]!.clientY;
+      const lines = Math.trunc((currentY - touchAnchorY) / cellHeight);
+      if (lines === 0) return;
+      // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
+      terminal.scrollLines(-lines);
+      touchAnchorY += lines * cellHeight;
+    });
+    makeEventListener(containerRef, "touchend", () => {
+      touchAnchorY = null;
+    });
 
     // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
     // Capture phase fires before xterm's own paste handler on the textarea,
@@ -355,6 +477,7 @@ const Terminal: Component<{
 
     onCleanup(() => {
       streamAbort?.abort();
+      unregisterTerminalRefs(props.terminalId);
       terminal?.dispose();
     });
   });
@@ -384,6 +507,7 @@ const Terminal: Component<{
         class="w-full h-full overflow-hidden touch-manipulation"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
+        data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
         onClick={() => terminal?.focus()}
       />

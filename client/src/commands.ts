@@ -2,12 +2,11 @@
 
 import { createMemo, batch } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { PaletteCommand } from "./CommandPalette";
-import type { MCMode } from "./MissionControl";
+import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { useRecentRepos } from "./useRecentRepos";
+import { useServerState } from "./useServerState";
 import { client } from "./rpc";
 
 export interface CommandDeps {
@@ -17,8 +16,8 @@ export interface CommandDeps {
   activeMeta: Accessor<TerminalMetadata | null>;
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  handleKill: (id: TerminalId) => void;
   handleCopyTerminalText: () => void;
+  handleExportSessionAsPdf: () => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
@@ -27,64 +26,54 @@ export interface CommandDeps {
   handleSetTheme: (name: string) => void;
   handleRandomizeTheme: () => void;
   // Dialogs
-  setMcMode: (mode: MCMode) => void;
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
   handleCreateWorktree: (repoPath: string) => void;
-  handleKillWorktree: () => void;
+  handleClose: () => void;
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
+  setClaudeTranscriptOpen: (open: boolean) => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos } = useRecentRepos();
+  const { recentRepos } = useServerState();
 
   return createMemo((): PaletteCommand[] => [
     {
-      name: "Create new terminal",
-      keybind: [
-        SHORTCUTS.createTerminal.keybind,
-        SHORTCUTS.createTerminalAlt.keybind,
-      ],
-      onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
-    },
-    {
-      name: "New worktree\u2026",
-      children: () => {
+      name: "New terminal",
+      children: (): PaletteItem[] => {
         const repos = recentRepos();
-        if (repos.length === 0) {
-          return [
-            {
-              name: "No recent repos",
-              description: "cd into a git repo first",
-            },
-          ];
-        }
-        return repos.map((r) => ({
-          name: r.repoName,
-          description: r.repoRoot,
-          onSelect: () => deps.handleCreateWorktree(r.repoRoot),
-        }));
+        return [
+          {
+            name: "In current directory",
+            onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
+          },
+          ...repos.map((r) => ({
+            name: r.repoName,
+            description: `New worktree in ${r.repoRoot}`,
+            onSelect: () => deps.handleCreateWorktree(r.repoRoot),
+          })),
+          ...(repos.length === 0
+            ? [
+                {
+                  kind: "hint" as const,
+                  text: "Repos you cd into will appear here",
+                },
+              ]
+            : []),
+        ];
       },
     },
-    ...(deps.activeMeta()?.git?.isWorktree
-      ? [
-          {
-            name: "Close terminal and remove worktree",
-            onSelect: () => deps.handleKillWorktree(),
-          },
-        ]
-      : []),
     ...(deps.activeId() !== null
       ? [
           {
             name: "Close terminal",
-            onSelect: () => deps.handleKill(deps.activeId()!),
+            onSelect: () => deps.handleClose(),
           },
           {
-            name: "Toggle sub-panel",
+            name: "Toggle terminal split",
             keybind: SHORTCUTS.toggleSubPanel.keybind,
             onSelect: () => {
               const id = deps.activeId()!;
@@ -96,7 +85,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             },
           },
           {
-            name: "New sub-terminal",
+            name: "Split terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
             onSelect: () =>
               deps.handleCreateSubTerminal(
@@ -109,16 +98,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             keybind: SHORTCUTS.copyTerminalText.keybind,
             onSelect: () => deps.handleCopyTerminalText(),
           },
+          {
+            name: "Export session as PDF",
+            keybind: SHORTCUTS.exportSessionAsPdf.keybind,
+            onSelect: () => deps.handleExportSessionAsPdf(),
+          },
         ]
       : []),
-    {
-      name: "Mission Control",
-      keybind: [
-        SHORTCUTS.missionControl.keybind,
-        SHORTCUTS.nextTerminalTab.keybind,
-      ],
-      onSelect: () => deps.setMcMode({ mode: "browse" }),
-    },
     ...(deps.terminalIds().length > 0
       ? [
           {
@@ -178,6 +164,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
+        ...(deps.activeMeta()?.claude != null
+          ? [
+              {
+                name: "Show Claude transcript",
+                onSelect: () => deps.setClaudeTranscriptOpen(true),
+              },
+            ]
+          : []),
         {
           name: "Trigger server error",
           onSelect: () =>

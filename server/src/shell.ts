@@ -71,7 +71,42 @@ export function cleanEnv(): Record<string, string> {
 }
 
 /** Shell function that emits OSC 7 with the current working directory. */
-const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
+export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
+
+/** Shell function that emits OSC 2 (title) with the command about to run.
+ *  Triggered by preexec — fires before each command, enabling event-driven
+ *  foreground process detection without polling. */
+export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
+
+/** Bash-specific preexec dispatch — uses a ready flag armed at the end of
+ *  PROMPT_COMMAND to ensure the title only fires for user-typed commands,
+ *  not PROMPT_COMMAND hooks themselves.
+ *
+ *  Why: bash's DEBUG trap fires for EVERY command including those inside
+ *  PROMPT_COMMAND. Without a guard, hooks like __zoxide_hook, _direnv_hook,
+ *  __fzf_history__ leak into OSC 2 and clutter the terminal title.
+ *
+ *  How: `__kolu_preexec_arm` is appended as the LAST entry in PROMPT_COMMAND,
+ *  so the flag goes "ready" only between the end of PROMPT_COMMAND and the
+ *  next user command. DEBUG dispatch checks the flag, emits once per user
+ *  command, and clears it (so subsequent pipeline commands don't re-emit).
+ *
+ *  (We originally tried PS0 command substitution, but `$(...)` runs in a
+ *  subshell, so the flag assignment never reached the parent shell.) */
+export const OSC2_PREEXEC_BASH_GUARD = [
+  `__kolu_preexec_ready=""`,
+  `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
+  `__kolu_preexec_dispatch() {`,
+  `  [ -z "$__kolu_preexec_ready" ] && return`,
+  `  __kolu_preexec_ready=""`,
+  `  __kolu_preexec "$BASH_COMMAND"`,
+  `}`,
+].join("\n");
+
+/** Shell function that resets OSC 2 title to CWD at the prompt.
+ *  Matches Ghostty/Kitty convention: CWD when idle, command when running. */
+export const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
+export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
 
 /**
  * Prepare shell init that injects an OSC 7 hook *after* the user's rc files.
@@ -105,7 +140,22 @@ export function osc7Init(
         `[ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
         pathLine,
         OSC7_FN,
-        `PROMPT_COMMAND="__kolu_osc7\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+        OSC2_PREEXEC_FN,
+        OSC2_PREEXEC_BASH_GUARD,
+        OSC2_PRECMD_BASH,
+        // PROMPT_COMMAND order matters:
+        //   1. Our own osc7 + title_precmd (title/CWD)
+        //   2. User's PROMPT_COMMAND (if any)
+        //   3. __kolu_preexec_arm — MUST be last, so the ready flag only goes
+        //      "on" between the end of prompt setup and the next user command.
+        //      Any DEBUG firing before arm (hooks, aliases, etc.) sees flag=""
+        //      and skips emitting OSC 2.
+        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND};__kolu_preexec_arm"`,
+        // Install the DEBUG trap at source time — reinstalling inside
+        // PROMPT_COMMAND is unnecessary since the trap persists across
+        // commands. If a user's .bashrc clears it, bash-preexec-compatible
+        // setups will still work if we're loaded first.
+        `trap '__kolu_preexec_dispatch' DEBUG`,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -125,8 +175,12 @@ export function osc7Init(
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
         pathLine,
         OSC7_FN,
+        OSC2_PREEXEC_FN,
+        OSC2_PRECMD_ZSH,
         `autoload -Uz add-zsh-hook`,
         `add-zsh-hook precmd __kolu_osc7`,
+        `add-zsh-hook precmd __kolu_title_precmd`,
+        `add-zsh-hook preexec __kolu_preexec`,
       ]
         .filter(Boolean)
         .join("\n"),

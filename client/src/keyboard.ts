@@ -80,11 +80,15 @@ export const SHORTCUTS = {
   ...SWITCH_SHORTCUTS,
   createTerminal: {
     keybind: { key: "t", mod: true },
-    label: "Create new terminal",
+    label: "New terminal",
   },
   createTerminalAlt: {
     keybind: { key: "Enter", mod: true },
-    label: "Create new terminal",
+    label: "New terminal",
+  },
+  newTerminalMenu: {
+    keybind: { key: "Enter", mod: true, shift: true },
+    label: "New terminal menu",
   },
   nextTerminal: {
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
@@ -94,13 +98,9 @@ export const SHORTCUTS = {
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     label: "Previous terminal",
   },
-  nextTerminalTab: {
+  cycleTerminalMru: {
     keybind: { key: "Tab", code: "Tab", ctrl: true },
-    label: "Quick switch (Mission Control)",
-  },
-  prevTerminalTab: {
-    keybind: { key: "Tab", code: "Tab", ctrl: true, shift: true },
-    label: "Quick switch (reverse)",
+    label: "Cycle terminals by most recent use",
   },
   commandPalette: {
     keybind: { key: "k", mod: true },
@@ -116,23 +116,19 @@ export const SHORTCUTS = {
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
   toggleSubPanel: {
     keybind: { key: "`", code: "Backquote", ctrl: true },
-    label: "Toggle sub-panel",
+    label: "Toggle terminal split",
   },
   createSubTerminal: {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
-    label: "New sub-terminal",
+    label: "Split terminal",
   },
   nextSubTab: {
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    label: "Next sub-tab",
+    label: "Next split tab",
   },
   prevSubTab: {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    label: "Previous sub-tab",
-  },
-  missionControl: {
-    keybind: { key: ".", mod: true },
-    label: "Mission Control",
+    label: "Previous split tab",
   },
   randomizeTheme: {
     keybind: { key: "j", mod: true },
@@ -141,6 +137,10 @@ export const SHORTCUTS = {
   copyTerminalText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     label: "Copy terminal text",
+  },
+  exportSessionAsPdf: {
+    keybind: { key: "p", code: "KeyP", mod: true },
+    label: "Export session as PDF",
   },
 } as const satisfies Record<string, Shortcut>;
 

@@ -38,6 +38,9 @@ const ModalDialog: Component<{
     onOpenChange={props.onOpenChange}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
+    // terminal.focus() calls (visibility effects, click handlers) emit focusin
+    // events that solid-dismissible interprets as the user leaving the dialog.
+    closeOnOutsideFocus={false}
     initialFocusEl={props.initialFocusEl}
     trapFocus={props.trapFocus}
   >

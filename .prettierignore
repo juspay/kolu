@@ -1,1 +1,8 @@
 pnpm-lock.yaml
+apm.lock.yaml
+# APM-generated output (managed by `just ai::apm`, not prettier)
+.claude/commands/
+.claude/rules/
+.claude/skills/
+.claude/hooks/
+.claude/settings.json

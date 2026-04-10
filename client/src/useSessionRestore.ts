@@ -1,17 +1,17 @@
-/** Session restore — queries, hydration from server state, session restore handler. */
+/** Session restore — hydration from server state, session restore handler. */
 
 import { createSignal, createEffect } from "solid-js";
-import { createQuery } from "@tanstack/solid-query";
-import { client } from "./rpc";
-import { orpc } from "./orpc";
+import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
+import { useServerState } from "./useServerState";
+import { lifecycle } from "./rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
-  handleCreate: (cwd?: string) => Promise<void>;
+  handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
@@ -19,9 +19,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
-
-  const terminalsQuery = createQuery(() => orpc.terminal.list.queryOptions());
-  const sessionQuery = createQuery(() => orpc.session.get.queryOptions());
+  const serverState = useServerState();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -30,21 +28,19 @@ export function useSessionRestore(deps: {
   // Hydrate from server state on initial load.
   let hydrated = false;
   createEffect(() => {
-    const existing = terminalsQuery.data;
-    const session = sessionQuery.data;
-    if (existing === undefined || session === undefined) return;
+    const existing = store.listSub();
+    const state = serverState.state();
+    if (existing === undefined || state === undefined) return;
     if (hydrated) return;
     hydrated = true;
     if (existing.length === 0) {
-      setSavedSession(session);
+      setSavedSession(state.session);
       return;
     }
     hydrateFromTerminals(existing);
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
-    store.setKnownIds(existing.map((t) => t.id));
-
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
@@ -79,9 +75,12 @@ export function useSessionRestore(deps: {
   }
 
   // Re-fetch saved session when all terminals are killed mid-session.
+  // Gated on lifecycle: on a genuine server restart, the dim overlay is
+  // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
+    if (lifecycle().kind === "restarted") return;
     if (store.terminalIds().length === 0 && hydrated) {
-      client.session.get().then(setSavedSession);
+      setSavedSession(serverState.savedSession());
     }
   });
 
@@ -89,22 +88,30 @@ export function useSessionRestore(deps: {
     const session = savedSession();
     if (!session) return;
     setSavedSession(null);
-    const oldToNew = new Map<string, TerminalId>();
-    const topLevel = session.terminals.filter((t) => !t.parentId);
-    const subTerminals = session.terminals.filter((t) => t.parentId);
-    for (const t of topLevel) {
-      await deps.handleCreate(t.cwd);
-      const ids = store.knownIds();
-      oldToNew.set(t.id, ids[ids.length - 1]!);
-    }
-    for (const t of subTerminals) {
-      const newParentId = oldToNew.get(t.parentId!);
-      if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+    const id = toast.loading(
+      `Restoring ${session.terminals.length} terminals…`,
+    );
+    try {
+      const oldToNew = new Map<string, TerminalId>();
+      const topLevel = session.terminals.filter((t) => !t.parentId);
+      const subTerminals = session.terminals.filter((t) => t.parentId);
+      for (const t of topLevel) {
+        const newId = await deps.handleCreate(t.cwd);
+        oldToNew.set(t.id, newId);
+      }
+      for (const t of subTerminals) {
+        const newParentId = oldToNew.get(t.parentId!);
+        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+      }
+      toast.success("Session restored", { id });
+    } catch (err) {
+      toast.error(`Restore failed: ${(err as Error).message}`, { id });
+      throw err;
     }
   }
 
   return {
-    isLoading: () => terminalsQuery.isLoading,
+    isLoading: () => store.listSub.pending(),
     savedSession,
     handleRestoreSession,
   };

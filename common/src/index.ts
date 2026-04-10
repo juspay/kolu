@@ -64,10 +64,31 @@ export const ClaudeCodeInfoSchema = z.object({
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
   model: z.string().nullable(),
+  /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
+   *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
+  summary: z.string().nullable(),
   /** Absolute path to the plan file for this session (derived from JSONL slug), if any. */
   latestPlanPath: z.string().nullable(),
   /** Plan file modification time (epoch ms) — changes trigger client content refetch via query key. */
   planModifiedAt: z.number().nullable(),
+});
+
+/** A single state transition the server observed. `info: null` = session ended. */
+export const ClaudeStateChangeSchema = z.object({
+  ts: z.number(),
+  info: ClaudeCodeInfoSchema.nullable(),
+});
+
+/** Diagnostic snapshot comparing what the server saw against the on-disk JSONL.
+ *  Used by the Debug → "Show Claude transcript" command. */
+export const ClaudeTranscriptDebugSchema = z.object({
+  transcriptPath: z.string(),
+  /** epoch ms when kolu attached its transcript watcher (= start of monitoring). */
+  startedAt: z.number(),
+  /** What the server believes happened — every transition that passed `infoEqual`. */
+  stateChanges: z.array(ClaudeStateChangeSchema),
+  /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
+  rawEvents: z.array(z.unknown()),
 });
 
 // --- Plans ---
@@ -87,6 +108,16 @@ export const PlanFeedbackInputSchema = z.object({
   text: z.string(),
 });
 
+// --- Foreground process context ---
+
+/** Foreground process info from PTY. */
+export const ForegroundSchema = z.object({
+  /** Binary name (e.g. "vim", "claude", "opencode"). */
+  name: z.string(),
+  /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
+  title: z.string().nullable(),
+});
+
 // --- Terminal metadata (unified, provider-aggregated) ---
 
 export const TerminalMetadataSchema = z.object({
@@ -94,6 +125,8 @@ export const TerminalMetadataSchema = z.object({
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
   claude: ClaudeCodeInfoSchema.nullable(),
+  /** Foreground process name — detected via OSC 2 title change events. */
+  foreground: ForegroundSchema.nullable(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -106,6 +139,24 @@ export const TerminalMetadataSchema = z.object({
 /** A timestamped activity transition: [epochMs, isActive]. */
 export const ActivitySampleSchema = z.tuple([z.number(), z.boolean()]);
 export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
+
+/**
+ * `onActivityChange` stream contract: the first yield on every
+ * (re)subscribe is a `snapshot` of retained history; every later yield
+ * is a `delta`. Clients replace on snapshot, append on delta — so
+ * re-subscribe after a reconnect restores state without duplication.
+ */
+export const ActivityStreamEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    samples: z.array(ActivitySampleSchema),
+  }),
+  z.object({
+    kind: z.literal("delta"),
+    sample: ActivitySampleSchema,
+  }),
+]);
+export type ActivityStreamEvent = z.infer<typeof ActivityStreamEventSchema>;
 
 // --- Terminal ---
 
@@ -198,6 +249,53 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
+// --- User preferences (server-side, shared with client) ---
+
+export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+
+/** Which sidebar cards render a live xterm preview.
+ *  - `all`: every terminal (noisy; mostly useful for testing)
+ *  - `agents`: any terminal with a running code agent
+ *  - `attention`: only agents that need the user (waiting or unread) — **default**
+ *  - `none`: never */
+export const SidebarAgentPreviewsSchema = z.enum([
+  "all",
+  "agents",
+  "attention",
+  "none",
+]);
+export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
+
+export const PreferencesSchema = z.object({
+  seenTips: z.array(z.string()),
+  startupTips: z.boolean(),
+  randomTheme: z.boolean(),
+  scrollLock: z.boolean(),
+  activityAlerts: z.boolean(),
+  colorScheme: ColorSchemeSchema,
+  sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+});
+
+// --- Server state ---
+
+/** What conf stores to disk — survives server restart. */
+export const PersistedStateSchema = z.object({
+  recentRepos: z.array(RecentRepoSchema),
+  session: SavedSessionSchema.nullable(),
+  preferences: PreferencesSchema,
+});
+
+/** What the client receives — currently same as persisted.
+ *  #333 will extend with runtime fields (terminals, terminalMeta). */
+export const ServerStateSchema = PersistedStateSchema.extend({});
+
+/** Partial patch for state updates — all fields optional, preferences partially mergeable. */
+export const ServerStatePatchSchema = z.object({
+  recentRepos: z.array(RecentRepoSchema).optional(),
+  session: SavedSessionSchema.nullable().optional(),
+  preferences: PreferencesSchema.partial().optional(),
+});
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
@@ -206,8 +304,16 @@ export type TerminalId = TerminalInfo["id"];
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
+export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
+export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type PlanContent = z.infer<typeof PlanContentSchema>;
+export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
+export type Preferences = z.infer<typeof PreferencesSchema>;
+export type PersistedState = z.infer<typeof PersistedStateSchema>;
+export type ServerState = z.infer<typeof ServerStateSchema>;
+export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;

@@ -1,52 +1,53 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import { createMutation, useQueryClient } from "@tanstack/solid-query";
 import { toast } from "solid-sonner";
-import { orpc } from "./orpc";
+import { client } from "./rpc";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
   store: TerminalStore;
-  handleCreate: (cwd?: string) => Promise<void>;
+  handleCreate: (cwd?: string) => Promise<TerminalId>;
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
-  const qc = useQueryClient();
-  const invalidateRepos = () =>
-    void qc.invalidateQueries({ queryKey: orpc.git.recentRepos.key() });
-
-  const worktreeCreateMut = createMutation(() => ({
-    ...orpc.git.worktreeCreate.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to create worktree: ${err.message}`),
-  }));
-
-  const worktreeRemoveMut = createMutation(() => ({
-    ...orpc.git.worktreeRemove.mutationOptions(),
-    onError: (err: Error) =>
-      toast.error(`Failed to remove worktree: ${err.message}`),
-  }));
 
   async function handleCreateWorktree(repoPath: string) {
-    const result = await worktreeCreateMut.mutateAsync({ repoPath });
-    toast(`Created worktree at ${result.path}`);
-    await deps.handleCreate(result.path);
-    invalidateRepos();
+    const id = toast.loading("Creating worktree…");
+    try {
+      const result = await client.git.worktreeCreate({ repoPath });
+      toast.success(`Created worktree at ${result.path}`, { id });
+      await deps.handleCreate(result.path);
+      // Recent repos update reactively via trackRecentRepo → publishSystem
+    } catch (err) {
+      toast.error(`Failed to create worktree: ${(err as Error).message}`, {
+        id,
+      });
+      throw err;
+    }
   }
 
-  async function handleKillWorktree() {
-    const id = store.activeId();
+  /** Kill a terminal and remove its worktree.
+   *  Accepts an explicit ID so callers can snapshot it before confirming. */
+  async function handleKillWorktree(targetId?: TerminalId) {
+    const id = targetId ?? store.activeId();
     if (!id) return;
-    const meta = store.activeMeta();
+    const meta = store.getMetadata(id);
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
-      await worktreeRemoveMut.mutateAsync({ worktreePath });
-      toast(`Removed worktree at ${worktreePath}`);
-      invalidateRepos();
+      const tid = toast.loading("Removing worktree…");
+      try {
+        await client.git.worktreeRemove({ worktreePath });
+        toast.success("Worktree removed", { id: tid });
+      } catch (err) {
+        toast.error(`Failed to remove worktree: ${(err as Error).message}`, {
+          id: tid,
+        });
+        throw err;
+      }
     }
   }
 

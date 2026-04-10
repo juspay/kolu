@@ -1,1 +1,3 @@
 npins/default.nix linguist-generated
+.claude/** linguist-generated
+.claude/launch.json -linguist-generated

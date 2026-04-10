@@ -8,6 +8,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
   ActivitySample,
+  ClaudeTranscriptDebug,
 } from "kolu-common";
 import {
   ACTIVITY_IDLE_THRESHOLD_S,
@@ -44,6 +45,10 @@ export interface TerminalProcess {
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
+  /** Installed by the claude-code provider while a transcript watcher is active.
+   *  Returns a snapshot suitable for the Debug → "Show Claude transcript" view,
+   *  or null if no claude session is currently being watched. */
+  getClaudeDebug?: () => ClaudeTranscriptDebug | null;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();
@@ -117,6 +122,12 @@ function emitChanged(): void {
   publishSystem("session:changed", {});
 }
 
+/** Notify that terminal membership changed (create/kill/reorder).
+ *  Drives the live terminal.list stream to clients. */
+function emitListChanged(): void {
+  publishSystem("terminal-list", listTerminals());
+}
+
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
 export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
@@ -144,7 +155,14 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
-        if (wasNaturalExit) emitChanged();
+        if (wasNaturalExit) {
+          emitChanged();
+          emitListChanged();
+        }
+      },
+      // PTY callback (OSC 0/2): notify process provider that title changed
+      onTitleChange: (title) => {
+        publishForTerminal("title", id, title);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
@@ -182,6 +200,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
   emitChanged();
+  emitListChanged();
   return entry.info;
 }
 
@@ -209,6 +228,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
   emitChanged();
+  emitListChanged();
   return entry.info;
 }
 
@@ -248,6 +268,7 @@ export function reorderTerminals(ids: TerminalId[]): void {
     }
   }
   log.debug({ count: ids.length }, "terminals reordered");
+  emitListChanged();
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
@@ -263,4 +284,5 @@ export function killAllTerminals(): void {
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
   }
+  emitListChanged();
 }
