@@ -2,7 +2,7 @@
 # Source: mbadolato/iTerm2-Color-Schemes (managed by npins)
 { pkgs }:
 let
-  sources = import ../../npins;
+  sources = import ../../../npins;
 in
 pkgs.runCommand "ghostty-themes"
 {
