@@ -2,6 +2,8 @@
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
 
+cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
+
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 
@@ -52,7 +54,7 @@ test: install
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
     {{ nix_shell }} pnpm install
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL=8 {{ nix_shell }} pnpm test
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -76,7 +78,7 @@ test-quick *args: install
     chmod +x "$wrapper"
     cd tests
     {{ nix_shell }} pnpm install
-    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL="${CUCUMBER_PARALLEL:-8}" \
+    KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
