@@ -31,15 +31,7 @@ export function infoEqual(a: AgentInfo | null, b: AgentInfo | null): boolean {
   if (a.kind === "claude-code" && b.kind === "claude-code") {
     return claudeInfoEqual(a, b);
   }
-  if (a.kind === "opencode" && b.kind === "opencode") {
-    return (
-      a.state === b.state &&
-      a.sessionId === b.sessionId &&
-      a.model === b.model &&
-      a.summary === b.summary
-    );
-  }
-  return true;
+  return a.state === b.state && a.sessionId === b.sessionId;
 }
 
 /**

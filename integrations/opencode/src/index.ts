@@ -191,6 +191,14 @@ export function parseMessageState(data: string): DerivedState | null {
 
 // --- File watching ---
 
+// --- Session watcher (encapsulates per-session lifecycle) ---
+
+export {
+  createOpenCodeWatcher,
+  infoEqual,
+  type OpenCodeWatcher,
+} from "./session-watcher.ts";
+
 /** Watch the OpenCode WAL file for changes. Returns a cleanup function.
  *  Falls back to watching the parent directory if the WAL doesn't exist
  *  yet — OpenCode creates it lazily when the DB is first written to.

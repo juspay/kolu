@@ -2,40 +2,30 @@
  * OpenCode metadata provider — thin adapter that wires the
  * `kolu-opencode` integration library into the server's metadata system.
  *
- * All OpenCode-specific logic (DB queries, state derivation) lives in
- * `integrations/opencode`. This file owns the provider lifecycle:
- * subscribing to events, managing watcher state, and calling
- * `updateMetadata`.
+ * All per-session lifecycle (DB watching, state derivation, equality
+ * dedup) lives in `OpenCodeWatcher` from the integration library. This
+ * file owns only session matching (correlating foreground process to a
+ * directory-matched OpenCode session) and event wiring.
  *
- * Event-driven — no polling. Trigger sources:
- *   - title event (subscribeForTerminal("title", ...)) — fires on shell
- *     preexec/precmd OSC 2, when the foreground process may have changed
- *   - fs.watch on opencode.db-wal — fires when OpenCode writes to its DB
- *
- * Detection: when the foreground process basename is "opencode", we look up
- * the most recently updated session in OpenCode's SQLite DB whose `directory`
- * matches the terminal's CWD, then re-derive state on each WAL file change.
+ * Mirrors the post-#437 shape of `server/src/meta/claude.ts`.
  */
 
 import path from "node:path";
-import type { OpenCodeInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
-import { infoEqual } from "./claude.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
 import {
   findSessionByDirectory,
-  deriveSessionState,
-  watchOpenCodeDb,
-  type OpenCodeSession,
+  createOpenCodeWatcher,
+  type OpenCodeWatcher,
 } from "kolu-opencode";
 
 /**
  * Start the OpenCode metadata provider for a terminal entry.
- * Wakes on title events (foreground process change) and on OpenCode
- * database writes (fs.watch on the WAL file).
+ * Wakes on title events to detect when `opencode` becomes the foreground
+ * process. Delegates all per-session lifecycle to OpenCodeWatcher.
  */
 export function startOpenCodeProvider(
   entry: TerminalProcess,
@@ -43,8 +33,7 @@ export function startOpenCodeProvider(
 ): () => void {
   const plog = log.child({ provider: "opencode", terminal: terminalId });
 
-  let matchedSession: OpenCodeSession | null = null;
-  let dbWatcher: (() => void) | null = null;
+  let current: OpenCodeWatcher | null = null;
 
   plog.info("started");
 
@@ -64,71 +53,27 @@ export function startOpenCodeProvider(
     }
   }
 
-  function teardownDbWatcher() {
-    if (dbWatcher) {
-      dbWatcher();
-      dbWatcher = null;
-    }
-  }
-
-  function publishCleared() {
-    if (entry.info.meta.agent?.kind === "opencode") {
-      updateMetadata(entry, terminalId, (m) => {
-        m.agent = null;
-      });
-    }
-  }
-
-  /** Re-derive state for the matched session and publish if changed. */
-  function refreshState() {
-    if (!matchedSession) return;
-    const derived = deriveSessionState(matchedSession.id, plog);
-    if (!derived) {
-      plog.debug(
-        { session: matchedSession.id },
-        "no messages yet for opencode session",
-      );
-      return;
-    }
-
-    const info: OpenCodeInfo = {
-      kind: "opencode",
-      state: derived.state,
-      sessionId: matchedSession.id,
-      model: derived.model,
-      summary: matchedSession.title,
-    };
-
-    if (!infoEqual(entry.info.meta.agent, info)) {
-      plog.info(
-        { state: info.state, model: info.model, session: info.sessionId },
-        "opencode state updated",
-      );
-      updateMetadata(entry, terminalId, (m) => {
-        m.agent = info;
-      });
-    }
-  }
-
-  /** Called when the foreground process or session may have changed. */
   function onForegroundMaybeChanged() {
     const name = currentForegroundName();
     const isOpenCode = name === "opencode";
 
     if (!isOpenCode) {
-      if (matchedSession) {
+      if (current) {
         plog.info(
-          { from: matchedSession.id, to: name },
+          { from: current.session.id, to: name },
           "opencode no longer foreground",
         );
-        teardownDbWatcher();
-        matchedSession = null;
-        publishCleared();
+        current.destroy();
+        current = null;
+        if (entry.info.meta.agent?.kind === "opencode") {
+          updateMetadata(entry, terminalId, (m) => {
+            m.agent = null;
+          });
+        }
       }
       return;
     }
 
-    // Look up the most recently updated session for this terminal's CWD
     const cwd = entry.info.meta.cwd;
     const session = findSessionByDirectory(cwd, plog);
 
@@ -137,18 +82,24 @@ export function startOpenCodeProvider(
       return;
     }
 
-    // New session match (or first time) — set up the watcher
-    if (!matchedSession || matchedSession.id !== session.id) {
-      plog.info(
-        { session: session.id, title: session.title, cwd },
-        "opencode session matched",
-      );
-      teardownDbWatcher();
-      matchedSession = session;
-      dbWatcher = watchOpenCodeDb(() => refreshState(), plog);
-    }
+    // Already watching this session — nothing to do.
+    if (current?.session.id === session.id) return;
 
-    refreshState();
+    // New or different session — replace the watcher.
+    current?.destroy();
+    plog.info(
+      { session: session.id, title: session.title, cwd },
+      "opencode session matched",
+    );
+    current = createOpenCodeWatcher(
+      session,
+      (info) => {
+        updateMetadata(entry, terminalId, (m) => {
+          m.agent = info;
+        });
+      },
+      plog,
+    );
   }
 
   // Subscribe to title events — fires on shell OSC 2 / preexec.
@@ -162,7 +113,7 @@ export function startOpenCodeProvider(
 
   return () => {
     titleAbort.abort();
-    teardownDbWatcher();
+    current?.destroy();
     plog.info("stopped");
   };
 }
