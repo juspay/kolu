@@ -82,6 +82,12 @@ Feature: Claude Code status detection
     Then palette item "Show Claude transcript" should not be visible
     And there should be no page errors
 
+  Scenario: Sidebar shows task progress when Claude has tasks
+    When a Claude Code session is mocked with state "tool_use"
+    And the Claude Code session has 5 tasks with 3 completed
+    Then the sidebar should show task progress "3/5"
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the header should show a Claude indicator with state "thinking"

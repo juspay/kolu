@@ -122,7 +122,30 @@ const TerminalMeta: Component<{
           <Show when={info().meta.claude}>
             {(claude) => (
               <div class="mt-1">
-                <ClaudeIndicator state={claude().state} />
+                <div class="flex items-center gap-1.5">
+                  <ClaudeIndicator state={claude().state} />
+                  <Show when={claude().taskProgress}>
+                    {(tp) => (
+                      <div
+                        data-testid="claude-task-progress"
+                        class="flex items-center gap-1.5 flex-1 min-w-0"
+                        title={`${tp().completed}/${tp().total} tasks completed`}
+                      >
+                        <div class="flex-1 h-1 rounded-full bg-fg/10 min-w-8 overflow-hidden">
+                          <div
+                            class="h-full rounded-full bg-busy transition-all duration-300"
+                            style={{
+                              width: `${tp().total > 0 ? (tp().completed / tp().total) * 100 : 0}%`,
+                            }}
+                          />
+                        </div>
+                        <span class="text-xs text-fg-2 tabular-nums shrink-0">
+                          {tp().completed}/{tp().total}
+                        </span>
+                      </div>
+                    )}
+                  </Show>
+                </div>
                 <Show when={claude().summary}>
                   {(summary) => (
                     <div

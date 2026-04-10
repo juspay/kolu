@@ -320,6 +320,91 @@ Then(
   },
 );
 
+/** Build JSONL lines for TaskCreate result + TaskUpdate calls. */
+function buildTaskLines(
+  tasks: Array<{ id: string; subject: string; status: string }>,
+): string {
+  const lines: string[] = [];
+  for (const task of tasks) {
+    // TaskCreate result (appears on "user" type messages)
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: `task-create-${task.id}`,
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            {
+              tool_use_id: `tool-${task.id}`,
+              type: "tool_result",
+              content: `Task #${task.id} created successfully: ${task.subject}`,
+            },
+          ],
+        },
+        toolUseResult: { task: { id: task.id, subject: task.subject } },
+      }),
+    );
+    // TaskUpdate to set status (appears on "assistant" type messages)
+    if (task.status !== "pending") {
+      lines.push(
+        JSON.stringify({
+          type: "assistant",
+          uuid: `task-update-${task.id}`,
+          timestamp: new Date().toISOString(),
+          message: {
+            model: "claude-opus-4-6",
+            role: "assistant",
+            stop_reason: "tool_use",
+            content: [
+              {
+                type: "tool_use",
+                id: `tool-update-${task.id}`,
+                name: "TaskUpdate",
+                input: { taskId: task.id, status: task.status },
+              },
+            ],
+          },
+        }),
+      );
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
+When(
+  "the Claude Code session has {int} tasks with {int} completed",
+  async function (this: KoluWorld, total: number, completed: number) {
+    if (!mockTranscriptPath) throw new Error("No mock transcript to update");
+    const tasks: Array<{ id: string; subject: string; status: string }> = [];
+    for (let i = 1; i <= total; i++) {
+      tasks.push({
+        id: String(i),
+        subject: `Task ${i}`,
+        status: i <= completed ? "completed" : "in_progress",
+      });
+    }
+    // Append task lines to existing transcript
+    fs.appendFileSync(mockTranscriptPath, buildTaskLines(tasks));
+  },
+);
+
+Then(
+  "the sidebar should show task progress {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (expected) => {
+        const el = document.querySelector(
+          '[data-testid="claude-task-progress"]',
+        );
+        return el?.textContent?.trim() === expected;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the header should not show a Claude indicator",
   async function (this: KoluWorld) {

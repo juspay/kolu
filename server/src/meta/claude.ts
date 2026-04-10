@@ -40,6 +40,7 @@ import type {
   ClaudeCodeInfo,
   ClaudeStateChange,
   ClaudeTranscriptDebug,
+  TaskProgress,
 } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateMetadata } from "./index.ts";
@@ -255,6 +256,107 @@ export function deriveState(
   return null;
 }
 
+/**
+ * Scan JSONL lines for TaskCreate/TaskUpdate tool calls and accumulate into
+ * the provided task map. Returns true if the map changed.
+ *
+ * The transcript format is an internal Claude Code implementation detail.
+ * Warnings are logged when tool call inputs have unexpected shapes so that
+ * format drift is visible rather than silently ignored.
+ */
+export function extractTasks(
+  lines: string[],
+  tasks: Map<string, "pending" | "in_progress" | "completed">,
+  plog: { warn: (obj: Record<string, unknown>, msg: string) => void },
+): boolean {
+  let changed = false;
+  for (const line of lines) {
+    let entry: {
+      type?: string;
+      message?: {
+        content?: Array<{
+          type?: string;
+          name?: string;
+          input?: Record<string, unknown>;
+        }>;
+      };
+      toolUseResult?: { task?: { id?: string } };
+    };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    // TaskCreate results come on "user" type messages with toolUseResult.task
+    if (entry.type === "user" && entry.toolUseResult?.task?.id) {
+      const id = entry.toolUseResult.task.id;
+      if (typeof id === "string" && !tasks.has(id)) {
+        tasks.set(id, "pending");
+        changed = true;
+      }
+      continue;
+    }
+
+    // TaskUpdate calls come on "assistant" type messages as tool_use content blocks
+    if (entry.type !== "assistant" || !Array.isArray(entry.message?.content))
+      continue;
+
+    for (const block of entry.message!.content!) {
+      if (block.type !== "tool_use" || block.name !== "TaskUpdate") continue;
+      const input = block.input;
+      if (!input || typeof input !== "object") {
+        plog.warn({ block }, "TaskUpdate tool call has unexpected input shape");
+        continue;
+      }
+      const taskId = input.taskId;
+      const status = input.status;
+      if (typeof taskId !== "string" || typeof status !== "string") {
+        plog.warn({ input }, "TaskUpdate tool call missing taskId or status");
+        continue;
+      }
+      if (status === "deleted") {
+        if (tasks.has(taskId)) {
+          tasks.delete(taskId);
+          changed = true;
+        }
+      } else if (
+        status === "pending" ||
+        status === "in_progress" ||
+        status === "completed"
+      ) {
+        if (tasks.get(taskId) !== status) {
+          tasks.set(taskId, status);
+          changed = true;
+        }
+      }
+    }
+  }
+  return changed;
+}
+
+/** Derive TaskProgress summary from a task map. Returns null if empty. */
+export function deriveTaskProgress(
+  tasks: Map<string, "pending" | "in_progress" | "completed">,
+): TaskProgress | null {
+  if (tasks.size === 0) return null;
+  let completed = 0;
+  for (const status of tasks.values()) {
+    if (status === "completed") completed++;
+  }
+  return { total: tasks.size, completed };
+}
+
+/** Compare two TaskProgress values for equality. */
+function taskProgressEqual(
+  a: TaskProgress | null,
+  b: TaskProgress | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.total === b.total && a.completed === b.completed;
+}
+
 /** Compare two ClaudeCodeInfo values for equality. */
 export function infoEqual(
   a: ClaudeCodeInfo | null,
@@ -266,7 +368,8 @@ export function infoEqual(
     a.state === b.state &&
     a.sessionId === b.sessionId &&
     a.model === b.model &&
-    a.summary === b.summary
+    a.summary === b.summary &&
+    taskProgressEqual(a.taskProgress, b.taskProgress)
   );
 }
 
@@ -368,6 +471,11 @@ export function startClaudeCodeProvider(
    *  and until the first lookup resolves. Survives across transcript
    *  events so deduped state updates can carry it forward. */
   let lastSummary: string | null = null;
+  /** Accumulated task state from TaskCreate/TaskUpdate tool calls.
+   *  Incrementally scanned from a tracked byte offset. Reset on session change. */
+  let taskMap = new Map<string, "pending" | "in_progress" | "completed">();
+  /** Byte offset up to which the transcript has been scanned for tasks. */
+  let taskScanOffset = 0;
 
   plog.info("started");
 
@@ -449,11 +557,15 @@ export function startClaudeCodeProvider(
       return;
     }
 
+    // Incrementally scan new transcript bytes for task tool calls.
+    scanTasksIncremental(transcriptWatching.path);
+
     const info: ClaudeCodeInfo = {
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
       summary: lastSummary,
+      taskProgress: deriveTaskProgress(taskMap),
     };
 
     if (!infoEqual(info, entry.info.meta.claude)) {
@@ -471,6 +583,55 @@ export function startClaudeCodeProvider(
     // latency here never blocks state updates — `infoEqual` dedupes the
     // follow-up emit if the summary turns out unchanged.
     refreshSummary(matchedSession);
+  }
+
+  /** Read new bytes from the transcript and extract TaskCreate/TaskUpdate calls. */
+  function scanTasksIncremental(filePath: string) {
+    try {
+      const size = fs.statSync(filePath).size;
+      if (taskScanOffset >= size) return;
+      const length = size - taskScanOffset;
+      const fd = fs.openSync(filePath, "r");
+      let buf: Buffer;
+      try {
+        buf = Buffer.alloc(length);
+        fs.readSync(fd, buf, 0, length, taskScanOffset);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const newLines = buf
+        .toString("utf8")
+        .split("\n")
+        .filter((l) => l.length > 0);
+      // First line may be partial if taskScanOffset landed mid-line.
+      // This can only happen on the very first scan (offset 0 is always a
+      // line boundary; subsequent offsets are at EOF which is also a boundary).
+      // Drop a partial first line only when resuming mid-file.
+      if (taskScanOffset > 0 && newLines.length > 0) {
+        try {
+          JSON.parse(newLines[0]!);
+        } catch {
+          newLines.shift();
+        }
+      }
+      const prevOffset = taskScanOffset;
+      taskScanOffset = size;
+      const changed = extractTasks(newLines, taskMap, plog);
+      if (changed) {
+        const progress = deriveTaskProgress(taskMap);
+        plog.info(
+          {
+            tasks: taskMap.size,
+            progress,
+            bytesScanned: length,
+            from: prevOffset,
+          },
+          "task progress updated",
+        );
+      }
+    } catch (err) {
+      plog.warn({ err, filePath, taskScanOffset }, "task scan failed");
+    }
   }
 
   /**
@@ -537,6 +698,8 @@ export function startClaudeCodeProvider(
     teardownTranscriptWatching();
     matchedSession = newSession;
     lastSummary = null;
+    taskMap = new Map();
+    taskScanOffset = 0;
 
     if (!newSession) {
       plog.info("claude code session ended");

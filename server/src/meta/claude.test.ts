@@ -4,7 +4,9 @@ import path from "node:path";
 import os from "node:os";
 import {
   deriveState,
+  deriveTaskProgress,
   encodeProjectPath,
+  extractTasks,
   infoEqual,
   readJsonlFromOffset,
   tailJsonlLines,
@@ -111,6 +113,7 @@ describe("infoEqual", () => {
     sessionId: "abc-123",
     model: "claude-opus-4-6",
     summary: "Refactor sidebar layout",
+    taskProgress: null,
   };
 
   it("returns true for identical references", () => {
@@ -136,6 +139,7 @@ describe("infoEqual", () => {
     { field: "model", value: "claude-sonnet-4-6" },
     { field: "summary", value: "Different topic" },
     { field: "summary", value: null },
+    { field: "taskProgress", value: { total: 3, completed: 1 } },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
   });
@@ -296,5 +300,123 @@ describe("findTranscriptPath", () => {
       cwd: "/nonexistent/path",
     });
     expect(result).toBeNull();
+  });
+});
+
+describe("extractTasks", () => {
+  const mockLog = { warn: vi.fn() };
+
+  function taskCreateResult(id: string, subject: string): string {
+    return JSON.stringify({
+      type: "user",
+      uuid: `u-${id}`,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: [] },
+      toolUseResult: { task: { id, subject } },
+    });
+  }
+
+  function taskUpdate(taskId: string, status: string): string {
+    return JSON.stringify({
+      type: "assistant",
+      uuid: `a-${taskId}-${status}`,
+      timestamp: new Date().toISOString(),
+      message: {
+        model: "claude-opus-4-6",
+        role: "assistant",
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: `tool-${taskId}`,
+            name: "TaskUpdate",
+            input: { taskId, status },
+          },
+        ],
+      },
+    });
+  }
+
+  it("extracts tasks from TaskCreate results", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    const lines = [
+      taskCreateResult("1", "Task one"),
+      taskCreateResult("2", "Task two"),
+    ];
+    const changed = extractTasks(lines, tasks, mockLog);
+    expect(changed).toBe(true);
+    expect(tasks.size).toBe(2);
+    expect(tasks.get("1")).toBe("pending");
+    expect(tasks.get("2")).toBe("pending");
+  });
+
+  it("updates task status from TaskUpdate calls", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    tasks.set("1", "pending");
+    const lines = [taskUpdate("1", "in_progress")];
+    const changed = extractTasks(lines, tasks, mockLog);
+    expect(changed).toBe(true);
+    expect(tasks.get("1")).toBe("in_progress");
+  });
+
+  it("handles TaskUpdate with deleted status", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    tasks.set("1", "pending");
+    const lines = [taskUpdate("1", "deleted")];
+    const changed = extractTasks(lines, tasks, mockLog);
+    expect(changed).toBe(true);
+    expect(tasks.has("1")).toBe(false);
+  });
+
+  it("returns false when nothing changed", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    tasks.set("1", "completed");
+    const lines = [taskUpdate("1", "completed")];
+    const changed = extractTasks(lines, tasks, mockLog);
+    expect(changed).toBe(false);
+  });
+
+  it("warns on unexpected TaskUpdate input shape", () => {
+    mockLog.warn.mockClear();
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "tool_use", name: "TaskUpdate", input: { bad: true } },
+        ],
+      },
+    });
+    extractTasks([line], tasks, mockLog);
+    expect(mockLog.warn).toHaveBeenCalled();
+  });
+
+  it("ignores non-task tool calls", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">();
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [{ type: "tool_use", name: "Read", input: { path: "/foo" } }],
+      },
+    });
+    const changed = extractTasks([line], tasks, mockLog);
+    expect(changed).toBe(false);
+    expect(tasks.size).toBe(0);
+  });
+});
+
+describe("deriveTaskProgress", () => {
+  it("returns null for empty map", () => {
+    expect(deriveTaskProgress(new Map())).toBeNull();
+  });
+
+  it("returns correct counts", () => {
+    const tasks = new Map<string, "pending" | "in_progress" | "completed">([
+      ["1", "completed"],
+      ["2", "in_progress"],
+      ["3", "completed"],
+      ["4", "pending"],
+    ]);
+    expect(deriveTaskProgress(tasks)).toEqual({ total: 4, completed: 2 });
   });
 });
