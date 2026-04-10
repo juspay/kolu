@@ -68,14 +68,12 @@
           # Use machinectl shell to get a proper user session with
           # DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR set.
           # Plain `su` doesn't set these, so systemctl --user fails.
-          machine.wait_until_succeeds(
-              "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user is-active kolu.service",
-              timeout=30,
+          machine.succeed(
+              "machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user is-active kolu.service"
           )
 
-          # Verify kolu is listening on the default port (poll until the
-          # HTTP listener binds — systemd reports "active" before the port
-          # is open).
+          # Poll until kolu's HTTP listener binds — systemd reports
+          # "active" before the port is open.
           machine.wait_until_succeeds(
               "curl --fail --silent http://127.0.0.1:7681/ > /dev/null",
               timeout=30,
