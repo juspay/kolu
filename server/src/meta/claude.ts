@@ -614,10 +614,18 @@ export function startClaudeCodeProvider(
           newLines.shift();
         }
       }
+      const prevOffset = taskScanOffset;
       taskScanOffset = size;
-      extractTasks(newLines, taskMap, plog);
+      const changed = extractTasks(newLines, taskMap, plog);
+      if (changed) {
+        const progress = deriveTaskProgress(taskMap);
+        plog.info(
+          { tasks: taskMap.size, progress, bytesScanned: length, from: prevOffset },
+          "task progress updated",
+        );
+      }
     } catch (err) {
-      plog.debug({ err, filePath }, "task scan failed");
+      plog.warn({ err, filePath, taskScanOffset }, "task scan failed");
     }
   }
 
