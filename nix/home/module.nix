@@ -67,9 +67,6 @@ in
         ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]
         ++ lib.optionals cfg.verbose [ "--verbose" ]);
         Restart = "on-failure";
-        Environment = [
-          "SHELL=${lib.getExe pkgs.bashInteractive}"
-        ];
       };
       Install = {
         WantedBy = [ "default.target" ];
