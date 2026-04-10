@@ -23,12 +23,12 @@ let
   };
 
   inherit (pkgs.callPackage ./nix/packages/kolu.nix { inherit koluEnv commitHash; })
-    kolu koluStamped;
+    koluStamped;
 
   default = pkgs.callPackage ./nix/packages/kolu-wrapper.nix {
     inherit koluStamped koluEnv;
   };
 in
 {
-  inherit kolu ghosttyThemes fonts clipboard-shims koluEnv default;
+  inherit default koluEnv;
 }

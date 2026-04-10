@@ -88,5 +88,5 @@ let
   '';
 in
 {
-  inherit kolu koluStamped;
+  inherit koluStamped;
 }
