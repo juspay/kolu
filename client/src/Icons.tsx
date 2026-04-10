@@ -44,11 +44,14 @@ export const ClaudeCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** OpenCode logo — simplified from their favicon.svg (a hollow rectangle). */
+/** OpenCode logo — simplified from their favicon.svg (a hollow rectangle).
+ *  ViewBox tightened to the content bounding box (originally 512×512 with
+ *  ~30% padding on each side, which made the icon look tiny next to other
+ *  agent icons that fill their viewBox). */
 export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3 h-3"}
-    viewBox="0 0 512 512"
+    viewBox="112 80 288 352"
     fill="currentColor"
   >
     <path d="M320 224V352H192V224H320Z" opacity="0.5" />
