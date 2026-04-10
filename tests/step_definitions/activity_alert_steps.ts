@@ -37,3 +37,42 @@ When("I click the notified sidebar entry", async function (this: KoluWorld) {
   await notified.first().click();
   await this.waitForFrame();
 });
+
+When("I stub the Badging API", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    (window as any).__badgeCalls = [] as Array<
+      { method: "set"; count?: number } | { method: "clear" }
+    >;
+    (navigator as any).setAppBadge = (count?: number) => {
+      (window as any).__badgeCalls.push({ method: "set", count });
+      return Promise.resolve();
+    };
+    (navigator as any).clearAppBadge = () => {
+      (window as any).__badgeCalls.push({ method: "clear" });
+      return Promise.resolve();
+    };
+  });
+});
+
+Then(
+  "the app badge should show {int}",
+  async function (this: KoluWorld, expected: number) {
+    await this.waitForFrame();
+    const lastSet = await this.page.evaluate(() => {
+      const calls: any[] = (window as any).__badgeCalls ?? [];
+      return calls.filter((c: any) => c.method === "set").pop();
+    });
+    assert.ok(lastSet, "Expected setAppBadge to have been called");
+    assert.strictEqual(lastSet.count, expected);
+  },
+);
+
+Then("the app badge should be cleared", async function (this: KoluWorld) {
+  await this.waitForFrame();
+  const lastCall = await this.page.evaluate(() => {
+    const calls: any[] = (window as any).__badgeCalls ?? [];
+    return calls[calls.length - 1];
+  });
+  assert.ok(lastCall, "Expected a badge API call");
+  assert.strictEqual(lastCall.method, "clear");
+});
