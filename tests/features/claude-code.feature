@@ -73,7 +73,8 @@ Feature: Claude Code status detection
     When I press the switch to terminal 1 shortcut
     Then the sidebar should not show a terminal preview
     When the Claude Code session state changes to "thinking"
-    And the Claude Code session state changes to "waiting"
+    Then the header should show a Claude indicator with state "thinking"
+    When the Claude Code session state changes to "waiting"
     Then the sidebar should show a terminal preview
     And there should be no page errors
 
