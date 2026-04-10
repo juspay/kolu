@@ -44,8 +44,7 @@ Feature: Claude Code status detection
   Scenario: Sidebar shows a live preview for unread agent completions
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
-    And the Claude Code session state changes to "thinking"
-    And the Claude Code session state changes to "waiting"
+    And I simulate an activity alert
     Then a sidebar entry should be notified
     And the sidebar should show a terminal preview
     And there should be no page errors
@@ -63,8 +62,7 @@ Feature: Claude Code status detection
   Scenario: Setting agent previews to "none" hides the sidebar preview
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
-    And the Claude Code session state changes to "thinking"
-    And the Claude Code session state changes to "waiting"
+    And I simulate an activity alert
     Then a sidebar entry should be notified
     And the sidebar should show a terminal preview
     When I click the settings button
