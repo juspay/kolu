@@ -1,7 +1,7 @@
 # Clipboard shims for xclip and wl-paste that read from KOLU_CLIPBOARD_DIR.
-{ pkgs }:
+{ writeShellApplication, symlinkJoin }:
 let
-  xclip-kolu-shim = pkgs.writeShellApplication {
+  xclip-kolu-shim = writeShellApplication {
     name = "xclip";
     text = ''
       KOLU_IMG="''${KOLU_CLIPBOARD_DIR}/image.png"
@@ -17,7 +17,7 @@ let
     '';
   };
 
-  wl-paste-kolu-shim = pkgs.writeShellApplication {
+  wl-paste-kolu-shim = writeShellApplication {
     name = "wl-paste";
     text = ''
       KOLU_IMG="''${KOLU_CLIPBOARD_DIR}/image.png"
@@ -38,7 +38,7 @@ let
     '';
   };
 in
-pkgs.symlinkJoin {
+symlinkJoin {
   name = "kolu-clipboard-shims";
   paths = [ xclip-kolu-shim wl-paste-kolu-shim ];
 }
