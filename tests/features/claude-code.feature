@@ -37,11 +37,22 @@ Feature: Claude Code status detection
     Then the header should show a Claude indicator with state "thinking"
     And there should be no page errors
 
-  # Preview shows only when the agent is waiting on the user or has an unread completion.
-  # A "thinking" agent is busy but doesn't need attention — see shouldShowPreview() in Sidebar.tsx.
-  Scenario: Sidebar shows a live preview for agents waiting on the user
+  # Preview shows only for agents with an unread completion (#434).
+  # "waiting" alone (on the active terminal) doesn't trigger a preview —
+  # the user is already looking at it. A background agent that finishes
+  # gets marked unread, which triggers the preview.
+  Scenario: Sidebar shows a live preview for unread agent completions
     When a Claude Code session is mocked with state "waiting"
-    Then the sidebar should show a terminal preview
+    And I create a terminal
+    And the Claude Code session state changes to "thinking"
+    And the Claude Code session state changes to "waiting"
+    Then a sidebar entry should be notified
+    And the sidebar should show a terminal preview
+    And there should be no page errors
+
+  Scenario: Sidebar hides the preview for waiting agents the user has already seen
+    When a Claude Code session is mocked with state "waiting"
+    Then the sidebar should not show a terminal preview
     And there should be no page errors
 
   Scenario: Sidebar hides the preview for thinking agents
@@ -51,7 +62,11 @@ Feature: Claude Code status detection
 
   Scenario: Setting agent previews to "none" hides the sidebar preview
     When a Claude Code session is mocked with state "waiting"
-    Then the sidebar should show a terminal preview
+    And I create a terminal
+    And the Claude Code session state changes to "thinking"
+    And the Claude Code session state changes to "waiting"
+    Then a sidebar entry should be notified
+    And the sidebar should show a terminal preview
     When I click the settings button
     And I set the agent previews mode to "none"
     Then the sidebar should not show a terminal preview
