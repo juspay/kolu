@@ -57,6 +57,13 @@ export const ClaudeCodeStateSchema = z.enum([
   "waiting",
 ]);
 
+export const TaskProgressSchema = z.object({
+  /** Total number of tasks created (excluding deleted). */
+  total: z.number(),
+  /** Number of tasks with status "completed". */
+  completed: z.number(),
+});
+
 export const ClaudeCodeInfoSchema = z.object({
   /** Current state derived from session JSONL. */
   state: ClaudeCodeStateSchema,
@@ -67,6 +74,9 @@ export const ClaudeCodeInfoSchema = z.object({
   /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
    *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
   summary: z.string().nullable(),
+  /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
+   *  null when no tasks have been created in the session. */
+  taskProgress: TaskProgressSchema.nullable(),
 });
 
 /** A single state transition the server observed. `info: null` = session ended. */
@@ -282,6 +292,7 @@ export type TerminalId = TerminalInfo["id"];
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
+export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
 export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
