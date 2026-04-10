@@ -31,14 +31,36 @@ Given(
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    // Under 8 parallel workers, page/server init can be slow.
-    // Use waitForFunction for a reactive DOM check.
-    await this.page.waitForFunction(
-      () => {
+    // Under parallel-worker load, the initial app mount can race the
+    // server's session-state propagation: the client fetches state before
+    // the server has finished applying the test__set POST, sees an empty
+    // session, and never re-renders the restore card. The 20s budget on
+    // a single waitForFunction doesn't help — the state is "wrong" until
+    // we re-fetch it.
+    //
+    // Self-healing fix: poll briefly, then page.reload() to force a fresh
+    // state fetch. Reload is cheap (bundle is cached) and idempotent.
+    const cardVisible = () =>
+      this.page.evaluate(() => {
         const card = document.querySelector('[data-testid="session-restore"]');
-        return card && card.getBoundingClientRect().height > 0;
-      },
-      { timeout: 20000 },
+        return !!(card && card.getBoundingClientRect().height > 0);
+      });
+
+    const pollFor = async (budgetMs: number) => {
+      const start = Date.now();
+      while (Date.now() - start < budgetMs) {
+        if (await cardVisible()) return true;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return false;
+    };
+
+    if (await pollFor(5000)) return;
+    // Stalled — reload to re-fetch state and try again.
+    await this.page.reload({ waitUntil: "load" });
+    if (await pollFor(15000)) return;
+    throw new Error(
+      "session restore card never became visible (after initial poll + reload)",
     );
   },
 );
