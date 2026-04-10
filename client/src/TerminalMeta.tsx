@@ -128,7 +128,7 @@ const TerminalMeta: Component<{
                     {(tp) => (
                       <span
                         data-testid="claude-task-progress"
-                        class="text-xs text-fg-3 tabular-nums"
+                        class="text-xs text-fg-2 tabular-nums"
                         title={`${tp().completed}/${tp().total} tasks completed`}
                       >
                         {tp().completed}/{tp().total}
