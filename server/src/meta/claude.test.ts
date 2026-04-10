@@ -11,7 +11,7 @@ import {
   readJsonlFromOffset,
   tailJsonlLines,
 } from "./claude.ts";
-import type { ClaudeCodeInfo } from "kolu-common";
+import type { AgentInfo, ClaudeCodeInfo } from "kolu-common";
 
 describe("deriveState", () => {
   it("returns null for empty lines", () => {
@@ -109,6 +109,7 @@ describe("encodeProjectPath", () => {
 
 describe("infoEqual", () => {
   const info: ClaudeCodeInfo = {
+    kind: "claude-code",
     state: "thinking",
     sessionId: "abc-123",
     model: "claude-opus-4-6",
@@ -141,7 +142,18 @@ describe("infoEqual", () => {
     { field: "summary", value: null },
     { field: "taskProgress", value: { total: 3, completed: 1 } },
   ] as const)("detects different $field", ({ field, value }) => {
-    expect(infoEqual(info, { ...info, [field]: value })).toBe(false);
+    expect(infoEqual(info, { ...info, [field]: value } as AgentInfo)).toBe(
+      false,
+    );
+  });
+
+  it("detects different kind", () => {
+    const opencode: AgentInfo = {
+      kind: "opencode",
+      state: "thinking",
+      sessionId: "abc-123",
+    };
+    expect(infoEqual(info, opencode)).toBe(false);
   });
 });
 

@@ -16,7 +16,7 @@ import {
   transformStyle,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { match, P } from "ts-pattern";
+import { match } from "ts-pattern";
 import Tip from "./Tip";
 import Kbd from "./Kbd";
 import TerminalMeta from "./TerminalMeta";
@@ -26,7 +26,7 @@ import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type {
-  ClaudeCodeInfo,
+  AgentInfo,
   SidebarAgentPreviews,
   TerminalId,
   TerminalMetadata,
@@ -34,18 +34,17 @@ import type {
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "./useViewport";
 
-type ClaudeState = ClaudeCodeInfo["state"];
 type CardTier = "waiting" | "active" | "idle";
 
-/** Derive the visual tier for the sidebar card from live Claude state.
+/** Derive the visual tier for the sidebar card from live agent state.
+ *  Generic — works for any agent kind without reading `.state` or `.kind`.
  *  Note: `unread` (unseen completion) is orthogonal — rendered as a
  *  separate dot, not folded into this tier. */
-function cardTier(claudeState: ClaudeState | undefined): CardTier {
-  return match(claudeState)
-    .with("waiting", () => "waiting" as const)
-    .with(P.union("thinking", "tool_use"), () => "active" as const)
-    .with(undefined, () => "idle" as const)
-    .exhaustive();
+function cardTier(agent: AgentInfo | undefined): CardTier {
+  if (!agent) return "idle";
+  return match(agent)
+    .with({ state: "waiting" }, () => "waiting" as const)
+    .otherwise(() => "active" as const);
 }
 
 /** Decide whether a sidebar card should render a live xterm preview.
@@ -104,14 +103,14 @@ const SidebarEntry: Component<{
     if (!vp) return undefined;
     return shouldShowPreview(
       props.previewMode,
-      props.metadata?.claude != null,
+      props.metadata?.agent != null,
       props.unread,
     )
       ? vp
       : undefined;
   };
   const sortable = createSortable(props.id);
-  const tier = () => cardTier(props.displayInfo?.meta.claude?.state);
+  const tier = () => cardTier(props.displayInfo?.meta.agent ?? undefined);
   /** On touch devices, drag-anywhere conflicts with vertical scrolling
    *  (every swipe becomes a drag candidate via `touch-action: none`).
    *  When coarse, drag activation moves to a small grip handle inside

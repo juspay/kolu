@@ -37,6 +37,7 @@ import os from "node:os";
 import { match } from "ts-pattern";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type {
+  AgentInfo,
   ClaudeCodeInfo,
   ClaudeStateChange,
   ClaudeTranscriptDebug,
@@ -357,20 +358,20 @@ function taskProgressEqual(
   return a.total === b.total && a.completed === b.completed;
 }
 
-/** Compare two ClaudeCodeInfo values for equality. */
-export function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
-): boolean {
+/** Compare two AgentInfo values for equality. */
+export function infoEqual(a: AgentInfo | null, b: AgentInfo | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return (
-    a.state === b.state &&
-    a.sessionId === b.sessionId &&
-    a.model === b.model &&
-    a.summary === b.summary &&
-    taskProgressEqual(a.taskProgress, b.taskProgress)
-  );
+  if (a.kind !== b.kind) return false;
+  if (a.state !== b.state || a.sessionId !== b.sessionId) return false;
+  if (a.kind === "claude-code" && b.kind === "claude-code") {
+    return (
+      a.model === b.model &&
+      a.summary === b.summary &&
+      taskProgressEqual(a.taskProgress, b.taskProgress)
+    );
+  }
+  return true;
 }
 
 /**
@@ -561,6 +562,7 @@ export function startClaudeCodeProvider(
     scanTasksIncremental(transcriptWatching.path);
 
     const info: ClaudeCodeInfo = {
+      kind: "claude-code",
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
@@ -568,14 +570,14 @@ export function startClaudeCodeProvider(
       taskProgress: deriveTaskProgress(taskMap),
     };
 
-    if (!infoEqual(info, entry.info.meta.claude)) {
+    if (!infoEqual(info, entry.info.meta.agent)) {
       plog.info(
         { state: info.state, model: info.model, session: info.sessionId },
         "claude code state updated",
       );
       transcriptWatching.stateChanges.push({ ts: Date.now(), info });
       updateMetadata(entry, terminalId, (m) => {
-        m.claude = info;
+        m.agent = info;
       });
     }
 
@@ -660,14 +662,14 @@ export function startClaudeCodeProvider(
         const summary = sdkInfo?.summary ?? null;
         if (summary === lastSummary) return;
         lastSummary = summary;
-        const current = entry.info.meta.claude;
-        if (!current) return;
+        const current = entry.info.meta.agent;
+        if (!current || current.kind !== "claude-code") return;
         plog.info(
           { summary, session: session.sessionId },
           "claude summary updated",
         );
         updateMetadata(entry, terminalId, (m) => {
-          m.claude = { ...current, summary };
+          m.agent = { ...current, summary };
         });
       })
       .catch((err) => {
@@ -703,9 +705,9 @@ export function startClaudeCodeProvider(
 
     if (!newSession) {
       plog.info("claude code session ended");
-      if (entry.info.meta.claude !== null) {
+      if (entry.info.meta.agent !== null) {
         updateMetadata(entry, terminalId, (m) => {
-          m.claude = null;
+          m.agent = null;
         });
       }
       return;

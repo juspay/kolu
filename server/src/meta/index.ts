@@ -29,7 +29,7 @@ export function createMetadata(
     cwd,
     git: null,
     pr: null,
-    claude: null,
+    agent: null,
     foreground: null,
     sortOrder,
   };
@@ -52,8 +52,8 @@ export function updateMetadata(
       branch: m.git?.branch,
       pr: m.pr?.number ?? null,
       checks: m.pr?.checks ?? null,
-      // Only include claude/foreground fields when present to avoid noisy null logs
-      ...(m.claude && { claude: m.claude.state }),
+      // Only include agent/foreground fields when present to avoid noisy null logs
+      ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
       ...(m.foreground && { foreground: m.foreground.name }),
     },
     "metadata publish",

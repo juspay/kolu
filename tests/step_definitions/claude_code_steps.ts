@@ -212,12 +212,12 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
 });
 
 Then(
-  "the header should show a Claude indicator with state {string}",
+  "the header should show an agent indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
     await this.page.waitForFunction(
       (expected) => {
-        const el = document.querySelector('[data-testid="claude-indicator"]');
-        return el?.getAttribute("data-claude-state") === expected;
+        const el = document.querySelector('[data-testid="agent-indicator"]');
+        return el?.getAttribute("data-agent-state") === expected;
       },
       expectedState,
       { timeout: POLL_TIMEOUT },
@@ -225,12 +225,12 @@ Then(
   },
 );
 
-/** Assert a claude-indicator exists within the given container testid. */
-async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
+/** Assert an agent-indicator exists within the given container testid. */
+async function expectAgentIndicatorIn(world: KoluWorld, testId: string) {
   await world.page.waitForFunction(
     (testId) =>
       document.querySelector(
-        `[data-testid="${testId}"] [data-testid="claude-indicator"]`,
+        `[data-testid="${testId}"] [data-testid="agent-indicator"]`,
       ) !== null,
     testId,
     { timeout: POLL_TIMEOUT },
@@ -238,9 +238,9 @@ async function expectClaudeIndicatorIn(world: KoluWorld, testId: string) {
 }
 
 Then(
-  "the sidebar should show a Claude indicator",
+  "the sidebar should show an agent indicator",
   async function (this: KoluWorld) {
-    await expectClaudeIndicatorIn(this, "sidebar");
+    await expectAgentIndicatorIn(this, "sidebar");
   },
 );
 
@@ -395,7 +395,7 @@ Then(
     await this.page.waitForFunction(
       (expected) => {
         const el = document.querySelector(
-          '[data-testid="claude-task-progress"]',
+          '[data-testid="agent-task-progress"]',
         );
         return el?.textContent?.trim() === expected;
       },
@@ -406,10 +406,10 @@ Then(
 );
 
 Then(
-  "the header should not show a Claude indicator",
+  "the header should not show an agent indicator",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      () => document.querySelector('[data-testid="claude-indicator"]') === null,
+      () => document.querySelector('[data-testid="agent-indicator"]') === null,
       { timeout: POLL_TIMEOUT },
     );
   },

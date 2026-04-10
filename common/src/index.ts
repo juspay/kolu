@@ -49,13 +49,9 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
-// --- Claude Code context ---
+// --- AI coding agent context ---
 
-export const ClaudeCodeStateSchema = z.enum([
-  "thinking",
-  "tool_use",
-  "waiting",
-]);
+export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
 
 export const TaskProgressSchema = z.object({
   /** Total number of tasks created (excluding deleted). */
@@ -65,8 +61,9 @@ export const TaskProgressSchema = z.object({
 });
 
 export const ClaudeCodeInfoSchema = z.object({
+  kind: z.literal("claude-code"),
   /** Current state derived from session JSONL. */
-  state: ClaudeCodeStateSchema,
+  state: z.enum(["thinking", "tool_use", "waiting"]),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
@@ -78,6 +75,17 @@ export const ClaudeCodeInfoSchema = z.object({
    *  null when no tasks have been created in the session. */
   taskProgress: TaskProgressSchema.nullable(),
 });
+
+export const OpenCodeInfoSchema = z.object({
+  kind: z.literal("opencode"),
+  state: z.enum(["thinking", "tool_use", "waiting"]),
+  sessionId: z.string(),
+});
+
+export const AgentInfoSchema = z.discriminatedUnion("kind", [
+  ClaudeCodeInfoSchema,
+  OpenCodeInfoSchema,
+]);
 
 /** A single state transition the server observed. `info: null` = session ended. */
 export const ClaudeStateChangeSchema = z.object({
@@ -113,7 +121,8 @@ export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
-  claude: ClaudeCodeInfoSchema.nullable(),
+  /** AI coding agent status (Claude Code, OpenCode, etc.). */
+  agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
   themeName: z.string().optional(),
@@ -293,6 +302,8 @@ export type TerminalId = TerminalInfo["id"];
 export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+export type AgentKind = z.infer<typeof AgentKindSchema>;
+export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
 export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
