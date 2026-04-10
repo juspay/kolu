@@ -3,11 +3,17 @@
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
-import ClaudeIndicator from "./ClaudeIndicator";
+import AgentIndicator from "./AgentIndicator";
 import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+import type { AgentInfo, ClaudeCodeInfo } from "kolu-common";
+
+/** Narrow an AgentInfo to ClaudeCodeInfo, returning undefined for other kinds. */
+function asClaudeCode(agent: AgentInfo): ClaudeCodeInfo | undefined {
+  return agent.kind === "claude-code" ? agent : undefined;
+}
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -115,19 +121,19 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Claude indicator — own row when active. Summary line carries
-           *  the SDK-derived display title (custom title › auto-summary ›
-           *  first prompt) so a glance at the card tells you _what_ the
-           *  agent is working on, not just that it's working. */}
-          <Show when={info().meta.claude}>
-            {(claude) => (
+          {/* Agent indicator — own row when active. For Claude Code, the
+           *  summary line carries the SDK-derived display title (custom title ›
+           *  auto-summary › first prompt) so a glance at the card tells you
+           *  _what_ the agent is working on, not just that it's working. */}
+          <Show when={info().meta.agent}>
+            {(agent) => (
               <div class="mt-1">
                 <div class="flex items-center gap-1.5">
-                  <ClaudeIndicator state={claude().state} />
-                  <Show when={claude().taskProgress}>
+                  <AgentIndicator agent={agent()} />
+                  <Show when={asClaudeCode(agent())?.taskProgress}>
                     {(tp) => (
                       <div
-                        data-testid="claude-task-progress"
+                        data-testid="agent-task-progress"
                         class="flex items-center gap-1.5 flex-1 min-w-0"
                         title={`${tp().completed}/${tp().total} tasks completed`}
                       >
@@ -146,10 +152,10 @@ const TerminalMeta: Component<{
                     )}
                   </Show>
                 </div>
-                <Show when={claude().summary}>
+                <Show when={asClaudeCode(agent())?.summary}>
                   {(summary) => (
                     <div
-                      data-testid="claude-summary"
+                      data-testid="agent-summary"
                       class="text-xs text-fg-3 truncate mt-0.5"
                       title={summary()}
                     >
@@ -171,14 +177,19 @@ const TerminalMeta: Component<{
                 "mt-auto": mode() === "readonly",
               }}
             >
-              {/* Suppress the OSC 2 title when the Claude summary row is
+              {/* Suppress the OSC 2 title when the agent summary row is
                *  already shown above — the two texts are near-duplicates
-               *  (SDK summary vs claude-code's live activity indicator) and
+               *  (SDK summary vs agent's live activity indicator) and
                *  stacking them eats vertical space for no new information.
                *  `A && B` returns B when A is truthy, so `Show` narrows
                *  `fg` to the foreground value directly. */}
               <Show
-                when={!info().meta.claude?.summary && info().meta.foreground}
+                when={
+                  !(
+                    info().meta.agent &&
+                    asClaudeCode(info().meta.agent!)?.summary
+                  ) && info().meta.foreground
+                }
               >
                 {(fg) => (
                   <span

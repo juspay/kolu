@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@orpc/contract": "^1.13.13",
+    "kolu-claude-code": "workspace:*",
     "zod": "^4.3.6"
   }
 }

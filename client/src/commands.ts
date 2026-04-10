@@ -164,7 +164,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
-        ...(deps.activeMeta()?.claude != null
+        ...(deps.activeMeta()?.agent?.kind === "claude-code"
           ? [
               {
                 name: "Show Claude transcript",

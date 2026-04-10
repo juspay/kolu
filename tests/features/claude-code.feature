@@ -11,30 +11,30 @@ Feature: Claude Code status detection
 
   Scenario: Header and sidebar show Claude Code thinking state
     When a Claude Code session is mocked with state "thinking"
-    Then the header should show a Claude indicator with state "thinking"
-    And the sidebar should show a Claude indicator
+    Then the header should show an agent indicator with state "thinking"
+    And the sidebar should show an agent indicator
     And there should be no page errors
 
   Scenario: Claude Code state updates from thinking to waiting
     When a Claude Code session is mocked with state "thinking"
-    Then the header should show a Claude indicator with state "thinking"
+    Then the header should show an agent indicator with state "thinking"
     When the Claude Code session state changes to "waiting"
-    Then the header should show a Claude indicator with state "waiting"
+    Then the header should show an agent indicator with state "waiting"
     And there should be no page errors
 
   Scenario: Claude Code state cycles waiting → thinking → waiting
     When a Claude Code session is mocked with state "waiting"
-    Then the header should show a Claude indicator with state "waiting"
+    Then the header should show an agent indicator with state "waiting"
     When the Claude Code session state changes to "thinking"
-    Then the header should show a Claude indicator with state "thinking"
+    Then the header should show an agent indicator with state "thinking"
     When the Claude Code session state changes to "waiting"
-    Then the header should show a Claude indicator with state "waiting"
+    Then the header should show an agent indicator with state "waiting"
     And there should be no page errors
 
   Scenario: Previous-session JSONL in the project dir doesn't confuse detection
     When a Claude Code session is mocked with state "thinking"
     And a newer stale previous-session JSONL exists in the same project dir
-    Then the header should show a Claude indicator with state "thinking"
+    Then the header should show an agent indicator with state "thinking"
     And there should be no page errors
 
   # Preview shows only for agents with an unread completion (#434).
@@ -91,7 +91,7 @@ Feature: Claude Code status detection
 
   Scenario: Debug command shows the Claude transcript when a session is active
     When a Claude Code session is mocked with state "waiting"
-    Then the header should show a Claude indicator with state "waiting"
+    Then the header should show an agent indicator with state "waiting"
     When I open the command palette
     And I select "Debug" in the palette
     Then palette item "Show Claude transcript" should be visible
@@ -114,7 +114,7 @@ Feature: Claude Code status detection
 
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
-    Then the header should show a Claude indicator with state "thinking"
+    Then the header should show an agent indicator with state "thinking"
     When the Claude Code session ends
-    Then the header should not show a Claude indicator
+    Then the header should not show an agent indicator
     And there should be no page errors
