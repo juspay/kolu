@@ -1,13 +1,17 @@
 /**
  * Helpers for reading the xterm.js buffer directly via the __xterm ref
- * exposed on terminal container elements. Replaces server-side screenState
- * RPC polling with instant client-side buffer reads.
+ * exposed on terminal container elements.
+ *
+ * The actual buffer-read loop lives in `hooks.ts` as `window.__readXtermBuffer`
+ * (injected via addInitScript) so it's defined once and shared across
+ * readBufferText, waitForBufferContains, and getTerminalPid.
  */
 
 import type { Page } from "playwright";
+import { POLL_TIMEOUT } from "./world.ts";
 
 /** Default selector for the active (visible) terminal container. */
-const ACTIVE_TERMINAL = "[data-visible][data-terminal-id]";
+export const ACTIVE_TERMINAL = "[data-visible][data-terminal-id]";
 
 /**
  * Read all lines from a terminal's xterm buffer (joined by newline).
@@ -19,44 +23,28 @@ export function readBufferText(
   index = 0,
 ): Promise<string> {
   return page.evaluate(
-    ({ sel, idx }) => {
-      const containers = document.querySelectorAll(sel);
-      const container = containers[idx] as HTMLElement | undefined;
-      if (!container) return "";
-      const term = (container as any).__xterm;
-      if (!term) return "";
-      const buf = term.buffer.active;
-      const lines: string[] = [];
-      for (let i = 0; i < buf.length; i++) {
-        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
-      }
-      return lines.join("\n");
-    },
+    ({ sel, idx }) => (window as any).__readXtermBuffer(sel, idx),
     { sel: selector, idx: index },
   );
 }
 
 /**
- * Poll the xterm buffer until it contains the expected text.
+ * Wait for the xterm buffer to contain the expected text using Playwright's
+ * native waitForFunction (rAF-based polling inside the browser context).
  * Returns the full buffer content on match, or throws on timeout.
  */
-export async function pollUntilBufferContains(
+export async function waitForBufferContains(
   page: Page,
   expected: string,
-  {
-    selector = ACTIVE_TERMINAL,
-    index = 0,
-    attempts = 50,
-    intervalMs = 100,
-  } = {},
+  { selector = ACTIVE_TERMINAL, index = 0, timeout = POLL_TIMEOUT } = {},
 ): Promise<string> {
-  let content = "";
-  for (let i = 0; i < attempts; i++) {
-    content = await readBufferText(page, selector, index);
-    if (content.includes(expected)) return content;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  throw new Error(
-    `Buffer does not contain "${expected}" after ${attempts} attempts.\nBuffer (partial): ${content.slice(0, 500)}`,
+  const handle = await page.waitForFunction(
+    ({ sel, idx, exp }) => {
+      const content = (window as any).__readXtermBuffer(sel, idx);
+      return content.includes(exp) ? content : null;
+    },
+    { sel: selector, idx: index, exp: expected },
+    { timeout },
   );
+  return (await handle.jsonValue())!;
 }

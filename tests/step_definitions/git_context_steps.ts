@@ -2,26 +2,21 @@ import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
-import { pollUntil } from "../support/poll.ts";
 
-/** Poll a data-testid element until its text satisfies a predicate. */
-async function pollTestId(
+/** Wait for a data-testid element's text to include the given substring. */
+async function waitForTestIdText(
   world: KoluWorld,
   testId: string,
-  predicate: (text: string) => boolean,
-): Promise<string> {
-  const el = world.page.locator(`[data-testid="${testId}"]`);
-  return pollUntil(
-    world.page,
-    async () => {
-      try {
-        return (await el.textContent({ timeout: 1000 })) ?? "";
-      } catch {
-        return "";
-      }
+  includes?: string,
+): Promise<void> {
+  await world.page.waitForFunction(
+    ({ testId, includes }) => {
+      const el = document.querySelector(`[data-testid="${testId}"]`);
+      const text = el?.textContent ?? "";
+      return includes ? text.includes(includes) : text.length > 0;
     },
-    predicate,
-    { attempts: 40, intervalMs: 200 },
+    { testId, includes },
+    { timeout: POLL_TIMEOUT },
   );
 }
 
@@ -35,43 +30,25 @@ When(
 );
 
 Then("the header should show a branch name", async function (this: KoluWorld) {
-  const text = await pollTestId(this, "header-branch", (t) => t.length > 0);
-  assert.ok(text.length > 0, `Expected header to show a branch name`);
+  await waitForTestIdText(this, "header-branch");
 });
 
 Then(
   "the header branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "header-branch", (t) =>
-      t.includes(expected),
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected header branch to contain "${expected}", got "${text}"`,
-    );
+    await waitForTestIdText(this, "header-branch", expected);
   },
 );
 
 Then(
   "the sidebar branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "terminal-meta-branch", (t) =>
-      t.includes(expected),
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected sidebar branch to contain "${expected}", got "${text}"`,
-    );
+    await waitForTestIdText(this, "terminal-meta-branch", expected);
   },
 );
 
 Then("the sidebar should show a branch name", async function (this: KoluWorld) {
-  const text = await pollTestId(
-    this,
-    "terminal-meta-branch",
-    (t) => t.length > 0,
-  );
-  assert.ok(text.length > 0, `Expected sidebar to show a branch name`);
+  await waitForTestIdText(this, "terminal-meta-branch");
 });
 
 Then(
@@ -91,13 +68,7 @@ Then(
 Then(
   "the sidebar label should show {string}",
   async function (this: KoluWorld, expected: string) {
-    const text = await pollTestId(this, "terminal-meta-name", (t) =>
-      t.includes(expected),
-    );
-    assert.ok(
-      text.includes(expected),
-      `Expected sidebar label to contain "${expected}", got "${text}"`,
-    );
+    await waitForTestIdText(this, "terminal-meta-name", expected);
   },
 );
 
