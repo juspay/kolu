@@ -57,25 +57,22 @@ function cardTier(claudeState: ClaudeState | undefined): CardTier {
  *    handy for testing the preview plumbing itself.
  *  - `"agents"`: any terminal with a running code agent. This was the
  *    behavior before the enum was introduced (legacy `true`).
- *  - `"attention"` (**default**): only agents that actually want the
- *    user's eyes — when Claude is **waiting** for input or when
- *    there's an **unread** completion. Rationale: previews are
- *    expensive vertically (only ~3 cards fit — see #388), so we
- *    reserve them for the moments peeking without switching actually
- *    helps. Thinking/tool_use agents are busy but don't need
- *    attention; idle terminals have nothing to show. Edit this single
- *    branch if the "needs attention" heuristic needs to change. */
+ *  - `"attention"` (**default**): only agents with an **unread**
+ *    completion — Claude finished and the user hasn't seen it yet.
+ *    Previews are expensive vertically (only ~3 cards fit — see #388),
+ *    so we reserve them for the moment peeking without switching
+ *    actually helps. Once the user looks, the preview disappears and
+ *    frees the sidebar slot. */
 function shouldShowPreview(
   mode: SidebarAgentPreviews,
   hasAgent: boolean,
-  claudeState: ClaudeState | undefined,
   unread: boolean,
 ): boolean {
   return match(mode)
     .with("none", () => false)
     .with("all", () => true)
     .with("agents", () => hasAgent)
-    .with("attention", () => hasAgent && (claudeState === "waiting" || unread))
+    .with("attention", () => hasAgent && unread)
     .exhaustive();
 }
 
@@ -108,7 +105,6 @@ const SidebarEntry: Component<{
     return shouldShowPreview(
       props.previewMode,
       props.metadata?.claude != null,
-      props.displayInfo?.meta.claude?.state,
       props.unread,
     )
       ? vp
