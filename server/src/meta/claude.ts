@@ -47,7 +47,7 @@ export function startClaudeCodeProvider(
 
   let current: SessionWatcher | null = null;
 
-  plog.info("started");
+  plog.debug("started");
 
   function onSessionMaybeChanged() {
     const fgPid = entry.handle.foregroundPid;
@@ -66,7 +66,7 @@ export function startClaudeCodeProvider(
     delete entry.getClaudeDebug;
 
     if (!newSession) {
-      plog.info("claude code session ended");
+      plog.debug("claude code session ended");
       if (entry.info.meta.agent !== null) {
         updateMetadata(entry, terminalId, (m) => {
           m.agent = null;
@@ -75,7 +75,7 @@ export function startClaudeCodeProvider(
       return;
     }
 
-    plog.info(
+    plog.debug(
       { session: newSession.sessionId, pid: newSession.pid },
       "claude code session matched",
     );
@@ -112,6 +112,6 @@ export function startClaudeCodeProvider(
     sessionsDirWatcher();
     current?.destroy();
     delete entry.getClaudeDebug;
-    plog.info("stopped");
+    plog.debug("stopped");
   };
 }

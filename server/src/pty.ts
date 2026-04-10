@@ -90,7 +90,7 @@ export function spawnPty(
   Object.assign(env, osc7.env);
   env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
 
-  tlog.info({ shell, cwd }, "spawning pty");
+  tlog.debug({ shell, cwd }, "spawning pty");
   const proc = pty.spawn(shell, osc7.args, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
@@ -98,7 +98,7 @@ export function spawnPty(
     cwd,
     env,
   });
-  tlog.info({ pid: proc.pid }, "pty spawned");
+  tlog.debug({ pid: proc.pid }, "pty spawned");
 
   // Sanity-check the node-pty fork's foregroundPid accessor — if upstream
   // changes drop it, fail loud here instead of silently breaking claude
@@ -147,7 +147,7 @@ export function spawnPty(
   // OSC 0/2 title changes signal that the foreground process may have changed.
   // The shell preexec hook (injected in shell.ts) emits OSC 2 before each command.
   const titleDisposable = headless.onTitleChange((title: string) => {
-    tlog.info({ title }, "title changed (OSC 0/2)");
+    tlog.debug({ title }, "title changed (OSC 0/2)");
     opts.onTitleChange?.(title);
   });
 
