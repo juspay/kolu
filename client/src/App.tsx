@@ -35,6 +35,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { useVisualViewportHeight } from "./useVisualViewportHeight";
 
 const App: Component = () => {
   const { preferences, updatePreferences } = useServerState();
@@ -69,6 +70,10 @@ const App: Component = () => {
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
+  // Track window.visualViewport.height so the soft keyboard shrinks the
+  // app root instead of overlaying it. CSS `dvh` ignores the virtual
+  // keyboard by spec; see useVisualViewportHeight for the rationale.
+  const vvHeight = useVisualViewportHeight();
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -214,8 +219,14 @@ const App: Component = () => {
 
   return (
     <div
-      class="relative flex flex-col h-dvh bg-surface-0 text-fg font-sans"
+      data-testid="app-root"
+      class="relative flex flex-col bg-surface-0 text-fg font-sans"
       style={{
+        // Bound to visualViewport.height so the soft keyboard shrinks
+        // the layout instead of overlaying it. `h-dvh` would stay the
+        // full viewport height because the `dvh` unit excludes the
+        // virtual keyboard by CSS spec.
+        height: `${vvHeight()}px`,
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",
         "padding-left": "env(safe-area-inset-left)",
