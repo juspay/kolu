@@ -65,6 +65,9 @@ export function cleanEnv(): Record<string, string> {
   } else {
     env = { ...process.env } as Record<string, string>;
   }
+  // Ensure SHELL is set — systemd user services may not have it.
+  // Fall back to the login shell from /etc/passwd.
+  env.SHELL ??= userInfo().shell || "/bin/sh";
   // Enable VTE integration in bash/zsh (some tools like direnv check this).
   env.VTE_VERSION ??= "7603";
   return env;
@@ -109,11 +112,15 @@ export const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033
 export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
 
 /**
- * Prepare shell init that injects an OSC 7 hook *after* the user's rc files.
+ * Prepare shell init that injects hooks *after* the user's login + rc files.
+ *
+ * The wrapper rc sources the login init chain (/etc/profile, ~/.bash_profile
+ * or ~/.zprofile) followed by the interactive rc (~/.bashrc / ~/.zshrc), then
+ * appends kolu's OSC hooks. This gives terminals the full PATH even when
+ * the server runs as a systemd user service with a minimal environment.
  *
  * We can't just set PROMPT_COMMAND in env — tools like starship overwrite it.
- * Instead we create a wrapper rc file that sources the user's config first,
- * then appends our hook to whatever PROMPT_COMMAND/precmd ended up being.
+ * The wrapper approach lets us append after all user init completes.
  *
  * Returns extra spawn args, env overrides, and a cleanup function to remove
  * any temp files created.
@@ -137,7 +144,15 @@ export function osc7Init(
     writeFileSync(
       rcFile,
       [
-        `[ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
+        // Source login init chain so the shell inherits the full PATH
+        // (e.g., from /etc/profile.d/hm-session-vars.sh on NixOS).
+        // Mirrors bash login behavior: /etc/profile, then the first of
+        // ~/.bash_profile / ~/.bash_login / ~/.profile.
+        // If no login file exists, fall back to ~/.bashrc directly.
+        `[ -f /etc/profile ] && . /etc/profile`,
+        `__kolu_login=0; for __f in "${home}/.bash_profile" "${home}/.bash_login" "${home}/.profile"; do [ -f "$__f" ] && { . "$__f"; __kolu_login=1; break; }; done`,
+        `[ "$__kolu_login" = 0 ] && [ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
+        `unset __kolu_login __f`,
         pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
@@ -172,6 +187,8 @@ export function osc7Init(
     writeFileSync(
       join(zdotdir, ".zshrc"),
       [
+        `[ -f /etc/zprofile ] && source /etc/zprofile`,
+        `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"`,
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
         pathLine,
         OSC7_FN,
