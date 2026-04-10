@@ -10,17 +10,11 @@
 , commitHash ? "dev"
 }:
 let
-  inherit (pkgs)
-    lib stdenv runCommand
-    nodejs pnpm pnpmConfigHook fetchPnpmDeps
-    python3 node-gyp pkg-config
-    writeShellApplication tsx git gh;
-
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
-  src = lib.fileset.toSource {
+  src = pkgs.lib.fileset.toSource {
     root = ./.;
-    fileset = lib.fileset.unions [
+    fileset = pkgs.lib.fileset.unions [
       ./package.json
       ./pnpm-workspace.yaml
       ./pnpm-lock.yaml
@@ -39,7 +33,7 @@ let
     ];
   };
 
-  pnpmDeps = fetchPnpmDeps {
+  pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
     version = "0.1.0";
     inherit src;
@@ -51,24 +45,24 @@ let
   # cache; koluStamped sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
-  kolu = stdenv.mkDerivation {
+  kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     version = "0.1.0";
     inherit src;
 
     nativeBuildInputs = [
-      nodejs
-      pnpm
-      pnpmConfigHook
-      python3
-      node-gyp
-      pkg-config
+      pkgs.nodejs
+      pkgs.pnpm
+      pkgs.pnpmConfigHook
+      pkgs.python3
+      pkgs.node-gyp
+      pkgs.pkg-config
     ];
 
     inherit pnpmDeps;
 
     env = {
-      npm_config_nodedir = nodejs;
+      npm_config_nodedir = pkgs.nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
@@ -94,7 +88,7 @@ let
 
   # Stamp the real commit hash into the built JS bundle.
   # Only this re-runs on docs-only commits; the expensive build above is cached.
-  koluStamped = runCommand "kolu-stamped" { } ''
+  koluStamped = pkgs.runCommand "kolu-stamped" { } ''
     cp -r ${kolu} $out
     chmod -R u+w $out/client/dist
     find $out/client/dist -name '*.js' -exec \
@@ -102,9 +96,9 @@ let
   '';
 
   # Runtime wrapper that launches kolu with all env vars set.
-  default = writeShellApplication {
+  default = pkgs.writeShellApplication {
     name = "kolu";
-    runtimeInputs = [ nodejs tsx git gh ];
+    runtimeInputs = [ pkgs.nodejs pkgs.tsx pkgs.git pkgs.gh ];
     text = ''
       export KOLU_CLIENT_DIST="${koluStamped}/client/dist"
       export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"
