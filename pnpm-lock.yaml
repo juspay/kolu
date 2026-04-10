@@ -136,11 +136,30 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
-  server:
+  integrations/claude-code:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.3.6)
+      kolu-common:
+        specifier: workspace:*
+        version: link:../../common
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  server:
+    dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.13(hono@4.12.12)
@@ -180,6 +199,9 @@ importers:
       hono-pino:
         specifier: ^0.10.3
         version: 0.10.3(hono@4.12.12)(pino@10.3.1)
+      kolu-claude-code:
+        specifier: workspace:*
+        version: link:../integrations/claude-code
       kolu-common:
         specifier: workspace:*
         version: link:../common

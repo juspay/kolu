@@ -11,7 +11,6 @@
     "test:unit": "KOLU_STATE_SUFFIX=test vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.96",
     "@hono/node-server": "^1.19.13",
     "@hono/node-ws": "^1.1.0",
     "@orpc/client": "^1.13.13",
@@ -25,6 +24,7 @@
     "conf": "^15.1.0",
     "hono": "^4.12.12",
     "hono-pino": "^0.10.3",
+    "kolu-claude-code": "workspace:*",
     "kolu-common": "workspace:*",
     "node-pty": "^1.0.0",
     "pino": "^10.3.1",
