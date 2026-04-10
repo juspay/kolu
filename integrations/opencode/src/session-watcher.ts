@@ -11,12 +11,14 @@
  * from `kolu-claude-code` (PR #437).
  */
 
+import type { DatabaseSync } from "node:sqlite";
 import {
   type OpenCodeInfo,
   type OpenCodeSession,
   type TaskProgress,
   deriveSessionState,
   getSessionTaskProgress,
+  openDb,
   watchOpenCodeDb,
 } from "./index.ts";
 
@@ -77,9 +79,16 @@ export function createOpenCodeWatcher(
   log?: Logger,
 ): OpenCodeWatcher {
   let lastInfo: OpenCodeInfo | null = null;
+  // Hoist the DB connection across the watcher's lifetime so we don't
+  // open/close on every WAL event. Safe in WAL mode: an open connection
+  // holds no locks until you start a transaction, and our queries are
+  // autocommit. See README's OpenCode Status section for the full
+  // locking analysis.
+  const db: DatabaseSync | null = openDb(log);
 
   function refresh() {
-    const derived = deriveSessionState(session.id, log);
+    if (!db) return;
+    const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
       log?.debug(
         { session: session.id },
@@ -88,7 +97,7 @@ export function createOpenCodeWatcher(
       return;
     }
 
-    const taskProgress = getSessionTaskProgress(session.id, log);
+    const taskProgress = getSessionTaskProgress(session.id, log, db);
 
     const info: OpenCodeInfo = {
       kind: "opencode",
@@ -115,6 +124,7 @@ export function createOpenCodeWatcher(
     session,
     destroy() {
       stopWatching();
+      db?.close();
     },
   };
 }

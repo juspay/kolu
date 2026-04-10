@@ -134,16 +134,22 @@ export function findSessionByDirectory(
 
 /**
  * Read todo progress for a session from the `todo` table.
- * Returns null if the session has no todos. Closes the DB after the query.
+ * Returns null if the session has no todos.
+ *
+ * Pass an existing `db` to share a connection with the caller — used by
+ * `createOpenCodeWatcher` to avoid opening/closing on every WAL event.
+ * If `db` is omitted, opens and closes its own connection.
  */
 export function getSessionTaskProgress(
   sessionId: string,
   log?: Logger,
+  db?: DatabaseSync,
 ): TaskProgress | null {
-  const db = openDb(log);
-  if (!db) return null;
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return null;
   try {
-    const row = db
+    const row = conn
       .prepare(
         "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
       )
@@ -154,7 +160,7 @@ export function getSessionTaskProgress(
     log?.warn({ err, sessionId }, "opencode todo query failed");
     return null;
   } finally {
-    db.close();
+    if (ownsDb) conn.close();
   }
 }
 
@@ -177,15 +183,21 @@ export type DerivedState = {
 /**
  * Read the latest message for a session and derive Kolu state from it.
  * Returns null if the session has no messages or the DB is absent.
+ *
+ * Pass an existing `db` to share a connection with the caller — used by
+ * `createOpenCodeWatcher` to avoid opening/closing on every WAL event.
+ * If `db` is omitted, opens and closes its own connection.
  */
 export function deriveSessionState(
   sessionId: string,
   log?: Logger,
+  db?: DatabaseSync,
 ): DerivedState | null {
-  const db = openDb(log);
-  if (!db) return null;
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return null;
   try {
-    const row = db
+    const row = conn
       .prepare(
         "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
       )
@@ -196,7 +208,7 @@ export function deriveSessionState(
     log?.warn({ err, sessionId }, "opencode message query failed");
     return null;
   } finally {
-    db.close();
+    if (ownsDb) conn.close();
   }
 }
 
