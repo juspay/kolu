@@ -30,6 +30,10 @@ export class KoluWorld extends World {
   errors: string[] = [];
 
   // Stashed state for comparison across steps
+  savedSessionForRestore?: {
+    terminals: Array<{ id: string; cwd: string }>;
+    savedAt: number;
+  };
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;
