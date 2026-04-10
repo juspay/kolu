@@ -392,23 +392,15 @@ When(
 Then(
   "the sidebar should show task progress {string}",
   async function (this: KoluWorld, expected: string) {
-    const el = this.page.locator('[data-testid="claude-task-progress"]');
-    const text = await pollUntil(
-      this.page,
-      async () => {
-        try {
-          return (await el.first().textContent({ timeout: 1000 })) ?? "";
-        } catch {
-          return "";
-        }
+    await this.page.waitForFunction(
+      (expected) => {
+        const el = document.querySelector(
+          '[data-testid="claude-task-progress"]',
+        );
+        return el?.textContent?.trim() === expected;
       },
-      (t) => t.trim() === expected,
-      { attempts: 30, intervalMs: 200 },
-    );
-    assert.strictEqual(
-      text.trim(),
       expected,
-      `Expected task progress "${expected}", got "${text.trim()}"`,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
