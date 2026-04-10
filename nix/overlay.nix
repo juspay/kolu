@@ -3,7 +3,7 @@
 # per-invocation args (commitHash) that don't belong in pkgs.
 final: _prev: {
   kolu-ghostty-themes  = final.callPackage ./packages/ghostty-themes { };
-  kolu-fonts           = final.callPackage ./packages/fonts.nix { };
-  kolu-worktree-words  = final.callPackage ./packages/worktree-words.nix { };
+  kolu-fonts           = final.callPackage ./packages/fonts { };
+  kolu-worktree-words  = final.callPackage ./packages/worktree-words { };
   kolu-clipboard-shims = final.callPackage ./packages/clipboard-shims.nix { };
 }

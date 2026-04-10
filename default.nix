@@ -95,17 +95,20 @@ let
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
   '';
 
-  # Runtime wrapper that launches kolu with all env vars set.
-  default = pkgs.writeShellApplication {
-    name = "kolu";
-    runtimeInputs = [ pkgs.nodejs pkgs.tsx pkgs.git pkgs.gh ];
-    text = ''
-      export KOLU_CLIENT_DIST="${koluStamped}/client/dist"
-      export KOLU_CLIPBOARD_SHIM_DIR="${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}"
-      export KOLU_RANDOM_WORDS="${koluEnv.KOLU_RANDOM_WORDS}"
-      exec tsx "${koluStamped}/server/src/index.ts" "$@"
-    '';
-  };
+  # Runtime wrapper around tsx with env vars and PATH baked in.
+  default = pkgs.runCommand "kolu"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
+      --add-flags "${koluStamped}/server/src/index.ts" \
+      --set KOLU_CLIENT_DIST "${koluStamped}/client/dist" \
+      --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
+      --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
+  '';
 in
 {
   inherit default koluEnv;
