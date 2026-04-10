@@ -52,13 +52,25 @@ After each step's verification, write/update `.do-results.json`:
 - Use the Write tool to update the file after each step.
 - Capture timestamps via Bash: `date -u +%Y-%m-%dT%H:%M:%SZ`. Do not guess or hallucinate timestamps.
 
+## Progress tracking
+
+Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 14 step names in order:
+
+```
+sync, research, hickey, branch, implement, check, docs, police, fmt, commit, test, ci, update-pr, done
+```
+
+At each step boundary, update task state **alongside** the `.do-results.json` write — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
+
+Rules:
+
+- **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
+- **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
+- **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
+- **Skipped steps** (e.g. `branch`/`commit`/`update-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason lives in `.do-results.json`; the task list just shows the step as done.
+- **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and set the JSON `status: "failed"`.
+
 ## Steps
-
-Print a progress line before each step:
-
-```
-[do] ✓sync ✓research ▸hickey · branch · implement · check · docs · police · fmt · commit · test · ci · update-pr · done
-```
 
 ### sync
 
