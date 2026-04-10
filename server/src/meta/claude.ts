@@ -53,6 +53,7 @@ const SESSIONS_DIR =
 const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
+const PLANS_DIR = path.join(os.homedir(), ".claude", "plans");
 /** True when the e2e harness has redirected the projects/sessions dirs at
  *  test fixtures. The Claude Agent SDK has no equivalent override and would
  *  silently scan the user's real ~/.claude/projects, adding fs.watch and
@@ -214,10 +215,28 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
   }
 }
 
-/** Derive Claude Code state from the last relevant JSONL message. */
+/** Derive Claude Code state and slug from the last relevant JSONL message. */
 export function deriveState(
   lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
+): {
+  state: ClaudeCodeInfo["state"];
+  model: string | null;
+  slug: string | null;
+} | null {
+  // Extract slug from the last line that has one (every JSONL entry has it)
+  let slug: string | null = null;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const entry = JSON.parse(lines[i]!);
+      if (typeof entry.slug === "string") {
+        slug = entry.slug;
+        break;
+      }
+    } catch {
+      /* skip */
+    }
+  }
+
   // Walk backwards to find the last assistant or user message
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
@@ -247,7 +266,7 @@ export function deriveState(
           model: null,
         }))
         .otherwise(() => null);
-      if (result !== null) return result;
+      if (result !== null) return { ...result, slug };
     } catch {
       // Skip malformed lines
     }
@@ -266,8 +285,28 @@ export function infoEqual(
     a.state === b.state &&
     a.sessionId === b.sessionId &&
     a.model === b.model &&
-    a.summary === b.summary
+    a.summary === b.summary &&
+    a.latestPlanPath === b.latestPlanPath &&
+    a.planModifiedAt === b.planModifiedAt
   );
+}
+
+/**
+ * Check if a plan file exists for this session's slug.
+ * Claude Code names plan files after the session slug: ~/.claude/plans/{slug}.md
+ * Returns path + mtime so metadata changes propagate content updates to clients.
+ */
+function findPlanForSlug(
+  slug: string | null,
+): { path: string; modifiedAt: number } | null {
+  if (!slug) return null;
+  const planPath = path.join(PLANS_DIR, `${slug}.md`);
+  try {
+    const stat = fs.statSync(planPath);
+    return { path: planPath, modifiedAt: stat.mtimeMs };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -368,6 +407,8 @@ export function startClaudeCodeProvider(
    *  and until the first lookup resolves. Survives across transcript
    *  events so deduped state updates can carry it forward. */
   let lastSummary: string | null = null;
+  /** Cleanup function for the plans directory watcher. */
+  let planWatcherCleanup: (() => void) | null = null;
 
   plog.info("started");
 
@@ -378,6 +419,21 @@ export function startClaudeCodeProvider(
       .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
       .exhaustive();
     transcriptWatching = { kind: "none" };
+  }
+
+  /** Watch ~/.claude/plans/ so new/modified plan files trigger a metadata update. */
+  function startPlanWatching() {
+    stopPlanWatching();
+    planWatcherCleanup = tryWatchDir(PLANS_DIR, () =>
+      onTranscriptMaybeChanged(),
+    );
+  }
+
+  function stopPlanWatching() {
+    if (planWatcherCleanup) {
+      planWatcherCleanup();
+      planWatcherCleanup = null;
+    }
   }
 
   function attachTranscriptWatcher(tp: string) {
@@ -449,11 +505,14 @@ export function startClaudeCodeProvider(
       return;
     }
 
+    const plan = findPlanForSlug(derived.slug);
     const info: ClaudeCodeInfo = {
       state: derived.state,
       sessionId: matchedSession.sessionId,
       model: derived.model,
       summary: lastSummary,
+      latestPlanPath: plan?.path ?? null,
+      planModifiedAt: plan?.modifiedAt ?? null,
     };
 
     if (!infoEqual(info, entry.info.meta.claude)) {
@@ -535,6 +594,7 @@ export function startClaudeCodeProvider(
 
     // Session identity changed — tear down old watchers first.
     teardownTranscriptWatching();
+    stopPlanWatching();
     matchedSession = newSession;
     lastSummary = null;
 
@@ -552,6 +612,8 @@ export function startClaudeCodeProvider(
       { session: newSession.sessionId, pid: newSession.pid },
       "claude code session matched",
     );
+    // Watch ~/.claude/plans/ for plan files matching this session's slug
+    startPlanWatching();
     setupTranscriptWatching(newSession);
   }
 
@@ -597,6 +659,7 @@ export function startClaudeCodeProvider(
     abort.abort();
     sessionsDirWatcher();
     teardownTranscriptWatching();
+    stopPlanWatching();
     delete entry.getClaudeDebug;
     plog.info("stopped");
   };

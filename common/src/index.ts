@@ -67,6 +67,10 @@ export const ClaudeCodeInfoSchema = z.object({
   /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
    *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
   summary: z.string().nullable(),
+  /** Absolute path to the plan file for this session (derived from JSONL slug), if any. */
+  latestPlanPath: z.string().nullable(),
+  /** Plan file modification time (epoch ms) — changes trigger client content refetch via query key. */
+  planModifiedAt: z.number().nullable(),
 });
 
 /** A single state transition the server observed. `info: null` = session ended. */
@@ -85,6 +89,23 @@ export const ClaudeTranscriptDebugSchema = z.object({
   stateChanges: z.array(ClaudeStateChangeSchema),
   /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
   rawEvents: z.array(z.unknown()),
+});
+
+// --- Plans ---
+
+export const PlanContentSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  modifiedAt: z.number(),
+});
+
+export const PlanFeedbackInputSchema = z.object({
+  /** Absolute path to the plan file. */
+  path: z.string(),
+  /** Line number after which to insert feedback (1-based). */
+  afterLine: z.number(),
+  /** Feedback text (will be wrapped in blockquote format). */
+  text: z.string(),
 });
 
 // --- Foreground process context ---
@@ -290,6 +311,7 @@ export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type PlanContent = z.infer<typeof PlanContentSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PersistedState = z.infer<typeof PersistedStateSchema>;

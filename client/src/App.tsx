@@ -20,6 +20,8 @@ import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
+import PlanPane from "./PlanPane";
+import Resizable from "@corvu/resizable";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
@@ -35,6 +37,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { usePlans } from "./usePlans";
 
 const App: Component = () => {
   const { preferences, updatePreferences } = useServerState();
@@ -106,6 +109,15 @@ const App: Component = () => {
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
+
+  const {
+    activePlanPath,
+    planName,
+    planContent,
+    isPlanContentLoading,
+    addFeedback,
+    removeFeedback,
+  } = usePlans({ activeMeta: store.activeMeta });
 
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
@@ -375,46 +387,121 @@ const App: Component = () => {
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 flex flex-col">
-          <div
-            class="flex-1 min-h-0 overflow-hidden"
-            style={{ "background-color": activeTheme().background }}
-            data-testid="terminal-viewport"
+          <Show
+            when={activePlanPath()}
+            fallback={
+              <div
+                class="flex-1 min-h-0 overflow-hidden"
+                style={{ "background-color": activeTheme().background }}
+                data-testid="terminal-viewport"
+              >
+                <Show
+                  when={!session.isLoading()}
+                  fallback={
+                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                      Connecting...
+                    </div>
+                  }
+                >
+                  <Show when={store.terminalIds().length === 0}>
+                    <EmptyState
+                      savedSession={session.savedSession() ?? undefined}
+                      onRestore={() => void session.handleRestoreSession()}
+                    />
+                  </Show>
+                  <For each={store.terminalIds()}>
+                    {(id) => (
+                      <TerminalPane
+                        terminalId={id}
+                        visible={store.activeId() === id}
+                        theme={getTerminalTheme(id)}
+                        searchOpen={searchOpen()}
+                        onSearchOpenChange={setSearchOpen}
+                        subTerminalIds={store.getSubTerminalIds(id)}
+                        getMetadata={store.getMetadata}
+                        onCreateSubTerminal={(parentId, cwd) =>
+                          void crud.handleCreateSubTerminal(parentId, cwd)
+                        }
+                        onCloseTerminal={closeTerminal}
+                        activeMeta={store.activeMeta()}
+                        scrollLockEnabled={scrollLock()}
+                      />
+                    )}
+                  </For>
+                </Show>
+              </div>
+            }
           >
-            <Show
-              when={!session.isLoading()}
-              fallback={
-                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                  Connecting...
-                </div>
-              }
-            >
-              <Show when={store.terminalIds().length === 0}>
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
-                />
-              </Show>
-              <For each={store.terminalIds()}>
-                {(id) => (
-                  <TerminalPane
-                    terminalId={id}
-                    visible={store.activeId() === id}
-                    theme={getTerminalTheme(id)}
-                    searchOpen={searchOpen()}
-                    onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={store.getSubTerminalIds(id)}
-                    getMetadata={store.getMetadata}
-                    onCreateSubTerminal={(parentId, cwd) =>
-                      void crud.handleCreateSubTerminal(parentId, cwd)
+            {/* Plan pane open — resizable horizontal split: terminal left, plan right */}
+            <Resizable orientation="horizontal" class="flex-1 min-h-0">
+              <Resizable.Panel
+                as="div"
+                class="min-w-0 overflow-hidden"
+                minSize={0.3}
+              >
+                <div
+                  class="h-full overflow-hidden"
+                  style={{ "background-color": activeTheme().background }}
+                  data-testid="terminal-viewport"
+                >
+                  <Show
+                    when={!session.isLoading()}
+                    fallback={
+                      <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                        Connecting...
+                      </div>
                     }
-                    onCloseTerminal={closeTerminal}
-                    activeMeta={store.activeMeta()}
-                    scrollLockEnabled={scrollLock()}
-                  />
-                )}
-              </For>
-            </Show>
-          </div>
+                  >
+                    <For each={store.terminalIds()}>
+                      {(id) => (
+                        <TerminalPane
+                          terminalId={id}
+                          visible={store.activeId() === id}
+                          theme={getTerminalTheme(id)}
+                          searchOpen={searchOpen()}
+                          onSearchOpenChange={setSearchOpen}
+                          subTerminalIds={store.getSubTerminalIds(id)}
+                          getMetadata={store.getMetadata}
+                          onCreateSubTerminal={(parentId, cwd) =>
+                            void crud.handleCreateSubTerminal(parentId, cwd)
+                          }
+                          onCloseTerminal={closeTerminal}
+                          activeMeta={store.activeMeta()}
+                          scrollLockEnabled={scrollLock()}
+                        />
+                      )}
+                    </For>
+                  </Show>
+                </div>
+              </Resizable.Panel>
+              <Resizable.Handle class="w-1 bg-edge hover:bg-accent-bright cursor-col-resize shrink-0" />
+              <Resizable.Panel
+                as="div"
+                class="min-w-0 h-full overflow-hidden"
+                minSize={0.15}
+                initialSize={0.35}
+              >
+                <PlanPane
+                  content={planContent()}
+                  loading={isPlanContentLoading()}
+                  planName={planName()}
+                  planPath={activePlanPath()}
+                  onAddFeedback={addFeedback}
+                  onRemoveFeedback={removeFeedback}
+                  onSendToTerminal={(text) => {
+                    const id = store.activeId();
+                    if (id) {
+                      // \r = Enter in PTY (carriage return, not newline)
+                      void client.terminal.sendInput({
+                        id,
+                        data: text + "\r",
+                      });
+                    }
+                  }}
+                />
+              </Resizable.Panel>
+            </Resizable>
+          </Show>
           <MobileKeyBar activeId={store.activeId} />
         </div>
       </div>

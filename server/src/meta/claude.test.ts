@@ -111,6 +111,8 @@ describe("infoEqual", () => {
     sessionId: "abc-123",
     model: "claude-opus-4-6",
     summary: "Refactor sidebar layout",
+    latestPlanPath: null,
+    planModifiedAt: null,
   };
 
   it("returns true for identical references", () => {

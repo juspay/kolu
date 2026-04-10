@@ -27,6 +27,8 @@ import {
   ServerStateSchema,
   ServerStatePatchSchema,
   ClaudeTranscriptDebugSchema,
+  PlanContentSchema,
+  PlanFeedbackInputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -79,6 +81,16 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
+  },
+  plans: {
+    // Read a plan file's content
+    get: oc.input(z.object({ path: z.string() })).output(PlanContentSchema),
+    // Insert inline feedback into a plan file
+    addFeedback: oc.input(PlanFeedbackInputSchema).output(z.void()),
+    // Remove a feedback block starting at a given line
+    removeFeedback: oc
+      .input(z.object({ path: z.string(), feedbackLine: z.number() }))
+      .output(z.void()),
   },
   claude: {
     /** Diagnostic snapshot of the active terminal's Claude transcript:
