@@ -50,9 +50,17 @@ apm-sync: apm-audit
     # no-ops — so folder-existence is the reliable signal.
     mkdir "$scratch/.claude"
     (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
-    # launch.json is user-owned; apm never manages it, so exclude from
-    # the drift check.
-    if ! diff -r -x launch.json .claude "$scratch/.claude"; then
+    # Exclude files that apm doesn't manage: launch.json is user-owned,
+    # and `.claude/*` entries in .gitignore are runtime state written by
+    # Claude Code itself (worktree bookkeeping, local settings, session
+    # lockfiles). Keep this list in sync with .gitignore — if a new
+    # runtime file appears in .claude/, add it to .gitignore and here.
+    if ! diff -r \
+        -x launch.json \
+        -x worktrees \
+        -x settings.local.json \
+        -x scheduled_tasks.lock \
+        .claude "$scratch/.claude"; then
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
