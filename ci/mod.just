@@ -23,6 +23,13 @@ import 'localci/forges/github.just'
 # sibling recipe calls and to locate this module in `just --dump` output.
 module_name := "ci"
 
+# `just ci` entry point — dispatch to the library's lock wrapper, which
+# acquires the perl Fcntl::flock on .localci/current and execs into the
+# scheduler. This recipe MUST be declared in mod.just (not inherited from
+# lib.just's `default`) because just picks the module's default from the
+# first-defined recipe in the module's own source, not from imports.
+default: _default
+
 # Prefix shared by the nix/home-manager steps that use devour-flake.
 devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 

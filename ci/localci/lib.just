@@ -48,7 +48,10 @@ root         := `git rev-parse --show-toplevel`
 # `$^F = 10` prevents FD_CLOEXEC from being set on newly-opened fds, so the
 # lock fd survives the exec into `just <module>::_scheduler` and stays held
 # for the full duration of the run, not just perl's lifetime.
-default:
+#
+# The consumer's mod.just re-exports this via `default: _default` so it
+# wins just's "first-defined" rule for default-recipe selection.
+_default:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{ root }}/.localci"
