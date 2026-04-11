@@ -62,8 +62,13 @@
 
         testScript = ''
           machine.wait_for_unit("multi-user.target")
-          # Wait for alice's user session to come up
-          machine.wait_for_unit("user@1000.service")
+          # Poll for alice's user session. wait_for_unit fails fast if the
+          # unit is still inactive with no pending job — a race with
+          # auto-login queueing user@1000. wait_until_succeeds retries.
+          machine.wait_until_succeeds(
+              "systemctl is-active user@1000.service",
+              timeout=60,
+          )
 
           # Use machinectl shell to get a proper user session with
           # DBUS_SESSION_BUS_ADDRESS and XDG_RUNTIME_DIR set.
