@@ -15,9 +15,8 @@ import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
 import {
-  SESSIONS_DIR,
   readSessionFile,
-  watchOrWaitForDir,
+  subscribeSessionsDir,
   createSessionWatcher,
   infoEqual as claudeInfoEqual,
   type SessionWatcher,
@@ -99,9 +98,13 @@ export function startClaudeCodeProvider(
     onSessionMaybeChanged(),
   );
 
-  // Watch the sessions dir for session file appearance/disappearance.
-  const sessionsDirWatcher = watchOrWaitForDir(SESSIONS_DIR, () =>
-    onSessionMaybeChanged(),
+  // Subscribe to the shared sessions-dir watcher (one inotify watch
+  // process-wide, regardless of terminal count). Implemented in the
+  // kolu-claude-code integration package so the server doesn't need
+  // to know SESSIONS_DIR exists.
+  const unsubscribeSessionsDir = subscribeSessionsDir(
+    () => onSessionMaybeChanged(),
+    (err) => plog.warn({ err }, "sessions-dir listener threw"),
   );
 
   // Initial reconcile for a terminal that already hosts a claude session.
@@ -109,7 +112,7 @@ export function startClaudeCodeProvider(
 
   return () => {
     abort.abort();
-    sessionsDirWatcher();
+    unsubscribeSessionsDir();
     current?.destroy();
     delete entry.getClaudeDebug;
     plog.debug("stopped");

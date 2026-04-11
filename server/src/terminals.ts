@@ -26,6 +26,8 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { parseAgentCommand } from "./agent-cli.ts";
+import { trackRecentAgent } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -136,6 +138,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 
   const handle = spawnPty(
     tlog,
+    id,
     {
       onData: (data) => {
         const entry = terminals.get(id);
@@ -163,6 +166,13 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
         publishForTerminal("title", id, title);
+      },
+      // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
+      // if the first token matches a known agent binary, push it to the
+      // global recent-agents MRU. Commands that aren't agents are discarded.
+      onCommandRun: (raw) => {
+        const normalized = parseAgentCommand(raw);
+        if (normalized) trackRecentAgent(normalized);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
@@ -210,6 +220,21 @@ export function listTerminals(): TerminalInfo[] {
     .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
   log.debug({ count: list.length }, "terminal list");
   return list;
+}
+
+/** Number of live terminal processes. Cheap counter for diagnostics. */
+export const terminalCount = (): number => terminals.size;
+
+/** Number of terminals currently hosting a Claude Code session. Derived
+ *  from `entry.getClaudeDebug` — the claude provider sets it on session
+ *  match and `delete`s it on teardown (see `meta/claude.ts`), so this
+ *  needs no separate counter state. Exported for diagnostics. */
+export function countActiveClaudeSessions(): number {
+  let n = 0;
+  for (const entry of terminals.values()) {
+    if (entry.getClaudeDebug) n++;
+  }
+  return n;
 }
 
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {

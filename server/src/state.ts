@@ -10,19 +10,21 @@ import fs from "node:fs";
 import Conf from "conf";
 import type {
   RecentRepo,
+  RecentAgent,
   Preferences,
   PersistedState,
   ServerState,
   ServerStatePatch,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
+import { log } from "./log.ts";
 
 /**
  * Schema version — bump this when adding migrations.
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.4.0";
+const SCHEMA_VERSION = "1.5.0";
 
 const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
@@ -41,6 +43,7 @@ export const store = new Conf<PersistedState>({
   projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
+    recentAgents: [],
     session: null,
     preferences: DEFAULT_PREFERENCES,
   },
@@ -90,6 +93,12 @@ export const store = new Conf<PersistedState>({
           migrated ?? DEFAULT_PREFERENCES.sidebarAgentPreviews,
       });
     },
+    // recentAgents added — seed as empty array for existing state files.
+    "1.5.0": (store: Conf<PersistedState>) => {
+      if (!store.has("recentAgents")) {
+        store.set("recentAgents", []);
+      }
+    },
   },
 });
 
@@ -103,25 +112,40 @@ function existsOnDisk(path: string): boolean {
   }
 }
 
+// --- Bounded MRU helper ---
+
+/** Upsert `item` into a bounded MRU list, sort most-recently-seen first,
+ *  and trim to `max` entries. Returns the new list. Pure — callers
+ *  persist and notify. */
+function upsertMru<T>(
+  list: T[],
+  item: T,
+  keyOf: (t: T) => string,
+  timeOf: (t: T) => number,
+  max: number,
+): T[] {
+  const key = keyOf(item);
+  const idx = list.findIndex((x) => keyOf(x) === key);
+  if (idx !== -1) list[idx] = item;
+  else list.push(item);
+  list.sort((a, b) => timeOf(b) - timeOf(a));
+  return list.slice(0, max);
+}
+
 // --- Recent repos ---
 
 const MAX_RECENT_REPOS = 20;
 
 /** Upsert a repo into the recent repos list (most-recently-seen first). */
 export function trackRecentRepo(repoRoot: string, repoName: string): void {
-  const repos = store.get("recentRepos");
-  const now = Date.now();
-  const existing = repos.findIndex((r) => r.repoRoot === repoRoot);
-  if (existing !== -1) {
-    repos[existing]!.lastSeen = now;
-    repos[existing]!.repoName = repoName;
-  } else {
-    repos.push({ repoRoot, repoName, lastSeen: now });
-  }
-  // Sort most-recent first, then trim
-  repos.sort((a, b) => b.lastSeen - a.lastSeen);
-  store.set("recentRepos", repos.slice(0, MAX_RECENT_REPOS));
-  // Notify live subscription so clients see the updated repos list
+  const next = upsertMru(
+    store.get("recentRepos"),
+    { repoRoot, repoName, lastSeen: Date.now() },
+    (r) => r.repoRoot,
+    (r) => r.lastSeen,
+    MAX_RECENT_REPOS,
+  );
+  store.set("recentRepos", next);
   publishSystem("state:changed", getServerState());
 }
 
@@ -133,19 +157,47 @@ export function getRecentRepos(): RecentRepo[] {
   return live;
 }
 
+// --- Recent agents ---
+
+const MAX_RECENT_AGENTS = 10;
+
+/** Upsert a normalized agent command into the recent agents MRU.
+ *  Called from terminals.ts whenever the preexec OSC 633;E handler fires
+ *  with a command whose first token matches a known agent binary. The
+ *  `command` string is the normalized form produced by
+ *  `parseAgentCommand` — raw prompt text has already been stripped. */
+export function trackRecentAgent(command: string): void {
+  const next = upsertMru(
+    store.get("recentAgents"),
+    { command, lastSeen: Date.now() },
+    (a) => a.command,
+    (a) => a.lastSeen,
+    MAX_RECENT_AGENTS,
+  );
+  store.set("recentAgents", next);
+  log.info({ command, total: next.length }, "recent agent tracked");
+  publishSystem("state:changed", getServerState());
+}
+
+/** Get recent agents, most-recently-seen first. */
+function getRecentAgents(): RecentAgent[] {
+  return store.get("recentAgents");
+}
+
 // --- Server state ---
 
 /** Get the full server state. */
 export function getServerState(): ServerState {
   return {
     recentRepos: getRecentRepos(),
+    recentAgents: getRecentAgents(),
     session: store.get("session"),
     preferences: store.get("preferences"),
   };
 }
 
 /** Merge a partial update into the current state.
- *  recentRepos is server-managed (tracked on terminal create) — ignored in patches. */
+ *  recentRepos and recentAgents are server-managed — ignored in patches. */
 export function updateServerState(patch: ServerStatePatch): void {
   if (patch.session !== undefined) {
     store.set("session", patch.session);
@@ -160,12 +212,15 @@ export function updateServerState(patch: ServerStatePatch): void {
   publishSystem("state:changed", getServerState());
 }
 
-/** Test-only: apply a full patch including `recentRepos`. Used by e2e hooks to
- *  reset state between scenarios. Production callers must go through
- *  `updateServerState`, which (correctly) ignores `recentRepos`. */
+/** Test-only: apply a full patch including `recentRepos` and `recentAgents`.
+ *  Used by e2e hooks to reset state between scenarios. Production callers
+ *  must go through `updateServerState`, which ignores server-managed fields. */
 export function testSetServerState(patch: ServerStatePatch): void {
   if (patch.recentRepos !== undefined) {
     store.set("recentRepos", patch.recentRepos);
+  }
+  if (patch.recentAgents !== undefined) {
+    store.set("recentAgents", patch.recentAgents);
   }
   updateServerState(patch);
 }

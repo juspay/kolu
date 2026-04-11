@@ -37,7 +37,7 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-FIHG1bTz7VSKTstqncQ2RNlLdHpAuwqitwQrbubTgIY=";
+    hash = "sha256-uDUcuuFr9K01/SbJjlBnQ8xv5HWf/4oaUXEo2Ts1248=";
     fetcherVersion = 3;
   };
 
@@ -102,12 +102,28 @@ let
       meta.mainProgram = "kolu";
     } ''
     mkdir -p $out/bin
+    # If KOLU_DIAG_DIR is set, the --run hook computes a per-invocation
+    # subdir, cds into it, and injects V8 heap-snapshot flags into
+    # NODE_OPTIONS. The cd is load-bearing: both --heapsnapshot-signal
+    # and --heapsnapshot-near-heap-limit write to cwd (nodejs/node#47842),
+    # so landing in the per-invocation dir makes all capture paths
+    # (baseline, SIGUSR2, near-OOM) correlate to one directory.
+    # Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
       --add-flags "${koluStamped}/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/client/dist" \
       --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
       --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]}
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
+               KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
+               if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
+                 echo "kolu: failed to set up diag dir $KOLU_DIAG_DIR (check permissions)" >&2
+                 exit 1
+               fi
+               export KOLU_DIAG_DIR
+               export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
+             fi'
   '';
 in
 {

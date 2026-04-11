@@ -11,6 +11,7 @@ import {
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import Header from "./Header";
+import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
@@ -160,10 +161,17 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Close a terminal — always shows the confirmation dialog. */
+  /** Close a terminal. Top-level terminals show a confirmation dialog;
+   *  splits (sub-terminals) are killed directly — they are ephemeral
+   *  sub-panes, like browser tabs, and should never pop the worktree
+   *  removal prompt (#462). */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
     if (!meta) return;
+    if (meta.parentId) {
+      void crud.handleKill(id);
+      return;
+    }
     const splitCount = store.getSubTerminalIds(id).length;
     setCloseConfirmTarget({ id, meta, splitCount });
   }
@@ -177,6 +185,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
@@ -186,8 +195,8 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) =>
-      void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath, initialCommand) =>
+      void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
@@ -318,6 +327,7 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
+      <PwaInstallBar />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

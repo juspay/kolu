@@ -80,7 +80,11 @@ const SettingsPopover: Component<{
           }}
           data-testid="settings-popover"
           class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[200px] space-y-3"
-          style={{ top: `${pos().top}px`, right: `${pos().right}px` }}
+          style={{
+            top: `${pos().top}px`,
+            right: `${pos().right}px`,
+            "background-color": "var(--color-surface-1)",
+          }}
         >
           {/* Color scheme */}
           <div class="flex items-center justify-between gap-3 text-sm">

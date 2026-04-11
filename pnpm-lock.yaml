@@ -248,6 +248,9 @@ importers:
       simple-git:
         specifier: ^3.33.0
         version: 3.33.0
+      string-argv:
+        specifier: ^0.3.2
+        version: 0.3.2
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -3481,6 +3484,10 @@ packages:
 
   string-argv@0.3.1:
     resolution: {integrity: sha512-a1uQGz7IyVy9YwhqjZIZu1c8JO8dNIe20xBmSS6qu9kv++k3JGzCVmprbNN5Kn+BgzD5E7YYwg1CcjuJMRNsvg==}
+    engines: {node: '>=0.6.19'}
+
+  string-argv@0.3.2:
+    resolution: {integrity: sha512-aqD2Q0144Z+/RqG52NeHEkZauTAUWJO8c6yTftGJKO3Tja5tUgIfmIl6kExvhtxSDP7fXB6DvzkfMpCd/F3G+Q==}
     engines: {node: '>=0.6.19'}
 
   string-width@4.2.3:
@@ -7324,6 +7331,8 @@ snapshots:
       internal-slot: 1.1.0
 
   string-argv@0.3.1: {}
+
+  string-argv@0.3.2: {}
 
   string-width@4.2.3:
     dependencies:

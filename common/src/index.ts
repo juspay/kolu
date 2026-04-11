@@ -197,6 +197,20 @@ export const RecentRepoSchema = z.object({
   lastSeen: z.number(),
 });
 
+// --- Recent agents (server-side persistent state) ---
+
+/** A normalized agent CLI invocation (e.g. "claude --model sonnet").
+ *  Populated from OSC 633;E command marks emitted by kolu's preexec hook
+ *  whenever the user runs a known agent binary in any terminal. */
+export const RecentAgentSchema = z.object({
+  /** Normalized command line — first token is the agent binary,
+   *  followed by its stable flags. Prompt/message flags and trailing
+   *  positional arguments are stripped so ephemeral prompt text does
+   *  not pollute the MRU. */
+  command: z.string(),
+  lastSeen: z.number(),
+});
+
 // --- Session persistence ---
 
 export const SavedTerminalSchema = z.object({
@@ -250,6 +264,7 @@ export const PreferencesSchema = z.object({
 /** What conf stores to disk — survives server restart. */
 export const PersistedStateSchema = z.object({
   recentRepos: z.array(RecentRepoSchema),
+  recentAgents: z.array(RecentAgentSchema),
   session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
 });
@@ -261,6 +276,7 @@ export const ServerStateSchema = PersistedStateSchema.extend({});
 /** Partial patch for state updates — all fields optional, preferences partially mergeable. */
 export const ServerStatePatchSchema = z.object({
   recentRepos: z.array(RecentRepoSchema).optional(),
+  recentAgents: z.array(RecentAgentSchema).optional(),
   session: SavedSessionSchema.nullable().optional(),
   preferences: PreferencesSchema.partial().optional(),
 });
@@ -282,6 +298,7 @@ export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
+export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;

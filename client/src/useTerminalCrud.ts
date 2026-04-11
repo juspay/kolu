@@ -139,6 +139,20 @@ export function useTerminalCrud(deps: {
     }
   }
 
+  /** Write a command line into the active terminal WITHOUT pressing Enter.
+   *  Used by the "Recent agents" palette entry to prefill a previously
+   *  seen agent CLI — the user reviews/edits and hits Enter themselves.
+   *  No-op if no terminal is active. */
+  function handleRunInActiveTerminal(command: string) {
+    const id = store.activeId();
+    if (id === null) return;
+    void client.terminal
+      .sendInput({ id, data: command })
+      .catch((err: Error) =>
+        toast.error(`Failed to prefill command: ${err.message}`),
+      );
+  }
+
   async function handleCloseAll() {
     try {
       await client.terminal.killAll();
@@ -157,6 +171,7 @@ export function useTerminalCrud(deps: {
     handleKill,
     handleKillWithSubs,
     handleCopyTerminalText,
+    handleRunInActiveTerminal,
     handleCloseAll,
   };
 }
