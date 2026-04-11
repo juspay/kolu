@@ -71,25 +71,31 @@ Parallel steps append safely under advisory `flock`. See
 
 ## Usage in your project
 
-### 1. Vendor `ci/localci/` into your project
+### 1. Vendor `vendor/localci/` into your project
 
-Copy this directory to `ci/localci/` in your repo.
+Copy this directory to `vendor/localci/` in your repo.
 
-### 2. Create `ci/mod.just`
+### 2. Wire it into your top-level `justfile`
 
 ```just
-import 'localci/lib.just'
-import 'localci/forges/github.just'    # or forges/none.just
+# Library recipes under the `localci::` namespace.
+mod localci 'vendor/localci/lib.just'
+# Forge backend imported flat so library can dispatch `_signoff` etc.
+import 'vendor/localci/forges/github.just'    # or forges/none.just
 
-module_name := "ci"
+# Entry point — runs every tagged recipe under the single-instance lock.
+ci: localci::run
+
+# Your CI steps are just regular top-level recipes with a `[group]` attribute
+# that says which lane they run in. No prefix, no indirection, no wrappers.
+
+[group("localci:system:local")]
+check:
+    pnpm typecheck
 
 [group("localci:system:local")]
 fmt:
-    just fmt-check
-
-[group("localci:system:local")]
-typecheck:
-    just check
+    prettier --check .
 
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
@@ -99,18 +105,12 @@ build:
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
 test: build
-    just test
+    cargo test   # or whatever
 ```
 
-That's it — no `default`, no orchestrator lanes, no `(_run ...)` wrappers,
-no `|| true`, no shell-out dispatch. localci reads the `[group]` attributes
-and the `test: build` dep via `just --dump` and builds the execution plan.
-
-### 3. Add to your top-level justfile
-
-```just
-mod ci 'ci/mod.just'
-```
+That's it. localci reads the `[group]` attributes and the `test: build`
+dep via `just --dump` and builds the execution plan — no `default`, no
+orchestrator lanes, no `(_run ...)` wrappers, no `|| true`.
 
 ### 4. Gitignore runtime state
 

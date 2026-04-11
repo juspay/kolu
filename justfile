@@ -37,10 +37,6 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking across all packages — fast static-correctness gate
-check: install
-    {{ nix_shell }} pnpm typecheck
-
 # Run server with auto-reload
 server:
     cd server && {{ nix_shell }} pnpm dev
@@ -48,19 +44,6 @@ server:
 # Run client with Vite dev server (HMR)
 client:
     cd client && {{ nix_shell }} pnpm dev
-
-# Run unit tests (vitest) across server and client packages
-test-unit: install
-    {{ nix_shell }} pnpm test:unit
-
-# Run Cucumber e2e tests (nix build once, each worker spawns the binary)
-test: install
-    #!/usr/bin/env bash
-    set -euo pipefail
-    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
-    cd tests
-    {{ nix_shell }} pnpm install
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -93,15 +76,11 @@ test-quick *args: install
 clean:
     git clean -fdX
 
-# Format all files in-place
-fmt:
+# Format all files in-place. `just fmt` (below) is the CI-side check.
+fmt-write:
     {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
 
-# Check formatting without modifying files (used by CI)
-fmt-check:
-    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
-
-# Nix build (server + client)
+# Nix build (server + client, default flake output)
 build:
     nix build
 
@@ -114,13 +93,12 @@ run:
 # entry point (see vendor/localci/lib.just) — it acquires a perl Fcntl::flock
 # on .localci/current and execs into the scheduler.
 #
-# Each `ci-*` recipe below is a localci-wrapped CI step. `[group("localci:system:...")]`
-# tells the scheduler which lane it runs in; just's native dep syntax
-# (`ci-e2e: ci-nix`) encodes intra-lane ordering.
+# Each recipe below with a `[group("localci:system:...")]` attribute is a
+# CI step. The attribute tells the scheduler which lane it runs in; just's
+# native dep syntax (e.g. `test: nix`) encodes intra-lane ordering.
 #
-# Collision-prefixed with `ci-` for now — when you're ready, merge with the
-# top-level `check`/`test`/`fmt-check` recipes so there's one canonical
-# definition per step (tracked as a follow-up).
+# Recipes without a [group] attribute (dev, server, test-quick, fmt-write,
+# build, run, etc.) are invisible to the CI scheduler — they're for local use.
 
 ci: localci::run
 
@@ -129,32 +107,44 @@ ci: localci::run
 # nix build invocation. https://github.com/srid/devour-flake
 devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
+# TypeScript type checking across all packages — fast static-correctness gate
 [group("localci:system:local")]
-ci-check:
-    just check
+check: install
+    {{ nix_shell }} pnpm typecheck
 
+# Format check (prettier + nixpkgs-fmt). Use `just fmt-write` to format in place.
 [group("localci:system:local")]
-ci-fmt:
-    just fmt-check
+fmt:
+    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
+# Unit tests (vitest, server + client)
 [group("localci:system:local")]
-ci-unit:
-    just test-unit
+test-unit: install
+    {{ nix_shell }} pnpm test:unit
 
+# Verify vendored .claude/ matches .apm/ sources + security audit
 [group("localci:system:local")]
-ci-apm-sync:
-    just ai::apm-sync
+apm-sync: ai::apm-sync
 
+# Build all flake outputs (server, client, NixOS tests, home-manager configs, …)
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
-ci-nix:
+nix:
     {{ devour_flake }} --override-input flake .
 
+# Build the example home-manager configuration via devour-flake
 [group("localci:system:x86_64-linux")]
-ci-home-manager: ci-nix
+home-manager: nix
     {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
+# Cucumber e2e tests (depends on `nix` so devour-flake runs first in CI; for a
+# fast dev loop without the nix build, use `just test-quick` instead).
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
-ci-e2e: ci-nix
-    just test
+test: install nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
