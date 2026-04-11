@@ -132,10 +132,10 @@ just ci::_summary    # render the two-column summary table
 
 The importer must define just two variables:
 
-| Variable      | Description                                             |
-| ------------- | ------------------------------------------------------- |
-| `module_name` | Just module name (e.g. `"ci"` for `mod ci 'mod.just'`)  |
-| `systems`     | Space-separated list of all target systems              |
+| Variable      | Description                                            |
+| ------------- | ------------------------------------------------------ |
+| `module_name` | Just module name (e.g. `"ci"` for `mod ci 'mod.just'`) |
+| `systems`     | Space-separated list of all target systems             |
 
 `lib.just` provides defaults for `sha`, `system`, `local_system`, and
 `root` — these are boilerplate for any nix project (git sha, current nix
