@@ -200,6 +200,7 @@ Before(async function (this: KoluWorld, scenario) {
       json: {
         session: null,
         recentRepos: [],
+        recentAgents: [],
         // Reset all preferences to defaults (randomTheme off for deterministic tests)
         preferences: {
           seenTips: [],

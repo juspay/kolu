@@ -204,22 +204,6 @@ Then(
 );
 
 Then(
-  "palette item {string} should not be visible",
-  async function (this: KoluWorld, text: string) {
-    const palette = this.page.locator(PALETTE_SELECTOR);
-    const item = palette
-      .locator("li")
-      .filter({ hasText: new RegExp(`^${text}`) });
-    const count = await item.count();
-    assert.strictEqual(
-      count,
-      0,
-      `Expected no palette item matching ${JSON.stringify(text)}, got ${count}`,
-    );
-  },
-);
-
-Then(
   "palette hint {string} should be visible",
   async function (this: KoluWorld, text: string) {
     const hint = this.page.locator(
