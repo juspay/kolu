@@ -188,8 +188,106 @@ recipe for multi-system steps. Ordering within a lane is expressed via
 `[metadata("localci:depends:<other-step>")]` — **not** just's native
 `dep:` syntax. See the section below for why.
 
+## Known stinks / tradeoffs
+
+Things the current design gets wrong, or that aren't as clean as they should
+be. These are live issues — fixing any of them is a follow-up.
+
+### No within-lane parallelism
+
+The scheduler forks one subshell per system lane (`&` + `wait`), but
+**inside a lane, steps run sequentially** via a flat `for step in $steps`
+loop. If two steps in the same lane have no `localci:depends:*` between
+them, they should be able to run concurrently — but they don't. Example:
+in kolu's `x86_64-linux` lane, `home-manager` and `e2e` both depend on
+`nix` and are otherwise independent, so after `nix` finishes they could
+fan out in parallel — but the scheduler runs them serially, adding
+~30–60s of unnecessary wall-time.
+
+The fix is a real DAG executor instead of a topologically-sorted
+pipeline: fork each ready step's subshell, wait for its deps, mark done,
+repeat. ~30 lines of bash or a cleaner rewrite in Python (see next
+section). Current implementation is "good enough for small graphs where
+the slowest lane dominates anyway."
+
+### Bash `&` + `wait` for scheduling
+
+Cross-lane parallelism is implemented with POSIX `&` + `wait` in a bash
+`while` loop inside `_scheduler`. This is standard shell concurrency —
+not a hack per se — but the choice forces within-lane serialization
+(above) because writing a real DAG executor in bash is gnarly.
+
+The "right" answer long-term is to hoist the entire scheduler into
+`scheduler.py` — the existing Python file that currently only emits the
+plan could also execute it, using `concurrent.futures.ProcessPoolExecutor`
+or `asyncio` for both cross-lane and within-lane concurrency. `lib.just`
+would shrink to a thin wrapper that invokes `python3 scheduler.py run`.
+Keeps the consumer interface (just recipes + `[metadata]` tags)
+unchanged. **Not done yet.**
+
+### Two dep syntaxes, user has to remember which
+
+- `install` (a setup prerequisite not in the CI plan) uses just's native
+  `dep:` syntax: `typecheck: install`.
+- `nix` (a CI-plan step) uses `[metadata("localci:depends:nix")]` — the
+  scheduler respects this for intra-lane ordering, and the native dep
+  is *omitted* to avoid each dispatch re-running `nix` as a dep.
+
+There's no single mechanism that works for both. The rule is "if the
+dep is tagged with `localci:system:*`, use `[metadata]`; otherwise use
+a native just dep," and it's enforced by convention, not the language.
+Fragile if a new contributor doesn't read the README.
+
+### Per-step subprocess overhead
+
+Each dispatched step is a fresh `just <step>` subprocess. Just re-parses
+the justfile, re-runs all top-level backtick expressions (sha, repo,
+context_prefix, local_system, etc.), and evaluates dep chains from
+scratch. That's ~50–100ms × 9 steps per run, plus the cost of every
+`just localci::_emit-event` / `just localci::_signoff` call from inside
+`_step` (multiple per step). Probably a second of total overhead; small
+enough to ignore, large enough to mention.
+
+### `_contexts` re-runs the scheduler per step dispatch
+
+`_step` calls `just localci::_contexts` to compute the max label width
+for colored prefix padding. `_contexts` internally calls `_plan`, which
+shells out to `python3 scheduler.py` via `nix run` fallback. That's
+~130ms of work per step dispatch, for a cosmetic feature (label
+alignment). Cache-worthy; not cached.
+
+### Variable duplication between library and forge
+
+`sha := \`git rev-parse HEAD\`` is defined in **both** `lib.just`
+(inside the `localci::` module) and `forges/github.just` (top-level)
+because just's module variable scopes don't leak to top-level. Two
+identical backtick invocations per parse, and the risk that one gets
+updated without the other. Same story for `root`, `system`, etc. if
+any of them ever get referenced by a forge file.
+
+### `_step` always exits 0
+
+By design — the failure trap writes `step_end{state:failure}` to
+events.ndjson and posts a forge signoff, then the script exits 0 so the
+scheduler's `for` loop keeps running subsequent steps in the lane. But
+this means the scheduler has no way to **stop a lane on failure** if
+you ever want that (e.g., "don't bother running e2e if build failed").
+The only signal is "read the event stream." Acceptable for kolu's DAG;
+possibly wrong for other shapes.
+
+### `_guard` runs once up front, not per-step
+
+A user who dirties the worktree mid-run won't trip `_guard` until the
+next fresh invocation. Phase 1 re-checked per-step; phase 1.5 removed
+that to allow steps to tolerate tree mutations (e.g., nix builds writing
+to `.claude/`). Trade-off — document which mutations are expected and
+which should abort.
+
 ## Not yet implemented
 
 - Bitbucket forge backend (`forges/bitbucket.just`)
 - Nix cache push after successful builds
 - Remote builder load balancing (pick least-loaded builder)
+- Real DAG executor (within-lane parallelism)
+- Python-hosted scheduler + dispatch
+- Scheduler plan caching (avoid `just --dump` re-runs in `_contexts`)
