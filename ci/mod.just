@@ -6,8 +6,17 @@
 import 'localci/lib.just'
 import 'localci/forges/github.just'
 
+# The just module name this file is mounted under in the top-level justfile
+# (see `mod ci 'ci/mod.just'`). localci recipes use this to dispatch
+# sibling calls via `just {{ module_name }}::<recipe>` and to parse this
+# module's recipes out of `just --dump` in `_contexts`.
 module_name := "ci"
-systems     := "x86_64-linux aarch64-darwin"
+
+# Target nix systems to build across. Each becomes a parallel lane in
+# `_run-all` below. The local system runs natively; every other system
+# is dispatched over ssh to a remote builder (host resolved via `_host`,
+# cached in ~/.config/ci-hosts.json).
+systems := "x86_64-linux aarch64-darwin"
 
 # Inner workflow: preflight → parallel fanout across systems → summary.
 # `default` (defined in lib.just) acquires the single-instance lock and
