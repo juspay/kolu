@@ -33,13 +33,15 @@ export function createClipboardDir(terminalId: string): string {
   return dir;
 }
 
-/** Save base64-encoded image data to the terminal's clipboard directory. */
+/** Save base64-encoded image data to the terminal's clipboard directory.
+ *  Returns the on-disk path so callers can log / reference it. */
 export function saveClipboardImage(
   clipboardDir: string,
   base64Data: string,
-): void {
+): string {
   const imagePath = join(clipboardDir, "image.png");
   writeFileSync(imagePath, Buffer.from(base64Data, "base64"));
+  return imagePath;
 }
 
 /** Remove a terminal's clipboard directory. */

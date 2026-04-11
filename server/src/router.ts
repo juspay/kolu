@@ -111,8 +111,8 @@ export const appRouter = t.router({
           ? 1
           : 0;
       const bytes = Math.floor((input.data.length * 3) / 4) - padding;
-      log.info({ terminal: input.id, bytes }, "paste image");
-      saveClipboardImage(entry.clipboardDir, input.data);
+      const path = saveClipboardImage(entry.clipboardDir, input.data);
+      log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
 
     kill: t.terminal.kill.handler(async ({ input }) => {
