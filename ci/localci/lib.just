@@ -3,6 +3,7 @@
 # Required variables (defined by importer):
 #   module_name   — the just module name under which this lib is mounted (e.g. "ci")
 #   systems       — space-separated list of all target systems
+#   contexts      — newline-separated list of all CI contexts (step or step@system)
 #
 # Required forge recipes (defined by a forges/<name>.just file that the importer also imports):
 #   _signoff context state description    — post a commit status (or no-op)
@@ -24,6 +25,11 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 # Git repo root — all .localci/ paths are resolved against this so recipes
 # work correctly when invoked from a submodule cwd.
 root         := `git rev-parse --show-toplevel`
+# devour-flake command prefix (nix build wrapper that builds every output
+# of a flake). Importer can use this directly in leaf recipe bodies:
+#   nix:
+#       @{{ devour_flake }} --override-input flake .
+devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
 # ─── Top-level entrypoint ────────────────────────────────────────────────────
 
@@ -124,29 +130,19 @@ _emit-event json:
         print $f $ARGV[1], "\n";
     ' "$evdir/events.ndjson" '{{ json }}'
 
-# ─── Step execution (single-concern helpers) ─────────────────────────────────
+# ─── Step wrapper ────────────────────────────────────────────────────────────
 
-# Run cmd locally (in repo root), tee output to logfile with colored prefix.
-_exec-local cmd logfile prefix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    (cd "{{ root }}" && {{ cmd }}) 2>&1 | tee "{{ logfile }}" | sed "s|^|[{{ prefix }}] |"
-
-# Run cmd on remote host via ssh + git bundle, tee output to logfile with colored prefix.
-_exec-remote host cmd logfile prefix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tmp=$(ssh "{{ host }}" mktemp -d)
-    trap 'ssh "{{ host }}" "rm -rf $tmp"' EXIT
-    git bundle create - --all 2>/dev/null | ssh "{{ host }}" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-    ssh "{{ host }}" "cd $tmp/src && {{ cmd }}" 2>&1 | tee "{{ logfile }}" | sed "s|^|[{{ prefix }}] |"
-
-# ─── Step orchestrator ────────────────────────────────────────────────────────
-
-# Run a CI step: emit events, post forge signoff, dispatch local-or-remote.
-# If CI_SYSTEM is set, context = name@system (multi-system step).
-# Otherwise, context = name (local-only step).
-_run name +cmd:
+# Run a CI step with full lifecycle instrumentation: guard, events, forge
+# signoff, log capture, colored prefix, local-or-remote dispatch.
+#
+# The `step` argument is the name of a recipe in the importer's module.
+# _step invokes `just <module_name>::<step>` as the actual work — leaf
+# recipes stay pure command bodies with zero CI boilerplate.
+#
+# Context naming:
+#   CI_SYSTEM set       → context = "<step>@<system>"   (multi-system step)
+#   CI_SYSTEM unset     → context = "<step>"            (local-only step)
+_step step:
     #!/usr/bin/env bash
     set -euo pipefail
     just {{ module_name }}::_guard
@@ -156,19 +152,19 @@ _run name +cmd:
     logdir="{{ root }}/.localci/logs/${short_sha}"
     mkdir -p "$logdir"
     if [[ -n "${CI_SYSTEM:-}" ]]; then
-        context="{{ name }}@{{ system }}"
+        context="{{ step }}@{{ system }}"
     else
-        context="{{ name }}"
+        context="{{ step }}"
     fi
     logfile="$logdir/${context}.log"
     logrel=".localci/logs/${short_sha}/${context}.log"
     start=$SECONDS
 
-    # Build colored prefix label
+    # Build colored prefix label for log tee-through
     esc=$'\033'
-    name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
+    step_color=$((31 + $(printf '%s' '{{ step }}' | cksum | cut -d' ' -f1) % 6))
     sys_color=$((31 + $(printf '%s' '{{ system }}' | cksum | cut -d' ' -f1) % 6))
-    if [[ "$sys_color" == "$name_color" ]]; then
+    if [[ "$sys_color" == "$step_color" ]]; then
         sys_color=$(( (sys_color - 31 + 3) % 6 + 31 ))
     fi
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
@@ -177,17 +173,17 @@ _run name +cmd:
         icon=">"
     fi
     max_len=$(just {{ module_name }}::_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
-    label="{{ name }}@${icon} {{ system }}"
+    label="{{ step }}@${icon} {{ system }}"
     pad_len=$(( max_len - ${#label} ))
     trailing=$(printf "%${pad_len}s" "" 2>/dev/null || echo "")
-    colored="${esc}[${name_color}m{{ name }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m${trailing}"
+    colored="${esc}[${step_color}m{{ step }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m${trailing}"
 
     # Failure handler: emit step_end(failure) + forge signoff(failure)
     on_fail() {
         local ec=$?
         local elapsed=$(( SECONDS - start ))
         local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
+        just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
         just {{ module_name }}::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
         exit $ec
     }
@@ -195,61 +191,38 @@ _run name +cmd:
 
     # Emit step_start + forge signoff pending
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
+    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
     just {{ module_name }}::_signoff "$context" pending "${user} · running"
 
-    # Dispatch to local or remote transport
+    # Dispatch: invoke `just <module>::<step>` locally or over ssh.
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${colored}"
-        just {{ module_name }}::_exec-local "{{ cmd }}" "$logfile" "$colored"
+        (cd "{{ root }}" && just {{ module_name }}::{{ step }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
         host=$(just {{ module_name }}::_host)
         echo "▶ ${colored} ($host)"
-        just {{ module_name }}::_exec-remote "$host" "{{ cmd }}" "$logfile" "$colored"
+        tmp=$(ssh "$host" mktemp -d)
+        trap 'ssh "$host" "rm -rf $tmp"; on_fail' ERR
+        # git bundle carries the whole repo so the remote sees a real .git
+        # (nix flake builds read git revision info during evaluation).
+        git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
+        ssh "$host" "cd $tmp/src && just {{ module_name }}::{{ step }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        ssh "$host" "rm -rf $tmp"
     fi
 
     # Success: emit step_end + forge signoff
     elapsed=$(( SECONDS - start ))
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
+    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
     just {{ module_name }}::_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
 
-# ─── Devour-flake helper ──────────────────────────────────────────────────────
+# ─── Context list ─────────────────────────────────────────────────────────────
 
-# Build all flake outputs via devour-flake (nix build wrapper).
-# Passes the full nix build command through `_run` as a dep — no subprocess
-# hop. The devour-flake boilerplate is interpolated as literal tokens;
-# `args` carries whatever the caller passed variadically.
-_devour-flake step +args: (_run step "nix build github:srid/devour-flake -L --no-link --print-out-paths" args)
-
-# ─── Context auto-extraction ─────────────────────────────────────────────────
-
-# Auto-extract CI contexts from justfile structure by parsing recipe bodies.
-# Multi-system steps: "CI_SYSTEM=<sys> just <module>::<step> ..." → step@system
-# Local-only steps:   "just <module>::<step> ..." → step (no @system suffix)
+# Emit the list of all CI contexts (one per line). Reads from the importer's
+# `contexts` variable. Importer is the single source of truth for which
+# contexts exist and which system they run on — no recipe-body parsing.
 _contexts:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    just --dump --dump-format json | jq -r --arg m "{{ module_name }}" '
-      .modules[$m].recipes as $r
-      | def expand:
-          if startswith("_") then
-            [ $r[.].dependencies[]?.recipe | expand ] | add // []
-          else [.] end;
-      $r | to_entries[]
-      | select(.key | startswith("_"))
-      | .value.body[0][0] // "" as $first
-      | if ($first | test("^CI_SYSTEM=")) then
-          $first
-          | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
-          | .system as $sys
-          | ([ .steps | split(" ")[] | ltrimstr("\($m)::") | expand ] | add // [])[]
-          | . + "@" + $sys
-        elif ($first | test("^just \($m)::[a-z]")) then
-          $first
-          | capture("just (?<steps>.+?)( \\|\\| true)?$")
-          | ([ .steps | split(" ")[] | ltrimstr("\($m)::") | expand ] | add // [])[]
-        else empty end'
+    @printf '%s\n' {{ contexts }}
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 
