@@ -139,6 +139,19 @@ export function useTerminalCrud(deps: {
     }
   }
 
+  /** Write a command line followed by Enter into the active terminal.
+   *  Used by the "Recent agents" palette entry to relaunch a previously
+   *  seen agent CLI without retyping it. No-op if no terminal is active. */
+  function handleRunInActiveTerminal(command: string) {
+    const id = store.activeId();
+    if (id === null) return;
+    void client.terminal
+      .sendInput({ id, data: `${command}\r` })
+      .catch((err: Error) =>
+        toast.error(`Failed to run command: ${err.message}`),
+      );
+  }
+
   async function handleCloseAll() {
     try {
       await client.terminal.killAll();
@@ -157,6 +170,7 @@ export function useTerminalCrud(deps: {
     handleKill,
     handleKillWithSubs,
     handleCopyTerminalText,
+    handleRunInActiveTerminal,
     handleCloseAll,
   };
 }

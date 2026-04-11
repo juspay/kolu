@@ -17,6 +17,7 @@ export interface CommandDeps {
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   handleCopyTerminalText: () => void;
+  handleRunInActiveTerminal: (command: string) => void;
   handleExportSessionAsPdf: () => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   toggleSubPanel: (parentId: TerminalId) => void;
@@ -38,7 +39,7 @@ export interface CommandDeps {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos } = useServerState();
+  const { recentRepos, recentAgents } = useServerState();
 
   return createMemo((): PaletteCommand[] => [
     {
@@ -66,6 +67,23 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ];
       },
     },
+    // "Recent agents" — surfaces agent CLIs the user has previously run in
+    // any kolu terminal, auto-detected via the preexec OSC 633;E command
+    // mark. Only visible when at least one agent has been seen AND there
+    // is an active terminal to run it in.
+    ...(deps.activeId() !== null && recentAgents().length > 0
+      ? [
+          {
+            name: "Recent agents",
+            description: "Rerun an agent CLI in the active terminal",
+            children: (): PaletteItem[] =>
+              recentAgents().map((a) => ({
+                name: a.command,
+                onSelect: () => deps.handleRunInActiveTerminal(a.command),
+              })),
+          },
+        ]
+      : []),
     ...(deps.activeId() !== null
       ? [
           {

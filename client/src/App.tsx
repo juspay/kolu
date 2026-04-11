@@ -177,6 +177,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),

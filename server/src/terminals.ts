@@ -26,6 +26,8 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { parseAgentCommand } from "./agent-cli.ts";
+import { trackRecentAgent } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -163,6 +165,13 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
         publishForTerminal("title", id, title);
+      },
+      // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
+      // if the first token matches a known agent binary, push it to the
+      // global recent-agents MRU. Commands that aren't agents are discarded.
+      onCommandRun: (raw) => {
+        const normalized = parseAgentCommand(raw);
+        if (normalized) trackRecentAgent(normalized);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {

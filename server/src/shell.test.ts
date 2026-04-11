@@ -55,21 +55,33 @@ describe("OSC7_FN", () => {
 });
 
 describe("OSC2_PREEXEC_FN", () => {
+  // __kolu_preexec emits TWO sequences per invocation:
+  //   1. OSC 2 title change (for terminal title + event-driven process detection)
+  //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for recent-agents MRU)
+  // See shell.ts OSC2_PREEXEC_FN docstring for why.
+
   it("emits OSC 2 with the passed command string", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
-    expect(out).toBe("\x1b]2;vim foo.ts\x1b\\");
+    expect(out).toContain("\x1b]2;vim foo.ts\x1b\\");
+  });
+
+  it("emits OSC 633;E with the passed command string", () => {
+    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
+    expect(out).toContain("\x1b]633;E;vim foo.ts\x1b\\");
   });
 
   it("handles commands with special characters", () => {
     const out = runBash(
       `${OSC2_PREEXEC_FN}; __kolu_preexec 'grep "needle" file.txt'`,
     );
-    expect(out).toBe('\x1b]2;grep "needle" file.txt\x1b\\');
+    expect(out).toContain('\x1b]2;grep "needle" file.txt\x1b\\');
+    expect(out).toContain('\x1b]633;E;grep "needle" file.txt\x1b\\');
   });
 
-  it("emits empty title for empty command", () => {
+  it("emits empty payload for empty command", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec ""`);
-    expect(out).toBe("\x1b]2;\x1b\\");
+    expect(out).toContain("\x1b]2;\x1b\\");
+    expect(out).toContain("\x1b]633;E;\x1b\\");
   });
 });
 
