@@ -115,30 +115,40 @@ const PwaInstallBar: Component = () => {
 
   return (
     <Show when={!isPWA && !installed() && !dismissed()}>
-      {/* Styled as a browser-level notification, not Kolu chrome: uses the
-       *  accent color for the whole bar so it visually detaches from the
-       *  Header (bg-surface-1) sitting directly below. */}
+      {/* Overt browser-level notification: accent background, taller than
+       *  the Header, larger text, and a pulsing download glyph to pull the
+       *  eye. Deliberately loud — the goal is to catch attention, not blend. */}
       <div
         data-testid="pwa-install-bar"
-        class="flex items-center gap-2 h-9 shrink-0 px-3 sm:px-4 bg-accent text-surface-0 border-b border-black/20 text-xs font-medium shadow-sm"
+        class="flex items-center gap-3 min-h-12 shrink-0 px-4 sm:px-6 py-2 bg-accent text-surface-0 border-b-2 border-black/30 text-sm font-semibold shadow-lg"
       >
-        <span class="flex-1 min-w-0 truncate">
-          Install Kolu as an app
-          <Show when={!installEvent()}> — {INSTRUCTIONS[browser]}</Show>
+        <span class="shrink-0 text-lg animate-bounce" aria-hidden="true">
+          ⬇
+        </span>
+        <span class="flex-1 min-w-0">
+          <span class="uppercase tracking-wide text-xs font-bold opacity-80">
+            Install Kolu
+          </span>
+          <span class="block truncate">
+            <Show when={installEvent()} fallback={INSTRUCTIONS[browser]}>
+              Get the full experience with native keyboard shortcuts and offline
+              support.
+            </Show>
+          </span>
         </span>
         <Show when={installEvent()}>
           <button
             data-testid="pwa-install-button"
-            class="shrink-0 px-2.5 py-0.5 rounded-md bg-surface-0 text-accent font-semibold hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
+            class="shrink-0 px-4 py-1.5 rounded-md bg-surface-0 text-accent font-bold text-sm hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50 ring-1 ring-black/20"
             onClick={() => void handleInstall()}
           >
-            Install
+            Install app
           </button>
         </Show>
         <button
           data-testid="pwa-install-dismiss"
           aria-label="Dismiss install prompt"
-          class="shrink-0 p-1 text-surface-0/70 hover:text-surface-0 hover:bg-black/10 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
+          class="shrink-0 p-1.5 text-surface-0/70 hover:text-surface-0 hover:bg-black/15 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
           onClick={() => setDismissed(true)}
         >
           <CloseIcon />
