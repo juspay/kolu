@@ -136,7 +136,6 @@ const Terminal: Component<{
         scrollLock.reset();
         terminal.scrollToBottom();
         debouncedFit();
-        clearTextureAtlas();
         if (props.focused !== false) terminal.focus();
       },
       { defer: true },
