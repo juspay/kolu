@@ -21,6 +21,7 @@ import type {
   ServerState,
   Preferences,
   RecentRepo,
+  RecentAgent,
   SavedSession,
 } from "kolu-common";
 
@@ -73,6 +74,7 @@ export function useServerState() {
     /** Preferences — singleton store, synced from subscription on every server push. */
     preferences: () => prefs,
     recentRepos: () => (sub()?.recentRepos ?? []) as RecentRepo[],
+    recentAgents: () => (sub()?.recentAgents ?? []) as RecentAgent[],
     savedSession: () => (sub()?.session ?? null) as SavedSession | null,
     updatePreferences,
   };

@@ -185,6 +185,7 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
     getSubTerminalIds: store.getSubTerminalIds,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
@@ -194,8 +195,8 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) =>
-      void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath, initialCommand) =>
+      void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);

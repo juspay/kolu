@@ -12,13 +12,35 @@ export function useWorktreeOps(deps: {
 }) {
   const { store } = deps;
 
-  async function handleCreateWorktree(repoPath: string) {
+  async function handleCreateWorktree(
+    repoPath: string,
+    initialCommand?: string,
+  ) {
     const id = toast.loading("Creating worktree…");
     try {
       const result = await client.git.worktreeCreate({ repoPath });
       toast.success(`Created worktree at ${result.path}`, { id });
-      await deps.handleCreate(result.path);
+      const newTerminalId = await deps.handleCreate(result.path);
       // Recent repos update reactively via trackRecentRepo → publishSystem
+
+      // Optional initial command (phase 2 of #452): write the agent command
+      // to the new terminal's input so the agent starts immediately.
+      //
+      // PTY input is buffered: the shell reads `initialCommand\r` at its
+      // first prompt once rc initialization completes. Works reliably in
+      // practice, but has a latent race on slow-rc systems (NixOS with
+      // many sourced files) where init output can interleave with command
+      // echo. If that becomes visible in dogfooding, promote to a
+      // server-side createTerminal parameter gated on a shell-ready
+      // signal (OSC 133;A prompt mark) — a contract change deliberately
+      // deferred out of phase 2 scope.
+      if (initialCommand !== undefined) {
+        await client.terminal
+          .sendInput({ id: newTerminalId, data: `${initialCommand}\r` })
+          .catch((err: Error) =>
+            toast.error(`Failed to start agent: ${err.message}`),
+          );
+      }
     } catch (err) {
       toast.error(`Failed to create worktree: ${(err as Error).message}`, {
         id,

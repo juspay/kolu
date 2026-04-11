@@ -55,21 +55,33 @@ describe("OSC7_FN", () => {
 });
 
 describe("OSC2_PREEXEC_FN", () => {
+  // __kolu_preexec emits TWO sequences per invocation:
+  //   1. OSC 2 title change (for terminal title + event-driven process detection)
+  //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for recent-agents MRU)
+  // See shell.ts OSC2_PREEXEC_FN docstring for why.
+
   it("emits OSC 2 with the passed command string", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
-    expect(out).toBe("\x1b]2;vim foo.ts\x1b\\");
+    expect(out).toContain("\x1b]2;vim foo.ts\x1b\\");
+  });
+
+  it("emits OSC 633;E with the passed command string", () => {
+    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
+    expect(out).toContain("\x1b]633;E;vim foo.ts\x1b\\");
   });
 
   it("handles commands with special characters", () => {
     const out = runBash(
       `${OSC2_PREEXEC_FN}; __kolu_preexec 'grep "needle" file.txt'`,
     );
-    expect(out).toBe('\x1b]2;grep "needle" file.txt\x1b\\');
+    expect(out).toContain('\x1b]2;grep "needle" file.txt\x1b\\');
+    expect(out).toContain('\x1b]633;E;grep "needle" file.txt\x1b\\');
   });
 
-  it("emits empty title for empty command", () => {
+  it("emits empty payload for empty command", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec ""`);
-    expect(out).toBe("\x1b]2;\x1b\\");
+    expect(out).toContain("\x1b]2;\x1b\\");
+    expect(out).toContain("\x1b]633;E;\x1b\\");
   });
 });
 
@@ -140,6 +152,31 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     // The command "__zoxide_hook" would fire DEBUG with BASH_COMMAND="__zoxide_hook"
     // but flag is empty so dispatch returns early.
     expect(out).not.toContain("__zoxide_hook");
+  });
+
+  it("readline widget (fzf Ctrl+R) does not consume the ready flag", () => {
+    // Regression: when fzf's Ctrl+R binding fires, BASH_COMMAND is set to
+    // `__fzf_history__` — a readline widget, not a user command. Before
+    // the `__*` guard, dispatch would clear the ready flag for it, causing
+    // the user's NEXT real command to see flag="" and get silently dropped
+    // (the "had to run it twice" bug).
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        `__fzf_history__() { :; }\n` +
+        // Arm flag (as PROMPT_COMMAND would after the prompt draws)
+        `__kolu_preexec_arm\n` +
+        // Simulate Ctrl+R: widget runs, should NOT consume the flag
+        `__fzf_history__\n` +
+        // Now the user's real command — flag must still be armed
+        `true\n`,
+    );
+    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
+      (m) => m[1],
+    );
+    // The widget should be skipped, the real command should fire.
+    expect(titles).not.toContain("__fzf_history__");
+    expect(titles).toContain("true");
   });
 
   it("full flow: user command emitted, PROMPT_COMMAND hook skipped", () => {

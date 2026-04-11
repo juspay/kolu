@@ -77,6 +77,10 @@ export function spawnPty(
     onCwd?: (cwd: string) => void;
     /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
     onTitleChange?: (title: string) => void;
+    /** Fired when the preexec hook emits `OSC 633 ; E ; <cmd>` — the raw
+     *  command line the user typed, before execution. Used to build the
+     *  global recent-agents MRU. */
+    onCommandRun?: (command: string) => void;
   },
   clipboard: { shimBinDir: string; clipboardDir: string },
   spawnCwd?: string,
@@ -157,6 +161,26 @@ export function spawnPty(
     opts.onTitleChange?.(title);
   });
 
+  // OSC 633 ; E ; <command>  — VS Code's semantic "exact command line"
+  // sequence, emitted by kolu's preexec hook alongside OSC 2. The payload
+  // arrives as "E;<command>"; we accept only the E sub-code and ignore
+  // any other 633;X payloads so future VS Code sequences (A/B/C/D) pass
+  // through untouched.
+  const commandMarkDisposable = headless.parser.registerOscHandler(
+    633,
+    (data: string) => {
+      if (!data.startsWith("E;")) return false;
+      const command = data.slice(2);
+      // DEBUG only: the raw command string is whatever the user typed,
+      // including any ephemeral prompt text, API keys, or secrets. The
+      // downstream `recent agent tracked` log emits the *normalized*
+      // form at INFO, which has prompt flags and their values stripped.
+      tlog.debug({ command }, "command run (OSC 633;E)");
+      opts.onCommandRun?.(command);
+      return true;
+    },
+  );
+
   // Forward device query responses (DA1/DSR) from headless terminal back to
   // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
   // headless terminal responds immediately, avoiding latency from the client.
@@ -200,6 +224,7 @@ export function spawnPty(
     dispose() {
       oscDisposable.dispose();
       titleDisposable.dispose();
+      commandMarkDisposable.dispose();
       headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();

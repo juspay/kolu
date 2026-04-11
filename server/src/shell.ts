@@ -77,10 +77,22 @@ export function cleanEnv(): Record<string, string> {
 /** Shell function that emits OSC 7 with the current working directory. */
 export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$(hostname)" "$PWD"; }`;
 
-/** Shell function that emits OSC 2 (title) with the command about to run.
- *  Triggered by preexec — fires before each command, enabling event-driven
- *  foreground process detection without polling. */
-export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; }`;
+/** Shell function fired from preexec before each command.
+ *
+ *  Emits TWO orthogonal sequences:
+ *
+ *  1. **OSC 2** — window title. Mirrors Ghostty/Kitty convention of
+ *     showing the running command in the title bar. Consumed by
+ *     `headless.onTitleChange` in pty.ts to drive event-driven
+ *     foreground process detection.
+ *
+ *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
+ *     mark. Consumed by the OSC 633 handler in pty.ts to build the
+ *     global "recent agents" MRU without any PID/argv lookups. The
+ *     shell hands us the command string verbatim, so kolu never needs
+ *     `/proc` (Linux-only) or `ps` spawning (slow). Works identically
+ *     on Linux and macOS. */
+export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; printf '\\033]633;E;%s\\033\\\\' "$1"; }`;
 
 /** Bash-specific preexec dispatch — uses a ready flag armed at the end of
  *  PROMPT_COMMAND to ensure the title only fires for user-typed commands,
@@ -95,6 +107,15 @@ export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' 
  *  next user command. DEBUG dispatch checks the flag, emits once per user
  *  command, and clears it (so subsequent pipeline commands don't re-emit).
  *
+ *  Readline widget guard: fzf's Ctrl+R / Ctrl+T bindings, bash-completion
+ *  helpers, and zoxide's cd wrappers run via DEBUG trap with BASH_COMMAND
+ *  set to a `__xxx` function name — they are NOT user-typed commands. If
+ *  dispatch clears the ready flag for them, the user's next *real* command
+ *  fires with flag="" and gets silently dropped. Skip anything starting
+ *  with `__` without clearing the flag, so the next real command still
+ *  dispatches. The `__` prefix is the strong bash convention for internal
+ *  widgets; user commands virtually never use it.
+ *
  *  (We originally tried PS0 command substitution, but `$(...)` runs in a
  *  subshell, so the flag assignment never reached the parent shell.) */
 export const OSC2_PREEXEC_BASH_GUARD = [
@@ -102,6 +123,7 @@ export const OSC2_PREEXEC_BASH_GUARD = [
   `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
   `__kolu_preexec_dispatch() {`,
   `  [ -z "$__kolu_preexec_ready" ] && return`,
+  `  case "$BASH_COMMAND" in __*) return ;; esac`,
   `  __kolu_preexec_ready=""`,
   `  __kolu_preexec "$BASH_COMMAND"`,
   `}`,
