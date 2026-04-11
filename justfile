@@ -120,7 +120,10 @@ run:
 
 ci: _localci
 
-devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
+# devour-flake builds every output of a flake in one go (all packages,
+# checks, devshells, NixOS configs, home-manager configs, etc.) via one
+# nix build invocation. https://github.com/srid/devour-flake
+devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
 [group("localci:system:local")]
 ci-check:
@@ -141,11 +144,11 @@ ci-apm-sync:
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
 ci-nix:
-    {{ devour_prefix }} --override-input flake .
+    {{ devour_flake }} --override-input flake .
 
 [group("localci:system:x86_64-linux")]
 ci-home-manager: ci-nix
-    {{ devour_prefix }} --override-input flake ./nix/home/example --override-input flake/kolu .
+    {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
