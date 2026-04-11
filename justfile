@@ -130,16 +130,25 @@ apm-sync: ai::apm-sync
 nix:
     {{ devour_flake }} --override-input flake .
 
-# Build the example home-manager configuration via devour-flake
+# Build the example home-manager configuration via devour-flake.
+#
+# The `localci:depends:nix` tag tells the scheduler to run `nix` first in
+# this lane — NOT a native `: nix` just dep. See the README note below for
+# why; short version: native deps would cause `nix` to re-run as a dep of
+# every step that references it, because the scheduler dispatches each step
+# via its own `just <step>` subprocess.
 [group("localci:system:x86_64-linux")]
-home-manager: nix
+[group("localci:depends:nix")]
+home-manager:
     {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
-# Cucumber e2e tests. CI runs under localci with the `nix` dep above; for a
-# fast dev loop without devour-flake, use `just test-quick` instead.
+# Cucumber e2e tests. CI-only; for dev iteration use `just test-quick` instead.
+# Same [group("localci:depends:nix")] trick — scheduler runs nix first in
+# the lane, avoiding the duplicate dep-run cost of a native `: nix` dep.
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
-e2e: install nix
+[group("localci:depends:nix")]
+e2e: install
     #!/usr/bin/env bash
     set -euo pipefail
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"

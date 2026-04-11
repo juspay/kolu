@@ -104,13 +104,37 @@ build:
 
 [group("localci:system:x86_64-linux")]
 [group("localci:system:aarch64-darwin")]
-test: build
+[group("localci:depends:build")]
+test:
     cargo test   # or whatever
 ```
 
-That's it. localci reads the `[group]` attributes and the `test: build`
-dep via `just --dump` and builds the execution plan — no `default`, no
-orchestrator lanes, no `(_run ...)` wrappers, no `|| true`.
+That's it. localci reads the `[group]` attributes via `just --dump` and
+builds the execution plan — no `default`, no orchestrator lanes, no
+`(_run ...)` wrappers, no `|| true`.
+
+### Why `[group("localci:depends:...")]` instead of just's native `dep:` syntax
+
+Notice the example above uses `[group("localci:depends:build")]` rather
+than `test: build`. This is deliberate.
+
+The scheduler dispatches each step via its own `just <step>` subprocess.
+If `test` had a native `test: build` dep, every dispatch of `just test`
+would re-run `build` as just's native dep resolution kicks in — once as
+its own step, again as `test`'s dep, again as `other-step`'s dep, etc.
+On a Nix project with devour-flake, that's ~5–10s of redundant overhead
+per extra run.
+
+The `[group("localci:depends:<step>")]` tag tells the scheduler "`build`
+must run before me in this lane," and the scheduler enforces that via
+topological ordering. Each step then runs **exactly once per lane**, with
+no re-evaluation of deps per dispatch.
+
+**Tradeoff**: dev users running `just test` directly don't get the
+auto-ordering — they need to run `just build` first manually, or invoke
+`just ci` for the full lane. If your recipe has a **real** (non-CI-plan)
+dependency on a setup recipe like `install`, keep that as a native just
+dep — the scheduler only touches `localci:depends:*` tags.
 
 ### 4. Gitignore runtime state
 

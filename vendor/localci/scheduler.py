@@ -35,10 +35,11 @@ def main() -> int:
             for a in r.get("attributes", [])
             if isinstance(a, dict) and "group" in a
         ]
-        # Tags look like `localci:system:<name>`, e.g. `localci:system:local`
-        # or `localci:system:x86_64-linux`. The `localci:` prefix makes it
-        # obvious the tag is owned by this library and avoids collisions with
-        # other tooling that might use [group("...")] for unrelated reasons.
+        # System tags look like `localci:system:<name>`, e.g.
+        # `localci:system:local` or `localci:system:x86_64-linux`. Dep tags
+        # look like `localci:depends:<other-recipe>`. The `localci:` prefix
+        # makes ownership explicit and avoids collisions with other tooling
+        # that might use [group("...")] for unrelated reasons.
         sys_tags = [
             g.split(":", 2)[2]
             for g in groups
@@ -47,7 +48,17 @@ def main() -> int:
         if not sys_tags:
             # A recipe with no system tag is invisible to the scheduler.
             continue
-        deps = [d["recipe"] for d in r.get("dependencies", [])]
+        # Intra-lane ordering comes from [group("localci:depends:<step>")],
+        # NOT from just's native `dep:` syntax. This matters because the
+        # scheduler dispatches each step via its own `just <step>` subprocess,
+        # so a native dep would re-run as just's dep resolution kicks in
+        # again for every dispatcher invocation. The scheduler respects the
+        # `localci:depends:*` ordering itself and removes the redundancy.
+        deps = [
+            g.split(":", 2)[2]
+            for g in groups
+            if g.startswith("localci:depends:")
+        ]
         for sys_name in sys_tags:
             systems[sys_name][name] = deps
 
