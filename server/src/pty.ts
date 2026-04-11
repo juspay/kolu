@@ -171,7 +171,11 @@ export function spawnPty(
     (data: string) => {
       if (!data.startsWith("E;")) return false;
       const command = data.slice(2);
-      tlog.info({ command }, "command run (OSC 633;E)");
+      // DEBUG only: the raw command string is whatever the user typed,
+      // including any ephemeral prompt text, API keys, or secrets. The
+      // downstream `recent agent tracked` log emits the *normalized*
+      // form at INFO, which has prompt flags and their values stripped.
+      tlog.debug({ command }, "command run (OSC 633;E)");
       opts.onCommandRun?.(command);
       return true;
     },
