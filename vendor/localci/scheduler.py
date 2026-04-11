@@ -42,7 +42,15 @@ def main() -> int:
             for a in r.get("attributes", [])
             if isinstance(a, dict) and "group" in a
         ]
-        sys_tags = [g.split(":", 1)[1] for g in groups if g.startswith("system:")]
+        # Tags look like `localci:system:<name>`, e.g. `localci:system:local`
+        # or `localci:system:x86_64-linux`. The `localci:` prefix makes it
+        # obvious the tag is owned by this library and avoids collisions with
+        # other tooling that might use [group("...")] for unrelated reasons.
+        sys_tags = [
+            g.split(":", 2)[2]
+            for g in groups
+            if g.startswith("localci:system:")
+        ]
         if not sys_tags:
             # A recipe with no system tag is invisible to the scheduler.
             continue

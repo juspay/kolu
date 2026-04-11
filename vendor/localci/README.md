@@ -11,7 +11,7 @@ No GitHub Actions, no Hydra. Just `just`, `perl`, `python3` (with a
 ## Design
 
 The consumer writes **regular justfile recipes** — one job each, no library
-syntax in the body. Each recipe is tagged with `[group("system:<name>")]`
+syntax in the body. Each recipe is tagged with `[group("localci:system:<name>")]`
 attributes declaring which target systems it runs on. localci's scheduler
 reads those attributes (and just's native `dep:` syntax for intra-lane
 ordering) via `just --dump --dump-format json`, builds a per-system DAG,
@@ -83,21 +83,21 @@ import 'localci/forges/github.just'    # or forges/none.just
 
 module_name := "ci"
 
-[group("system:local")]
+[group("localci:system:local")]
 fmt:
     just fmt-check
 
-[group("system:local")]
+[group("localci:system:local")]
 typecheck:
     just check
 
-[group("system:x86_64-linux")]
-[group("system:aarch64-darwin")]
+[group("localci:system:x86_64-linux")]
+[group("localci:system:aarch64-darwin")]
 build:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
-[group("system:x86_64-linux")]
-[group("system:aarch64-darwin")]
+[group("localci:system:x86_64-linux")]
+[group("localci:system:aarch64-darwin")]
 test: build
     just test
 ```
@@ -154,7 +154,7 @@ The importer must define one variable:
 And import exactly one forge backend, which provides `repo`, `_signoff`,
 `_list-statuses`, and (optionally) `protect`.
 
-Leaves opt into the scheduler via `[group("system:<name>")]` attributes.
+Leaves opt into the scheduler via `[group("localci:system:<name>")]` attributes.
 System names are either `local` (runs once on whoever invokes `just ci`,
 no `@system` suffix) or a nix system string like `x86_64-linux` /
 `aarch64-darwin` (runs on that system; native → local exec, non-native →

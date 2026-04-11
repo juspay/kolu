@@ -119,32 +119,32 @@ run:
 
 devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
-[group("system:local")]
+[group("localci:system:local")]
 ci-check:
     just check
 
-[group("system:local")]
+[group("localci:system:local")]
 ci-fmt:
     just fmt-check
 
-[group("system:local")]
+[group("localci:system:local")]
 ci-unit:
     just test-unit
 
-[group("system:local")]
+[group("localci:system:local")]
 ci-apm-sync:
     just ai::apm-sync
 
-[group("system:x86_64-linux")]
-[group("system:aarch64-darwin")]
+[group("localci:system:x86_64-linux")]
+[group("localci:system:aarch64-darwin")]
 ci-nix:
     {{ devour_prefix }} --override-input flake .
 
-[group("system:x86_64-linux")]
+[group("localci:system:x86_64-linux")]
 ci-home-manager: ci-nix
     {{ devour_prefix }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
-[group("system:x86_64-linux")]
-[group("system:aarch64-darwin")]
+[group("localci:system:x86_64-linux")]
+[group("localci:system:aarch64-darwin")]
 ci-e2e: ci-nix
     just test
