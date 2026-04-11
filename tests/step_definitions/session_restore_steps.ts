@@ -44,8 +44,13 @@ Then(
       await card.waitFor({ state: "visible", timeout: 3000 });
       return;
     } catch {
-      // Empty state shown but no card. Re-POST the saved session in case
-      // the server lost it or its publish was missed by this client.
+      // First attempt failed. Snapshot what the server thinks the state is
+      // RIGHT NOW so the failure log is actionable instead of mystery.
+      const serverState = await this.page.request.fetch(
+        "/rpc/state/get?batch=1",
+      );
+      const serverStatusCode = serverState.status();
+      // Re-POST the stashed session to wake the second hydration effect.
       const saved = this.savedSessionForRestore;
       if (saved) {
         await this.page.request.fetch("/rpc/state/test__set", {
@@ -54,7 +59,18 @@ Then(
           data: JSON.stringify({ json: { session: saved } }),
         });
       }
-      await card.waitFor({ state: "visible", timeout: 5000 });
+      try {
+        await card.waitFor({ state: "visible", timeout: 7000 });
+        return;
+      } catch (err) {
+        const html = await this.page
+          .locator('[data-testid="empty-state"]')
+          .innerHTML()
+          .catch(() => "<unable to read>");
+        throw new Error(
+          `session restore card never visible. saved=${JSON.stringify(saved)} serverGetStatus=${serverStatusCode} empty-state HTML=${html.slice(0, 800)} | original=${(err as Error).message}`,
+        );
+      }
     }
   },
 );
