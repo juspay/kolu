@@ -13,6 +13,12 @@
  * - Prompt/message flags (`-p`, `--prompt`, `-m`, `--message`) are
  *   stripped together with their values so ephemeral prompt text
  *   never lands in the persisted MRU (leak prevention).
+ * - Session-resume flags (`-c`, `--continue`, `-r`, `--resume`) are
+ *   stripped because they refer to a transient prior session —
+ *   persisting them in the MRU would offer to resume a session that
+ *   no longer exists (or is the wrong one) when the user picks the
+ *   entry later. `--resume` may take an optional session-id value,
+ *   which is also stripped.
  * - Trailing positional arguments (after the last flag) are stripped
  *   so `aider src/foo.ts` collapses to `aider`.
  * - All other flags are preserved verbatim in their original order.
@@ -40,12 +46,26 @@ const KNOWN_AGENTS: ReadonlySet<string> = new Set([
   "cursor-agent",
 ]);
 
-/** Flags whose value is an ephemeral prompt/message and must be stripped. */
-const PROMPT_FLAGS: ReadonlySet<string> = new Set([
+/** Flags whose presence (and optional following value) is ephemeral and
+ *  must be stripped from the MRU form. Two kinds live here:
+ *
+ *  - Prompt/message flags (`-p`, `--prompt`, `-m`, `--message`): their
+ *    value is user prompt text and must never be persisted.
+ *  - Session-resume flags (`-c`, `--continue`, `-r`, `--resume`): they
+ *    point at a transient prior session; persisting them would offer to
+ *    resume a session that no longer exists when the user later picks
+ *    the MRU entry. `--resume` accepts an optional session-id value,
+ *    which is stripped by the same "skip next non-flag token" branch.
+ */
+const EPHEMERAL_FLAGS: ReadonlySet<string> = new Set([
   "-p",
   "--prompt",
   "-m",
   "--message",
+  "-c",
+  "--continue",
+  "-r",
+  "--resume",
 ]);
 
 /** Basename of a path-like token (strips directory prefix). */
@@ -66,8 +86,8 @@ export function parseAgentCommand(raw: string): string | null {
   const agent = basename(tokens[0]!);
   if (!KNOWN_AGENTS.has(agent)) return null;
 
-  // Collect stable flags + drop prompt flags with their values.
-  // A stable flag is any `-x` or `--xxx` that is not in PROMPT_FLAGS.
+  // Collect stable flags + drop ephemeral flags with their values.
+  // A stable flag is any `-x` or `--xxx` that is not in EPHEMERAL_FLAGS.
   // Anything else (trailing positional args) is dropped.
   const kept: string[] = [agent];
   const args = tokens.slice(1);
@@ -75,7 +95,7 @@ export function parseAgentCommand(raw: string): string | null {
     const t = args[i]!;
     if (t === "--") break; // stop at explicit end-of-flags
     if (!t.startsWith("-")) continue; // drop positional
-    if (PROMPT_FLAGS.has(t)) {
+    if (EPHEMERAL_FLAGS.has(t)) {
       // Skip the flag and its value (if present and not another flag)
       if (i + 1 < args.length && !args[i + 1]!.startsWith("-")) i++;
       continue;
