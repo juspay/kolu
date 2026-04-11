@@ -8,9 +8,10 @@
  * `just test`).
  */
 
-import { userInfo, tmpdir } from "node:os";
-import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
+import { userInfo } from "node:os";
+import { writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { koluShellDir } from "./koluRoot.ts";
 
 /**
  * Default env vars safe to forward from a nix devshell to PTY shells.
@@ -125,11 +126,13 @@ export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|â€
  * Returns extra spawn args, env overrides, and a cleanup function to remove
  * any temp files created.
  */
-export function osc7Init(
-  shell: string,
-  home: string | undefined,
-  extraPath?: string,
-): { args: string[]; env: Record<string, string>; cleanup: () => void } {
+export function osc7Init(opts: {
+  shell: string;
+  home: string | undefined;
+  terminalId: string;
+  extraPath?: string;
+}): { args: string[]; env: Record<string, string>; cleanup: () => void } {
+  const { shell, home, terminalId, extraPath } = opts;
   const noop = { args: [], env: {}, cleanup: () => {} };
   if (!home) return noop;
 
@@ -140,7 +143,7 @@ export function osc7Init(
   const pathLine = extraPath ? `export PATH="${extraPath}:$PATH"` : "";
 
   if (isBash) {
-    const rcFile = join(tmpdir(), `kolu-bashrc-${process.pid}-${Date.now()}`);
+    const rcFile = join(koluShellDir, `bashrc-${terminalId}`);
     writeFileSync(
       rcFile,
       [
@@ -183,7 +186,8 @@ export function osc7Init(
   }
 
   if (isZsh) {
-    const zdotdir = mkdtempSync(join(tmpdir(), "kolu-zsh-"));
+    const zdotdir = join(koluShellDir, `zdotdir-${terminalId}`);
+    mkdirSync(zdotdir, { recursive: true });
     writeFileSync(
       join(zdotdir, ".zshrc"),
       [
