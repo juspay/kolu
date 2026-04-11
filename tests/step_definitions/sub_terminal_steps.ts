@@ -220,13 +220,10 @@ When(
         '[data-testid="sub-panel-tab-bar"] [data-testid="sub-tab-close"]',
       )
       .nth(index - 1);
-    // Hover the parent to reveal the close button
+    // Hover the parent to reveal the close button, then click.
+    // Splits close directly — no confirmation dialog.
     await tab.locator("..").hover();
     await tab.click();
-    // Confirm in the dialog — every close goes through CloseConfirm.
-    const confirm = this.page.locator('[data-testid="close-confirm"]');
-    await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await confirm.locator('[data-testid="close-confirm-close-all"]').click();
     await this.waitForFrame();
   },
 );

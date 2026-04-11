@@ -70,6 +70,7 @@ export interface PtyHandle {
 /** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
   tlog: Logger,
+  terminalId: string,
   opts: {
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
@@ -90,7 +91,12 @@ export function spawnPty(
 
   // Inject clipboard shim dir into shell rc AFTER the user's rc —
   // NixOS rebuilds PATH during shell init, so env-level PATH gets lost.
-  const osc7 = osc7Init(shell, env.HOME, clipboard.shimBinDir);
+  const osc7 = osc7Init({
+    shell,
+    home: env.HOME,
+    terminalId,
+    extraPath: clipboard.shimBinDir,
+  });
   Object.assign(env, osc7.env);
   env.KOLU_CLIPBOARD_DIR = clipboard.clipboardDir;
 

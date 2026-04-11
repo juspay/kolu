@@ -31,6 +31,7 @@ const ClaudeTranscriptDialog: Component<{
       <Dialog.Content
         data-testid="claude-transcript"
         class="w-[min(95vw,1200px)] h-[80vh] bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden"
+        style={{ "background-color": "var(--color-surface-1)" }}
       >
         <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">
           Claude transcript (server's view vs disk)
