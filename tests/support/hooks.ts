@@ -176,6 +176,20 @@ AfterAll(async function () {
   if (browser) await browser.close();
   keepAliveAgent.destroy();
   killServer();
+  // Remove the per-worker temp dirs created with `mkdtempSync` above. Without
+  // this, every `just test` invocation leaks ~100–200MB of JSONL transcripts
+  // and session files into /tmp/kolu-claude-*, and a long ralph loop or CI
+  // server will eventually fill /tmp or /. Discovered during the #440
+  // hardening loop — the halt at 0 bytes free was directly caused by this.
+  for (const dir of [claudeSessionsDir, claudeProjectsDir]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup — if something already removed the dir (or we
+      // don't have permission for some reason) there's nothing productive
+      // to do in a test teardown. The OS will clean /tmp eventually.
+    }
+  }
 });
 
 Before(async function (this: KoluWorld, scenario) {

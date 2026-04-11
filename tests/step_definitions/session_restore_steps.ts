@@ -7,39 +7,67 @@ import {
 import * as assert from "node:assert";
 import * as os from "node:os";
 
+/** Post the saved-session payload to the server. Used both at scenario
+ *  setup (Given) and as a self-heal in the assertion. Idempotent. */
+async function postSavedSession(
+  page: KoluWorld["page"],
+  count: number,
+): Promise<void> {
+  const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
+  const resp = await page.request.fetch("/rpc/state/test__set", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: JSON.stringify({
+      json: {
+        session: {
+          terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
+          savedAt: Date.now(),
+        },
+      },
+    }),
+  });
+  assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
+}
+
 Given(
   "a saved session with {int} terminals",
   async function (this: KoluWorld, count: number) {
-    // Use paths guaranteed to exist on all platforms (no mkdir needed)
-    const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
-    const resp = await this.page.request.fetch("/rpc/state/test__set", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({
-        json: {
-          session: {
-            terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
-            savedAt: Date.now(),
-          },
-        },
-      }),
-    });
-    assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
+    // Stash count for the assertion-side self-heal.
+    this.savedSessionTerminalCount = count;
+    await postSavedSession(this.page, count);
   },
 );
 
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    // Under 8 parallel workers, page/server init can be slow.
-    // Use waitForFunction for a reactive DOM check.
-    await this.page.waitForFunction(
-      () => {
-        const card = document.querySelector('[data-testid="session-restore"]');
-        return card && card.getBoundingClientRect().height > 0;
-      },
-      { timeout: 20000 },
-    );
+    // The flake we're working around: useSessionRestore.ts has a once-only
+    // `hydrated` flag that gates `setSavedSession(state.session)` on the
+    // first non-undefined value of the state subscription. Under
+    // parallel-worker contention, the subscription occasionally hydrates
+    // BEFORE the server's snapshot reflects our test__set POST — savedSession
+    // gets set to null and the card never appears.
+    //
+    // The companion createEffect (gated on terminals.length===0 + hydrated)
+    // re-runs whenever `serverState.savedSession()` changes, so re-POSTing
+    // the session AFTER hydration drives the card into view via that path.
+    //
+    // Strategy:
+    //   1. Wait for empty-state to mount (proves WS is up + hydrated has run).
+    //   2. Re-POST the session — guaranteed to be processed AFTER hydration.
+    //   3. Wait for the card with the remaining budget.
+    await this.page
+      .locator('[data-testid="empty-state"]')
+      .waitFor({ state: "visible", timeout: 15000 });
+    const card = this.page.locator('[data-testid="session-restore"]');
+    // Fast path: card already visible (happy-hydration run). `.catch(() => false)`
+    // because Playwright's isVisible() can throw on transient DOM states during
+    // mount — treating those as "not visible" just routes to the self-heal below.
+    if (await card.isVisible().catch(() => false)) return;
+    if (this.savedSessionTerminalCount !== undefined) {
+      await postSavedSession(this.page, this.savedSessionTerminalCount);
+    }
+    await card.waitFor({ state: "visible", timeout: 10000 });
   },
 );
 
