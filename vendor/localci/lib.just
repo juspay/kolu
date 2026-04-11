@@ -59,9 +59,10 @@ root         := `git rev-parse --show-toplevel`
 # lock fd survives the exec into `just <module>::_scheduler` and stays held
 # for the full duration of the run, not just perl's lifetime.
 #
-# The consumer's mod.just re-exports this via `default: _default` so it
-# wins just's "first-defined" rule for default-recipe selection.
-_default:
+# Consumers invoke this via a forwarder recipe in their justfile, e.g.
+# `ci: _localci`. The recipe is underscore-prefixed and owned by the
+# library; consumers shouldn't call it directly.
+_localci:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{ root }}/.localci"

@@ -13,9 +13,6 @@ import 'vendor/localci/forges/github.just'
 default:
     @just --list
 
-# Run all CI steps (localci scheduler, perl-flock single-instance lock).
-ci: _default
-
 # Prepare repo for development — install deps and cache so future workflows run faster
 prepare: install
 
@@ -108,14 +105,20 @@ build:
 run:
     nix run
 
-# ─── CI step definitions ─────────────────────────────────────────────────────
-# Each recipe below is a localci-wrapped CI step. [group("system:...")] tells
-# the scheduler which lane it runs in; just's native dep syntax (`ci-e2e: ci-nix`)
-# encodes intra-lane ordering. Dispatched via `just ci`.
+# ─── CI ──────────────────────────────────────────────────────────────────────
+# `just ci` runs all CI steps via localci. `_localci` is a library-provided
+# recipe (see vendor/localci/lib.just) that acquires a perl Fcntl::flock on
+# .localci/current and execs into the scheduler.
+#
+# Each `ci-*` recipe below is a localci-wrapped CI step. `[group("localci:system:...")]`
+# tells the scheduler which lane it runs in; just's native dep syntax
+# (`ci-e2e: ci-nix`) encodes intra-lane ordering.
 #
 # Collision-prefixed with `ci-` for now — when you're ready, merge with the
 # top-level `check`/`test`/`fmt-check` recipes so there's one canonical
 # definition per step (tracked as a follow-up).
+
+ci: _localci
 
 devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
