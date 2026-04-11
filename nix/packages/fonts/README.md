@@ -1,4 +1,4 @@
-# nix/fonts
+# nix/packages/fonts
 
 Nix derivation that fetches and self-hosts all web font assets, replacing CDN dependencies on Google Fonts and jsDelivr.
 
@@ -32,7 +32,7 @@ $out/
 
 ## Updating fonts
 
-Edit `dmSansSubsets` or `firacode` in `default.nix`. To get a new hash:
+Edit `dmSansSubsets` or `firacode` in `fonts.nix`. To get a new hash:
 
 ```sh
 nix hash convert --to sri --hash-algo sha256 $(nix-prefetch-url <url>)
