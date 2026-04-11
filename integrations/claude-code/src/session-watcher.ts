@@ -73,6 +73,29 @@ export function infoEqual(
   );
 }
 
+// --- Tuning constants ---
+
+/** Trailing-edge debounce for the transcript fs.watch callback. Claude
+ *  streams tokens, and Linux fs.watch fires multiple events per write —
+ *  without debouncing, `onTranscriptMaybeChanged` runs dozens to hundreds
+ *  of times per second, each iteration re-allocating a 256 KB tail buffer
+ *  and firing an async SDK summary fetch. 150 ms coalesces bursts into
+ *  one handler run while keeping the user-perceptible lag imperceptible. */
+const TRANSCRIPT_DEBOUNCE_MS = 150;
+
+/** Chunk size for `scanTasksIncremental`. The previous one-shot
+ *  `Buffer.alloc(size - offset)` could allocate hundreds of MB transiently
+ *  on first attach to a pre-existing transcript, pushing a climbing heap
+ *  over V8's 4 GB ceiling. 1 MB bounds peak transient memory regardless
+ *  of file size. */
+const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
+
+/** Cap on the per-SessionWatcher debug accumulator. Only read by the
+ *  "Show Claude transcript" debug view, which paginates — 500 entries is
+ *  more than the UI displays. Prevents unbounded growth in a debug-only
+ *  array over long sessions. */
+const MAX_STATE_CHANGES = 500;
+
 // --- Transcript watching lifecycle ---
 
 /**
@@ -137,6 +160,15 @@ export function createSessionWatcher(
   let lastSummary: string | null = null;
   let taskMap = new Map<string, "pending" | "in_progress" | "completed">();
   let taskScanOffset = 0;
+  // Partial final line from the previous chunked scan. Carried across
+  // calls so a line straddling a chunk or EOF boundary resolves to a
+  // single complete line once the newline arrives. Without this, the
+  // tail of one call would be split-processed at the head of the next
+  // call as if it were already a complete line — silent task corruption.
+  let taskScanRemainder = "";
+  // Trailing-edge debounce timer for transcript fs.watch events.
+  // Null when idle. Cleared on destroy.
+  let transcriptDebounceTimer: NodeJS.Timeout | null = null;
 
   // Diagnostic state — shares the SessionWatcher lifetime.
   let debugStartOffset = 0;
@@ -154,9 +186,23 @@ export function createSessionWatcher(
     transcriptWatching = { kind: "none" };
   }
 
+  /** Trailing-edge debounce: reset the timer on every event, fire
+   *  `onTranscriptMaybeChanged` once after `TRANSCRIPT_DEBOUNCE_MS` of
+   *  quiet. The handler's own `destroyed` guard makes late-firing
+   *  callbacks safe, but we clear the timer in `destroy()` anyway to
+   *  avoid holding closure refs unnecessarily. */
+  function scheduleTranscriptCheck() {
+    if (destroyed) return;
+    if (transcriptDebounceTimer) clearTimeout(transcriptDebounceTimer);
+    transcriptDebounceTimer = setTimeout(() => {
+      transcriptDebounceTimer = null;
+      onTranscriptMaybeChanged();
+    }, TRANSCRIPT_DEBOUNCE_MS);
+  }
+
   function attachTranscriptWatcher(tp: string) {
     try {
-      const fileWatcher = fs.watch(tp, () => onTranscriptMaybeChanged());
+      const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
       transcriptWatching = { kind: "watching", path: tp, fileWatcher };
       debugStartOffset = fs.statSync(tp).size;
       debugStartedAt = Date.now();
@@ -227,6 +273,8 @@ export function createSessionWatcher(
         "claude code state updated",
       );
       lastInfo = info;
+      // Ring-buffer the debug accumulator — see MAX_STATE_CHANGES.
+      if (stateChanges.length >= MAX_STATE_CHANGES) stateChanges.shift();
       stateChanges.push({ ts: Date.now(), info });
       onUpdate(info);
     }
@@ -234,41 +282,56 @@ export function createSessionWatcher(
     refreshSummary();
   }
 
+  /** Incrementally scan the transcript for TaskCreate/TaskUpdate entries.
+   *
+   *  Streams TASK_SCAN_CHUNK_BYTES at a time so peak transient memory is
+   *  O(chunk) rather than O(file). Partial lines at chunk boundaries are
+   *  accumulated into `taskScanRemainder` (persisted across calls) so
+   *  straddling lines resolve correctly once their newline arrives.
+   *
+   *  `taskScanOffset` always advances to the full file size — the
+   *  remainder lives separately, *not* in the unread region. On the next
+   *  call, the remainder is prepended to the newly-written bytes, then
+   *  split; the last (potentially partial) segment becomes the new
+   *  remainder. */
   function scanTasksIncremental(filePath: string) {
     try {
       const size = fs.statSync(filePath).size;
       if (taskScanOffset >= size) return;
-      const length = size - taskScanOffset;
       const fd = fs.openSync(filePath, "r");
-      let buf: Buffer;
+      const prevOffset = taskScanOffset;
+      let carried = taskScanRemainder;
+      let changed = false;
       try {
-        buf = Buffer.alloc(length);
-        fs.readSync(fd, buf, 0, length, taskScanOffset);
+        let offset = taskScanOffset;
+        while (offset < size) {
+          const toRead = Math.min(TASK_SCAN_CHUNK_BYTES, size - offset);
+          const buf = Buffer.alloc(toRead);
+          fs.readSync(fd, buf, 0, toRead, offset);
+          const text = carried + buf.toString("utf8");
+          const lines = text.split("\n");
+          // The last segment is either a complete line followed by a
+          // trailing newline (→ "") or a partial line (→ the fragment).
+          // Either way, carry it forward; never process it this round.
+          carried = lines.pop() ?? "";
+          const complete = lines.filter((l) => l.length > 0);
+          if (complete.length > 0) {
+            if (extractTasks(complete, taskMap, plog)) changed = true;
+          }
+          offset += toRead;
+        }
       } finally {
         fs.closeSync(fd);
       }
-      const newLines = buf
-        .toString("utf8")
-        .split("\n")
-        .filter((l) => l.length > 0);
-      // First line may be partial when reading from a mid-file offset — safe to drop.
-      if (taskScanOffset > 0 && newLines.length > 0) {
-        try {
-          JSON.parse(newLines[0]!);
-        } catch {
-          newLines.shift();
-        }
-      }
-      const prevOffset = taskScanOffset;
+      taskScanRemainder = carried;
       taskScanOffset = size;
-      const changed = extractTasks(newLines, taskMap, plog);
       if (changed) {
         const progress = deriveTaskProgress(taskMap);
         plog.debug(
           {
             tasks: taskMap.size,
             progress,
-            bytesScanned: length,
+            bytesScanned: size - prevOffset,
             from: prevOffset,
           },
           "task progress updated",
@@ -310,6 +373,10 @@ export function createSessionWatcher(
 
     destroy() {
       destroyed = true;
+      if (transcriptDebounceTimer) {
+        clearTimeout(transcriptDebounceTimer);
+        transcriptDebounceTimer = null;
+      }
       teardownTranscriptWatching();
     },
 
