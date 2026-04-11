@@ -12,17 +12,17 @@ Given(
   async function (this: KoluWorld, count: number) {
     // Use paths guaranteed to exist on all platforms (no mkdir needed)
     const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
-    const session = {
-      terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
-      savedAt: Date.now(),
-    };
-    // Stash on world so Then-step can re-POST as a self-heal if the server
-    // snapshot didn't carry the session through to this client.
-    this.savedSessionForRestore = session;
     const resp = await this.page.request.fetch("/rpc/state/test__set", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: { session } }),
+      data: JSON.stringify({
+        json: {
+          session: {
+            terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
+            savedAt: Date.now(),
+          },
+        },
+      }),
     });
     assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
   },
@@ -31,47 +31,15 @@ Given(
 Then(
   "the session restore card should be visible",
   async function (this: KoluWorld) {
-    // Wait for empty-state to mount (client+ws alive). Then poll for the
-    // restore card. If empty-state is up but the card never appears, it
-    // means the server's snapshot didn't carry the session — re-POST it
-    // (the previous saved-session terminals are stashed on the world by
-    // the Given step) and let the state__changed publish re-render.
-    await this.page
-      .locator('[data-testid="empty-state"]')
-      .waitFor({ state: "visible", timeout: 15000 });
-    const card = this.page.locator('[data-testid="session-restore"]');
-    try {
-      await card.waitFor({ state: "visible", timeout: 3000 });
-      return;
-    } catch {
-      // First attempt failed. Snapshot what the server thinks the state is
-      // RIGHT NOW so the failure log is actionable instead of mystery.
-      const serverState = await this.page.request.fetch(
-        "/rpc/state/get?batch=1",
-      );
-      const serverStatusCode = serverState.status();
-      // Re-POST the stashed session to wake the second hydration effect.
-      const saved = this.savedSessionForRestore;
-      if (saved) {
-        await this.page.request.fetch("/rpc/state/test__set", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          data: JSON.stringify({ json: { session: saved } }),
-        });
-      }
-      try {
-        await card.waitFor({ state: "visible", timeout: 7000 });
-        return;
-      } catch (err) {
-        const html = await this.page
-          .locator('[data-testid="empty-state"]')
-          .innerHTML()
-          .catch(() => "<unable to read>");
-        throw new Error(
-          `session restore card never visible. saved=${JSON.stringify(saved)} serverGetStatus=${serverStatusCode} empty-state HTML=${html.slice(0, 800)} | original=${(err as Error).message}`,
-        );
-      }
-    }
+    // Under 8 parallel workers, page/server init can be slow.
+    // Use waitForFunction for a reactive DOM check.
+    await this.page.waitForFunction(
+      () => {
+        const card = document.querySelector('[data-testid="session-restore"]');
+        return card && card.getBoundingClientRect().height > 0;
+      },
+      { timeout: 20000 },
+    );
   },
 );
 
