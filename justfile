@@ -86,7 +86,7 @@ run:
 # entry point (see vendor/localci/lib.just) — it acquires a perl Fcntl::flock
 # on .localci/current and execs into the scheduler.
 #
-# Each recipe below with a `[group("localci:system:...")]` attribute is a
+# Each recipe below with a `[metadata("localci:system:...")]` attribute is a
 # CI step. The attribute tells the scheduler which lane it runs in; just's
 # native dep syntax (e.g. `e2e: nix`) encodes intra-lane ordering.
 #
@@ -106,27 +106,27 @@ ci: localci::run
 devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
 # TypeScript type checking across all packages — fast static-correctness gate
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 typecheck: install
     {{ nix_shell }} pnpm typecheck
 
 # Format check (prettier + nixpkgs-fmt). Use `just fmt-write` to format in place.
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 fmt:
     {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
 # Unit tests (vitest, server + client)
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 unit: install
     {{ nix_shell }} pnpm test:unit
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 apm-sync: ai::apm-sync
 
 # Build all flake outputs (server, client, NixOS tests, home-manager configs, …)
-[group("localci:system:x86_64-linux")]
-[group("localci:system:aarch64-darwin")]
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
 nix:
     {{ devour_flake }} --override-input flake .
 
@@ -137,17 +137,17 @@ nix:
 # why; short version: native deps would cause `nix` to re-run as a dep of
 # every step that references it, because the scheduler dispatches each step
 # via its own `just <step>` subprocess.
-[group("localci:system:x86_64-linux")]
-[group("localci:depends:nix")]
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:depends:nix")]
 home-manager:
     {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
 # Cucumber e2e tests. CI-only; for dev iteration use `just test-quick` instead.
-# Same [group("localci:depends:nix")] trick — scheduler runs nix first in
+# Same [metadata("localci:depends:nix")] trick — scheduler runs nix first in
 # the lane, avoiding the duplicate dep-run cost of a native `: nix` dep.
-[group("localci:system:x86_64-linux")]
-[group("localci:system:aarch64-darwin")]
-[group("localci:depends:nix")]
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
+[metadata("localci:depends:nix")]
 e2e: install
     #!/usr/bin/env bash
     set -euo pipefail

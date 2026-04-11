@@ -11,12 +11,13 @@ No GitHub Actions, no Hydra. Just `just`, `perl`, `python3` (with a
 ## Design
 
 The consumer writes **regular justfile recipes** — one job each, no library
-syntax in the body. Each recipe is tagged with `[group("localci:system:<name>")]`
-attributes declaring which target systems it runs on. localci's scheduler
-reads those attributes (and just's native `dep:` syntax for intra-lane
-ordering) via `just --dump --dump-format json`, builds a per-system DAG,
-fans systems out in parallel, and wraps each step with the CI lifecycle
-(events, forge signoff, transport dispatch, log capture).
+syntax in the body. Each recipe is tagged with `[metadata("localci:system:<name>")]`
+attributes declaring which target systems it runs on, and (optionally)
+`[metadata("localci:depends:<step>")]` attributes declaring intra-lane
+ordering. localci's scheduler reads those attributes via
+`just --dump --dump-format json`, builds a per-system DAG, fans systems
+out in parallel, and wraps each step with the CI lifecycle (events,
+forge signoff, transport dispatch, log capture).
 
 ```
 ci/
@@ -86,36 +87,36 @@ import 'vendor/localci/forges/github.just'    # or forges/none.just
 # Entry point — runs every tagged recipe under the single-instance lock.
 ci: localci::run
 
-# Your CI steps are just regular top-level recipes with a `[group]` attribute
+# Your CI steps are just regular top-level recipes with a `[metadata]` attribute
 # that says which lane they run in. No prefix, no indirection, no wrappers.
 
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 check:
     pnpm typecheck
 
-[group("localci:system:local")]
+[metadata("localci:system:local")]
 fmt:
     prettier --check .
 
-[group("localci:system:x86_64-linux")]
-[group("localci:system:aarch64-darwin")]
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
 build:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
-[group("localci:system:x86_64-linux")]
-[group("localci:system:aarch64-darwin")]
-[group("localci:depends:build")]
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
+[metadata("localci:depends:build")]
 test:
     cargo test   # or whatever
 ```
 
-That's it. localci reads the `[group]` attributes via `just --dump` and
+That's it. localci reads the `[metadata]` attributes via `just --dump` and
 builds the execution plan — no `default`, no orchestrator lanes, no
 `(_run ...)` wrappers, no `|| true`.
 
-### Why `[group("localci:depends:...")]` instead of just's native `dep:` syntax
+### Why `[metadata("localci:depends:...")]` instead of just's native `dep:` syntax
 
-Notice the example above uses `[group("localci:depends:build")]` rather
+Notice the example above uses `[metadata("localci:depends:build")]` rather
 than `test: build`. This is deliberate.
 
 The scheduler dispatches each step via its own `just <step>` subprocess.
@@ -125,7 +126,7 @@ its own step, again as `test`'s dep, again as `other-step`'s dep, etc.
 On a Nix project with devour-flake, that's ~5–10s of redundant overhead
 per extra run.
 
-The `[group("localci:depends:<step>")]` tag tells the scheduler "`build`
+The `[metadata("localci:depends:<step>")]` tag tells the scheduler "`build`
 must run before me in this lane," and the scheduler enforces that via
 topological ordering. Each step then runs **exactly once per lane**, with
 no re-evaluation of deps per dispatch.
@@ -178,13 +179,14 @@ The importer must define one variable:
 And import exactly one forge backend, which provides `repo`, `_signoff`,
 `_list-statuses`, and (optionally) `protect`.
 
-Leaves opt into the scheduler via `[group("localci:system:<name>")]` attributes.
+Leaves opt into the scheduler via `[metadata("localci:system:<name>")]` attributes.
 System names are either `local` (runs once on whoever invokes `just ci`,
 no `@system` suffix) or a nix system string like `x86_64-linux` /
 `aarch64-darwin` (runs on that system; native → local exec, non-native →
-ssh + git bundle to a remote builder). Multiple `[group]` attributes per
+ssh + git bundle to a remote builder). Multiple `[metadata]` attributes per
 recipe for multi-system steps. Ordering within a lane is expressed via
-just's native dep syntax (`test: build`).
+`[metadata("localci:depends:<other-step>")]` — **not** just's native
+`dep:` syntax. See the section below for why.
 
 ## Not yet implemented
 

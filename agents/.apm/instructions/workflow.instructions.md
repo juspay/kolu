@@ -17,7 +17,7 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 ### Check command
 
-`just typecheck` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci/typecheck` step is the same recipe, tagged with a localci `[group]` attribute.
+`just typecheck` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci/typecheck` step is the same recipe, tagged with a localci `[metadata]` attribute.
 
 ### Format command
 
