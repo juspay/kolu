@@ -116,15 +116,12 @@ const PwaInstallBar: Component = () => {
   return (
     <Show when={!isPWA && !installed() && !dismissed()}>
       {/* Overt browser-level notification: accent background, taller than
-       *  the Header, larger text, and a pulsing download glyph to pull the
-       *  eye. Deliberately loud — the goal is to catch attention, not blend. */}
+       *  the Header, larger text. The animated arrow next to the Install
+       *  button leads the eye directly to the CTA. */}
       <div
         data-testid="pwa-install-bar"
         class="flex items-center gap-3 min-h-12 shrink-0 px-4 sm:px-6 py-2 bg-accent text-surface-0 border-b-2 border-black/30 text-sm font-semibold shadow-lg"
       >
-        <span class="shrink-0 text-lg animate-bounce" aria-hidden="true">
-          ⬇
-        </span>
         <span class="flex-1 min-w-0">
           <span class="uppercase tracking-wide text-xs font-bold opacity-80">
             Install Kolu
@@ -137,6 +134,12 @@ const PwaInstallBar: Component = () => {
           </span>
         </span>
         <Show when={installEvent()}>
+          <span
+            class="shrink-0 text-lg animate-pulse hidden sm:inline"
+            aria-hidden="true"
+          >
+            →
+          </span>
           <button
             data-testid="pwa-install-button"
             class="shrink-0 px-4 py-1.5 rounded-md bg-surface-0 text-accent font-bold text-sm hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50 ring-1 ring-black/20"
