@@ -1,9 +1,9 @@
 /**
  * OpenCodeWatcher — encapsulates all per-session lifecycle state.
  *
- * Creating an OpenCodeWatcher starts watching the SQLite WAL file for the
- * matched session and emits state via the onChange callback. Destroying it
- * tears down the file watcher. No "remember to reset N variables"
+ * Creating an OpenCodeWatcher subscribes to the shared WAL watcher and
+ * emits state via the onChange callback. Destroying it unsubscribes and
+ * closes the held DB connection. No "remember to reset N variables"
  * invariant — the lifetime IS the object.
  *
  * The server's opencode provider creates one of these per matched session
@@ -19,7 +19,7 @@ import {
   deriveSessionState,
   getSessionTaskProgress,
   openDb,
-  watchOpenCodeDb,
+  subscribeOpenCodeDb,
 } from "./index.ts";
 
 // --- Logger interface (shared across the package) ---
@@ -29,6 +29,16 @@ type Logger = {
   info: (obj: Record<string, unknown>, msg: string) => void;
   warn: (obj: Record<string, unknown>, msg: string) => void;
 };
+
+// --- Tuning constants ---
+
+/** Trailing-edge debounce for WAL fs.watch callbacks. OpenCode streams
+ *  parts during generation, and Linux fs.watch fires multiple events per
+ *  write — without debouncing, `refresh` runs dozens of times per second
+ *  during active use, each call running two SQL queries. 150 ms coalesces
+ *  bursts into one handler run while keeping user-perceptible lag
+ *  imperceptible. Matches TRANSCRIPT_DEBOUNCE_MS in kolu-claude-code. */
+const WAL_DEBOUNCE_MS = 150;
 
 // --- Equality ---
 
@@ -67,8 +77,8 @@ export interface OpenCodeWatcher {
 
 /**
  * Start watching an OpenCode session. Reads the latest message immediately
- * and emits an initial state, then re-reads on every WAL file change and
- * emits a new state if it differs from the last one.
+ * and emits an initial state, then re-reads on every WAL file change
+ * (debounced) and emits a new state if it differs from the last one.
  *
  * `onChange` is called with the full OpenCodeInfo each time state changes.
  * The caller is responsible for forwarding it to the metadata system.
@@ -79,6 +89,11 @@ export function createOpenCodeWatcher(
   log?: Logger,
 ): OpenCodeWatcher {
   let lastInfo: OpenCodeInfo | null = null;
+  let destroyed = false;
+  // Trailing-edge debounce timer for WAL fs.watch events.
+  // Null when idle. Cleared on destroy.
+  let debounceTimer: NodeJS.Timeout | null = null;
+
   // Hoist the DB connection across the watcher's lifetime so we don't
   // open/close on every WAL event. Safe in WAL mode: an open connection
   // holds no locks until you start a transaction, and our queries are
@@ -87,7 +102,7 @@ export function createOpenCodeWatcher(
   const db: DatabaseSync | null = openDb(log);
 
   function refresh() {
-    if (!db) return;
+    if (destroyed || !db) return;
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
       log?.debug(
@@ -117,13 +132,36 @@ export function createOpenCodeWatcher(
     onChange(info);
   }
 
-  const stopWatching = watchOpenCodeDb(refresh, log);
+  /** Trailing-edge debounce: reset the timer on every event, fire
+   *  `refresh` once after `WAL_DEBOUNCE_MS` of quiet. The handler's own
+   *  `destroyed` guard makes late-firing callbacks safe, but we clear
+   *  the timer in `destroy()` anyway to avoid holding closure refs
+   *  unnecessarily. */
+  function scheduleRefresh() {
+    if (destroyed) return;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      refresh();
+    }, WAL_DEBOUNCE_MS);
+  }
+
+  const unsubscribe = subscribeOpenCodeDb(
+    scheduleRefresh,
+    (err) => log?.warn({ err, session: session.id }, "wal listener threw"),
+    log,
+  );
   refresh();
 
   return {
     session,
     destroy() {
-      stopWatching();
+      destroyed = true;
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      unsubscribe();
       db?.close();
     },
   };
