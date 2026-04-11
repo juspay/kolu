@@ -131,8 +131,8 @@ const PwaInstallBar: Component = () => {
           </span>
           <span class="block truncate">
             <Show when={installEvent()} fallback={INSTRUCTIONS[browser]}>
-              Get the full experience with native keyboard shortcuts and offline
-              support.
+              Unlock native keyboard shortcuts (⌘T, ⌃Tab, …) and a dedicated
+              app window.
             </Show>
           </span>
         </span>
