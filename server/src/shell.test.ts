@@ -154,6 +154,31 @@ describe("OSC2_PREEXEC_BASH_GUARD", () => {
     expect(out).not.toContain("__zoxide_hook");
   });
 
+  it("readline widget (fzf Ctrl+R) does not consume the ready flag", () => {
+    // Regression: when fzf's Ctrl+R binding fires, BASH_COMMAND is set to
+    // `__fzf_history__` — a readline widget, not a user command. Before
+    // the `__*` guard, dispatch would clear the ready flag for it, causing
+    // the user's NEXT real command to see flag="" and get silently dropped
+    // (the "had to run it twice" bug).
+    const out = runBash(
+      `${prelude}` +
+        `trap '__kolu_preexec_dispatch' DEBUG\n` +
+        `__fzf_history__() { :; }\n` +
+        // Arm flag (as PROMPT_COMMAND would after the prompt draws)
+        `__kolu_preexec_arm\n` +
+        // Simulate Ctrl+R: widget runs, should NOT consume the flag
+        `__fzf_history__\n` +
+        // Now the user's real command — flag must still be armed
+        `true\n`,
+    );
+    const titles = [...out.matchAll(/\x1b\]2;([^\x1b]*)\x1b\\/g)].map(
+      (m) => m[1],
+    );
+    // The widget should be skipped, the real command should fire.
+    expect(titles).not.toContain("__fzf_history__");
+    expect(titles).toContain("true");
+  });
+
   it("full flow: user command emitted, PROMPT_COMMAND hook skipped", () => {
     // Most realistic test: install trap, simulate user command (arm + run),
     // then simulate PROMPT_COMMAND hook (no arm + run another command).

@@ -107,6 +107,15 @@ export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' 
  *  next user command. DEBUG dispatch checks the flag, emits once per user
  *  command, and clears it (so subsequent pipeline commands don't re-emit).
  *
+ *  Readline widget guard: fzf's Ctrl+R / Ctrl+T bindings, bash-completion
+ *  helpers, and zoxide's cd wrappers run via DEBUG trap with BASH_COMMAND
+ *  set to a `__xxx` function name — they are NOT user-typed commands. If
+ *  dispatch clears the ready flag for them, the user's next *real* command
+ *  fires with flag="" and gets silently dropped. Skip anything starting
+ *  with `__` without clearing the flag, so the next real command still
+ *  dispatches. The `__` prefix is the strong bash convention for internal
+ *  widgets; user commands virtually never use it.
+ *
  *  (We originally tried PS0 command substitution, but `$(...)` runs in a
  *  subshell, so the flag assignment never reached the parent shell.) */
 export const OSC2_PREEXEC_BASH_GUARD = [
@@ -114,6 +123,7 @@ export const OSC2_PREEXEC_BASH_GUARD = [
   `__kolu_preexec_arm() { __kolu_preexec_ready="1"; }`,
   `__kolu_preexec_dispatch() {`,
   `  [ -z "$__kolu_preexec_ready" ] && return`,
+  `  case "$BASH_COMMAND" in __*) return ;; esac`,
   `  __kolu_preexec_ready=""`,
   `  __kolu_preexec "$BASH_COMMAND"`,
   `}`,
