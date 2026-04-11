@@ -155,9 +155,6 @@ BeforeAll(async function () {
           KOLU_STATE_SUFFIX: `test-${workerId}`,
           KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
           KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-          // Nuke the entire per-server temp root (shell rc + clipboard) on
-          // shutdown — it's fixture data, none of it should survive.
-          KOLU_TEST_MODE: "1",
         },
       },
     );

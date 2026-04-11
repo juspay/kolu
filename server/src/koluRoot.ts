@@ -22,19 +22,11 @@ const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
  *  transient per-terminal use lives under here. */
 export const koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
 
-/** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal.
- *  Regenerated on every terminal spawn — removed on server shutdown. */
+/** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
 export const koluShellDir = join(koluRoot, "shell");
 
-/** Per-terminal clipboard image-paste shim directories.
- *  Preserved across server shutdown — the user may still want pasted
- *  screenshots inspectable; aged out by XDG logout-wipe. */
+/** Per-terminal clipboard image-paste shim directories. */
 export const koluClipboardDir = join(koluRoot, "clipboard");
-
-/** `KOLU_TEST_MODE=1` flips shutdown cleanup from selective (production) to
- *  full-root (e2e fixture wipe). Set once at module load; tests pass it via
- *  the spawned server's env. */
-const isTestMode = process.env.KOLU_TEST_MODE === "1";
 
 /** Create the root + subdirs with owner-only mode. Called once at server
  *  startup before any terminal spawns. Idempotent. */
@@ -43,20 +35,16 @@ export function ensureKoluRoot(): void {
   mkdirSync(koluClipboardDir, { recursive: true, mode: 0o700 });
 }
 
-/** Cleanup run from the signal/fatal handlers at process exit.
- *
- *  - Test mode: remove the whole root (all fixture data, nothing valuable).
- *  - Production: remove only `shell/`. Clipboard images may still matter to
- *    the user and XDG logout-wipe will reclaim them later.
+/** Remove the whole per-instance root on shutdown. Run from signal/fatal
+ *  handlers.
  *
  *  Errors are swallowed on purpose: this runs from uncaughtException /
  *  unhandledRejection paths where a throw would cascade past `process.exit`
  *  and leave the process wedged in Node's default crash path. A failed
  *  cleanup is strictly better than a stuck server. */
 export function shutdownCleanup(): void {
-  const target = isTestMode ? koluRoot : koluShellDir;
   try {
-    rmSync(target, { recursive: true, force: true });
+    rmSync(koluRoot, { recursive: true, force: true });
   } catch {
     // Best-effort — see doc comment above.
   }
