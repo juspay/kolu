@@ -1,0 +1,4 @@
+name: localci
+version: 0.1.0
+description: AI-friendly local Nix CI — reusable just library + agent workflow instructions
+type: hybrid

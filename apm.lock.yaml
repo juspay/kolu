@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-11T14:19:24.039407+00:00'
+generated_at: '2026-04-11T16:59:16.793893+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -18,6 +18,12 @@ dependencies:
   - .claude/rules/workflow.md
   source: local
   local_path: ./agents
+- repo_url: _local/localci
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/ci-workflow.md
+  source: local
+  local_path: ./vendor/localci
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39

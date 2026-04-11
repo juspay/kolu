@@ -12,4 +12,5 @@ tests/reports/
 client/public/fonts
 .worktrees
 .logs/
+.localci/
 .do-results.json

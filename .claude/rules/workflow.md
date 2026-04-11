@@ -17,11 +17,11 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 ### Check command
 
-`just check` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci::typecheck` step uses the same recipe.
+`just typecheck` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci/typecheck` step is the same recipe, tagged with a localci `[metadata]` attribute.
 
 ### Format command
 
-`just fmt`
+`just fmt` runs the CI format check (prettier + nixpkgs-fmt); `just fmt-write` formats files in place.
 
 ### Test command
 
@@ -31,48 +31,9 @@ If changes are purely server-internal with no UI impact, unit tests may suffice 
 
 ### CI command
 
-Run `just ci` via the **Monitor** tool with this filter so each finishing CI step becomes one event:
-
-```
-just ci 2>&1 | grep --line-buffered -oE 'context="ci/[^"]+" -f description="[^"]+"'
-```
-
-Each event corresponds to one GitHub status post by `just ci`. The `description` field encodes the step state:
-
-- `srid · running` → step started
-- `srid · Ns · <log path>` → step finished successfully
-- `srid · failed after Ns · <log path>` → step failed
-
-`just ci` is bound to the Monitor's lifetime — **stopping the monitor kills `just ci` mid-run**. Let it run to completion.
-
-> **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
-
-**Verification**: All step events arrive with success states (no `failed after`). After `just ci` exits, you can also cross-check via:
-
-```
-gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
-```
-
-**On failure** — read the log file (path is in the event's description) to diagnose.
-
-**Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`). Single-step retries are short enough to run via `Bash(run_in_background)` — Monitor only pays off for full `just ci` runs.
+`just ci` is powered by **localci**. See the `ci-workflow` rule (vendored from `ci/localci/.apm/instructions/ci-workflow.instructions.md`) for how to run it, the event schema, Monitor setup, lock semantics, and the summary table.
 
 **Log flaky tests**: If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
-
-## Local CI
-
-`just ci` builds and tests across all systems. It:
-
-- Runs preflight checks (clean worktree, commit pushed)
-- Builds on x86_64-linux and aarch64-darwin in parallel
-- Posts GitHub commit statuses per step
-- Prints a summary table at the end
-
-Run it via **Monitor** (see CI command above) for live step-by-step visibility. **Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run.
-
-Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
-Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
-Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
 
 ## Feature Discoverability (Tips)
 

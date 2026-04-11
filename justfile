@@ -5,7 +5,6 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
 mod ai 'agents/ai.just'
-mod ci 'ci/mod.just'
 
 # List available recipes
 default:
@@ -31,10 +30,6 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking across all packages — fast static-correctness gate
-check: install
-    {{ nix_shell }} pnpm typecheck
-
 # Run server with auto-reload
 server:
     cd server && {{ nix_shell }} pnpm dev
@@ -42,19 +37,6 @@ server:
 # Run client with Vite dev server (HMR)
 client:
     cd client && {{ nix_shell }} pnpm dev
-
-# Run unit tests (vitest) across server and client packages
-test-unit: install
-    {{ nix_shell }} pnpm test:unit
-
-# Run Cucumber e2e tests (nix build once, each worker spawns the binary)
-test: install
-    #!/usr/bin/env bash
-    set -euo pipefail
-    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
-    cd tests
-    {{ nix_shell }} pnpm install
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -87,18 +69,89 @@ test-quick *args: install
 clean:
     git clean -fdX
 
-# Format all files in-place
-fmt:
+# Format all files in-place. `just fmt` (below) is the CI-side check.
+fmt-write:
     {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
 
-# Check formatting without modifying files (used by CI)
-fmt-check:
-    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
-
-# Nix build (server + client)
+# Nix build (server + client, default flake output)
 build:
     nix build
 
 # Run the combined server+client binary
 run:
     nix run
+
+# ─── CI ──────────────────────────────────────────────────────────────────────
+# `just ci` runs all CI steps via localci. `localci::run` is the library's
+# entry point (see vendor/localci/lib.just) — it acquires a perl Fcntl::flock
+# on .localci/current and execs into the scheduler.
+#
+# Each recipe below with a `[metadata("localci:system:...")]` attribute is a
+# CI step. The attribute tells the scheduler which lane it runs in; just's
+# native dep syntax (e.g. `e2e: nix`) encodes intra-lane ordering.
+#
+# Library recipes are mounted under the `localci::` namespace (one line in
+# `just --list`). The forge backend is imported flat so the library can
+# invoke `_signoff`/`_list-statuses` as unqualified top-level names from
+# inside the module.
+
+mod localci 'vendor/localci/lib.just'
+import 'vendor/localci/forges/github.just'
+
+ci: localci::run
+
+# devour-flake builds every output of a flake in one go (all packages,
+# checks, devshells, NixOS configs, home-manager configs, etc.) via one
+# nix build invocation. https://github.com/srid/devour-flake
+devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
+
+# TypeScript type checking across all packages — fast static-correctness gate
+[metadata("localci:system:local")]
+typecheck: install
+    {{ nix_shell }} pnpm typecheck
+
+# Format check (prettier + nixpkgs-fmt). Use `just fmt-write` to format in place.
+[metadata("localci:system:local")]
+fmt:
+    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
+
+# Unit tests (vitest, server + client)
+[metadata("localci:system:local")]
+unit: install
+    {{ nix_shell }} pnpm test:unit
+
+# Verify vendored .claude/ matches .apm/ sources + security audit
+[metadata("localci:system:local")]
+apm-sync: ai::apm-sync
+
+# Build all flake outputs (server, client, NixOS tests, home-manager configs, …)
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
+nix:
+    {{ devour_flake }} --override-input flake .
+
+# Build the example home-manager configuration via devour-flake.
+#
+# The `localci:depends:nix` tag tells the scheduler to run `nix` first in
+# this lane — NOT a native `: nix` just dep. See the README note below for
+# why; short version: native deps would cause `nix` to re-run as a dep of
+# every step that references it, because the scheduler dispatches each step
+# via its own `just <step>` subprocess.
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:depends:nix")]
+home-manager:
+    {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
+
+# Cucumber e2e tests. CI-only; for dev iteration use `just test-quick` instead.
+# Same [metadata("localci:depends:nix")] trick — scheduler runs nix first in
+# the lane, avoiding the duplicate dep-run cost of a native `: nix` dep.
+[metadata("localci:system:x86_64-linux")]
+[metadata("localci:system:aarch64-darwin")]
+[metadata("localci:depends:nix")]
+e2e: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
+    cd tests
+    {{ nix_shell }} pnpm install
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
