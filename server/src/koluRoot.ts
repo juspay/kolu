@@ -35,17 +35,10 @@ export function ensureKoluRoot(): void {
   mkdirSync(koluClipboardDir, { recursive: true, mode: 0o700 });
 }
 
-/** Remove the whole per-instance root on shutdown. Run from signal/fatal
- *  handlers.
- *
- *  Errors are swallowed on purpose: this runs from uncaughtException /
- *  unhandledRejection paths where a throw would cascade past `process.exit`
- *  and leave the process wedged in Node's default crash path. A failed
- *  cleanup is strictly better than a stuck server. */
+/** Remove the whole per-instance root on shutdown. Registered on the
+ *  `process.on('exit', ...)` hook so it runs synchronously from every exit
+ *  path. If rmSync throws, Node's default exit-handler reporter prints the
+ *  stack — we do not swallow. */
 export function shutdownCleanup(): void {
-  try {
-    rmSync(koluRoot, { recursive: true, force: true });
-  } catch {
-    // Best-effort — see doc comment above.
-  }
+  rmSync(koluRoot, { recursive: true, force: true });
 }
