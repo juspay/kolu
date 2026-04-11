@@ -18,6 +18,7 @@ import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
+import { startDiagnostics } from "./diagnostics.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -196,6 +197,7 @@ const server = serve(
       },
       "kolu listening",
     );
+    startDiagnostics();
   },
 );
 

@@ -94,6 +94,22 @@ export interface WatcherLog {
   warn: (obj: Record<string, unknown>, msg: string) => void;
 }
 
+// --- Diagnostics counter ---
+
+/** Count of in-flight `fetchSessionSummary` calls across all SessionWatchers.
+ *  Exposed via `getPendingSummaryFetches` for the server's diagnostics log.
+ *
+ *  Maintained by a try/finally pair inside `refreshSummary` so every
+ *  completion path (resolve, reject, new error branch added later) is
+ *  structurally guaranteed to decrement. Don't turn refreshSummary back
+ *  into a .then/.catch pair or the pairing breaks.
+ *
+ *  Climbing unboundedly = backpressure: fs.watch on the Claude transcript
+ *  is firing faster than getSessionInfo can respond, which is the shape
+ *  of the leak we're trying to diagnose. */
+let pendingSummaryFetches = 0;
+export const getPendingSummaryFetches = (): number => pendingSummaryFetches;
+
 // --- SessionWatcher ---
 
 export interface SessionWatcher {
@@ -263,28 +279,27 @@ export function createSessionWatcher(
     }
   }
 
-  function refreshSummary() {
+  async function refreshSummary() {
     if (destroyed) return;
-    fetchSessionSummary(session.sessionId, session.cwd)
-      .then((summary) => {
-        if (destroyed) return;
-        if (summary === lastSummary) return;
-        lastSummary = summary;
-        if (!lastInfo) return;
-        plog.debug(
-          { summary, session: session.sessionId },
-          "claude summary updated",
-        );
-        const updated: ClaudeCodeInfo = { ...lastInfo, summary };
-        lastInfo = updated;
-        onUpdate(updated);
-      })
-      .catch((err) => {
-        plog.debug(
-          { err, session: session.sessionId },
-          "getSessionInfo failed",
-        );
-      });
+    pendingSummaryFetches++;
+    try {
+      const summary = await fetchSessionSummary(session.sessionId, session.cwd);
+      if (destroyed) return;
+      if (summary === lastSummary) return;
+      lastSummary = summary;
+      if (!lastInfo) return;
+      plog.debug(
+        { summary, session: session.sessionId },
+        "claude summary updated",
+      );
+      const updated: ClaudeCodeInfo = { ...lastInfo, summary };
+      lastInfo = updated;
+      onUpdate(updated);
+    } catch (err) {
+      plog.debug({ err, session: session.sessionId }, "getSessionInfo failed");
+    } finally {
+      pendingSummaryFetches--;
+    }
   }
 
   // --- Start watching ---
