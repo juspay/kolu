@@ -77,6 +77,13 @@ function detectBrowser(ua: string): BrowserHint {
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 
+/** Fixed palette — deliberately not the app theme. See component comment. */
+const BG = "#0a0a0f";
+const FG = "#e5e5e7";
+const DIM = "#6b7280";
+const GREEN = "#32d583";
+const BORDER = "rgba(50, 213, 131, 0.3)";
+
 const PwaInstallBar: Component = () => {
   const [dismissed, setDismissed] = createSignal(false);
   const [installEvent, setInstallEvent] =
@@ -115,38 +122,51 @@ const PwaInstallBar: Component = () => {
   return (
     <Show when={!isPWA && !installed() && !dismissed()}>
       {/* TUI status-line aesthetic: monospace, fixed dark palette, terminal
-       *  green accent. Intentionally uses hard-coded hex colors (not the
-       *  app's CSS vars) because the bar is *not* part of the app — it's
-       *  meta-chrome above it. This also sidesteps any theme-resolution
-       *  oddities across browsers. */}
+       *  green accent. Colors go through inline `style` (not Tailwind
+       *  arbitrary values) so the bar is immune to HMR cache staleness,
+       *  Tailwind content-scanning gaps, and browser extensions that
+       *  rewrite dark backgrounds. The bar is *not* part of the app —
+       *  it's meta-chrome above it — so deliberately skips the app theme. */}
       <div
         data-testid="pwa-install-bar"
-        class="flex items-center gap-2 min-h-10 shrink-0 px-4 sm:px-6 py-1.5 bg-[#0a0a0f] text-[#e5e5e7] border-b border-[#32d583]/30 font-mono text-xs"
-        style={{ "box-shadow": "0 1px 0 0 rgba(50, 213, 131, 0.12)" }}
+        class="flex items-center gap-2 min-h-10 shrink-0 px-4 sm:px-6 py-1.5 font-mono text-xs"
+        style={{
+          "background-color": BG,
+          color: FG,
+          "border-bottom": `1px solid ${BORDER}`,
+          "box-shadow": "0 1px 0 0 rgba(50, 213, 131, 0.12)",
+        }}
       >
-        <span class="text-[#32d583] shrink-0 select-none" aria-hidden="true">
+        <span
+          class="shrink-0 select-none"
+          style={{ color: GREEN }}
+          aria-hidden="true"
+        >
           ▶
         </span>
         <span class="flex-1 min-w-0 truncate">
-          <span class="text-[#32d583] font-semibold">kolu</span>
-          <span class="text-[#6b7280]"> // </span>
+          <span class="font-semibold" style={{ color: GREEN }}>
+            kolu
+          </span>
+          <span style={{ color: DIM }}> // </span>
           <Show
             when={installEvent()}
             fallback={
-              <span class="text-[#e5e5e7]">{INSTRUCTIONS[browser]}</span>
+              <span style={{ color: FG }}>{INSTRUCTIONS[browser]}</span>
             }
           >
-            <span class="text-[#e5e5e7]">install as native app for </span>
-            <span class="text-[#32d583]">⌘T</span>
-            <span class="text-[#6b7280]">, </span>
-            <span class="text-[#32d583]">⌃Tab</span>
-            <span class="text-[#e5e5e7]"> and friends</span>
+            <span style={{ color: FG }}>install as native app for </span>
+            <span style={{ color: GREEN }}>⌘T</span>
+            <span style={{ color: DIM }}>, </span>
+            <span style={{ color: GREEN }}>⌃Tab</span>
+            <span style={{ color: FG }}> and friends</span>
           </Show>
         </span>
         <Show when={installEvent()}>
           <button
             data-testid="pwa-install-button"
-            class="shrink-0 px-2.5 py-0.5 bg-[#32d583] text-[#0a0a0f] font-bold uppercase tracking-wider text-[11px] hover:bg-[#5ce69f] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#32d583]"
+            class="shrink-0 px-2.5 py-0.5 font-bold uppercase tracking-wider text-[11px] cursor-pointer focus-visible:outline-none"
+            style={{ "background-color": GREEN, color: BG }}
             onClick={() => void handleInstall()}
           >
             [install]
@@ -155,7 +175,8 @@ const PwaInstallBar: Component = () => {
         <button
           data-testid="pwa-install-dismiss"
           aria-label="Dismiss install prompt"
-          class="shrink-0 px-1 text-[#6b7280] hover:text-[#e5e5e7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:text-[#e5e5e7]"
+          class="shrink-0 px-1 cursor-pointer focus-visible:outline-none"
+          style={{ color: DIM }}
           onClick={() => setDismissed(true)}
         >
           [×]
