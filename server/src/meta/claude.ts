@@ -23,6 +23,57 @@ import {
   type SessionWatcher,
 } from "kolu-claude-code";
 
+// --- Shared SESSIONS_DIR watcher ---
+//
+// Every claude provider wants to know when `~/.claude/sessions/` changes.
+// The pre-sharing implementation installed one `fs.watch` per terminal,
+// so N terminals meant N independent inotify watches on the same
+// directory and N duplicate callback dispatches per file event. This
+// module-level singleton refcounts a single watcher: first subscriber
+// lazily installs it, last unsubscribe tears it down.
+//
+// `sharedSessionsDir` is a single nullable structure rather than a
+// {watcher, listeners} pair so the "active iff non-empty" invariant is
+// mechanical — there's no way for the two halves to disagree.
+//
+// Per-listener try/catch inside the iteration preserves the pre-sharing
+// fault isolation: one provider's callback throwing does not drop the
+// event for every subsequent provider.
+
+let sharedSessionsDir: {
+  cleanup: () => void;
+  listeners: Set<() => void>;
+} | null = null;
+
+function subscribeSessionsDir(cb: () => void): () => void {
+  if (!sharedSessionsDir) {
+    const listeners = new Set<() => void>();
+    const cleanup = watchOrWaitForDir(SESSIONS_DIR, () => {
+      // Snapshot before iteration so a listener that synchronously
+      // subscribes/unsubscribes can't skip a peer for this event. Today
+      // `onSessionMaybeChanged` does neither, but the guard is cheap
+      // and eliminates a future-footgun shape.
+      for (const fn of [...listeners]) {
+        try {
+          fn();
+        } catch (err) {
+          log.warn({ err }, "sessions-dir listener threw");
+        }
+      }
+    });
+    sharedSessionsDir = { cleanup, listeners };
+  }
+  sharedSessionsDir.listeners.add(cb);
+  return () => {
+    if (!sharedSessionsDir) return;
+    sharedSessionsDir.listeners.delete(cb);
+    if (sharedSessionsDir.listeners.size === 0) {
+      sharedSessionsDir.cleanup();
+      sharedSessionsDir = null;
+    }
+  };
+}
+
 /** Compare two AgentInfo values for equality. */
 export function infoEqual(a: AgentInfo | null, b: AgentInfo | null): boolean {
   if (a === b) return true;
@@ -99,8 +150,9 @@ export function startClaudeCodeProvider(
     onSessionMaybeChanged(),
   );
 
-  // Watch the sessions dir for session file appearance/disappearance.
-  const sessionsDirWatcher = watchOrWaitForDir(SESSIONS_DIR, () =>
+  // Subscribe to the shared sessions-dir watcher (one inotify watch
+  // process-wide, regardless of terminal count). See subscribeSessionsDir.
+  const unsubscribeSessionsDir = subscribeSessionsDir(() =>
     onSessionMaybeChanged(),
   );
 
@@ -109,7 +161,7 @@ export function startClaudeCodeProvider(
 
   return () => {
     abort.abort();
-    sessionsDirWatcher();
+    unsubscribeSessionsDir();
     current?.destroy();
     delete entry.getClaudeDebug;
     plog.debug("stopped");
