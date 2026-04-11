@@ -67,23 +67,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ];
       },
     },
-    // "Recent agents" — surfaces agent CLIs the user has previously run in
-    // any kolu terminal, auto-detected via the preexec OSC 633;E command
-    // mark. Only visible when at least one agent has been seen AND there
-    // is an active terminal to run it in.
-    ...(deps.activeId() !== null && recentAgents().length > 0
-      ? [
-          {
-            name: "Recent agents",
-            description: "Rerun an agent CLI in the active terminal",
-            children: (): PaletteItem[] =>
-              recentAgents().map((a) => ({
-                name: a.command,
-                onSelect: () => deps.handleRunInActiveTerminal(a.command),
-              })),
-          },
-        ]
-      : []),
     ...(deps.activeId() !== null
       ? [
           {
@@ -182,6 +165,24 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
+        // "Recent agents" — surfaces agent CLIs the user has previously run
+        // in any kolu terminal, auto-detected via the preexec OSC 633;E
+        // command mark. Parked under Debug during phase 1 while the feature
+        // is soft-launched. Only visible when at least one agent has been
+        // seen AND there is an active terminal to prefill it into.
+        ...(deps.activeId() !== null && recentAgents().length > 0
+          ? [
+              {
+                name: "Recent agents",
+                description: "Prefill an agent CLI into the active terminal",
+                children: (): PaletteItem[] =>
+                  recentAgents().map((a) => ({
+                    name: a.command,
+                    onSelect: () => deps.handleRunInActiveTerminal(a.command),
+                  })),
+              },
+            ]
+          : []),
         ...(deps.activeMeta()?.agent?.kind === "claude-code"
           ? [
               {
