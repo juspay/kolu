@@ -95,11 +95,40 @@ const CommandPalette: Component<{
   // Navigation path: list of group commands we've drilled into
   const [path, setPath] = createSignal<PaletteCommand[]>([]);
 
-  /** Items at the current navigation level (may include hints). */
+  /** Items at the current navigation level (may include hints).
+   *
+   *  Resolves the drilled-in path by **name** against the fresh
+   *  `props.commands()` tree, not by object reference against the
+   *  snapshot captured in `path()`. The parent createCommands memo
+   *  re-runs whenever its reactive inputs change (e.g. server state
+   *  push, terminal list update) and produces *new* PaletteCommand
+   *  objects — the stored references in `path()` become stale within
+   *  the same render, and resolving children against them would show
+   *  the outdated group contents at the drilled-in level. By walking
+   *  the current tree step-by-step via `.name` lookup, the drilled-in
+   *  level always reflects the latest content. If a segment's name
+   *  disappears from the fresh tree (e.g. a parent hidden by a
+   *  visibility guard), fall back to the stale reference so the
+   *  palette doesn't render an empty level mid-navigation. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
     if (p.length === 0) return props.commands();
-    return resolveChildren(p[p.length - 1]!);
+    let level: PaletteItem[] = props.commands();
+    for (const segment of p) {
+      const match = level.find(
+        (item): item is PaletteCommand =>
+          isCommand(item) && item.name === segment.name,
+      );
+      if (!match || !isGroup(match)) {
+        // Segment no longer present in the current tree; fall back to
+        // the stale reference to keep the level rendered. Happens e.g.
+        // when a visibility guard hides a parent group while the user
+        // is still drilled into it.
+        return resolveChildren(p[p.length - 1]!);
+      }
+      level = resolveChildren(match);
+    }
+    return level;
   });
 
   /** Commands at the current level, filtered by the search query. Hints are excluded. */

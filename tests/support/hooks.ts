@@ -14,6 +14,7 @@ import { chromium } from "playwright";
 import type { Browser } from "playwright";
 import getPort from "get-port";
 import { KoluWorld } from "./world.ts";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -22,6 +23,13 @@ import type { ChildProcess } from "node:child_process";
 import { spawn } from "node:child_process";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
+
+/** Per-run unique tag used for state isolation across parallel worktrees
+ *  on the same host. A pid alone isn't enough — pids recycle, and two
+ *  back-to-back runs can reuse the same pid within a second. A UUID
+ *  generated once at module load is unique per test-process instance
+ *  and never collides with anything else on disk. */
+const runTag = crypto.randomUUID();
 
 /** Per-worker temp dirs for the Claude Code mock harness — see
  *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
@@ -152,7 +160,14 @@ BeforeAll(async function () {
         stdio: "pipe",
         env: {
           ...process.env,
-          KOLU_STATE_SUFFIX: `test-${workerId}`,
+          // Use a per-run UUID tag so parallel test runs across different
+          // worktrees don't collide on ~/.config/kolu-test-.../config.json.
+          // Cucumber worker IDs are 0/1/2/3 per process — identical across
+          // worktrees — so two e2e runs on the same host would otherwise
+          // trample each other's state mid-scenario. pid alone isn't
+          // enough: pids recycle and back-to-back runs can reuse them.
+          // A UUID generated once at module load is collision-free.
+          KOLU_STATE_SUFFIX: `test-${runTag}-${workerId}`,
           KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
           KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
         },
