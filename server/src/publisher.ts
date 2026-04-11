@@ -65,15 +65,42 @@ export function publishSystem<C extends keyof SystemChannels>(
   void publisher.publish(channel, payload);
 }
 
+/** Iterate `source` and yield each item, ending cleanly if the iterator
+ *  rejects with the signal's abort reason.
+ *
+ *  orpc's WebSocket adapter calls `peer.close()` when the socket closes,
+ *  which `AbortController.abort()`s every in-flight stream's signal. The
+ *  publisher iterator (see `@orpc/experimental-publisher`) then rejects
+ *  pending pulls with `signal.reason` directly. In this app every abort
+ *  comes from a tab close — clients never cancel mid-stream — so the
+ *  expected end-of-life of every streaming handler IS this rejection.
+ *  Letting it propagate causes the orpc pino plugin to log a full
+ *  DOMException stack at INFO on every disconnect (issue #443). The
+ *  identity check (`err === signal.reason`) leaves real errors untouched. */
+async function* iterateUntilAborted<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<T> {
+  try {
+    for await (const item of source) yield item;
+  } catch (err) {
+    if (signal?.aborted && err === signal.reason) return;
+    throw err;
+  }
+}
+
 /** Subscribe to a system-wide broadcast channel, returning an AsyncIterable.
  *  Used by router handlers (yield) for system-level streams. */
 export function subscribeSystem_<C extends keyof SystemChannels>(
   channel: C,
   signal: AbortSignal | undefined,
 ): AsyncIterable<SystemChannels[C]> {
-  return publisher.subscribe(channel, { signal }) as AsyncIterable<
-    SystemChannels[C]
-  >;
+  return iterateUntilAborted(
+    publisher.subscribe(channel, { signal }) as AsyncIterable<
+      SystemChannels[C]
+    >,
+    signal,
+  );
 }
 
 /** Subscribe to a per-terminal channel, returning an AsyncIterable.
@@ -83,9 +110,12 @@ export function subscribeForTerminal_<C extends keyof TerminalChannels>(
   terminalId: string,
   signal: AbortSignal | undefined,
 ): AsyncIterable<TerminalChannels[C]> {
-  return publisher.subscribe(`${String(channel)}:${terminalId}`, {
+  return iterateUntilAborted(
+    publisher.subscribe(`${String(channel)}:${terminalId}`, {
+      signal,
+    }) as AsyncIterable<TerminalChannels[C]>,
     signal,
-  }) as AsyncIterable<TerminalChannels[C]>;
+  );
 }
 
 /** Subscribe to a per-terminal channel with a callback. Fire-and-forget convenience
