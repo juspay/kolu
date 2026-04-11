@@ -32,6 +32,20 @@ Feature: Git worktree management
     Then the header CWD should show ".worktrees/fix-login-bug"
     And there should be no page errors
 
+  Scenario: New worktree dialog shows server error inline on branch collision
+    When I set up a git repo at "/tmp/kolu-wt-collide"
+    And I run "cd /tmp/kolu-wt-collide"
+    And the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-collide" in the palette
+    Then the new worktree dialog should be visible
+    When I set the new worktree branch name to "master"
+    And I click create in the new worktree dialog
+    Then the new worktree dialog should show error containing "master"
+    And the new worktree dialog should be visible
+    And there should be no page errors
+
   Scenario: New worktree dialog auto-runs a configured command
     When I set up a git repo at "/tmp/kolu-wt-autorun"
     And I run "cd /tmp/kolu-wt-autorun"

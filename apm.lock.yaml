@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-10T22:40:06.077919+00:00'
+generated_at: '2026-04-11T14:20:31.447679+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -47,7 +47,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: c4e635227f10cd8c032b08e1e469f16900fec236
+  resolved_commit: 888548f2483149ac304882942c60732916b34a01
   resolved_ref: master
   package_type: apm_package
   deployed_files:

@@ -84,6 +84,27 @@ When("I submit the new worktree dialog", async function (this: KoluWorld) {
     .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
+When(
+  "I click create in the new worktree dialog",
+  async function (this: KoluWorld) {
+    await this.page.locator('[data-testid="new-worktree-create"]').click();
+  },
+);
+
+Then(
+  "the new worktree dialog should show error containing {string}",
+  async function (this: KoluWorld, needle: string) {
+    const err = this.page.locator('[data-testid="new-worktree-error"]');
+    await err.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = (await err.textContent()) ?? "";
+    if (!text.includes(needle)) {
+      throw new Error(
+        `Expected worktree dialog error to contain "${needle}", got: ${text}`,
+      );
+    }
+  },
+);
+
 Then(
   "the close confirmation should be visible",
   async function (this: KoluWorld) {

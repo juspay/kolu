@@ -6,6 +6,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { simpleGit } from "simple-git";
+import { ORPCError } from "@orpc/server";
 import { log } from "./log.ts";
 import { randomName } from "./randomName.ts";
 
@@ -119,11 +120,13 @@ export async function worktreeCreate(
   const defaultBranch = await detectDefaultBranch(mainRoot);
 
   // User-provided name: validate once, fail with a clear error on collision.
+  // Throw ORPCError so the message survives oRPC's default error wrapping
+  // ("Internal server error") and reaches the dialog's inline error display.
   if (branchName !== undefined) {
     const invalid = validateBranchName(branchName);
-    if (invalid) throw new Error(invalid);
+    if (invalid) throw new ORPCError("BAD_REQUEST", { message: invalid });
     const reason = await branchCollisionReason(mainRoot, branchName);
-    if (reason) throw new Error(reason);
+    if (reason) throw new ORPCError("CONFLICT", { message: reason });
     return runWorktreeAdd(mainRoot, branchName, defaultBranch);
   }
 
