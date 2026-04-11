@@ -31,42 +31,9 @@ If changes are purely server-internal with no UI impact, unit tests may suffice 
 
 ### CI command
 
-`just ci` is powered by **localci** — a reusable, forge-agnostic local CI library that lives at `ci/localci/`. It emits a structured NDJSON event stream that agents should tail instead of grepping stdout. See `ci/localci/.apm/instructions/ci-workflow.instructions.md` for the full event schema and agent workflow.
-
-Run `just ci` in the background, then tail the event stream via Monitor:
-
-```
-tail -f .localci/logs/$(cut -c1-7 .localci/current)/events.ndjson
-```
-
-Each line is an NDJSON event with `event: step_start | step_end | run_start | run_end`. Step end events include `state`, `duration_s`, and `log` (path to raw output).
-
-**Single-instance lock**: only one `just ci` runs per worktree at a time, enforced via perl `Fcntl::flock` on `.localci/current`. The file contents are the current-or-last sha — agents read it unconditionally.
-
-**Verification**: all `step_end` events have `state: success` and there's a final `run_end` with `state: success`. After `just ci` exits, cross-check with `just ci::_summary` for a rendered two-column table (local state vs forge signoff state).
-
-**On failure** — read the `log` path from the failing `step_end` event.
-
-**Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`). Single-step retries bypass the lock and are short enough to run via `Bash(run_in_background)`.
+`just ci` is powered by **localci**. See the `ci-workflow` rule (vendored from `ci/localci/.apm/instructions/ci-workflow.instructions.md`) for how to run it, the event schema, Monitor setup, lock semantics, and the summary table.
 
 **Log flaky tests**: If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
-
-## Local CI
-
-`just ci` builds and tests across all systems. It:
-
-- Acquires a single-instance lock (`perl Fcntl::flock` on `.localci/current`)
-- Runs preflight checks (clean worktree, commit pushed)
-- Builds on x86_64-linux and aarch64-darwin in parallel
-- Emits NDJSON events to `.localci/logs/<sha>/events.ndjson`
-- Posts GitHub commit statuses per step via the `forges/github.just` backend
-- Prints a two-column summary table (local events vs forge signoffs)
-
-**Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run. Tail the events.ndjson file instead (see CI command above).
-
-Individual steps: `just ci::nix`, `just ci::e2e`, etc.
-Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
-Step logs: `.localci/logs/<short-sha>/<step>@<system>.log`.
 
 ## Feature Discoverability (Tips)
 
