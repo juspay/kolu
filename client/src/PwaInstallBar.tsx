@@ -22,7 +22,6 @@ import {
   onCleanup,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { CloseIcon } from "./Icons";
 
 /**
  * Subset of Chromium's non-standard BeforeInstallPromptEvent we actually use.
@@ -115,46 +114,51 @@ const PwaInstallBar: Component = () => {
 
   return (
     <Show when={!isPWA && !installed() && !dismissed()}>
-      {/* Overt browser-level notification: accent background, taller than
-       *  the Header, larger text. The animated arrow next to the Install
-       *  button leads the eye directly to the CTA. */}
+      {/* TUI status-line aesthetic: monospace, fixed dark palette, terminal
+       *  green accent. Intentionally uses hard-coded hex colors (not the
+       *  app's CSS vars) because the bar is *not* part of the app — it's
+       *  meta-chrome above it. This also sidesteps any theme-resolution
+       *  oddities across browsers. */}
       <div
         data-testid="pwa-install-bar"
-        class="flex items-center gap-3 min-h-12 shrink-0 px-4 sm:px-6 py-2 bg-accent text-surface-0 border-b-2 border-black/30 text-sm font-semibold shadow-lg"
+        class="flex items-center gap-2 min-h-10 shrink-0 px-4 sm:px-6 py-1.5 bg-[#0a0a0f] text-[#e5e5e7] border-b border-[#32d583]/30 font-mono text-xs"
+        style={{ "box-shadow": "0 1px 0 0 rgba(50, 213, 131, 0.12)" }}
       >
-        <span class="flex-1 min-w-0">
-          <span class="uppercase tracking-wide text-xs font-bold opacity-80">
-            Install Kolu
-          </span>
-          <span class="block truncate">
-            <Show when={installEvent()} fallback={INSTRUCTIONS[browser]}>
-              Unlock native keyboard shortcuts (⌘T, ⌃Tab, …) and a dedicated
-              app window.
-            </Show>
-          </span>
+        <span class="text-[#32d583] shrink-0 select-none" aria-hidden="true">
+          ▶
+        </span>
+        <span class="flex-1 min-w-0 truncate">
+          <span class="text-[#32d583] font-semibold">kolu</span>
+          <span class="text-[#6b7280]"> // </span>
+          <Show
+            when={installEvent()}
+            fallback={
+              <span class="text-[#e5e5e7]">{INSTRUCTIONS[browser]}</span>
+            }
+          >
+            <span class="text-[#e5e5e7]">install as native app for </span>
+            <span class="text-[#32d583]">⌘T</span>
+            <span class="text-[#6b7280]">, </span>
+            <span class="text-[#32d583]">⌃Tab</span>
+            <span class="text-[#e5e5e7]"> and friends</span>
+          </Show>
         </span>
         <Show when={installEvent()}>
-          <span
-            class="shrink-0 text-lg animate-pulse hidden sm:inline"
-            aria-hidden="true"
-          >
-            →
-          </span>
           <button
             data-testid="pwa-install-button"
-            class="shrink-0 px-4 py-1.5 rounded-md bg-surface-0 text-accent font-bold text-sm hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50 ring-1 ring-black/20"
+            class="shrink-0 px-2.5 py-0.5 bg-[#32d583] text-[#0a0a0f] font-bold uppercase tracking-wider text-[11px] hover:bg-[#5ce69f] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#32d583]"
             onClick={() => void handleInstall()}
           >
-            Install app
+            [install]
           </button>
         </Show>
         <button
           data-testid="pwa-install-dismiss"
           aria-label="Dismiss install prompt"
-          class="shrink-0 p-1.5 text-surface-0/70 hover:text-surface-0 hover:bg-black/15 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
+          class="shrink-0 px-1 text-[#6b7280] hover:text-[#e5e5e7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:text-[#e5e5e7]"
           onClick={() => setDismissed(true)}
         >
-          <CloseIcon />
+          [×]
         </button>
       </div>
     </Show>
