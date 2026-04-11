@@ -115,19 +115,21 @@ const PwaInstallBar: Component = () => {
 
   return (
     <Show when={!isPWA && !installed() && !dismissed()}>
+      {/* Styled as a browser-level notification, not Kolu chrome: uses the
+       *  accent color for the whole bar so it visually detaches from the
+       *  Header (bg-surface-1) sitting directly below. */}
       <div
         data-testid="pwa-install-bar"
-        class="flex items-center gap-2 h-9 shrink-0 px-3 sm:px-4 bg-surface-2 border-b border-edge text-xs"
+        class="flex items-center gap-2 h-9 shrink-0 px-3 sm:px-4 bg-accent text-surface-0 border-b border-black/20 text-xs font-medium shadow-sm"
       >
-        <span class="text-fg-2 shrink-0">📱</span>
-        <span class="flex-1 min-w-0 truncate text-fg">
+        <span class="flex-1 min-w-0 truncate">
           Install Kolu as an app
           <Show when={!installEvent()}> — {INSTRUCTIONS[browser]}</Show>
         </span>
         <Show when={installEvent()}>
           <button
             data-testid="pwa-install-button"
-            class="shrink-0 px-2 py-1 rounded-md bg-accent text-surface-0 font-medium hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="shrink-0 px-2.5 py-0.5 rounded-md bg-surface-0 text-accent font-semibold hover:brightness-110 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
             onClick={() => void handleInstall()}
           >
             Install
@@ -136,7 +138,7 @@ const PwaInstallBar: Component = () => {
         <button
           data-testid="pwa-install-dismiss"
           aria-label="Dismiss install prompt"
-          class="shrink-0 p-1 text-fg-2 hover:text-fg hover:bg-surface-3 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="shrink-0 p-1 text-surface-0/70 hover:text-surface-0 hover:bg-black/10 rounded transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-surface-0/50"
           onClick={() => setDismissed(true)}
         >
           <CloseIcon />
