@@ -136,6 +136,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 
   const handle = spawnPty(
     tlog,
+    id,
     {
       onData: (data) => {
         const entry = terminals.get(id);

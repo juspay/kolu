@@ -49,6 +49,20 @@ Then(
   },
 );
 
+Then(
+  "the close confirmation should not be visible",
+  async function (this: KoluWorld) {
+    // Give the dialog a moment to appear if it's going to — then assert hidden.
+    await this.page.waitForTimeout(300);
+    const confirm = this.page.locator('[data-testid="close-confirm"]');
+    assert.strictEqual(
+      await confirm.isVisible(),
+      false,
+      "Expected close confirmation dialog to not be visible",
+    );
+  },
+);
+
 When(
   "I confirm close all in the close confirmation",
   async function (this: KoluWorld) {

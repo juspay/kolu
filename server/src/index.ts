@@ -17,6 +17,7 @@ import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
+import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -61,6 +62,7 @@ const argv = cli({
 });
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
+ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 
@@ -112,7 +114,14 @@ app.use("/rpc/*", async (c, next) => {
   return next();
 });
 
-// --- Graceful shutdown logging ---
+// --- Graceful shutdown ---
+// One cleanup registration covers every exit path (signals, fatal
+// handlers, natural exit). `process.on('exit', ...)` fires on any call
+// to process.exit() and runs synchronously — exactly what rmSync needs.
+// Only SIGKILL / power loss bypass it, and XDG logout-wipe is the
+// backstop for those.
+process.on("exit", shutdownCleanup);
+
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
