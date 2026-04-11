@@ -153,7 +153,9 @@ export function getSessionTaskProgress(
       .prepare(
         "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
       )
-      .get(sessionId) as { total: number; completed: number | null } | undefined;
+      .get(sessionId) as
+      | { total: number; completed: number | null }
+      | undefined;
     if (!row || row.total === 0) return null;
     return { total: row.total, completed: row.completed ?? 0 };
   } catch (err) {
