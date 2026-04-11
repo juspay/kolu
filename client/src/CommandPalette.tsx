@@ -262,7 +262,13 @@ const CommandPalette: Component<{
         forceMount
         data-testid="command-palette"
         class="w-md bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
-        style={{ height: "24rem" }}
+        style={{
+          height: "24rem",
+          // Firefox workaround: bg-surface-1 utility intermittently fails
+          // to apply to Corvu-portalled dialog content, leaving it
+          // transparent. Inline style guarantees the background paints.
+          "background-color": "var(--color-surface-1)",
+        }}
       >
         {/* Breadcrumb — visible when drilled into a group */}
         <Show when={path().length > 0}>
