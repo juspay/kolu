@@ -69,35 +69,18 @@ Copy this directory to `ci/localci/` in your repo.
 import 'localci/lib.just'
 import 'localci/forges/github.just'    # or forges/none.just
 
-module_name  := "ci"
-sha          := `git rev-parse HEAD`
-system       := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
-local_system := `nix eval --raw --impure --expr builtins.currentSystem`
-root         := `git rev-parse --show-toplevel`
-systems      := "x86_64-linux aarch64-darwin"
+module_name := "ci"
+systems     := "x86_64-linux aarch64-darwin"
 
-# Top-level: acquire lock, run inner workflow, release on exit.
-default:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p .localci
-    exec perl -MFcntl=:flock -e '
-        BEGIN { $^F = 10 }
-        open(my $f, "+>>", ".localci/current") or die "open: $!\n";
-        flock($f, LOCK_EX | LOCK_NB) or do {
-            seek $f, 0, 0;
-            my $prev = <$f> // "?";
-            chomp $prev;
-            die "localci already running (sha=$prev)\n";
-        };
-        truncate($f, 0); seek $f, 0, 0;
-        print $f "{{ sha }}\n";
-        $f->flush;
-        exec @ARGV or die "exec: $!\n";
-    ' just ci::_inner
-
+# lib.just provides `default` (the perl-flock lock wrapper). The importer
+# only needs to define `_inner` with its preflight + run-all + summary chain.
 _inner: _preflight _run-all _summary
 
+# Parallel fanout across systems. Each lane MUST end with `|| true`:
+# otherwise a failing step aborts the whole just process and sibling
+# lanes never run. Per-step failures are captured in events.ndjson by
+# _run's ERR trap and surfaced by _summary, so discarding the exit code
+# at the lane level loses nothing.
 [parallel]
 _run-all: _linux _darwin
 
@@ -147,19 +130,24 @@ just ci::_summary    # render the two-column summary table
 
 ## Contract
 
-The importer must define these variables before importing `lib.just`:
+The importer must define just two variables:
 
-| Variable       | Description                                            |
-| -------------- | ------------------------------------------------------ |
-| `module_name`  | Just module name (e.g. `"ci"` for `mod ci 'mod.just'`) |
-| `sha`          | Git commit sha to test                                 |
-| `system`       | Current nix system (overridable via `CI_SYSTEM`)       |
-| `local_system` | The machine's native nix system                        |
-| `root`         | Git repo root path                                     |
-| `systems`      | Space-separated list of all target systems             |
+| Variable      | Description                                             |
+| ------------- | ------------------------------------------------------- |
+| `module_name` | Just module name (e.g. `"ci"` for `mod ci 'mod.just'`)  |
+| `systems`     | Space-separated list of all target systems              |
 
-And import exactly one forge backend, which provides `repo`, `_signoff`,
-`_list-statuses`, and (optionally) `protect`.
+`lib.just` provides defaults for `sha`, `system`, `local_system`, and
+`root` — these are boilerplate for any nix project (git sha, current nix
+system, native nix system, repo root).
+
+The importer must also define an `_inner` recipe that chains
+`_preflight`, its parallel run-all lane, and `_summary`. Everything else
+(the perl-flock single-instance lock wrapper in `default`, the step
+helpers, the event stream, the summary renderer) comes from `lib.just`.
+
+Finally, import exactly one forge backend, which provides `repo`,
+`_signoff`, `_list-statuses`, and (optionally) `protect`.
 
 ## Not yet implemented
 

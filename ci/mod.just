@@ -6,26 +6,34 @@
 import 'localci/lib.just'
 import 'localci/forges/github.just'
 
-module_name  := "ci"
-sha          := `git rev-parse HEAD`
-system       := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
-local_system := `nix eval --raw --impure --expr builtins.currentSystem`
-root         := `git rev-parse --show-toplevel`
-systems      := "x86_64-linux aarch64-darwin"
+module_name := "ci"
+systems     := "x86_64-linux aarch64-darwin"
 
 # Inner workflow: preflight → parallel fanout across systems → summary.
 # `default` (defined in lib.just) acquires the single-instance lock and
 # execs into this recipe.
 _inner: _preflight _run-all _summary
 
-# Each lane swallows failures (|| true) so all steps run and post their own
-# events + signoffs — _summary reads the event stream to decide final pass/fail.
+# Fans lanes out across target systems in parallel. Each lane MUST tolerate
+# its own failures (see the `|| true` in every lane below) — otherwise a
+# failing step on one system would abort the whole `just` process and the
+# sibling systems would never run, defeating the purpose of parallel CI.
+# `_summary` reads the events.ndjson file after all lanes finish and decides
+# final pass/fail from there.
 [parallel]
 _run-all: _local _linux _darwin
 
+# `|| true` is load-bearing: `just ci::fmt ci::typecheck ci::unit ci::apm-sync`
+# runs those four recipes sequentially in ONE just process, stopping on first
+# failure. Without the `|| true` the outer _local would fail and abort the
+# parallel fanout. Each recipe's own failure is already captured by _run's ERR
+# trap (emits step_end{state:failure} + forge signoff), so discarding the exit
+# code here loses nothing — the failure lives in events.ndjson for _summary.
 _local:
     just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
 
+# Same `|| true` rationale as _local — this lane fans nix → {home-manager, e2e}
+# and must not propagate sub-step failures up to _run-all.
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
 

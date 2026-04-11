@@ -2,10 +2,6 @@
 #
 # Required variables (defined by importer):
 #   module_name   — the just module name under which this lib is mounted (e.g. "ci")
-#   sha           — git commit sha under test
-#   system        — current nix system (overridable via CI_SYSTEM)
-#   local_system  — the machine's native nix system
-#   root          — git repo root path
 #   systems       — space-separated list of all target systems
 #
 # Required forge recipes (defined by a forges/<name>.just file that the importer also imports):
@@ -14,6 +10,20 @@
 #
 # Required forge variable:
 #   repo          — normalized forge repository identifier (may be empty for forges/none.just)
+
+# ─── Boilerplate defaults (importer need not redefine) ───────────────────────
+
+# Current git HEAD sha under test.
+sha          := `git rev-parse HEAD`
+# Nix system for the current step — overridable via CI_SYSTEM env var so a
+# single justfile process can dispatch steps to multiple target systems.
+system       := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
+# The machine's native nix system (never overridden — used to decide
+# whether a step runs locally or via ssh to a remote builder).
+local_system := `nix eval --raw --impure --expr builtins.currentSystem`
+# Git repo root — all .localci/ paths are resolved against this so recipes
+# work correctly when invoked from a submodule cwd.
+root         := `git rev-parse --show-toplevel`
 
 # ─── Top-level entrypoint ────────────────────────────────────────────────────
 
