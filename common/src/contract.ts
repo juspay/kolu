@@ -23,6 +23,8 @@ import {
   ServerInfoSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
+  WorktreeSuggestNameInputSchema,
+  WorktreeSuggestNameOutputSchema,
   WorktreeRemoveInputSchema,
   ServerStateSchema,
   ServerStatePatchSchema,
@@ -78,6 +80,12 @@ export const contract = oc.router({
     worktreeCreate: oc
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
+    /** Suggest a fresh, non-colliding worktree branch name for the given repo.
+     *  Client uses this to pre-fill the New Worktree dialog so users can rename
+     *  before creation. Server still validates on create. */
+    worktreeSuggestName: oc
+      .input(WorktreeSuggestNameInputSchema)
+      .output(WorktreeSuggestNameOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
   },
   claude: {

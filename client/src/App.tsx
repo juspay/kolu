@@ -21,6 +21,7 @@ import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
+import NewWorktreeDialog, { type NewWorktreeTarget } from "./NewWorktreeDialog";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
@@ -37,11 +38,12 @@ import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
 const App: Component = () => {
-  const { preferences, updatePreferences } = useServerState();
+  const { preferences, updatePreferences, recentRepos } = useServerState();
   const randomTheme = () => preferences().randomTheme;
   const scrollLock = () => preferences().scrollLock;
   const activityAlerts = () => preferences().activityAlerts;
   const sidebarAgentPreviews = () => preferences().sidebarAgentPreviews;
+  const worktreeAutoRun = () => preferences().worktreeAutoRun;
 
   const { store, crud, session, worktree, alerts } = useTerminals({
     randomTheme,
@@ -102,6 +104,10 @@ const App: Component = () => {
   // stale-target bugs if the user switches terminals while the dialog is open.
   const [closeConfirmTarget, setCloseConfirmTarget] =
     createSignal<CloseConfirmTarget | null>(null);
+
+  // New-worktree dialog state — target is the repo selected from the palette.
+  const [newWorktreeTarget, setNewWorktreeTarget] =
+    createSignal<NewWorktreeTarget | null>(null);
 
   // Terminal search bar state — close when switching terminals
   const [searchOpen, setSearchOpen] = createSignal(false);
@@ -186,8 +192,11 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) =>
-      void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath) => {
+      const repo = recentRepos().find((r) => r.repoRoot === repoPath);
+      if (!repo) return;
+      setNewWorktreeTarget({ repo });
+    },
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
@@ -299,6 +308,28 @@ const App: Component = () => {
           </div>
         </Dialog.Content>
       </ModalDialog>
+      <NewWorktreeDialog
+        target={newWorktreeTarget()}
+        initialAutoRun={worktreeAutoRun()}
+        onCancel={() => {
+          setNewWorktreeTarget(null);
+          requestAnimationFrame(refocusTerminal);
+        }}
+        onCreate={async ({ branchName, autoRun }) => {
+          const target = newWorktreeTarget();
+          if (!target) return;
+          // Persist the auto-run command as the new global default if it
+          // changed — next invocation's dialog pre-fills with this value.
+          if (autoRun !== worktreeAutoRun()) {
+            updatePreferences({ worktreeAutoRun: autoRun });
+          }
+          await worktree.handleCreateWorktree(target.repo.repoRoot, {
+            branchName,
+            autoRun,
+          });
+          setNewWorktreeTarget(null);
+        }}
+      />
       <CloseConfirm
         target={closeConfirmTarget()}
         onCancel={() => {

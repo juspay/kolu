@@ -13,8 +13,37 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-test" in the palette
+    Then the new worktree dialog should be visible
+    When I submit the new worktree dialog
     Then the header CWD should show ".worktrees/"
     And the sidebar should show a worktree indicator
+    And there should be no page errors
+
+  Scenario: New worktree dialog lets user rename the branch before creation
+    When I set up a git repo at "/tmp/kolu-wt-rename"
+    And I run "cd /tmp/kolu-wt-rename"
+    And the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-rename" in the palette
+    Then the new worktree dialog should be visible
+    When I set the new worktree branch name to "fix-login-bug"
+    And I submit the new worktree dialog
+    Then the header CWD should show ".worktrees/fix-login-bug"
+    And there should be no page errors
+
+  Scenario: New worktree dialog auto-runs a configured command
+    When I set up a git repo at "/tmp/kolu-wt-autorun"
+    And I run "cd /tmp/kolu-wt-autorun"
+    And the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-autorun" in the palette
+    Then the new worktree dialog should be visible
+    When I set the new worktree auto-run command to "echo worktree-autorun-marker"
+    And I submit the new worktree dialog
+    Then the header CWD should show ".worktrees/"
+    And the screen state should contain "worktree-autorun-marker"
     And there should be no page errors
 
   Scenario: Close terminal on worktree shows confirmation and removes worktree
@@ -24,6 +53,8 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
+    Then the new worktree dialog should be visible
+    When I submit the new worktree dialog
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
@@ -40,6 +71,8 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
+    Then the new worktree dialog should be visible
+    When I submit the new worktree dialog
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
@@ -56,6 +89,8 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
+    Then the new worktree dialog should be visible
+    When I submit the new worktree dialog
     Then the header CWD should show ".worktrees/"
     Given I note the sidebar entry count
     When I open the command palette
@@ -72,6 +107,8 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-splits" in the palette
+    Then the new worktree dialog should be visible
+    When I submit the new worktree dialog
     Then the header CWD should show ".worktrees/"
     When I create a sub-terminal via command palette
     Given I note the sidebar entry count

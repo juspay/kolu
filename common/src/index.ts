@@ -38,10 +38,20 @@ export const GitInfoSchema = z.object({
 
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
+  /** Branch name to use. If omitted, server picks a random name. */
+  branchName: z.string().optional(),
 });
 
 export const WorktreeCreateOutputSchema = z.object({
   path: z.string(),
+  branch: z.string(),
+});
+
+export const WorktreeSuggestNameInputSchema = z.object({
+  repoPath: z.string(),
+});
+
+export const WorktreeSuggestNameOutputSchema = z.object({
   branch: z.string(),
 });
 
@@ -247,6 +257,9 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+  /** Command run in new worktree terminals (e.g. "claude --dangerously-skip-permissions").
+   *  Empty string = no autolaunch. Pre-fills the New Worktree dialog's auto-run field. */
+  worktreeAutoRun: z.string(),
 });
 
 // --- Server state ---

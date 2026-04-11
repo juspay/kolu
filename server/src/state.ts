@@ -22,7 +22,7 @@ import { publishSystem } from "./publisher.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.4.0";
+const SCHEMA_VERSION = "1.5.0";
 
 const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
@@ -32,6 +32,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
+  worktreeAutoRun: "",
 };
 
 export const store = new Conf<PersistedState>({
@@ -68,6 +69,18 @@ export const store = new Conf<PersistedState>({
     // sidebarAgentPreviews: boolean → enum. Previously `true` meant
     // "preview every agent terminal" (now "agents"), `false` meant off
     // (now "none"). New installs default to "attention".
+    // worktreeAutoRun added — old preference blobs lack this field.
+    // Defaults to empty string (no autolaunch).
+    "1.5.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | Partial<Preferences>
+        | undefined;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...current,
+        worktreeAutoRun: current?.worktreeAutoRun ?? "",
+      });
+    },
     "1.4.0": (store: Conf<PersistedState>) => {
       // Cast through `unknown` because the persisted shape predates
       // the enum — on disk the field may still be a boolean.

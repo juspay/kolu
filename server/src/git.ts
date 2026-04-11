@@ -34,12 +34,74 @@ async function detectDefaultBranch(repoPath: string): Promise<string> {
   }
 }
 
+/** Returns null if the name is free, or a human-readable collision reason. */
+function branchCollisionReason(
+  mainRoot: string,
+  branch: string,
+): Promise<string | null> {
+  const targetPath = path.join(mainRoot, ".worktrees", branch);
+  if (fs.existsSync(targetPath)) {
+    return Promise.resolve(`A worktree already exists at ${targetPath}`);
+  }
+  return simpleGit(mainRoot)
+    .raw(["rev-parse", "--verify", `refs/heads/${branch}`])
+    .then(() => `Branch "${branch}" already exists`)
+    .catch(() => null);
+}
+
+/** Run `git worktree add` for a freshly-chosen branch name. */
+async function runWorktreeAdd(
+  mainRoot: string,
+  branch: string,
+  defaultBranch: string,
+): Promise<{ path: string; branch: string }> {
+  const targetPath = path.join(mainRoot, ".worktrees", branch);
+  log.info(
+    { mainRoot, targetPath, branch, base: `origin/${defaultBranch}` },
+    "creating worktree",
+  );
+  await simpleGit(mainRoot).raw([
+    "worktree",
+    "add",
+    targetPath,
+    "-b",
+    branch,
+    `origin/${defaultBranch}`,
+  ]);
+  return { path: targetPath, branch };
+}
+
+/** Validate a user-supplied branch name.
+ *  Rejects path-traversal (`..`) and restricts the character set to a
+ *  safe subset of git's valid-ref grammar. The name must also not start
+ *  with `.`, `-`, or `/` — these confuse `git branch` or `path.join`. */
+function validateBranchName(name: string): string | null {
+  if (name.length === 0) return "Branch name cannot be empty";
+  if (name.includes("..")) return "Branch name cannot contain '..'";
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(name)) {
+    return "Branch name must start with a letter, digit, or underscore, and contain only letters, digits, dots, slashes, dashes, underscores";
+  }
+  return null;
+}
+
+/** Generate a random, non-colliding worktree branch name. */
+export async function worktreeSuggestName(repoPath: string): Promise<string> {
+  const mainRoot = await resolveMainRepoRoot(repoPath);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const branch = randomName();
+    if ((await branchCollisionReason(mainRoot, branch)) === null) return branch;
+  }
+  throw new Error("Failed to generate unique worktree name after 5 attempts");
+}
+
 /**
- * Create a git worktree with a random name, branching from origin/<default>.
- * Retries with a new name on collision.
+ * Create a git worktree, branching from origin/<default>.
+ * If `branchName` is omitted, the server picks a random non-colliding name.
+ * If provided, the name is validated and throws on collision (no retry).
  */
 export async function worktreeCreate(
   repoPath: string,
+  branchName?: string,
 ): Promise<{ path: string; branch: string }> {
   const mainRoot = await resolveMainRepoRoot(repoPath);
   const git = simpleGit(mainRoot);
@@ -56,38 +118,23 @@ export async function worktreeCreate(
   }
   const defaultBranch = await detectDefaultBranch(mainRoot);
 
+  // User-provided name: validate once, fail with a clear error on collision.
+  if (branchName !== undefined) {
+    const invalid = validateBranchName(branchName);
+    if (invalid) throw new Error(invalid);
+    const reason = await branchCollisionReason(mainRoot, branchName);
+    if (reason) throw new Error(reason);
+    return runWorktreeAdd(mainRoot, branchName, defaultBranch);
+  }
+
+  // No name provided: retry with fresh random names on collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const branch = randomName();
-    const targetPath = path.join(mainRoot, ".worktrees", branch);
-
-    // Check for both directory and branch name collision — a previous worktree
-    // removal deletes the directory but leaves the branch behind.
-    if (fs.existsSync(targetPath)) {
-      wtLog.info({ branch }, "path collision, retrying");
+    if ((await branchCollisionReason(mainRoot, branch)) !== null) {
+      wtLog.info({ branch }, "name collision, retrying");
       continue;
     }
-    try {
-      await git.raw(["rev-parse", "--verify", `refs/heads/${branch}`]);
-      wtLog.info({ branch }, "branch collision, retrying");
-      continue;
-    } catch {
-      // Branch doesn't exist — good
-    }
-
-    wtLog.info(
-      { targetPath, branch, base: `origin/${defaultBranch}` },
-      "creating worktree",
-    );
-    await git.raw([
-      "worktree",
-      "add",
-      targetPath,
-      "-b",
-      branch,
-      `origin/${defaultBranch}`,
-    ]);
-
-    return { path: targetPath, branch };
+    return runWorktreeAdd(mainRoot, branch, defaultBranch);
   }
 
   throw new Error("Failed to generate unique worktree name after 5 attempts");

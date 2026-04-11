@@ -41,6 +41,50 @@ When(
 );
 
 Then(
+  "the new worktree dialog should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="new-worktree-dialog"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // Wait until the branch name suggestion has arrived from the server
+    // so the dialog is fully seeded before interaction.
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector<HTMLInputElement>(
+          '[data-testid="new-worktree-branch"]',
+        );
+        return el !== null && el.value.length > 0;
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I set the new worktree branch name to {string}",
+  async function (this: KoluWorld, name: string) {
+    const input = this.page.locator('[data-testid="new-worktree-branch"]');
+    await input.fill(name);
+  },
+);
+
+When(
+  "I set the new worktree auto-run command to {string}",
+  async function (this: KoluWorld, cmd: string) {
+    const input = this.page.locator('[data-testid="new-worktree-autorun"]');
+    await input.fill(cmd);
+  },
+);
+
+When("I submit the new worktree dialog", async function (this: KoluWorld) {
+  await this.page.locator('[data-testid="new-worktree-create"]').click();
+  await this.page
+    .locator('[data-testid="new-worktree-dialog"]')
+    .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+});
+
+Then(
   "the close confirmation should be visible",
   async function (this: KoluWorld) {
     await this.page

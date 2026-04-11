@@ -22,7 +22,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
-import { worktreeCreate, worktreeRemove } from "./git.ts";
+import { worktreeCreate, worktreeRemove, worktreeSuggestName } from "./git.ts";
 import {
   getServerState,
   testSetServerState,
@@ -181,14 +181,23 @@ export const appRouter = t.router({
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
-      log.info({ repo: input.repoPath }, "worktree create");
-      const result = await worktreeCreate(input.repoPath);
+      log.info(
+        { repo: input.repoPath, branch: input.branchName ?? "(auto)" },
+        "worktree create",
+      );
+      const result = await worktreeCreate(input.repoPath, input.branchName);
       log.info(
         { repo: input.repoPath, path: result.path, branch: result.branch },
         "worktree created",
       );
       return result;
     }),
+    worktreeSuggestName: t.git.worktreeSuggestName.handler(
+      async ({ input }) => {
+        const branch = await worktreeSuggestName(input.repoPath);
+        return { branch };
+      },
+    ),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
       await worktreeRemove(input.worktreePath);

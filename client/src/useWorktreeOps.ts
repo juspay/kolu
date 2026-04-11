@@ -12,12 +12,26 @@ export function useWorktreeOps(deps: {
 }) {
   const { store } = deps;
 
-  async function handleCreateWorktree(repoPath: string) {
+  async function handleCreateWorktree(
+    repoPath: string,
+    opts?: { branchName?: string; autoRun?: string },
+  ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath });
+      const result = await client.git.worktreeCreate({
+        repoPath,
+        branchName: opts?.branchName,
+      });
       toast.success(`Created worktree at ${result.path}`, { id });
-      await deps.handleCreate(result.path);
+      const termId = await deps.handleCreate(result.path);
+      // Autolaunch command — send after terminal is created. Trailing \r submits.
+      if (opts?.autoRun && opts.autoRun.trim().length > 0) {
+        await client.terminal
+          .sendInput({ id: termId, data: `${opts.autoRun}\r` })
+          .catch((err: Error) =>
+            toast.error(`Failed to send auto-run command: ${err.message}`),
+          );
+      }
       // Recent repos update reactively via trackRecentRepo → publishSystem
     } catch (err) {
       toast.error(`Failed to create worktree: ${(err as Error).message}`, {

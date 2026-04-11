@@ -32,6 +32,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
+  worktreeAutoRun: "",
 };
 
 // Singleton store — all callers share one reactive source of truth for preferences.
