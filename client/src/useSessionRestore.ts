@@ -74,13 +74,26 @@ export function useSessionRestore(deps: {
     for (const t of existing) deps.subscribeExit(t.id);
   }
 
-  // Re-fetch saved session when all terminals are killed mid-session.
+  // Re-fetch saved session when all terminals are killed mid-session,
+  // OR when the server pushes a fresh saved-session value while we're
+  // already showing the empty state.
+  //
+  // IMPORTANT: read `serverState.savedSession()` UNCONDITIONALLY so the
+  // reactive tracker subscribes to it on the effect's first run. Reading
+  // it inside the `if` body would skip tracking when the gate fails on
+  // the first run (initial mount before `hydrated` flips), and subsequent
+  // server pushes of a new saved-session would never re-fire this effect.
+  // That was the source of the chronic session-restore flake (#320, #440):
+  // when initial hydration raced with the snapshot, savedSession was set
+  // to null on the first effect and the reactive recovery here was dead.
+  //
   // Gated on lifecycle: on a genuine server restart, the dim overlay is
   // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
+    const fromServer = serverState.savedSession();
     if (store.terminalIds().length === 0 && hydrated) {
-      setSavedSession(serverState.savedSession());
+      setSavedSession(fromServer);
     }
   });
 

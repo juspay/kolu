@@ -28,6 +28,7 @@ import {
   testSetServerState,
   updateServerState,
 } from "./state.ts";
+import { log } from "./log.ts";
 
 const t = implement(contract);
 
@@ -66,6 +67,7 @@ export const appRouter = t.router({
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {
       requireTerminal(input.id);
+      log.info({ terminal: input.id, theme: input.themeName }, "set theme");
       setTerminalTheme(input.id, input.themeName);
     }),
 
@@ -112,11 +114,16 @@ export const appRouter = t.router({
     }),
 
     reorder: t.terminal.reorder.handler(async ({ input }) => {
+      log.info({ count: input.ids.length }, "reorder terminals");
       reorderTerminals(input.ids);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {
       requireTerminal(input.id);
+      log.info(
+        { terminal: input.id, parent: input.parentId },
+        "set terminal parent",
+      );
       setTerminalParent(input.id, input.parentId);
     }),
 
@@ -173,10 +180,17 @@ export const appRouter = t.router({
     }),
   },
   git: {
-    worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) =>
-      worktreeCreate(input.repoPath),
-    ),
+    worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
+      log.info({ repo: input.repoPath }, "worktree create");
+      const result = await worktreeCreate(input.repoPath);
+      log.info(
+        { repo: input.repoPath, path: result.path, branch: result.branch },
+        "worktree created",
+      );
+      return result;
+    }),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
+      log.info({ worktree: input.worktreePath }, "worktree remove");
       await worktreeRemove(input.worktreePath);
     }),
   },
@@ -188,6 +202,17 @@ export const appRouter = t.router({
       }
     }),
     update: t.state.update.handler(async ({ input }) => {
+      // Log only the keys being patched — values may carry session blobs,
+      // recent-repo paths, or other content not safe for the operator log.
+      log.info(
+        {
+          keys: Object.keys(input),
+          preferences: input.preferences
+            ? Object.keys(input.preferences)
+            : undefined,
+        },
+        "state update",
+      );
       updateServerState(input);
     }),
     test__set: t.state.test__set.handler(async ({ input }) => {

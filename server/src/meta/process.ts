@@ -28,14 +28,14 @@ export function startProcessProvider(
   let lastName: string | null = null;
   let lastTitle: string | null = null;
 
-  plog.info("started");
+  plog.debug("started");
 
   function update(title?: string) {
     const name = processBasename(entry.handle.process);
     const newTitle = title ?? lastTitle;
     if (name === lastName && newTitle === lastTitle) return;
 
-    plog.info(
+    plog.debug(
       { from: lastName, to: name, title: newTitle },
       "foreground process changed",
     );
@@ -57,6 +57,6 @@ export function startProcessProvider(
 
   return () => {
     abort.abort();
-    plog.info("stopped");
+    plog.debug("stopped");
   };
 }

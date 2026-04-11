@@ -139,7 +139,24 @@ When(
     mockCwd = `/tmp/claude-test-${pid}-${Date.now()}`;
     const encodedCwd = mockCwd.replace(/[/.]/g, "-");
 
-    // Create session file
+    // ORDER MATTERS — write the JSONL transcript and project dir BEFORE the
+    // session file. The session file is the "trigger": when the server's
+    // SESSIONS_DIR watcher fires on its creation, it immediately calls
+    // findTranscriptPath(session). If the JSONL doesn't exist yet, the
+    // server enters a "waiting on project dir" state that depends on a
+    // *second* fs.watch event firing — and under parallel-worker inotify
+    // pressure that second event is exactly the one most likely to drop.
+    // Writing data-then-trigger removes the second-event dependency.
+    fs.mkdirSync(projectsDir, { recursive: true });
+    mockProjectDir = path.join(projectsDir, encodedCwd);
+    fs.mkdirSync(mockProjectDir, { recursive: true });
+    mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
+    fs.writeFileSync(
+      mockTranscriptPath,
+      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
+    );
+
+    // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });
     const sessionData = {
       pid,
@@ -149,17 +166,28 @@ When(
     };
     mockSessionFile = path.join(sessionsDir, `${pid}.json`);
     fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
-
-    // Create project dir and transcript
-    mockProjectDir = path.join(projectsDir, encodedCwd);
-    fs.mkdirSync(mockProjectDir, { recursive: true });
-    mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
-    fs.writeFileSync(
-      mockTranscriptPath,
-      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
-    );
   },
 );
+
+/** Re-touch the mock files so a dropped fs.watch event can't deadlock detection.
+ *
+ *  fs.watch (inotify on Linux, FSEvents on darwin) is a single-shot best-effort
+ *  notification — under heavy load both backends silently drop events. The server
+ *  has no polling fallback, so a single missed event can wedge a scenario. Tests
+ *  re-touch the trigger files on each poll iteration so detection retries are
+ *  driven by *us*, not by hoping the kernel queue stays warm. */
+function nudgeMockFiles() {
+  const now = new Date();
+  for (const p of [mockSessionFile, mockTranscriptPath]) {
+    if (p) {
+      try {
+        fs.utimesSync(p, now, now);
+      } catch {
+        // file may have been cleaned up between iterations — fine
+      }
+    }
+  }
+}
 
 When(
   "a newer stale previous-session JSONL exists in the same project dir",
@@ -214,13 +242,22 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
 Then(
   "the header should show an agent indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    await this.page.waitForFunction(
-      (expected) => {
+    // Polled check with periodic mock-file re-touch — see nudgeMockFiles().
+    // Same total budget as a bare waitForFunction(POLL_TIMEOUT); we just slice
+    // it into ~250ms ticks and re-trigger the server's fs.watch each tick.
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeMockFiles();
+      last = await this.page.evaluate(() => {
         const el = document.querySelector('[data-testid="agent-indicator"]');
-        return el?.getAttribute("data-agent-state") === expected;
-      },
-      expectedState,
-      { timeout: POLL_TIMEOUT },
+        return el?.getAttribute("data-agent-state") ?? null;
+      });
+      if (last === expectedState) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected agent indicator state "${expectedState}", got "${last}" after ${POLL_TIMEOUT}ms`,
     );
   },
 );

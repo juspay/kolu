@@ -155,7 +155,7 @@ export function startGitProvider(
   let lastCwd = meta.cwd;
   let stopHeadWatch = watchGitHead(meta.cwd, handleHeadChange);
 
-  plog.info({ cwd: lastCwd }, "started");
+  plog.debug({ cwd: lastCwd }, "started");
 
   // Resolve immediately for initial CWD
   void resolve(meta.cwd);
@@ -168,7 +168,7 @@ export function startGitProvider(
       }
       return;
     }
-    plog.info({ from: lastCwd, to: newCwd }, "cwd changed, re-resolving");
+    plog.debug({ from: lastCwd, to: newCwd }, "cwd changed, re-resolving");
     lastCwd = newCwd;
     // Restart HEAD watcher for new directory
     stopHeadWatch();
@@ -177,7 +177,7 @@ export function startGitProvider(
   }
 
   function handleHeadChange() {
-    plog.info("HEAD changed, re-resolving");
+    plog.debug("HEAD changed, re-resolving");
     void resolve(lastCwd);
   }
 
@@ -197,7 +197,10 @@ export function startGitProvider(
       m.git = git;
       m.pr = null;
     });
-    plog.info({ repo: git?.repoName, branch: git?.branch }, "git info updated");
+    plog.debug(
+      { repo: git?.repoName, branch: git?.branch },
+      "git info updated",
+    );
     // Notify downstream providers (github) via dedicated channel
     publishForTerminal("git", terminalId, git);
   }
@@ -208,6 +211,6 @@ export function startGitProvider(
   return () => {
     abort.abort();
     stopHeadWatch();
-    plog.info("stopped");
+    plog.debug("stopped");
   };
 }
