@@ -10,6 +10,11 @@
 # `just --dump`, builds a DAG, and dispatches through its lifecycle
 # wrapper (events, signoff, transport, log capture).
 
+# All CI recipes run from repo root, not the ci/ submodule directory.
+# Required so `--override-input flake .` and similar path args resolve
+# against the project root as users expect.
+set working-directory := '..'
+
 import 'localci/lib.just'
 import 'localci/forges/github.just'
 
