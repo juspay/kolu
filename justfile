@@ -6,13 +6,6 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
 mod ai 'agents/ai.just'
 
-# localci: library recipes mounted under `localci::` namespace (scheduler,
-# step lifecycle, event stream, etc.). Forge backend imported flat so the
-# library can invoke `_signoff`/`_list-statuses` as unqualified top-level
-# names from inside the module.
-mod localci 'vendor/localci/lib.just'
-import 'vendor/localci/forges/github.just'
-
 # List available recipes
 default:
     @just --list
@@ -95,10 +88,15 @@ run:
 #
 # Each recipe below with a `[group("localci:system:...")]` attribute is a
 # CI step. The attribute tells the scheduler which lane it runs in; just's
-# native dep syntax (e.g. `test: nix`) encodes intra-lane ordering.
+# native dep syntax (e.g. `e2e: nix`) encodes intra-lane ordering.
 #
-# Recipes without a [group] attribute (dev, server, test-quick, fmt-write,
-# build, run, etc.) are invisible to the CI scheduler — they're for local use.
+# Library recipes are mounted under the `localci::` namespace (one line in
+# `just --list`). The forge backend is imported flat so the library can
+# invoke `_signoff`/`_list-statuses` as unqualified top-level names from
+# inside the module.
+
+mod localci 'vendor/localci/lib.just'
+import 'vendor/localci/forges/github.just'
 
 ci: localci::run
 
