@@ -108,7 +108,8 @@ ci: localci::run
 devour_flake := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
 # TypeScript type checking across all packages — fast static-correctness gate
-check: install
+[group("localci:system:local")]
+typecheck: install
     {{ nix_shell }} pnpm typecheck
 
 # Format check (prettier + nixpkgs-fmt). Use `just fmt-write` to format in place.
@@ -117,7 +118,8 @@ fmt:
     {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
 # Unit tests (vitest, server + client)
-test-unit: install
+[group("localci:system:local")]
+unit: install
     {{ nix_shell }} pnpm test:unit
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
@@ -135,30 +137,14 @@ nix:
 home-manager: nix
     {{ devour_flake }} --override-input flake ./nix/home/example --override-input flake/kolu .
 
-# Cucumber e2e tests
-test: install
+# Cucumber e2e tests. CI runs under localci with the `nix` dep above; for a
+# fast dev loop without devour-flake, use `just test-quick` instead.
+[group("localci:system:x86_64-linux")]
+[group("localci:system:aarch64-darwin")]
+e2e: install nix
     #!/usr/bin/env bash
     set -euo pipefail
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
     cd tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
-
-# CI aliases with the historical step names that master's branch protection
-# expects (ci/typecheck, ci/unit, ci/e2e@*). Each one forwards to the
-# canonical top-level dev recipe. They're tagged with [group] so localci's
-# scheduler picks them up; dev users continue to invoke `just check`,
-# `just test-unit`, `just test` directly.
-
-[group("localci:system:local")]
-typecheck:
-    just check
-
-[group("localci:system:local")]
-unit:
-    just test-unit
-
-[group("localci:system:x86_64-linux")]
-[group("localci:system:aarch64-darwin")]
-e2e: nix
-    just test

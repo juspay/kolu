@@ -181,17 +181,18 @@ Requires [Nix](https://nixos.asia/en/install) with flakes enabled.
 ```sh
 nix develop     # enter devshell
 just dev        # run server + client with hot reload
-just test       # e2e tests (full nix build)
+just e2e        # e2e tests (full nix build via devour-flake)
+just test-quick # fast e2e iteration (no nix build, for dev)
 ```
 
 ## CI
 
-`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
+`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses via [localci](vendor/localci/).
 
 ```sh
 just ci              # full CI run
-just ci::protect     # set branch protection
-just ci::_summary    # check current status
+just protect         # set branch protection
+just localci::_summary  # check current status
 ```
 
 ## Deployment (NixOS + home-manager)
