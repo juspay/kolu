@@ -60,6 +60,9 @@ Then(
       .locator('[data-testid="empty-state"]')
       .waitFor({ state: "visible", timeout: 15000 });
     const card = this.page.locator('[data-testid="session-restore"]');
+    // Fast path: card already visible (happy-hydration run). `.catch(() => false)`
+    // because Playwright's isVisible() can throw on transient DOM states during
+    // mount — treating those as "not visible" just routes to the self-heal below.
     if (await card.isVisible().catch(() => false)) return;
     if (this.savedSessionTerminalCount !== undefined) {
       await postSavedSession(this.page, this.savedSessionTerminalCount);
