@@ -17,6 +17,7 @@ import type {
   ServerStatePatch,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
+import { log } from "./log.ts";
 
 /**
  * Schema version — bump this when adding migrations.
@@ -174,6 +175,7 @@ export function trackRecentAgent(command: string): void {
     MAX_RECENT_AGENTS,
   );
   store.set("recentAgents", next);
+  log.info({ command, total: next.length }, "recent agent tracked");
   publishSystem("state:changed", getServerState());
 }
 

@@ -171,7 +171,7 @@ export function spawnPty(
     (data: string) => {
       if (!data.startsWith("E;")) return false;
       const command = data.slice(2);
-      tlog.debug({ command }, "command run (OSC 633;E)");
+      tlog.info({ command }, "command run (OSC 633;E)");
       opts.onCommandRun?.(command);
       return true;
     },
