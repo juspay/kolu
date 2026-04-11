@@ -15,6 +15,39 @@
 # Required forge variable:
 #   repo          — normalized forge repository identifier (may be empty for forges/none.just)
 
+# ─── Top-level entrypoint ────────────────────────────────────────────────────
+
+# Acquire single-instance lock via perl Fcntl::flock, then exec into `_inner`
+# (which the importer defines as its preflight + run-all + summary dep chain).
+# Kernel releases the lock on any exit (clean, crash, SIGKILL). The lock file
+# contents persist as the current-or-last run sha — agents read it
+# unconditionally to locate the live event stream.
+#
+# perl is portable (ships on every Linux + macOS) and gives us kernel-backed
+# advisory locking without needing flock(1) (which is absent on Darwin).
+# `$^F = 10` prevents FD_CLOEXEC from being set on newly-opened fds, so the
+# lock fd survives the exec into `just <module>::_inner` and stays held for
+# the full duration of the run, not just perl's lifetime.
+default:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "{{ root }}/.localci"
+    cd "{{ root }}"
+    exec perl -MFcntl=:flock -e '
+        BEGIN { $^F = 10 }
+        open(my $f, "+>>", ".localci/current") or die "open: $!\n";
+        flock($f, LOCK_EX | LOCK_NB) or do {
+            seek $f, 0, 0;
+            my $prev = <$f> // "?";
+            chomp $prev;
+            die "localci already running (sha=$prev)\n";
+        };
+        truncate($f, 0); seek $f, 0, 0;
+        print $f "{{ sha }}\n";
+        $f->flush;
+        exec @ARGV or die "exec: $!\n";
+    ' just {{ module_name }}::_inner
+
 # ─── Preflight / guards ───────────────────────────────────────────────────────
 
 # Preflight: guard checks + resolve SSH hosts before running steps.
@@ -174,8 +207,10 @@ _run name +cmd:
 # ─── Devour-flake helper ──────────────────────────────────────────────────────
 
 # Build all flake outputs via devour-flake (nix build wrapper).
-_devour-flake name +args:
-    just {{ module_name }}::_run "{{ name }}" nix build github:srid/devour-flake -L --no-link --print-out-paths {{ args }}
+# Passes the full nix build command through `_run` as a dep — no subprocess
+# hop. The devour-flake boilerplate is interpolated as literal tokens;
+# `args` carries whatever the caller passed variadically.
+_devour-flake step +args: (_run step "nix build github:srid/devour-flake -L --no-link --print-out-paths" args)
 
 # ─── Context auto-extraction ─────────────────────────────────────────────────
 

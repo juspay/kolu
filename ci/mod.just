@@ -13,36 +13,9 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root         := `git rev-parse --show-toplevel`
 systems      := "x86_64-linux aarch64-darwin"
 
-# Top-level entrypoint: acquire single-instance lock via perl Fcntl::flock,
-# then exec into the inner recipe chain. Kernel releases the lock on any exit
-# (clean, crash, SIGKILL). The lock file contents persist as the current-or-
-# last run sha, which agents read unconditionally.
-#
-# perl is portable (ships on every Linux + macOS) and gives us kernel-backed
-# advisory locking without needing flock(1) (absent on Darwin). The
-# `$^F = 10` trick prevents FD_CLOEXEC from being set on newly-opened fds,
-# so the lock fd survives the exec into `just ci::_inner` and is held for
-# the full duration of the run (not just perl's lifetime).
-default:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p "{{ root }}/.localci"
-    cd "{{ root }}"
-    exec perl -MFcntl=:flock -e '
-        BEGIN { $^F = 10 }
-        open(my $f, "+>>", ".localci/current") or die "open: $!\n";
-        flock($f, LOCK_EX | LOCK_NB) or do {
-            seek $f, 0, 0;
-            my $prev = <$f> // "?";
-            chomp $prev;
-            die "localci already running (sha=$prev)\n";
-        };
-        truncate($f, 0); seek $f, 0, 0;
-        print $f "{{ sha }}\n";
-        $f->flush;
-        exec @ARGV or die "exec: $!\n";
-    ' just ci::_inner
-
+# Inner workflow: preflight → parallel fanout across systems → summary.
+# `default` (defined in lib.just) acquires the single-instance lock and
+# execs into this recipe.
 _inner: _preflight _run-all _summary
 
 # Each lane swallows failures (|| true) so all steps run and post their own
@@ -64,25 +37,21 @@ _linux-fanout: home-manager e2e
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
 
-nix:
-    just ci::_devour-flake nix --override-input flake .
+# Leaf steps dispatch directly via parenthesized dep syntax — no subprocess
+# per step, just a dependency call into the orchestrator helpers in lib.just.
 
-home-manager: nix
-    just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
+nix: (_devour-flake "nix" "--override-input" "flake" ".")
 
-typecheck:
-    just ci::_run typecheck just check
+home-manager: nix (_devour-flake "home-manager" "--override-input" "flake" "./nix/home/example" "--override-input" "flake/kolu" ".")
 
-e2e: nix
-    just ci::_run e2e just test
+typecheck: (_run "typecheck" "just check")
+
+e2e: nix (_run "e2e" "just test")
 
 # Run vitest unit tests (server + client)
-unit:
-    just ci::_run unit just test-unit
+unit: (_run "unit" "just test-unit")
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync:
-    just ci::_run apm-sync just ai::apm-sync
+apm-sync: (_run "apm-sync" "just ai::apm-sync")
 
-fmt:
-    just ci::_run fmt just fmt-check
+fmt: (_run "fmt" "just fmt-check")

@@ -107,11 +107,9 @@ _linux:
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::build || true
 
-build:
-    just ci::_devour-flake build --override-input flake .
+build: (_devour-flake "build" "--override-input" "flake" ".")
 
-test:
-    just ci::_run test just test
+test: (_run "test" "just test")
 ```
 
 ### 3. Add to your top-level justfile
