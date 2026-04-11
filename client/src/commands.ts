@@ -5,9 +5,36 @@ import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./keyboard";
 import { availableThemes } from "./theme";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
 import { useServerState } from "./useServerState";
 import { client } from "./rpc";
+
+/** PaletteItems listing each recent agent command. Used by the Debug →
+ *  "Recent agents" entry (phase 1 prefill flow). */
+function agentItems(
+  agents: RecentAgent[],
+  onPick: (command: string) => void,
+): PaletteItem[] {
+  return agents.map((a) => ({
+    name: a.command,
+    onSelect: () => onPick(a.command),
+  }));
+}
+
+/** PaletteItems for a "create fresh terminal, optionally with an agent"
+ *  flow. Prepends "Plain shell" to the agent list so the default (empty
+ *  worktree) stays the keyboard-flow default. Used by phase 2's
+ *  recent-repo sub-palette under "New terminal". */
+function agentItemsWithPlainShell(
+  agents: RecentAgent[],
+  onPickPlainShell: () => void,
+  onPickAgent: (command: string) => void,
+): PaletteItem[] {
+  return [
+    { name: "Plain shell", onSelect: onPickPlainShell },
+    ...agentItems(agents, onPickAgent),
+  ];
+}
 
 export interface CommandDeps {
   terminalIds: Accessor<TerminalId[]>;
@@ -30,7 +57,7 @@ export interface CommandDeps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   // Worktree
-  handleCreateWorktree: (repoPath: string) => void;
+  handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
   // Debug
   simulateAlert: () => void;
@@ -46,16 +73,40 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "New terminal",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
+        // `hasAgents` decides leaf-vs-group shape at memo time; the nested
+        // `children` accessor re-reads `recentAgents()` live so the sub-
+        // palette reflects agent MRU changes between drilling into "New
+        // terminal" and drilling into a specific repo. Mirrors the pattern
+        // used by the Debug → "Recent agents" entry below.
+        const hasAgents = recentAgents().length > 0;
         return [
           {
             name: "In current directory",
             onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
           },
-          ...repos.map((r) => ({
-            name: r.repoName,
-            description: `New worktree in ${r.repoRoot}`,
-            onSelect: () => deps.handleCreateWorktree(r.repoRoot),
-          })),
+          // Recent-repo entries. When the user has any known-agent CLI in
+          // their MRU, picking a repo opens a sub-palette (Plain shell +
+          // agents). With no recent agents, the entry stays a flat leaf
+          // that creates a plain-shell worktree — exact pre-phase-2
+          // behavior, so first-run UX is unchanged.
+          ...repos.map((r) =>
+            hasAgents
+              ? {
+                  name: r.repoName,
+                  description: `New worktree in ${r.repoRoot}`,
+                  children: (): PaletteItem[] =>
+                    agentItemsWithPlainShell(
+                      recentAgents(),
+                      () => deps.handleCreateWorktree(r.repoRoot),
+                      (cmd) => deps.handleCreateWorktree(r.repoRoot, cmd),
+                    ),
+                }
+              : {
+                  name: r.repoName,
+                  description: `New worktree in ${r.repoRoot}`,
+                  onSelect: () => deps.handleCreateWorktree(r.repoRoot),
+                },
+          ),
           ...(repos.length === 0
             ? [
                 {
@@ -176,10 +227,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 name: "Recent agents",
                 description: "Prefill an agent CLI into the active terminal",
                 children: (): PaletteItem[] =>
-                  recentAgents().map((a) => ({
-                    name: a.command,
-                    onSelect: () => deps.handleRunInActiveTerminal(a.command),
-                  })),
+                  agentItems(recentAgents(), deps.handleRunInActiveTerminal),
               },
             ]
           : []),

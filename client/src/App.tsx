@@ -187,8 +187,8 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
-    handleCreateWorktree: (repoPath) =>
-      void worktree.handleCreateWorktree(repoPath),
+    handleCreateWorktree: (repoPath, initialCommand) =>
+      void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
