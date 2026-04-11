@@ -418,6 +418,76 @@ export function watchOrWaitForDir(
   };
 }
 
+// --- Shared SESSIONS_DIR watcher ---
+//
+// Every consumer of this package that wants to react to session
+// file appearance/disappearance needs a watch on SESSIONS_DIR. Rather
+// than have each caller install its own fs.watch (so N consumers = N
+// duplicate watchers + N duplicate dispatches per event), this module
+// refcounts a single watcher: first subscriber lazily installs it,
+// last unsubscribe tears it down.
+//
+// `sharedSessionsDir` is a single nullable structure (not a
+// {watcher, listeners} pair) so the "active iff non-empty" invariant
+// is mechanical — there's no way for the two halves to disagree.
+//
+// Per-listener `onError` is required (not optional) so fault isolation
+// is a type-system obligation, not a convention. If one listener's
+// callback throws, its own onError runs, and iteration continues to
+// the next listener unaffected.
+
+interface SessionsDirListener {
+  cb: () => void;
+  onError: (err: unknown) => void;
+}
+
+let sharedSessionsDir: {
+  cleanup: () => void;
+  listeners: Set<SessionsDirListener>;
+} | null = null;
+
+/**
+ * Subscribe to changes in `SESSIONS_DIR`. Returns an unsubscribe
+ * function. The underlying `fs.watch` is shared across all
+ * subscribers — refcounted, installed on first subscribe, torn down
+ * on last unsubscribe.
+ *
+ * `onError` receives any exception thrown by `onChange` and runs
+ * in place of breaking the iteration over peer listeners. Callers
+ * must provide one (silent swallowing would hide bugs) — pass a
+ * logger call like `(err) => log.warn({ err }, "...")`.
+ */
+export function subscribeSessionsDir(
+  onChange: () => void,
+  onError: (err: unknown) => void,
+): () => void {
+  if (!sharedSessionsDir) {
+    const listeners = new Set<SessionsDirListener>();
+    const cleanup = watchOrWaitForDir(SESSIONS_DIR, () => {
+      // Snapshot before iteration so a listener that subscribes or
+      // unsubscribes synchronously can't skip a peer for this event.
+      for (const l of [...listeners]) {
+        try {
+          l.cb();
+        } catch (err) {
+          l.onError(err);
+        }
+      }
+    });
+    sharedSessionsDir = { cleanup, listeners };
+  }
+  const listener: SessionsDirListener = { cb: onChange, onError };
+  sharedSessionsDir.listeners.add(listener);
+  return () => {
+    if (!sharedSessionsDir) return;
+    sharedSessionsDir.listeners.delete(listener);
+    if (sharedSessionsDir.listeners.size === 0) {
+      sharedSessionsDir.cleanup();
+      sharedSessionsDir = null;
+    }
+  };
+}
+
 // --- Summary fetching ---
 
 /** Fetch the display summary from the Claude Agent SDK. Returns null on failure. */
