@@ -35,7 +35,7 @@ export function startOpenCodeProvider(
 
   let current: OpenCodeWatcher | null = null;
 
-  plog.info("started");
+  plog.debug("started");
 
   /**
    * Read the foreground process basename directly from node-pty.
@@ -59,7 +59,7 @@ export function startOpenCodeProvider(
 
     if (!isOpenCode) {
       if (current) {
-        plog.info(
+        plog.debug(
           { from: current.session.id, to: name },
           "opencode no longer foreground",
         );
@@ -87,7 +87,7 @@ export function startOpenCodeProvider(
 
     // New or different session — replace the watcher.
     current?.destroy();
-    plog.info(
+    plog.debug(
       { session: session.id, title: session.title, cwd },
       "opencode session matched",
     );
@@ -114,6 +114,6 @@ export function startOpenCodeProvider(
   return () => {
     titleAbort.abort();
     current?.destroy();
-    plog.info("stopped");
+    plog.debug("stopped");
   };
 }

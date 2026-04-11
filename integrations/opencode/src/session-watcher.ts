@@ -110,7 +110,7 @@ export function createOpenCodeWatcher(
 
     if (infoEqual(lastInfo, info)) return;
     lastInfo = info;
-    log?.info(
+    log?.debug(
       { state: info.state, model: info.model, session: info.sessionId },
       "opencode state updated",
     );
