@@ -454,6 +454,7 @@ export const ClaudeTranscriptDebugSchema = z.object({
 
 export {
   createSessionWatcher,
+  getPendingSummaryFetches,
   infoEqual,
   type SessionWatcher,
   type ClaudeStateChange,

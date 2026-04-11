@@ -213,6 +213,21 @@ export function listTerminals(): TerminalInfo[] {
   return list;
 }
 
+/** Number of live terminal processes. Cheap counter for diagnostics. */
+export const terminalCount = (): number => terminals.size;
+
+/** Number of terminals currently hosting a Claude Code session. Derived
+ *  from `entry.getClaudeDebug` — the claude provider sets it on session
+ *  match and `delete`s it on teardown (see `meta/claude.ts`), so this
+ *  needs no separate counter state. Exported for diagnostics. */
+export function countActiveClaudeSessions(): number {
+  let n = 0;
+  for (const entry of terminals.values()) {
+    if (entry.getClaudeDebug) n++;
+  }
+  return n;
+}
+
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
 }
