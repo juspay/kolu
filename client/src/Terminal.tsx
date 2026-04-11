@@ -221,6 +221,12 @@ const Terminal: Component<{
       fontSize: fontSize(),
       scrollback: DEFAULT_SCROLLBACK,
       cursorBlink: true,
+      // Keep a solid block cursor even when xterm thinks we're unfocused.
+      // The default 'outline' is a hollow box that is effectively invisible
+      // at phone DPI, and xterm's WebGL renderer flips to the inactive style
+      // whenever `document.hasFocus()` is false — unreliable on iOS Safari
+      // with the soft keyboard up (CoreBrowserService.ts:55).
+      cursorInactiveStyle: "block",
       // Required by SerializeAddon and ImageAddon for buffer access
       allowProposedApi: true,
     });
@@ -240,14 +246,35 @@ const Terminal: Component<{
     term.loadAddon(serializeAddon);
 
     term.open(containerRef);
-    // Mobile virtual keyboards autocorrect/autocapitalize xterm's hidden
-    // textarea by default, mangling shell input. Disable all correction
-    // features — terminal input is never prose.
-    if (term.textarea) {
-      term.textarea.setAttribute("autocorrect", "off");
-      term.textarea.setAttribute("autocapitalize", "off");
-      term.textarea.setAttribute("autocomplete", "off");
-      term.textarea.setAttribute("spellcheck", "false");
+    // Mobile: route soft-keyboard input through `.xterm-screen` itself,
+    // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
+    //
+    // xterm's own hidden helper textarea already has spellcheck/autocorrect
+    // disabled by the library (CoreBrowserTerminal.ts:448-450), but iOS
+    // Safari still runs spell-check against the accumulated `textarea.value`
+    // that `_syncTextArea()` parks at the cursor cell — hence the phantom
+    // underlines. Making the screen element contenteditable gives mobile a
+    // real focus target and lets us opt the whole input surface out of
+    // correction features. `caret-color: transparent` keeps the native
+    // contenteditable caret from fighting xterm's rendered cursor.
+    //
+    // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
+    // path works fine with a hardware keyboard and we don't want to risk
+    // fighting its selection handling.
+    if (window.matchMedia("(pointer: coarse)").matches) {
+      const screen = term.element?.querySelector(
+        ".xterm-screen",
+      ) as HTMLElement | null;
+      if (screen) {
+        screen.setAttribute("contenteditable", "true");
+        screen.setAttribute("spellcheck", "false");
+        screen.setAttribute("autocorrect", "off");
+        screen.setAttribute("autocapitalize", "none");
+        screen.setAttribute("autocomplete", "off");
+        screen.setAttribute("aria-readonly", "true");
+        screen.style.caretColor = "transparent";
+        screen.style.outline = "none";
+      }
     }
     // Expose for e2e tests: read buffer content at viewport position.
     (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
