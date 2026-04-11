@@ -161,10 +161,17 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Close a terminal — always shows the confirmation dialog. */
+  /** Close a terminal. Top-level terminals show a confirmation dialog;
+   *  splits (sub-terminals) are killed directly — they are ephemeral
+   *  sub-panes, like browser tabs, and should never pop the worktree
+   *  removal prompt (#462). */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
     if (!meta) return;
+    if (meta.parentId) {
+      void crud.handleKill(id);
+      return;
+    }
     const splitCount = store.getSubTerminalIds(id).length;
     setCloseConfirmTarget({ id, meta, splitCount });
   }

@@ -76,7 +76,7 @@ Feature: Git worktree management
     When I create a sub-terminal via command palette
     And I create another sub-terminal via command palette
     Then the sub-panel tab bar should have 2 tabs
-    When I click close on sub-terminal tab 1
+    When I close sub-terminal tab 1
     Then the close confirmation should not be visible
     And the sub-panel tab bar should have 1 tab
     And there should be no page errors
