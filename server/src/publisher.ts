@@ -48,6 +48,10 @@ type SystemChannels = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const publisher = new MemoryPublisher<Record<string, any>>();
 
+/** Total pending events + active listeners across all channels. Exposed for
+ *  diagnostics (see diagnostics.ts) — climbs if subscribers aren't draining. */
+export const publisherSize = (): number => publisher.size;
+
 /** Publish an event on a per-terminal channel ("channel:terminalId"). */
 export function publishForTerminal<C extends keyof TerminalChannels>(
   channel: C,

@@ -25,6 +25,21 @@ in
 
     verbose = lib.mkEnableOption "debug-level logging";
 
+    diagnostics = {
+      dir = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "%h/.kolu/diag";
+        description = ''
+          Enable memory/heap diagnostics. Value is the base directory under
+          which kolu writes per-invocation subdirs containing heap snapshots
+          (via --heapsnapshot-near-heap-limit + --heapsnapshot-signal=SIGUSR2)
+          and periodic stats logs. `null` disables diagnostics entirely with
+          zero overhead. See the PR for the intended workflow.
+        '';
+      };
+    };
+
     tls = {
       enable = lib.mkEnableOption "TLS with auto-generated self-signed certificate";
 
@@ -67,6 +82,8 @@ in
         ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]
         ++ lib.optionals cfg.verbose [ "--verbose" ]);
         Restart = "on-failure";
+      } // lib.optionalAttrs (cfg.diagnostics.dir != null) {
+        Environment = [ "KOLU_DIAG_DIR=${cfg.diagnostics.dir}" ];
       };
       Install = {
         WantedBy = [ "default.target" ];
