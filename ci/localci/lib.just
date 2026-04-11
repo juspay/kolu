@@ -51,7 +51,7 @@ _guard:
 _host:
     #!/usr/bin/env bash
     set -euo pipefail
-    config="${XDG_CONFIG_HOME:-$HOME/.config}/localci-hosts.json"
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/ci-hosts.json"
     if [[ ! -f "$config" ]]; then
         mkdir -p "$(dirname "$config")"
         echo '{"hosts":{}}' > "$config"
