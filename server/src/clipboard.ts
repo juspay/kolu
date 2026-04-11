@@ -13,7 +13,7 @@
 
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { koluClipboardDir } from "./koluRoot.ts";
 
 /** Clipboard shim bin directory — required, crashes on startup if missing. */
 export const CLIPBOARD_SHIM_DIR = (() => {
@@ -26,9 +26,9 @@ export const CLIPBOARD_SHIM_DIR = (() => {
   return dir;
 })();
 
-/** Create a per-terminal clipboard directory (namespaced by PID to avoid collisions between parallel workers). */
+/** Create a per-terminal clipboard directory under the server's per-instance root. */
 export function createClipboardDir(terminalId: string): string {
-  const dir = join(tmpdir(), `kolu-clipboard-${process.pid}-${terminalId}`);
+  const dir = join(koluClipboardDir, terminalId);
   mkdirSync(dir, { recursive: true });
   return dir;
 }

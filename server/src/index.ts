@@ -17,6 +17,7 @@ import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
+import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -61,6 +62,7 @@ const argv = cli({
 });
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
+ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 
@@ -116,15 +118,18 @@ app.use("/rpc/*", async (c, next) => {
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
+    shutdownCleanup();
     process.exit(0);
   });
 }
 process.on("uncaughtException", (err) => {
   log.fatal({ err }, "uncaught exception");
+  shutdownCleanup();
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
   log.fatal({ reason }, "unhandled rejection");
+  shutdownCleanup();
   process.exit(1);
 });
 
