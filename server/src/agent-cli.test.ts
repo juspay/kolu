@@ -1,58 +1,7 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
 import { describe, it, expect } from "vitest";
-import { parseAgentCommand, tokenize } from "./agent-cli.ts";
-
-describe("tokenize", () => {
-  it("splits plain whitespace", () => {
-    expect(tokenize("claude --model sonnet")).toEqual([
-      "claude",
-      "--model",
-      "sonnet",
-    ]);
-  });
-
-  it("respects double-quoted runs", () => {
-    expect(tokenize(`claude -p "fix a bug"`)).toEqual([
-      "claude",
-      "-p",
-      "fix a bug",
-    ]);
-  });
-
-  it("respects single-quoted runs", () => {
-    expect(tokenize(`claude -p 'fix a bug'`)).toEqual([
-      "claude",
-      "-p",
-      "fix a bug",
-    ]);
-  });
-
-  it("honors backslash escapes outside quotes", () => {
-    expect(tokenize(`claude foo\\ bar`)).toEqual(["claude", "foo bar"]);
-  });
-
-  it("handles escaped double quotes inside double-quoted runs", () => {
-    expect(tokenize(`claude -p "say \\"hi\\""`)).toEqual([
-      "claude",
-      "-p",
-      `say "hi"`,
-    ]);
-  });
-
-  it("does not interpret escapes inside single quotes", () => {
-    expect(tokenize(`claude -p 'say \\"hi\\"'`)).toEqual([
-      "claude",
-      "-p",
-      `say \\"hi\\"`,
-    ]);
-  });
-
-  it("returns empty array for empty input", () => {
-    expect(tokenize("")).toEqual([]);
-    expect(tokenize("   ")).toEqual([]);
-  });
-});
+import { parseAgentCommand } from "./agent-cli.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452

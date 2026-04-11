@@ -17,12 +17,16 @@
  *   so `aider src/foo.ts` collapses to `aider`.
  * - All other flags are preserved verbatim in their original order.
  *
- * This is NOT a POSIX shell parser. The tokenizer handles whitespace
- * splitting with single- and double-quoted runs and backslash escapes.
- * It never evaluates the command — we only need to decide which tokens
- * to strip, so unknown constructs (command substitution, process
- * substitution, pipes) simply fall through as literal text.
+ * Tokenization delegates to `string-argv`, a small focused library
+ * for splitting shell-like strings into argv. We don't try to evaluate
+ * the command — we only need to decide which tokens to strip — so the
+ * tokenizer's exact handling of edge cases (command substitution,
+ * process substitution, glob) doesn't matter: unknown constructs fall
+ * through as opaque positionals and get dropped in the same step that
+ * drops real positionals.
  */
+
+import { parseArgsStringToArgv } from "string-argv";
 
 /** Agent CLI basenames kolu recognizes out of the box.
  *  Adding a new agent is a one-line change — no adapter, no registry. */
@@ -44,55 +48,6 @@ const PROMPT_FLAGS: ReadonlySet<string> = new Set([
   "--message",
 ]);
 
-/** Tokenize a shell-ish command line. Splits on whitespace; respects
- *  single-quoted ('...') and double-quoted ("...") runs; honors
- *  backslash escapes outside single quotes. Returns surface tokens in
- *  order with quoting and escapes removed. */
-export function tokenize(input: string): string[] {
-  const out: string[] = [];
-  let i = 0;
-  const n = input.length;
-  while (i < n) {
-    // Skip whitespace between tokens
-    while (i < n && /\s/.test(input[i]!)) i++;
-    if (i >= n) break;
-    let tok = "";
-    while (i < n && !/\s/.test(input[i]!)) {
-      const c = input[i]!;
-      if (c === "'") {
-        // Single quotes: literal, no escapes
-        i++;
-        while (i < n && input[i] !== "'") tok += input[i++];
-        if (i < n) i++; // consume closing quote
-      } else if (c === '"') {
-        // Double quotes: honor backslash escapes for \" and \\
-        i++;
-        while (i < n && input[i] !== '"') {
-          if (input[i] === "\\" && i + 1 < n) {
-            const next = input[i + 1]!;
-            if (next === '"' || next === "\\") {
-              tok += next;
-              i += 2;
-              continue;
-            }
-          }
-          tok += input[i++];
-        }
-        if (i < n) i++; // consume closing quote
-      } else if (c === "\\" && i + 1 < n) {
-        // Backslash escape outside quotes
-        tok += input[i + 1];
-        i += 2;
-      } else {
-        tok += c;
-        i++;
-      }
-    }
-    out.push(tok);
-  }
-  return out;
-}
-
 /** Basename of a path-like token (strips directory prefix). */
 function basename(s: string): string {
   const slash = s.lastIndexOf("/");
@@ -105,7 +60,7 @@ function basename(s: string): string {
  * to a known agent binary, or `null` otherwise.
  */
 export function parseAgentCommand(raw: string): string | null {
-  const tokens = tokenize(raw.trim());
+  const tokens = parseArgsStringToArgv(raw.trim());
   if (tokens.length === 0) return null;
 
   const agent = basename(tokens[0]!);
