@@ -31,31 +31,23 @@ If changes are purely server-internal with no UI impact, unit tests may suffice 
 
 ### CI command
 
-Run `just ci` via the **Monitor** tool with this filter so each finishing CI step becomes one event:
+`just ci` is powered by **localci** — a reusable, forge-agnostic local CI library that lives at `ci/localci/`. It emits a structured NDJSON event stream that agents should tail instead of grepping stdout. See `ci/localci/.apm/instructions/ci-workflow.instructions.md` for the full event schema and agent workflow.
+
+Run `just ci` in the background, then tail the event stream via Monitor:
 
 ```
-just ci 2>&1 | grep --line-buffered -oE 'context="ci/[^"]+" -f description="[^"]+"'
+tail -f .localci/logs/$(cut -c1-7 .localci/current)/events.ndjson
 ```
 
-Each event corresponds to one GitHub status post by `just ci`. The `description` field encodes the step state:
+Each line is an NDJSON event with `event: step_start | step_end | run_start | run_end`. Step end events include `state`, `duration_s`, and `log` (path to raw output).
 
-- `srid · running` → step started
-- `srid · Ns · <log path>` → step finished successfully
-- `srid · failed after Ns · <log path>` → step failed
+**Single-instance lock**: only one `just ci` runs per worktree at a time, enforced via perl `Fcntl::flock` on `.localci/current`. The file contents are the current-or-last sha — agents read it unconditionally.
 
-`just ci` is bound to the Monitor's lifetime — **stopping the monitor kills `just ci` mid-run**. Let it run to completion.
+**Verification**: all `step_end` events have `state: success` and there's a final `run_end` with `state: success`. After `just ci` exits, cross-check with `just ci::_summary` for a rendered two-column table (local state vs forge signoff state).
 
-> **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
+**On failure** — read the `log` path from the failing `step_end` event.
 
-**Verification**: All step events arrive with success states (no `failed after`). After `just ci` exits, you can also cross-check via:
-
-```
-gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
-```
-
-**On failure** — read the log file (path is in the event's description) to diagnose.
-
-**Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`). Single-step retries are short enough to run via `Bash(run_in_background)` — Monitor only pays off for full `just ci` runs.
+**Retry individual steps**: `just ci::<step>` (e.g., `just ci::e2e`). Single-step retries bypass the lock and are short enough to run via `Bash(run_in_background)`.
 
 **Log flaky tests**: If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
 
@@ -63,16 +55,18 @@ gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | star
 
 `just ci` builds and tests across all systems. It:
 
+- Acquires a single-instance lock (`perl Fcntl::flock` on `.localci/current`)
 - Runs preflight checks (clean worktree, commit pushed)
 - Builds on x86_64-linux and aarch64-darwin in parallel
-- Posts GitHub commit statuses per step
-- Prints a summary table at the end
+- Emits NDJSON events to `.localci/logs/<sha>/events.ndjson`
+- Posts GitHub commit statuses per step via the `forges/github.just` backend
+- Prints a two-column summary table (local events vs forge signoffs)
 
-Run it via **Monitor** (see CI command above) for live step-by-step visibility. **Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run.
+**Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run. Tail the events.ndjson file instead (see CI command above).
 
-Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
+Individual steps: `just ci::nix`, `just ci::e2e`, etc.
 Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
-Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
+Step logs: `.localci/logs/<short-sha>/<step>@<system>.log`.
 
 ## Feature Discoverability (Tips)
 

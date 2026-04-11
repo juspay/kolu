@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-10T22:40:06.077919+00:00'
+generated_at: '2026-04-11T14:29:51.750948+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -18,6 +18,12 @@ dependencies:
   - .claude/rules/workflow.md
   source: local
   local_path: ./agents
+- repo_url: _local/localci
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/ci-workflow.md
+  source: local
+  local_path: ./ci/localci
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
@@ -47,7 +53,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: c4e635227f10cd8c032b08e1e469f16900fec236
+  resolved_commit: 888548f2483149ac304882942c60732916b34a01
   resolved_ref: master
   package_type: apm_package
   deployed_files:
