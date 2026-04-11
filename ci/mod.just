@@ -2,73 +2,62 @@
 #
 # Imports localci/ — a forge-agnostic reusable CI library (to be extracted
 # to its own repo in a later phase). See ci/localci/README.md.
+#
+# Each leaf below is a regular justfile recipe with a direct body. The
+# `[group("system:...")]` attributes tell localci's scheduler which
+# target systems each step runs on; just's native dep syntax
+# (`e2e: nix`) encodes intra-lane ordering. localci reads both via
+# `just --dump`, builds a DAG, and dispatches through its lifecycle
+# wrapper (events, signoff, transport, log capture).
 
 import 'localci/lib.just'
 import 'localci/forges/github.just'
 
-# The just module name this file is mounted under in the top-level justfile
-# (see `mod ci 'ci/mod.just'`). localci recipes use this to dispatch
-# sibling calls via `just {{ module_name }}::<recipe>` and to parse this
-# module's recipes out of `just --dump` in `_contexts`.
+# The just module name this file is mounted under in the top-level
+# justfile (see `mod ci 'ci/mod.just'`). localci uses this to resolve
+# sibling recipe calls and to locate this module in `just --dump` output.
 module_name := "ci"
 
-# Target nix systems to build across. Each becomes a parallel lane in
-# `_run-all` below. The local system runs natively; every other system
-# is dispatched over ssh to a remote builder (host resolved via `_host`,
-# cached in ~/.config/ci-hosts.json).
-systems := "x86_64-linux aarch64-darwin"
+# Prefix shared by the nix/home-manager steps that use devour-flake.
+devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
 
-# Inner workflow: preflight → parallel fanout across systems → summary.
-# `default` (defined in lib.just) acquires the single-instance lock and
-# execs into this recipe.
-_inner: _preflight _run-all _summary
+# ─── Local-only steps ────────────────────────────────────────────────────────
+# These run once on whatever machine invokes `just ci`, with no
+# per-system fanout and no @system suffix in their CI context name.
 
-# Fans lanes out across target systems in parallel. Each lane MUST tolerate
-# its own failures (see the `|| true` in every lane below) — otherwise a
-# failing step on one system would abort the whole `just` process and the
-# sibling systems would never run, defeating the purpose of parallel CI.
-# `_summary` reads the events.ndjson file after all lanes finish and decides
-# final pass/fail from there.
-[parallel]
-_run-all: _local _linux _darwin
+[group("system:local")]
+fmt:
+    just fmt-check
 
-# `|| true` is load-bearing: `just ci::fmt ci::typecheck ci::unit ci::apm-sync`
-# runs those four recipes sequentially in ONE just process, stopping on first
-# failure. Without the `|| true` the outer _local would fail and abort the
-# parallel fanout. Each recipe's own failure is already captured by _run's ERR
-# trap (emits step_end{state:failure} + forge signoff), so discarding the exit
-# code here loses nothing — the failure lives in events.ndjson for _summary.
-_local:
-    just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
+[group("system:local")]
+typecheck:
+    just check
 
-# Same `|| true` rationale as _local — this lane fans nix → {home-manager, e2e}
-# and must not propagate sub-step failures up to _run-all.
-_linux:
-    CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
-
-# Runs home-manager and e2e in parallel after nix has completed.
-# Within the same just process, their `: nix` deps are already satisfied.
-[parallel]
-_linux-fanout: home-manager e2e
-
-_darwin:
-    CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
-
-# Leaf steps dispatch directly via parenthesized dep syntax — no subprocess
-# per step, just a dependency call into the orchestrator helpers in lib.just.
-
-nix: (_devour-flake "nix" "--override-input" "flake" ".")
-
-home-manager: nix (_devour-flake "home-manager" "--override-input" "flake" "./nix/home/example" "--override-input" "flake/kolu" ".")
-
-typecheck: (_run "typecheck" "just check")
-
-e2e: nix (_run "e2e" "just test")
-
-# Run vitest unit tests (server + client)
-unit: (_run "unit" "just test-unit")
+# Vitest unit tests (server + client)
+[group("system:local")]
+unit:
+    just test-unit
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync: (_run "apm-sync" "just ai::apm-sync")
+[group("system:local")]
+apm-sync:
+    just ai::apm-sync
 
-fmt: (_run "fmt" "just fmt-check")
+# ─── Per-system steps ────────────────────────────────────────────────────────
+# These run on every system tagged below, in parallel lanes. Ordering
+# within a lane is via normal just `dep:` syntax, which localci's
+# scheduler reads from `just --dump`.
+
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+nix:
+    {{ devour_prefix }} --override-input flake .
+
+[group("system:x86_64-linux")]
+home-manager: nix
+    {{ devour_prefix }} --override-input flake ./nix/home/example --override-input flake/kolu .
+
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+e2e: nix
+    just test

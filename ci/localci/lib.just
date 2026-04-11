@@ -1,8 +1,19 @@
 # localci — forge-agnostic reusable CI library.
 #
+# How it works:
+#   1. Consumer's mod.just declares leaf recipes with [group("system:...")]
+#      attributes. Each leaf is a regular justfile recipe with a real body.
+#   2. `default` (this file) acquires a single-instance lock via perl flock,
+#      then execs `_scheduler`.
+#   3. `_scheduler` runs `_plan` (python) to read the justfile metadata
+#      and emit a per-system topologically-sorted execution plan, then
+#      fans lanes out in parallel. Each step goes through `_step` which
+#      wraps it with the CI lifecycle (events, signoff, transport, log
+#      capture) and invokes the leaf via `just <module>::<name>`.
+#   4. `_summary` reads events.ndjson and renders the two-column table.
+#
 # Required variables (defined by importer):
 #   module_name   — the just module name under which this lib is mounted (e.g. "ci")
-#   systems       — space-separated list of all target systems
 #
 # Required forge recipes (defined by a forges/<name>.just file that the importer also imports):
 #   _signoff context state description    — post a commit status (or no-op)
@@ -27,17 +38,16 @@ root         := `git rev-parse --show-toplevel`
 
 # ─── Top-level entrypoint ────────────────────────────────────────────────────
 
-# Acquire single-instance lock via perl Fcntl::flock, then exec into `_inner`
-# (which the importer defines as its preflight + run-all + summary dep chain).
-# Kernel releases the lock on any exit (clean, crash, SIGKILL). The lock file
-# contents persist as the current-or-last run sha — agents read it
-# unconditionally to locate the live event stream.
+# Acquire single-instance lock via perl Fcntl::flock, then exec into
+# `_scheduler`. Kernel releases the lock on any exit (clean, crash, SIGKILL).
+# The lock file contents persist as the current-or-last run sha — agents
+# read it unconditionally to locate the live event stream.
 #
 # perl is portable (ships on every Linux + macOS) and gives us kernel-backed
 # advisory locking without needing flock(1) (which is absent on Darwin).
 # `$^F = 10` prevents FD_CLOEXEC from being set on newly-opened fds, so the
-# lock fd survives the exec into `just <module>::_inner` and stays held for
-# the full duration of the run, not just perl's lifetime.
+# lock fd survives the exec into `just <module>::_scheduler` and stays held
+# for the full duration of the run, not just perl's lifetime.
 default:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -56,22 +66,80 @@ default:
         print $f "{{ sha }}\n";
         $f->flush;
         exec @ARGV or die "exec: $!\n";
-    ' just {{ module_name }}::_inner
+    ' just {{ module_name }}::_scheduler
 
-# ─── Preflight / guards ───────────────────────────────────────────────────────
+# ─── Scheduler ────────────────────────────────────────────────────────────────
 
-# Preflight: guard checks + resolve SSH hosts before running steps.
-_preflight:
+# Guard + plan + parallel lane fanout + summary.
+#
+# The plan is a list of "<system>:<step1> <step2> ..." lines, one per system,
+# produced by scheduler.py from the module's [group("system:...")] metadata.
+# Each lane runs in a background subshell; within a lane, steps run
+# sequentially so that intra-lane just dependencies (e.g. `e2e: nix`) are
+# respected. `_step` always exits 0 — per-step failures are recorded in
+# events.ndjson and surfaced by `_summary`, so a failed step never aborts
+# its sibling lanes or subsequent steps in the same lane.
+_scheduler:
     #!/usr/bin/env bash
     set -euo pipefail
+
+    # Preflight guards
     just {{ module_name }}::_guard
-    for sys in {{ systems }}; do
-        if [[ "$sys" != "{{ local_system }}" ]]; then
+
+    # Fetch execution plan
+    plan=$(just {{ module_name }}::_plan)
+
+    # Resolve SSH hosts for every non-local system up front so prompts
+    # happen before the run starts, not mid-fanout.
+    while IFS=: read -r sys _; do
+        [[ -z "$sys" ]] && continue
+        if [[ "$sys" != "local" && "$sys" != "{{ local_system }}" ]]; then
             CI_SYSTEM="$sys" just {{ module_name }}::_host > /dev/null
         fi
-    done
+    done <<< "$plan"
+
+    # Emit run_start event
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_start\",\"sha\":\"{{ sha }}\"}"
+
+    # Fork one subshell per lane; run steps sequentially inside each.
+    pids=()
+    while IFS=: read -r sys steps; do
+        [[ -z "$sys" || -z "$steps" ]] && continue
+        (
+            for step in $steps; do
+                if [[ "$sys" == "local" ]]; then
+                    just {{ module_name }}::_step "$step"
+                else
+                    CI_SYSTEM="$sys" just {{ module_name }}::_step "$step"
+                fi
+            done
+        ) &
+        pids+=($!)
+    done <<< "$plan"
+
+    # Wait for every lane; `|| true` absorbs any non-zero exits (should
+    # never happen since _step always returns 0, but defensive).
+    for p in "${pids[@]}"; do wait "$p" || true; done
+
+    # Render the two-column summary
+    just {{ module_name }}::_summary
+
+# Generate the execution plan by piping `just --dump` through scheduler.py.
+# Uses python3 if on PATH, otherwise falls back to `nix run nixpkgs#python3`
+# so the library works on any machine with nix installed — no need for
+# python to be in the caller's devshell.
+_plan:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v python3 >/dev/null 2>&1; then
+        py=(python3)
+    else
+        py=(nix run --quiet nixpkgs#python3 --)
+    fi
+    just --dump --dump-format json | "${py[@]}" "{{ root }}/ci/localci/scheduler.py" "{{ module_name }}"
+
+# ─── Guards / host resolution ────────────────────────────────────────────────
 
 # Assert worktree is clean and HEAD matches expected sha and is pushed to remote.
 _guard:
@@ -124,41 +192,27 @@ _emit-event json:
         print $f $ARGV[1], "\n";
     ' "$evdir/events.ndjson" '{{ json }}'
 
-# ─── Step execution (single-concern helpers) ─────────────────────────────────
-
-# Run cmd locally (in repo root), tee output to logfile with colored prefix.
-_exec-local cmd logfile prefix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    (cd "{{ root }}" && {{ cmd }}) 2>&1 | tee "{{ logfile }}" | sed "s|^|[{{ prefix }}] |"
-
-# Run cmd on remote host via ssh + git bundle, tee output to logfile with colored prefix.
-_exec-remote host cmd logfile prefix:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    tmp=$(ssh "{{ host }}" mktemp -d)
-    trap 'ssh "{{ host }}" "rm -rf $tmp"' EXIT
-    git bundle create - --all 2>/dev/null | ssh "{{ host }}" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-    ssh "{{ host }}" "cd $tmp/src && {{ cmd }}" 2>&1 | tee "{{ logfile }}" | sed "s|^|[{{ prefix }}] |"
-
 # ─── Step orchestrator ────────────────────────────────────────────────────────
 
-# Run a CI step: emit events, post forge signoff, dispatch local-or-remote.
-# If CI_SYSTEM is set, context = name@system (multi-system step).
-# Otherwise, context = name (local-only step).
-_run name +cmd:
+# Run a CI step with lifecycle wrapping: emit events, post forge signoff,
+# dispatch `just <module>::<name>` locally or via ssh. Always exits 0 so
+# sibling steps and lanes keep running even if this one fails — the failure
+# is recorded in events.ndjson via the ERR trap and surfaced by `_summary`.
+#
+# Context naming: if CI_SYSTEM is set, the context is `name@system`
+# (multi-system step); otherwise it's bare `name` (local-only step).
+_step step-name:
     #!/usr/bin/env bash
     set -euo pipefail
-    just {{ module_name }}::_guard
     user=$(whoami)
     full_sha="{{ sha }}"
     short_sha="${full_sha:0:7}"
     logdir="{{ root }}/.localci/logs/${short_sha}"
     mkdir -p "$logdir"
     if [[ -n "${CI_SYSTEM:-}" ]]; then
-        context="{{ name }}@{{ system }}"
+        context="{{ step-name }}@{{ system }}"
     else
-        context="{{ name }}"
+        context="{{ step-name }}"
     fi
     logfile="$logdir/${context}.log"
     logrel=".localci/logs/${short_sha}/${context}.log"
@@ -166,7 +220,7 @@ _run name +cmd:
 
     # Build colored prefix label
     esc=$'\033'
-    name_color=$((31 + $(printf '%s' '{{ name }}' | cksum | cut -d' ' -f1) % 6))
+    name_color=$((31 + $(printf '%s' '{{ step-name }}' | cksum | cut -d' ' -f1) % 6))
     sys_color=$((31 + $(printf '%s' '{{ system }}' | cksum | cut -d' ' -f1) % 6))
     if [[ "$sys_color" == "$name_color" ]]; then
         sys_color=$(( (sys_color - 31 + 3) % 6 + 31 ))
@@ -177,79 +231,70 @@ _run name +cmd:
         icon=">"
     fi
     max_len=$(just {{ module_name }}::_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
-    label="{{ name }}@${icon} {{ system }}"
+    label="{{ step-name }}@${icon} {{ system }}"
     pad_len=$(( max_len - ${#label} ))
     trailing=$(printf "%${pad_len}s" "" 2>/dev/null || echo "")
-    colored="${esc}[${name_color}m{{ name }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m${trailing}"
+    colored="${esc}[${name_color}m{{ step-name }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m${trailing}"
 
-    # Failure handler: emit step_end(failure) + forge signoff(failure)
+    # Failure handler: emit failure event + forge signoff, return 0 so the
+    # scheduler keeps going. Per-step failures are visible in events.ndjson
+    # and surfaced by _summary; the process exit code is redundant with
+    # the event stream and actively harmful (would abort sibling steps).
     on_fail() {
         local ec=$?
         local elapsed=$(( SECONDS - start ))
         local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
+        just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
         just {{ module_name }}::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
-        exit $ec
+        exit 0
     }
     trap on_fail ERR
 
     # Emit step_start + forge signoff pending
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
+    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
     just {{ module_name }}::_signoff "$context" pending "${user} · running"
 
-    # Dispatch to local or remote transport
+    # Dispatch: run `just <module>::<name>` locally, or via ssh + git bundle
+    # to a remote builder if the target system isn't native.
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${colored}"
-        just {{ module_name }}::_exec-local "{{ cmd }}" "$logfile" "$colored"
+        (cd "{{ root }}" && just {{ module_name }}::{{ step-name }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
         host=$(just {{ module_name }}::_host)
         echo "▶ ${colored} ($host)"
-        just {{ module_name }}::_exec-remote "$host" "{{ cmd }}" "$logfile" "$colored"
+        tmp=$(ssh "$host" mktemp -d)
+        # Clone full repo (git bundle, not git archive) so remote has .git —
+        # nix builds often read the git revision from there.
+        git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
+        ssh "$host" "cd $tmp/src && just {{ module_name }}::{{ step-name }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        ssh "$host" "rm -rf $tmp" 2>/dev/null || true
     fi
 
     # Success: emit step_end + forge signoff
     elapsed=$(( SECONDS - start ))
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
+    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
     just {{ module_name }}::_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
 
-# ─── Devour-flake helper ──────────────────────────────────────────────────────
+# ─── Contexts ─────────────────────────────────────────────────────────────────
 
-# Build all flake outputs via devour-flake (nix build wrapper).
-# Passes the full nix build command through `_run` as a dep — no subprocess
-# hop. The devour-flake boilerplate is interpolated as literal tokens;
-# `args` carries whatever the caller passed variadically.
-_devour-flake step +args: (_run step "nix build github:srid/devour-flake -L --no-link --print-out-paths" args)
-
-# ─── Context auto-extraction ─────────────────────────────────────────────────
-
-# Auto-extract CI contexts from justfile structure by parsing recipe bodies.
-# Multi-system steps: "CI_SYSTEM=<sys> just <module>::<step> ..." → step@system
-# Local-only steps:   "just <module>::<step> ..." → step (no @system suffix)
+# List all CI contexts (step names, with @system suffix for non-local lanes).
+# Derived from the same plan the scheduler uses, so contexts always reflect
+# the actual execution surface. Consumed by `_signoff`, `_summary`, `protect`.
 _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
-    just --dump --dump-format json | jq -r --arg m "{{ module_name }}" '
-      .modules[$m].recipes as $r
-      | def expand:
-          if startswith("_") then
-            [ $r[.].dependencies[]?.recipe | expand ] | add // []
-          else [.] end;
-      $r | to_entries[]
-      | select(.key | startswith("_"))
-      | .value.body[0][0] // "" as $first
-      | if ($first | test("^CI_SYSTEM=")) then
-          $first
-          | capture("CI_SYSTEM=(?<system>[^ ]+) just (?<steps>.+?)( \\|\\| true)?$")
-          | .system as $sys
-          | ([ .steps | split(" ")[] | ltrimstr("\($m)::") | expand ] | add // [])[]
-          | . + "@" + $sys
-        elif ($first | test("^just \($m)::[a-z]")) then
-          $first
-          | capture("just (?<steps>.+?)( \\|\\| true)?$")
-          | ([ .steps | split(" ")[] | ltrimstr("\($m)::") | expand ] | add // [])[]
-        else empty end'
+    just {{ module_name }}::_plan | while IFS=: read -r sys steps; do
+        [[ -z "$sys" || -z "$steps" ]] && continue
+        for step in $steps; do
+            if [[ "$sys" == "local" ]]; then
+                echo "$step"
+            else
+                echo "${step}@${sys}"
+            fi
+        done
+    done
 
 # ─── Summary ──────────────────────────────────────────────────────────────────
 

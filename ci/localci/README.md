@@ -4,38 +4,50 @@ AI-friendly local Nix CI: a reusable just library that runs builds across
 multiple nix systems from your laptop, posts forge signoffs, and emits a
 structured event stream that agents can tail.
 
-No GitHub Actions, no Hydra. Just `just`, `perl`, `nix`, `ssh`, and `gh`
-(optional, for the GitHub forge backend).
+No GitHub Actions, no Hydra. Just `just`, `perl`, `python3` (with a
+`nix run nixpkgs#python3` fallback — works on any machine with nix), `nix`,
+`ssh`, and `gh` (optional, for the GitHub forge backend).
 
-## How it works
+## Design
+
+The consumer writes **regular justfile recipes** — one job each, no library
+syntax in the body. Each recipe is tagged with `[group("system:<name>")]`
+attributes declaring which target systems it runs on. localci's scheduler
+reads those attributes (and just's native `dep:` syntax for intra-lane
+ordering) via `just --dump --dump-format json`, builds a per-system DAG,
+fans systems out in parallel, and wraps each step with the CI lifecycle
+(events, forge signoff, transport dispatch, log capture).
 
 ```
-<your-project>/
-  justfile                     # mod ci 'ci/mod.just'
-  ci/mod.just                  # project-specific config (imports from localci/)
-  ci/localci/                  # this library
-    lib.just                   # forge-agnostic core
+ci/
+  mod.just             # your leaves + metadata; imports localci/lib.just
+  localci/             # this library (vendored or consumed via nix flake)
+    lib.just           # default/scheduler/step/summary/contexts/guards/events
+    scheduler.py       # reads `just --dump`, emits execution plan
     forges/
-      github.just              # commit statuses via gh
-      none.just                # no-op (no signoff)
-    apm.yml                    # APM package
-    .apm/instructions/         # agent workflow docs
+      github.just      # commit statuses via gh
+      none.just        # no-op (no signoff)
+    apm.yml            # APM package metadata
+    .apm/instructions/ # agent workflow docs
 ```
 
-The library's contract is small — importers declare a handful of variables
-and pick a forge backend, and they get:
+## What the library gives you
 
-- **`_run name +cmd`** — run a CI step with colored prefix, local-or-remote
-  transport (ssh + git bundle for non-native systems), log capture, forge
-  signoff lifecycle, and structured events.
-- **`_devour-flake name +args`** — `_run` wrapper for `nix build` via
-  [devour-flake](https://github.com/srid/devour-flake).
-- **`_preflight`** — clean-worktree guard, commit-pushed guard, SSH-host
-  resolution for remote systems.
-- **`_contexts`** — auto-derives all `step@system` pairs from your
-  justfile structure.
+- **`default`** — acquires the single-instance lock (`perl Fcntl::flock` on
+  `.localci/current`), then execs `_scheduler`. Kernel releases the lock on
+  any exit; file contents persist as the current-or-last run sha.
+- **`_scheduler`** — runs `_guard`, resolves SSH hosts, generates the plan
+  via `_plan`, forks one subshell per system lane, waits, renders summary.
+- **`_plan`** — pipes `just --dump --dump-format json` through
+  `scheduler.py`. Python falls back to `nix run nixpkgs#python3 --` if
+  `python3` isn't on `PATH`.
+- **`_step name`** — runs `just <module>::<name>` (locally or via ssh) with
+  colored log prefix, event emission, forge signoff, and a failure trap
+  that always exits 0 so sibling steps keep going.
+- **`_contexts`** — lists all CI contexts (`<step>` or `<step>@<system>`)
+  derived from the plan. Consumed by `_summary`, forge `protect`.
 - **`_summary`** — two-column table: local event state vs forge signoff state.
-- **`protect`** (GitHub only) — set branch protection requiring all contexts.
+- **`_emit-event`**, **`_guard`**, **`_host`** — internal helpers.
 
 ## Single-instance lock
 
@@ -70,30 +82,29 @@ import 'localci/lib.just'
 import 'localci/forges/github.just'    # or forges/none.just
 
 module_name := "ci"
-systems     := "x86_64-linux aarch64-darwin"
 
-# lib.just provides `default` (the perl-flock lock wrapper). The importer
-# only needs to define `_inner` with its preflight + run-all + summary chain.
-_inner: _preflight _run-all _summary
+[group("system:local")]
+fmt:
+    just fmt-check
 
-# Parallel fanout across systems. Each lane MUST end with `|| true`:
-# otherwise a failing step aborts the whole just process and sibling
-# lanes never run. Per-step failures are captured in events.ndjson by
-# _run's ERR trap and surfaced by _summary, so discarding the exit code
-# at the lane level loses nothing.
-[parallel]
-_run-all: _linux _darwin
+[group("system:local")]
+typecheck:
+    just check
 
-_linux:
-    CI_SYSTEM=x86_64-linux just ci::build ci::test || true
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+build:
+    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
-_darwin:
-    CI_SYSTEM=aarch64-darwin just ci::build || true
-
-build: (_devour-flake "build" "--override-input" "flake" ".")
-
-test: (_run "test" "just test")
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+test: build
+    just test
 ```
+
+That's it — no `default`, no orchestrator lanes, no `(_run ...)` wrappers,
+no `|| true`, no shell-out dispatch. localci reads the `[group]` attributes
+and the `test: build` dep via `just --dump` and builds the execution plan.
 
 ### 3. Add to your top-level justfile
 
@@ -125,29 +136,31 @@ dependencies:
 just ci              # run all steps, respecting the lock
 just ci::protect     # (GitHub) require CI on default branch
 just ci::_contexts   # list all step@system pairs
+just ci::_plan       # show the execution plan (system:step1 step2...)
 just ci::_summary    # render the two-column summary table
 ```
 
 ## Contract
 
-The importer must define just two variables:
+The importer must define one variable:
 
 | Variable      | Description                                            |
 | ------------- | ------------------------------------------------------ |
 | `module_name` | Just module name (e.g. `"ci"` for `mod ci 'mod.just'`) |
-| `systems`     | Space-separated list of all target systems             |
 
 `lib.just` provides defaults for `sha`, `system`, `local_system`, and
-`root` — these are boilerplate for any nix project (git sha, current nix
-system, native nix system, repo root).
+`root` — these are boilerplate for any nix project.
 
-The importer must also define an `_inner` recipe that chains
-`_preflight`, its parallel run-all lane, and `_summary`. Everything else
-(the perl-flock single-instance lock wrapper in `default`, the step
-helpers, the event stream, the summary renderer) comes from `lib.just`.
+And import exactly one forge backend, which provides `repo`, `_signoff`,
+`_list-statuses`, and (optionally) `protect`.
 
-Finally, import exactly one forge backend, which provides `repo`,
-`_signoff`, `_list-statuses`, and (optionally) `protect`.
+Leaves opt into the scheduler via `[group("system:<name>")]` attributes.
+System names are either `local` (runs once on whoever invokes `just ci`,
+no `@system` suffix) or a nix system string like `x86_64-linux` /
+`aarch64-darwin` (runs on that system; native → local exec, non-native →
+ssh + git bundle to a remote builder). Multiple `[group]` attributes per
+recipe for multi-system steps. Ordering within a lane is expressed via
+just's native dep syntax (`test: build`).
 
 ## Not yet implemented
 
