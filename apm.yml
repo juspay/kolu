@@ -6,7 +6,7 @@ type: hybrid
 dependencies:
   apm:
     - ./agents
-    - ./ci/localci
+    - ./vendor/localci
     - srid/agency#master
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript

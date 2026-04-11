@@ -1,22 +1,28 @@
 # localci GitHub forge backend.
 #
 # Provides: repo, _signoff, _list-statuses, protect
-# Status context prefix: "<module_name>/<step>"
+# Status context prefix: `ci/<step>` (when lib is imported at top-level) or
+# `<module_name>/<step>` (when mounted as a submodule).
 
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
+
+# Prefix for GitHub status context names. Defaults to "ci/" when the library
+# is imported directly into a top-level justfile (module_name is empty), or
+# "<module_name>/" when mounted as a submodule.
+context_prefix := if module_name == "" { "ci/" } else { module_name + "/" }
 
 # Post a GitHub commit status for this step.
 _signoff context status description="":
     gh api "repos/{{ repo }}/statuses/{{ sha }}" \
-      -f state="{{ status }}" -f context="{{ module_name }}/{{ context }}" \
+      -f state="{{ status }}" -f context="{{ context_prefix }}{{ context }}" \
       -f description="{{ description }}" --silent
 
 # Return normalized JSON map {context: state} for this sha, stripping the
-# module_name prefix so lib.just can match against _contexts output.
+# context_prefix so lib.just can match against _contexts output.
 _list-statuses:
     #!/usr/bin/env bash
     set -euo pipefail
-    prefix="{{ module_name }}/"
+    prefix="{{ context_prefix }}"
     gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq "
         [.[] | select(.context | startswith(\"$prefix\"))]
         | group_by(.context)
@@ -29,8 +35,8 @@ _list-statuses:
 protect branch=`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`:
     #!/usr/bin/env bash
     set -euo pipefail
-    contexts=$(just {{ module_name }}::_contexts)
-    prefix="{{ module_name }}/"
+    contexts=$(just {{ dispatch }}_contexts)
+    prefix="{{ context_prefix }}"
     echo "Setting required status checks on {{ branch }}:"
     args=()
     while IFS= read -r ctx; do

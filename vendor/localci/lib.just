@@ -12,8 +12,10 @@
 #      capture) and invokes the leaf via `just <module>::<name>`.
 #   4. `_summary` reads events.ndjson and renders the two-column table.
 #
-# Required variables (defined by importer):
-#   module_name   — the just module name under which this lib is mounted (e.g. "ci")
+# Required variables (defined by importer — or leave as default for top-level use):
+#   module_name   — the just module name under which this lib is mounted, or
+#                   empty string if lib is imported directly into the top-level
+#                   justfile. Defaults to "" (top-level).
 #
 # Required forge recipes (defined by a forges/<name>.just file that the importer also imports):
 #   _signoff context state description    — post a commit status (or no-op)
@@ -23,6 +25,14 @@
 #   repo          — normalized forge repository identifier (may be empty for forges/none.just)
 
 # ─── Boilerplate defaults (importer need not redefine) ───────────────────────
+
+# Default to top-level use (no module prefix). Importers that mount the
+# library under a module should override with `module_name := "ci"` or similar.
+module_name := ""
+
+# `<module_name>::` prefix for dispatching sibling recipes. Empty when
+# lib is imported directly into a top-level justfile.
+dispatch := if module_name == "" { "" } else { module_name + "::" }
 
 # Current git HEAD sha under test.
 sha          := `git rev-parse HEAD`
@@ -69,7 +79,7 @@ _default:
         print $f "{{ sha }}\n";
         $f->flush;
         exec @ARGV or die "exec: $!\n";
-    ' just {{ module_name }}::_scheduler
+    ' just {{ dispatch }}_scheduler
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
@@ -87,23 +97,23 @@ _scheduler:
     set -euo pipefail
 
     # Preflight guards
-    just {{ module_name }}::_guard
+    just {{ dispatch }}_guard
 
     # Fetch execution plan
-    plan=$(just {{ module_name }}::_plan)
+    plan=$(just {{ dispatch }}_plan)
 
     # Resolve SSH hosts for every non-local system up front so prompts
     # happen before the run starts, not mid-fanout.
     while IFS=: read -r sys _; do
         [[ -z "$sys" ]] && continue
         if [[ "$sys" != "local" && "$sys" != "{{ local_system }}" ]]; then
-            CI_SYSTEM="$sys" just {{ module_name }}::_host > /dev/null
+            CI_SYSTEM="$sys" just {{ dispatch }}_host > /dev/null
         fi
     done <<< "$plan"
 
     # Emit run_start event
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_start\",\"sha\":\"{{ sha }}\"}"
+    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_start\",\"sha\":\"{{ sha }}\"}"
 
     # Fork one subshell per lane; run steps sequentially inside each.
     pids=()
@@ -112,9 +122,9 @@ _scheduler:
         (
             for step in $steps; do
                 if [[ "$sys" == "local" ]]; then
-                    just {{ module_name }}::_step "$step"
+                    just {{ dispatch }}_step "$step"
                 else
-                    CI_SYSTEM="$sys" just {{ module_name }}::_step "$step"
+                    CI_SYSTEM="$sys" just {{ dispatch }}_step "$step"
                 fi
             done
         ) &
@@ -126,7 +136,7 @@ _scheduler:
     for p in "${pids[@]}"; do wait "$p" || true; done
 
     # Render the two-column summary
-    just {{ module_name }}::_summary
+    just {{ dispatch }}_summary
 
 # Generate the execution plan by piping `just --dump` through scheduler.py.
 # Uses python3 if on PATH, otherwise falls back to `nix run nixpkgs#python3`
@@ -140,7 +150,7 @@ _plan:
     else
         py=(nix run --quiet nixpkgs#python3 --)
     fi
-    just --dump --dump-format json | "${py[@]}" "{{ root }}/ci/localci/scheduler.py" "{{ module_name }}"
+    just --dump --dump-format json | "${py[@]}" "{{ root }}/vendor/localci/scheduler.py" "{{ module_name }}"
 
 # ─── Guards / host resolution ────────────────────────────────────────────────
 
@@ -233,7 +243,7 @@ _step step-name:
     else
         icon=">"
     fi
-    max_len=$(just {{ module_name }}::_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
+    max_len=$(just {{ dispatch }}_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
     label="{{ step-name }}@${icon} {{ system }}"
     pad_len=$(( max_len - ${#label} ))
     trailing=$(printf "%${pad_len}s" "" 2>/dev/null || echo "")
@@ -247,38 +257,38 @@ _step step-name:
         local ec=$?
         local elapsed=$(( SECONDS - start ))
         local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
-        just {{ module_name }}::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
+        just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
+        just {{ dispatch }}_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
         exit 0
     }
     trap on_fail ERR
 
     # Emit step_start + forge signoff pending
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
-    just {{ module_name }}::_signoff "$context" pending "${user} · running"
+    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
+    just {{ dispatch }}_signoff "$context" pending "${user} · running"
 
     # Dispatch: run `just <module>::<name>` locally, or via ssh + git bundle
     # to a remote builder if the target system isn't native.
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${colored}"
-        (cd "{{ root }}" && just {{ module_name }}::{{ step-name }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        (cd "{{ root }}" && just {{ dispatch }}{{ step-name }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
-        host=$(just {{ module_name }}::_host)
+        host=$(just {{ dispatch }}_host)
         echo "▶ ${colored} ($host)"
         tmp=$(ssh "$host" mktemp -d)
         # Clone full repo (git bundle, not git archive) so remote has .git —
         # nix builds often read the git revision from there.
         git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-        ssh "$host" "cd $tmp/src && just {{ module_name }}::{{ step-name }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        ssh "$host" "cd $tmp/src && just {{ dispatch }}{{ step-name }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
         ssh "$host" "rm -rf $tmp" 2>/dev/null || true
     fi
 
     # Success: emit step_end + forge signoff
     elapsed=$(( SECONDS - start ))
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
-    just {{ module_name }}::_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
+    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
+    just {{ dispatch }}_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
 
 # ─── Contexts ─────────────────────────────────────────────────────────────────
 
@@ -288,7 +298,7 @@ _step step-name:
 _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
-    just {{ module_name }}::_plan | while IFS=: read -r sys steps; do
+    just {{ dispatch }}_plan | while IFS=: read -r sys steps; do
         [[ -z "$sys" || -z "$steps" ]] && continue
         for step in $steps; do
             if [[ "$sys" == "local" ]]; then
@@ -326,7 +336,7 @@ _summary:
     fi
 
     # Read signoff state from forge (may fail gracefully)
-    signoff_statuses=$(just {{ module_name }}::_list-statuses 2>/dev/null || echo "{}")
+    signoff_statuses=$(just {{ dispatch }}_list-statuses 2>/dev/null || echo "{}")
     if [[ -z "$signoff_statuses" || "$signoff_statuses" == "null" ]]; then
         signoff_statuses="{}"
     fi
@@ -359,13 +369,13 @@ _summary:
         else
             printf "  %b  %-30s %s\n" "$symbol" "$ctx" "$loc"
         fi
-    done <<< "$(just {{ module_name }}::_contexts)"
+    done <<< "$(just {{ dispatch }}_contexts)"
 
     # Emit run_end event (captures final state in the event stream)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     final_state="success"
     if [[ "$failed" -eq 1 ]]; then final_state="failure"; fi
-    just {{ module_name }}::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_end\",\"state\":\"$final_state\"}" || true
+    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_end\",\"state\":\"$final_state\"}" || true
 
     echo ""
     if [[ "$failed" -eq 1 ]]; then

@@ -5,11 +5,16 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
 mod ai 'agents/ai.just'
-mod ci 'ci/mod.just'
+
+import 'vendor/localci/lib.just'
+import 'vendor/localci/forges/github.just'
 
 # List available recipes
 default:
     @just --list
+
+# Run all CI steps (localci scheduler, perl-flock single-instance lock).
+ci: _default
 
 # Prepare repo for development — install deps and cache so future workflows run faster
 prepare: install
@@ -102,3 +107,44 @@ build:
 # Run the combined server+client binary
 run:
     nix run
+
+# ─── CI step definitions ─────────────────────────────────────────────────────
+# Each recipe below is a localci-wrapped CI step. [group("system:...")] tells
+# the scheduler which lane it runs in; just's native dep syntax (`ci-e2e: ci-nix`)
+# encodes intra-lane ordering. Dispatched via `just ci`.
+#
+# Collision-prefixed with `ci-` for now — when you're ready, merge with the
+# top-level `check`/`test`/`fmt-check` recipes so there's one canonical
+# definition per step (tracked as a follow-up).
+
+devour_prefix := "nix build github:srid/devour-flake -L --no-link --print-out-paths"
+
+[group("system:local")]
+ci-check:
+    just check
+
+[group("system:local")]
+ci-fmt:
+    just fmt-check
+
+[group("system:local")]
+ci-unit:
+    just test-unit
+
+[group("system:local")]
+ci-apm-sync:
+    just ai::apm-sync
+
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+ci-nix:
+    {{ devour_prefix }} --override-input flake .
+
+[group("system:x86_64-linux")]
+ci-home-manager: ci-nix
+    {{ devour_prefix }} --override-input flake ./nix/home/example --override-input flake/kolu .
+
+[group("system:x86_64-linux")]
+[group("system:aarch64-darwin")]
+ci-e2e: ci-nix
+    just test

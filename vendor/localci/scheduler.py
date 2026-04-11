@@ -18,12 +18,17 @@ from collections import defaultdict
 
 def main() -> int:
     data = json.load(sys.stdin)
-    module = sys.argv[1]
-    try:
-        recipes = data["modules"][module]["recipes"]
-    except KeyError:
-        print(f"scheduler: module {module!r} not found in just dump", file=sys.stderr)
-        return 1
+    # argv[1] is the module name, or "" for top-level (library imported
+    # directly into the justfile rather than mounted as a submodule).
+    module = sys.argv[1] if len(sys.argv) > 1 else ""
+    if module:
+        try:
+            recipes = data["modules"][module]["recipes"]
+        except KeyError:
+            print(f"scheduler: module {module!r} not found in just dump", file=sys.stderr)
+            return 1
+    else:
+        recipes = data["recipes"]
 
     # systems[system_name] = {recipe_name: [dep_recipe_name, ...]}
     systems: "defaultdict[str, dict[str, list[str]]]" = defaultdict(dict)
