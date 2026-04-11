@@ -6,7 +6,11 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
 mod ai 'agents/ai.just'
 
-import 'vendor/localci/lib.just'
+# localci: library recipes mounted under `localci::` namespace (scheduler,
+# step lifecycle, event stream, etc.). Forge backend imported flat so the
+# library can invoke `_signoff`/`_list-statuses` as unqualified top-level
+# names from inside the module.
+mod localci 'vendor/localci/lib.just'
 import 'vendor/localci/forges/github.just'
 
 # List available recipes
@@ -106,9 +110,9 @@ run:
     nix run
 
 # ─── CI ──────────────────────────────────────────────────────────────────────
-# `just ci` runs all CI steps via localci. `_localci` is a library-provided
-# recipe (see vendor/localci/lib.just) that acquires a perl Fcntl::flock on
-# .localci/current and execs into the scheduler.
+# `just ci` runs all CI steps via localci. `localci::run` is the library's
+# entry point (see vendor/localci/lib.just) — it acquires a perl Fcntl::flock
+# on .localci/current and execs into the scheduler.
 #
 # Each `ci-*` recipe below is a localci-wrapped CI step. `[group("localci:system:...")]`
 # tells the scheduler which lane it runs in; just's native dep syntax
@@ -118,7 +122,7 @@ run:
 # top-level `check`/`test`/`fmt-check` recipes so there's one canonical
 # definition per step (tracked as a follow-up).
 
-ci: _localci
+ci: localci::run
 
 # devour-flake builds every output of a flake in one go (all packages,
 # checks, devshells, NixOS configs, home-manager configs, etc.) via one

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read `just --dump --dump-format json` from stdin, emit an execution plan.
 
-For each recipe in the given module, look at its `[group("system:...")]`
+For each top-level recipe, look at its `[group("localci:system:...")]`
 attributes to decide which lanes it belongs to. Within each lane, topologically
 sort the recipes by just's native dependency graph.
 
@@ -9,6 +9,9 @@ Output (stdout): one line per lane, in the form
     <system>:<step1> <step2> <step3>
 
 Lanes are sorted lexicographically so the scheduler output is stable.
+
+User-facing CI leaves live at the top level (not inside the `localci`
+module), so we always read `data["recipes"]`.
 """
 
 import json
@@ -18,17 +21,7 @@ from collections import defaultdict
 
 def main() -> int:
     data = json.load(sys.stdin)
-    # argv[1] is the module name, or "" for top-level (library imported
-    # directly into the justfile rather than mounted as a submodule).
-    module = sys.argv[1] if len(sys.argv) > 1 else ""
-    if module:
-        try:
-            recipes = data["modules"][module]["recipes"]
-        except KeyError:
-            print(f"scheduler: module {module!r} not found in just dump", file=sys.stderr)
-            return 1
-    else:
-        recipes = data["recipes"]
+    recipes = data["recipes"]
 
     # systems[system_name] = {recipe_name: [dep_recipe_name, ...]}
     systems: "defaultdict[str, dict[str, list[str]]]" = defaultdict(dict)

@@ -12,12 +12,15 @@
 #      capture) and invokes the leaf via `just <module>::<name>`.
 #   4. `_summary` reads events.ndjson and renders the two-column table.
 #
-# Required variables (defined by importer — or leave as default for top-level use):
-#   module_name   — the just module name under which this lib is mounted, or
-#                   empty string if lib is imported directly into the top-level
-#                   justfile. Defaults to "" (top-level).
+# Consumer wiring:
+#   1. `mod localci 'vendor/localci/lib.just'` — mounts this file as the
+#      `localci::` namespace. All library-internal recipes live there.
+#   2. `import 'vendor/localci/forges/<name>.just'` — forge backend imported
+#      flat at top-level; the library invokes `_signoff`, `_list-statuses`
+#      via unqualified `just _name` (top-level dispatch from inside module).
+#   3. Forwarder: `ci: localci::run` (or whatever name the project picks).
 #
-# Required forge recipes (defined by a forges/<name>.just file that the importer also imports):
+# Required forge recipes (defined by a forges/<name>.just file imported at top-level):
 #   _signoff context state description    — post a commit status (or no-op)
 #   _list-statuses                         — return JSON object {context: state}
 #
@@ -25,14 +28,6 @@
 #   repo          — normalized forge repository identifier (may be empty for forges/none.just)
 
 # ─── Boilerplate defaults (importer need not redefine) ───────────────────────
-
-# Default to top-level use (no module prefix). Importers that mount the
-# library under a module should override with `module_name := "ci"` or similar.
-module_name := ""
-
-# `<module_name>::` prefix for dispatching sibling recipes. Empty when
-# lib is imported directly into a top-level justfile.
-dispatch := if module_name == "" { "" } else { module_name + "::" }
 
 # Current git HEAD sha under test.
 sha          := `git rev-parse HEAD`
@@ -56,13 +51,12 @@ root         := `git rev-parse --show-toplevel`
 # perl is portable (ships on every Linux + macOS) and gives us kernel-backed
 # advisory locking without needing flock(1) (which is absent on Darwin).
 # `$^F = 10` prevents FD_CLOEXEC from being set on newly-opened fds, so the
-# lock fd survives the exec into `just <module>::_scheduler` and stays held
+# lock fd survives the exec into `just localci::_scheduler` and stays held
 # for the full duration of the run, not just perl's lifetime.
 #
 # Consumers invoke this via a forwarder recipe in their justfile, e.g.
-# `ci: _localci`. The recipe is underscore-prefixed and owned by the
-# library; consumers shouldn't call it directly.
-_localci:
+# `ci: localci::run`.
+run:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p "{{ root }}/.localci"
@@ -80,7 +74,7 @@ _localci:
         print $f "{{ sha }}\n";
         $f->flush;
         exec @ARGV or die "exec: $!\n";
-    ' just {{ dispatch }}_scheduler
+    ' just localci::_scheduler
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
@@ -98,23 +92,23 @@ _scheduler:
     set -euo pipefail
 
     # Preflight guards
-    just {{ dispatch }}_guard
+    just localci::_guard
 
     # Fetch execution plan
-    plan=$(just {{ dispatch }}_plan)
+    plan=$(just localci::_plan)
 
     # Resolve SSH hosts for every non-local system up front so prompts
     # happen before the run starts, not mid-fanout.
     while IFS=: read -r sys _; do
         [[ -z "$sys" ]] && continue
         if [[ "$sys" != "local" && "$sys" != "{{ local_system }}" ]]; then
-            CI_SYSTEM="$sys" just {{ dispatch }}_host > /dev/null
+            CI_SYSTEM="$sys" just localci::_host > /dev/null
         fi
     done <<< "$plan"
 
     # Emit run_start event
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_start\",\"sha\":\"{{ sha }}\"}"
+    just localci::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_start\",\"sha\":\"{{ sha }}\"}"
 
     # Fork one subshell per lane; run steps sequentially inside each.
     pids=()
@@ -123,9 +117,9 @@ _scheduler:
         (
             for step in $steps; do
                 if [[ "$sys" == "local" ]]; then
-                    just {{ dispatch }}_step "$step"
+                    just localci::_step "$step"
                 else
-                    CI_SYSTEM="$sys" just {{ dispatch }}_step "$step"
+                    CI_SYSTEM="$sys" just localci::_step "$step"
                 fi
             done
         ) &
@@ -137,7 +131,7 @@ _scheduler:
     for p in "${pids[@]}"; do wait "$p" || true; done
 
     # Render the two-column summary
-    just {{ dispatch }}_summary
+    just localci::_summary
 
 # Generate the execution plan by piping `just --dump` through scheduler.py.
 # Uses python3 if on PATH, otherwise falls back to `nix run nixpkgs#python3`
@@ -151,7 +145,7 @@ _plan:
     else
         py=(nix run --quiet nixpkgs#python3 --)
     fi
-    just --dump --dump-format json | "${py[@]}" "{{ root }}/vendor/localci/scheduler.py" "{{ module_name }}"
+    just --dump --dump-format json | "${py[@]}" "{{ root }}/vendor/localci/scheduler.py"
 
 # ─── Guards / host resolution ────────────────────────────────────────────────
 
@@ -244,7 +238,7 @@ _step step-name:
     else
         icon=">"
     fi
-    max_len=$(just {{ dispatch }}_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
+    max_len=$(just localci::_contexts | awk '{ if (length > m) m = length } END { print m + 2 }')
     label="{{ step-name }}@${icon} {{ system }}"
     pad_len=$(( max_len - ${#label} ))
     trailing=$(printf "%${pad_len}s" "" 2>/dev/null || echo "")
@@ -258,38 +252,38 @@ _step step-name:
         local ec=$?
         local elapsed=$(( SECONDS - start ))
         local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-        just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
-        just {{ dispatch }}_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
+        just localci::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"failure\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}" || true
+        just _signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}" || true
         exit 0
     }
     trap on_fail ERR
 
     # Emit step_start + forge signoff pending
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
-    just {{ dispatch }}_signoff "$context" pending "${user} · running"
+    just localci::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_start\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\"}"
+    just _signoff "$context" pending "${user} · running"
 
     # Dispatch: run `just <module>::<name>` locally, or via ssh + git bundle
     # to a remote builder if the target system isn't native.
     if [[ "{{ system }}" == "{{ local_system }}" ]]; then
         echo "▶ ${colored}"
-        (cd "{{ root }}" && just {{ dispatch }}{{ step-name }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        (cd "{{ root }}" && just {{ step-name }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
-        host=$(just {{ dispatch }}_host)
+        host=$(just localci::_host)
         echo "▶ ${colored} ($host)"
         tmp=$(ssh "$host" mktemp -d)
         # Clone full repo (git bundle, not git archive) so remote has .git —
         # nix builds often read the git revision from there.
         git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-        ssh "$host" "cd $tmp/src && just {{ dispatch }}{{ step-name }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        ssh "$host" "cd $tmp/src && just {{ step-name }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
         ssh "$host" "rm -rf $tmp" 2>/dev/null || true
     fi
 
     # Success: emit step_end + forge signoff
     elapsed=$(( SECONDS - start ))
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
-    just {{ dispatch }}_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
+    just localci::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"step_end\",\"step\":\"{{ step-name }}\",\"system\":\"{{ system }}\",\"context\":\"$context\",\"state\":\"success\",\"duration_s\":$elapsed,\"log\":\"$logrel\"}"
+    just _signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
 
 # ─── Contexts ─────────────────────────────────────────────────────────────────
 
@@ -299,7 +293,7 @@ _step step-name:
 _contexts:
     #!/usr/bin/env bash
     set -euo pipefail
-    just {{ dispatch }}_plan | while IFS=: read -r sys steps; do
+    just localci::_plan | while IFS=: read -r sys steps; do
         [[ -z "$sys" || -z "$steps" ]] && continue
         for step in $steps; do
             if [[ "$sys" == "local" ]]; then
@@ -337,7 +331,7 @@ _summary:
     fi
 
     # Read signoff state from forge (may fail gracefully)
-    signoff_statuses=$(just {{ dispatch }}_list-statuses 2>/dev/null || echo "{}")
+    signoff_statuses=$(just _list-statuses 2>/dev/null || echo "{}")
     if [[ -z "$signoff_statuses" || "$signoff_statuses" == "null" ]]; then
         signoff_statuses="{}"
     fi
@@ -370,13 +364,13 @@ _summary:
         else
             printf "  %b  %-30s %s\n" "$symbol" "$ctx" "$loc"
         fi
-    done <<< "$(just {{ dispatch }}_contexts)"
+    done <<< "$(just localci::_contexts)"
 
     # Emit run_end event (captures final state in the event stream)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     final_state="success"
     if [[ "$failed" -eq 1 ]]; then final_state="failure"; fi
-    just {{ dispatch }}_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_end\",\"state\":\"$final_state\"}" || true
+    just localci::_emit-event "{\"v\":1,\"ts\":\"$ts\",\"event\":\"run_end\",\"state\":\"$final_state\"}" || true
 
     echo ""
     if [[ "$failed" -eq 1 ]]; then

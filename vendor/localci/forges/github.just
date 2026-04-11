@@ -1,15 +1,23 @@
 # localci GitHub forge backend.
 #
-# Provides: repo, _signoff, _list-statuses, protect
-# Status context prefix: `ci/<step>` (when lib is imported at top-level) or
-# `<module_name>/<step>` (when mounted as a submodule).
+# Provides (at top-level): repo, _signoff, _list-statuses, protect
+# Status context prefix: "ci/<step>"
+#
+# Imported flat into the consumer's top-level justfile so the library (which
+# is mounted as `mod localci`) can invoke `_signoff` and `_list-statuses` via
+# unqualified `just _name` (top-level dispatch from inside the module).
 
 repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
 
-# Prefix for GitHub status context names. Defaults to "ci/" when the library
-# is imported directly into a top-level justfile (module_name is empty), or
-# "<module_name>/" when mounted as a submodule.
-context_prefix := if module_name == "" { "ci/" } else { module_name + "/" }
+# Git HEAD sha for the commit under test. Defined here in addition to
+# lib.just because forge recipes live at top-level (for library→forge
+# bare dispatch) while lib.just is inside the `localci::` module, and
+# just module variables aren't visible from top-level.
+sha := `git rev-parse HEAD`
+
+# Prefix for GitHub status context names. Kept as a variable so consumers
+# can override if "ci/" collides with something else in their forge.
+context_prefix := "ci/"
 
 # Post a GitHub commit status for this step.
 _signoff context status description="":
@@ -35,7 +43,7 @@ _list-statuses:
 protect branch=`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`:
     #!/usr/bin/env bash
     set -euo pipefail
-    contexts=$(just {{ dispatch }}_contexts)
+    contexts=$(just localci::_contexts)
     prefix="{{ context_prefix }}"
     echo "Setting required status checks on {{ branch }}:"
     args=()
