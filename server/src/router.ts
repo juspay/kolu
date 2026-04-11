@@ -104,6 +104,14 @@ export const appRouter = t.router({
 
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
+      // base64 → decoded byte count: (len * 3/4) minus padding
+      const padding = input.data.endsWith("==")
+        ? 2
+        : input.data.endsWith("=")
+          ? 1
+          : 0;
+      const bytes = Math.floor((input.data.length * 3) / 4) - padding;
+      log.info({ terminal: input.id, bytes }, "paste image");
       saveClipboardImage(entry.clipboardDir, input.data);
     }),
 
