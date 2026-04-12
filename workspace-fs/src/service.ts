@@ -18,6 +18,7 @@ import { fuzzyScore } from "./scorer.ts";
 import type {
   FileEntry,
   FileGitStatus,
+  FileStaging,
   FsSearchResult,
   DiffHunk,
   DiffLine,
@@ -34,6 +35,7 @@ interface IndexedFile {
   path: string; // relative to root, forward slashes
   name: string;
   gitStatus: FileGitStatus | null;
+  staging: FileStaging | null;
 }
 
 /** Reference-counted service pool — one instance per workspace root. */
@@ -98,6 +100,7 @@ export class WorkspaceFsService {
         path: f.path,
         name: f.name,
         gitStatus: f.gitStatus,
+        staging: f.staging,
         score: 0,
         matches: [],
       }));
@@ -111,6 +114,7 @@ export class WorkspaceFsService {
           path: file.path,
           name: file.name,
           gitStatus: file.gitStatus,
+          staging: file.staging,
           score: result.score,
           matches: result.matches,
         });
@@ -139,6 +143,7 @@ export class WorkspaceFsService {
           name: file.name,
           kind: "file",
           gitStatus: file.gitStatus,
+          staging: file.staging,
         });
       } else {
         // Subdirectory — aggregate git status
@@ -150,12 +155,14 @@ export class WorkspaceFsService {
             name: dirName,
             kind: "directory",
             gitStatus: file.gitStatus,
+            staging: file.staging,
           });
         } else if (file.gitStatus) {
           // If any child is modified, mark the directory
           const existing = seen.get(dirName)!;
           if (!existing.gitStatus) {
             existing.gitStatus = file.gitStatus;
+            existing.staging = file.staging;
           }
         }
       }
@@ -279,11 +286,15 @@ export class WorkspaceFsService {
         this.getGitStatus(),
       ]);
 
-      this.files = allFiles.map((path) => ({
-        path,
-        name: basename(path),
-        gitStatus: statusMap.get(path) ?? null,
-      }));
+      this.files = allFiles.map((path) => {
+        const info = statusMap.get(path);
+        return {
+          path,
+          name: basename(path),
+          gitStatus: info?.status ?? null,
+          staging: info?.staging ?? null,
+        };
+      });
     } catch {
       // Git commands can fail (not a git repo, etc.) — keep existing index
     }
@@ -313,14 +324,19 @@ export class WorkspaceFsService {
     return [...files].sort();
   }
 
-  private async getGitStatus(): Promise<Map<string, FileGitStatus>> {
+  private async getGitStatus(): Promise<
+    Map<string, { status: FileGitStatus; staging: FileStaging }>
+  > {
     const { stdout } = await execFileAsync(
       "git",
       ["status", "--porcelain", "-z"],
       { cwd: this.root, maxBuffer: 10 * 1024 * 1024 },
     );
 
-    const statuses = new Map<string, FileGitStatus>();
+    const statuses = new Map<
+      string,
+      { status: FileGitStatus; staging: FileStaging }
+    >();
     // porcelain -z format: XY<space>path\0 (or XY<space>path\0path\0 for renames)
     const entries = stdout.split("\0");
     for (let i = 0; i < entries.length; i++) {
@@ -331,7 +347,9 @@ export class WorkspaceFsService {
       const path = posixPath(entry.slice(3));
 
       const status = parseGitStatus(xy);
-      if (status) statuses.set(path, status);
+      if (status) {
+        statuses.set(path, { status, staging: parseStaging(xy) });
+      }
 
       // Renames have an extra path (the old name)
       if (xy[0] === "R" || xy[1] === "R") i++;
@@ -514,4 +532,19 @@ function parseGitStatus(xy: string): FileGitStatus | null {
   if (index === "M" || working === "M") return "modified";
   if (index === " " && working === " ") return null;
   return "modified"; // fallback for other states (C, U, etc.)
+}
+
+/** Derive staging state from porcelain XY columns.
+ *  X = index (staged changes), Y = working tree (unstaged changes).
+ *  " " means no change in that column. */
+function parseStaging(xy: string): FileStaging {
+  const index = xy[0]!;
+  const working = xy[1]!;
+
+  if (index === "?" && working === "?") return "unstaged"; // untracked = unstaged
+  const hasStaged = index !== " " && index !== "?";
+  const hasUnstaged = working !== " " && working !== "?";
+  if (hasStaged && hasUnstaged) return "partial";
+  if (hasStaged) return "staged";
+  return "unstaged";
 }

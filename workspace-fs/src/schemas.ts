@@ -14,6 +14,9 @@ export const FileGitStatusSchema = z.enum([
   "untracked",
 ]);
 
+/** Whether a change is staged, unstaged, or both. */
+export const FileStagingSchema = z.enum(["staged", "unstaged", "partial"]);
+
 /** A single file or directory entry with optional git status. */
 export const FileEntrySchema = z.object({
   /** Path relative to the workspace root. */
@@ -23,6 +26,8 @@ export const FileEntrySchema = z.object({
   kind: z.enum(["file", "directory"]),
   /** Git status, or null if clean/untracked-directory. */
   gitStatus: FileGitStatusSchema.nullable(),
+  /** Whether the change is staged, unstaged, or partially staged. Null if clean. */
+  staging: FileStagingSchema.nullable(),
 });
 
 /** A ranked search result with match positions for highlighting. */
@@ -30,6 +35,7 @@ export const FsSearchResultSchema = z.object({
   path: z.string(),
   name: z.string(),
   gitStatus: FileGitStatusSchema.nullable(),
+  staging: FileStagingSchema.nullable(),
   /** Fuzzy match score — higher is better. */
   score: z.number(),
   /** Character indices in `path` that matched the query. */
@@ -124,6 +130,7 @@ export type FsListDirInput = z.infer<typeof FsListDirInputSchema>;
 export type FsReadFileInput = z.infer<typeof FsReadFileInputSchema>;
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 export type FsChangeEvent = z.infer<typeof FsChangeEventSchema>;
+export type FileStaging = z.infer<typeof FileStagingSchema>;
 export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
 export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
 export type DiffLine = z.infer<typeof DiffLineSchema>;

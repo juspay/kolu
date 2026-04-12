@@ -13,6 +13,7 @@ import {
 
 import {
   FileGitStatusSchema,
+  FileStagingSchema,
   FileEntrySchema,
   FsSearchResultSchema,
   FsSearchInputSchema,
@@ -37,6 +38,7 @@ export {
 
 export {
   FileGitStatusSchema,
+  FileStagingSchema,
   FileEntrySchema,
   FsSearchResultSchema,
   FsSearchInputSchema,
@@ -343,6 +345,7 @@ export type ServerState = z.infer<typeof ServerStateSchema>;
 export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;
 
 export type FileGitStatus = z.infer<typeof FileGitStatusSchema>;
+export type FileStaging = z.infer<typeof FileStagingSchema>;
 export type FileEntry = z.infer<typeof FileEntrySchema>;
 export type FsSearchResult = z.infer<typeof FsSearchResultSchema>;
 export type FsSearchInput = z.infer<typeof FsSearchInputSchema>;

@@ -3,6 +3,7 @@
 
 export {
   FileGitStatusSchema,
+  FileStagingSchema,
   FileEntrySchema,
   FsSearchResultSchema,
   FsSearchInputSchema,
@@ -19,6 +20,7 @@ export {
 
 export type {
   FileGitStatus,
+  FileStaging,
   FileEntry,
   FsSearchResult,
   FsSearchInput,

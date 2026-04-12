@@ -327,6 +327,7 @@ const Sidebar: Component<{
   onClose: () => void;
   fileTreeRoot: Accessor<string | null>;
   onOpenFile: (root: string, filePath: string) => void;
+  onOpenDiff: (root: string, filePath: string) => void;
 }> = (props) => {
   type SidebarTab = "terminals" | "files" | "changes";
   const [activeTab, setActiveTab] = createSignal<SidebarTab>("terminals");
@@ -553,7 +554,7 @@ const Sidebar: Component<{
             >
               <GitChanges
                 root={props.fileTreeRoot}
-                onOpenFile={props.onOpenFile}
+                onOpenDiff={props.onOpenDiff}
               />
             </Show>
           </div>

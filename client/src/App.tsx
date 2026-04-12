@@ -18,6 +18,7 @@ import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import FileSearch from "./FileSearch";
 import FilePeek from "./FilePeek";
+import DiffModal from "./DiffModal";
 import FileTree from "./FileTree";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
@@ -280,6 +281,14 @@ const App: Component = () => {
         root={store.activeMeta()?.git?.repoRoot ?? null}
         content={fileBrowser.peekFile()?.content ?? null}
       />
+      <DiffModal
+        open={fileBrowser.diffOpen()}
+        onOpenChange={(open) => {
+          if (!open) fileBrowser.closeDiff();
+        }}
+        root={fileBrowser.diffTarget()?.root ?? null}
+        filePath={fileBrowser.diffTarget()?.filePath ?? null}
+      />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
@@ -406,6 +415,7 @@ const App: Component = () => {
           onClose={closeSidebar}
           fileTreeRoot={() => store.activeMeta()?.git?.repoRoot ?? null}
           onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
+          onOpenDiff={(root, path) => fileBrowser.openDiff(root, path)}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 flex flex-col">

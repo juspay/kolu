@@ -1,6 +1,6 @@
 /**
- * File browser state — shared between FileSearch (palette) and FileTree (sidebar).
- * Scoped to the active terminal's workspace root. Queries are server-driven.
+ * File browser state — shared between FileSearch (palette), FileTree (sidebar),
+ * GitChanges (sidebar), and DiffModal. Queries are server-driven.
  */
 
 import { createSignal } from "solid-js";
@@ -14,6 +14,11 @@ const [filePeekOpen, setFilePeekOpen] = createSignal(false);
 const [peekFile, setPeekFile] = createSignal<{
   path: string;
   content: FsReadFileOutput;
+} | null>(null);
+const [diffOpen, setDiffOpen] = createSignal(false);
+const [diffTarget, setDiffTarget] = createSignal<{
+  root: string;
+  filePath: string;
 } | null>(null);
 
 export function useFileBrowser() {
@@ -34,6 +39,16 @@ export function useFileBrowser() {
     setPeekFile(null);
   }
 
+  function openDiff(root: string, filePath: string): void {
+    setDiffTarget({ root, filePath });
+    setDiffOpen(true);
+  }
+
+  function closeDiff(): void {
+    setDiffOpen(false);
+    setDiffTarget(null);
+  }
+
   return {
     fileSearchOpen,
     setFileSearchOpen,
@@ -41,5 +56,9 @@ export function useFileBrowser() {
     peekFile,
     openPeek,
     closePeek,
+    diffOpen,
+    diffTarget,
+    openDiff,
+    closeDiff,
   } as const;
 }
