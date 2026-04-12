@@ -16,6 +16,7 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
+import { marked } from "marked";
 import FileTree from "./FileTree";
 import GitChanges from "./GitChanges";
 import { client } from "./rpc";
@@ -493,6 +494,11 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Render markdown to HTML. Synchronous — marked is fast enough for inline use. */
+function renderMarkdown(text: string): string {
+  return marked.parse(text, { async: false, breaks: true }) as string;
+}
+
 const TranscriptView: Component<{
   terminalId: Accessor<TerminalId | null>;
 }> = (props) => {
@@ -520,8 +526,7 @@ const TranscriptView: Component<{
       }
       const blocks = (msg.blocks ?? [])
         .map((b) => {
-          if (b.kind === "text")
-            return `<div style="white-space:pre-wrap">${escapeHtml(b.text)}</div>`;
+          if (b.kind === "text") return renderMarkdown(b.text);
           if (b.kind === "tool_use")
             return `<div style="margin:8px 0;padding:8px 12px;background:#f3f4f6;border-radius:4px;font-family:monospace;font-size:12px">
               <div style="color:#6366f1;font-weight:600;margin-bottom:4px">${escapeHtml(b.name)}</div>
@@ -538,6 +543,12 @@ const TranscriptView: Component<{
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Claude Session</title>
 <style>body{font-family:-apple-system,system-ui,sans-serif;max-width:800px;margin:0 auto;padding:24px;color:#1f2937;font-size:14px;line-height:1.6}
+code{background:#f3f4f6;padding:2px 6px;border-radius:3px;font-size:0.9em;font-family:ui-monospace,monospace}
+pre{background:#f3f4f6;padding:12px 16px;border-radius:6px;overflow-x:auto;font-size:0.85em;margin:8px 0}
+pre code{background:none;padding:0}
+blockquote{border-left:3px solid #d1d5db;padding-left:12px;margin:8px 0;color:#6b7280}
+h1,h2,h3{margin:12px 0 4px;font-weight:600}
+ul,ol{padding-left:24px}
 @media print{body{padding:12px}}</style></head>
 <body><h1 style="font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:12px;margin-bottom:8px">Claude Session Transcript</h1>
 ${lines.join("\n")}</body></html>`;
@@ -602,9 +613,10 @@ ${lines.join("\n")}</body></html>`;
                             {(block) =>
                               match(block)
                                 .with({ kind: "text" }, (b) => (
-                                  <div class="text-xs text-fg whitespace-pre-wrap leading-relaxed">
-                                    {b.text}
-                                  </div>
+                                  <div
+                                    class="text-xs text-fg leading-relaxed prose prose-xs prose-invert max-w-none"
+                                    innerHTML={renderMarkdown(b.text)}
+                                  />
                                 ))
                                 .with({ kind: "tool_use" }, (b) => (
                                   <details class="text-[0.65rem]">
