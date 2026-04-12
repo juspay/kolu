@@ -135,6 +135,8 @@ After completing all layers, **invoke `/fact-check` on your own output**. The fa
 - Bogus "essential complexity" labels without a concrete simplified alternative
 - Claims about code behavior that you didn't verify by reading the code
 
+**Also flag scope-based dismissals.** "Out of scope for this PR", "pre-existing issue", "appropriate scope for a bug fix", and "follow-up refactor" are not simplicity judgments — they are process judgments that let findings evaporate between hickey and implementation. If you find yourself writing one, either fix the finding in this PR or create an issue and defer it. The Actions section enforces this — if you can't fill it in, you're dismissing the finding.
+
 **Also flag your own output for phrase shapes that mean you stopped reasoning one step early.** These aren't findings you talked yourself out of — they're findings you never let form. If any of these phrase shapes appear in your evaluation, re-open the question they're dismissing:
 
 - _"X and Y share Z but are separate concerns"_ — verified at the *domain* level, or just at the current implementation layout? Shared input is a precondition; work it through.
@@ -158,6 +160,11 @@ If fact-check finds issues with your evaluation, revise before presenting to the
 5. **Severity** — For each finding: blast radius, change friction, reasoning load.
 6. **Simplifications** — Concrete alternative for every finding.
 7. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
+8. **Actions** — One entry per finding. Each must be dispositioned as exactly one of:
+   - **Fix in this PR**: one-line description of what the implementation step must do. This is the default — prefer it.
+   - **Defer `#<issue-number>`**: create a GitHub/forge issue for the finding first, then reference it here. "Out of scope" without an issue link is a dismissal, not a deferral. If you can't be bothered to create the issue, the finding belongs in this PR.
+
+   "No findings" → "No actions." But if findings exist and the actions list is empty, the evaluation is incomplete.
 
 Do NOT include a "What's simple" section. Praise biases toward positive framing and makes findings feel like minor quibbles. Report what you found. The absence of findings is its own praise.
 

@@ -3,6 +3,8 @@ version: 1.0.0
 description: Terminal multiplexer with AI-native development workflow
 type: hybrid
 
+# Update a dependency: just ai::apm-update <package>  (e.g. srid/agency)
+# Reinstall all:       just ai::apm
 dependencies:
   apm:
     - ./agents

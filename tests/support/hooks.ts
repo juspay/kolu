@@ -244,9 +244,9 @@ Before(async function (this: KoluWorld, scenario) {
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
     // clipboard-write: lets tests place images in the clipboard for paste testing.
-    // clipboard-read is intentionally NOT granted — production code must work
-    // without it (the paste event provides clipboard data for free).
-    permissions: ["clipboard-write"],
+    // clipboard-read: lets tests verify clipboard contents after copy operations.
+    // Production code never calls clipboard.read — these are test-only permissions.
+    permissions: ["clipboard-write", "clipboard-read"],
   });
   this.page = await this.context.newPage();
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
