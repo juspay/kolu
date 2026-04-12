@@ -256,6 +256,15 @@ export const appRouter = t.router({
         WorkspaceFsService.release(input.root);
       }
     }),
+    fileDiff: t.fs.fileDiff.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        return await svc.fileDiff(input.filePath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
     /**
      * Stream filesystem change notifications for a workspace root.
      * Yields an initial event immediately, then yields on each change batch.

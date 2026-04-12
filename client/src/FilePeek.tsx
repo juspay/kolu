@@ -1,6 +1,7 @@
 /**
- * File peek modal — read-only view of file contents with line numbers
- * and syntax highlighting via highlight.js (lazy-loaded on first open).
+ * File peek modal — read-only view of file contents with line numbers,
+ * syntax highlighting via highlight.js (lazy-loaded), and git gutter
+ * markers showing which lines are added/modified/deleted.
  * Deliberately no editing — Kolu is terminal-first, the file browser's
  * job is navigation and context, not authoring.
  */
@@ -16,7 +17,8 @@ import {
 } from "solid-js";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
-import type { FsReadFileOutput } from "kolu-common";
+import { client } from "./rpc";
+import type { FsReadFileOutput, FsFileDiffOutput } from "kolu-common";
 
 /** Map file extension to highlight.js language name. */
 const EXT_TO_LANG: Record<string, string> = {
@@ -66,7 +68,6 @@ const EXT_TO_LANG: Record<string, string> = {
 
 function getLang(filePath: string): string | undefined {
   const name = filePath.split("/").pop()?.toLowerCase() ?? "";
-  // Handle extensionless files like Dockerfile, Makefile
   if (EXT_TO_LANG[name]) return EXT_TO_LANG[name];
   const ext = name.split(".").pop() ?? "";
   return EXT_TO_LANG[ext];
@@ -95,10 +96,32 @@ async function highlightLines(
   return html.split("\n");
 }
 
+/** Git gutter marker type for a given line number. */
+type GutterMark = "added" | "modified" | "deleted-below" | null;
+
+function buildGutterMap(diff: FsFileDiffOutput): Map<number, GutterMark> {
+  const map = new Map<number, GutterMark>();
+  for (const line of diff.addedLines) map.set(line, "added");
+  for (const line of diff.modifiedLines) map.set(line, "modified");
+  for (const line of diff.deletedAfterLines) {
+    // Only set if not already marked as add/modify
+    if (!map.has(line)) map.set(line, "deleted-below");
+  }
+  return map;
+}
+
+const GUTTER_COLORS: Record<string, string> = {
+  added: "bg-green-500",
+  modified: "bg-blue-400",
+  "deleted-below": "bg-red-500",
+};
+
 const FilePeek: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filePath: string | null;
+  /** Workspace root — needed for fetching diff. */
+  root: string | null;
   content: FsReadFileOutput | null;
 }> = (props) => {
   const rawLines = createMemo(() => {
@@ -114,15 +137,34 @@ const FilePeek: Component<{
   // Highlighted HTML lines — populated async after content loads
   const [hlLines, setHlLines] = createSignal<string[] | null>(null);
 
-  // Trigger highlighting when content or filePath changes
+  // Git diff data for gutter markers
+  const [diffData, setDiffData] = createSignal<FsFileDiffOutput | null>(null);
+  const gutterMap = createMemo(() =>
+    diffData() ? buildGutterMap(diffData()!) : new Map<number, GutterMark>(),
+  );
+
+  // Trigger highlighting + diff fetch when content/filePath changes
   createEffect(
     on(
-      () => [props.content, props.filePath] as const,
-      ([content, filePath]) => {
+      () => [props.content, props.filePath, props.root] as const,
+      ([content, filePath, root]) => {
         setHlLines(null);
+        setDiffData(null);
         if (!content || !filePath) return;
+
+        // Syntax highlighting
         const lang = getLang(filePath);
         void highlightLines(content.content, lang).then(setHlLines);
+
+        // Git diff for gutter (best-effort — skip if no root or file is clean)
+        if (root) {
+          void client.fs
+            .fileDiff({ root, filePath })
+            .then(setDiffData)
+            .catch(() => {
+              // No diff available — file might not be in a git repo
+            });
+        }
       },
     ),
   );
@@ -190,14 +232,27 @@ const FilePeek: Component<{
               <tbody>
                 <For each={rawLines()}>
                   {(line, i) => {
+                    const lineNum = () => i() + 1;
                     const highlighted = () => hlLines()?.[i()];
+                    const gutter = () => gutterMap().get(lineNum()) ?? null;
                     return (
                       <tr class="hover:bg-surface-2 transition-colors">
+                        {/* Git gutter — thin colored strip left of line numbers */}
+                        <td class="w-1 p-0">
+                          <Show when={gutter()}>
+                            {(mark) => (
+                              <div
+                                class={`w-0.5 h-full ${GUTTER_COLORS[mark()]}`}
+                                title={mark()}
+                              />
+                            )}
+                          </Show>
+                        </td>
                         <td
-                          class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-3 select-none border-r border-edge"
+                          class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-2 select-none border-r border-edge"
                           style={{ width: `${lineNumWidth() + 2}ch` }}
                         >
-                          {i() + 1}
+                          {lineNum()}
                         </td>
                         <Show
                           when={highlighted()}

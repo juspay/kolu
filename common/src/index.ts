@@ -21,6 +21,10 @@ import {
   FsReadFileOutputSchema,
   FsWatchInputSchema,
   FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
 } from "kolu-workspace-fs/schemas";
 
 // Re-export integration schemas so consumers import from kolu-common only.
@@ -41,6 +45,10 @@ export {
   FsReadFileOutputSchema,
   FsWatchInputSchema,
   FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
 };
 
 // --- Zod schemas ---
@@ -342,3 +350,7 @@ export type FsListDirInput = z.infer<typeof FsListDirInputSchema>;
 export type FsReadFileInput = z.infer<typeof FsReadFileInputSchema>;
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 export type FsChangeEvent = z.infer<typeof FsChangeEventSchema>;
+export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
+export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;

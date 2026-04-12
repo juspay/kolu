@@ -15,7 +15,14 @@ import { watch, type FSWatcher } from "node:fs";
 import { join, dirname, basename, sep, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fuzzyScore } from "./scorer.ts";
-import type { FileEntry, FileGitStatus, FsSearchResult } from "./schemas.ts";
+import type {
+  FileEntry,
+  FileGitStatus,
+  FsSearchResult,
+  DiffHunk,
+  DiffLine,
+  FsFileDiffOutput,
+} from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -205,6 +212,60 @@ export class WorkspaceFsService {
     };
   }
 
+  /** Get parsed unified diff for a file against HEAD. */
+  async fileDiff(filePath: string): Promise<FsFileDiffOutput> {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "HEAD", "--", filePath],
+      { cwd: this.root, maxBuffer: 10 * 1024 * 1024 },
+    ).catch(() => ({ stdout: "" }));
+
+    if (!stdout.trim()) {
+      // No diff — file might be untracked, check git status
+      const { stdout: statusOut } = await execFileAsync(
+        "git",
+        ["status", "--porcelain", "--", filePath],
+        { cwd: this.root },
+      ).catch(() => ({ stdout: "" }));
+
+      if (statusOut.startsWith("??")) {
+        // Untracked file — entire file is "added"
+        const content = await this.readFile(filePath);
+        const lines = content.content.split("\n");
+        const addedLines = lines.map((_, i) => i + 1);
+        const hunkLines: DiffLine[] = lines.map((line, i) => ({
+          kind: "add" as const,
+          content: line,
+          newLine: i + 1,
+          oldLine: null,
+        }));
+        return {
+          hunks: [
+            {
+              oldStart: 0,
+              oldCount: 0,
+              newStart: 1,
+              newCount: lines.length,
+              lines: hunkLines,
+            },
+          ],
+          addedLines,
+          modifiedLines: [],
+          deletedAfterLines: [],
+        };
+      }
+
+      return {
+        hunks: [],
+        addedLines: [],
+        modifiedLines: [],
+        deletedAfterLines: [],
+      };
+    }
+
+    return parseDiff(stdout);
+  }
+
   /** Subscribe to change notifications. Returns unsubscribe function. */
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener);
@@ -331,6 +392,115 @@ export class WorkspaceFsService {
 
 function posixPath(p: string): string {
   return p.replaceAll("\\", "/");
+}
+
+/** Parse unified diff output into structured hunks + gutter info. */
+function parseDiff(raw: string): FsFileDiffOutput {
+  const hunks: DiffHunk[] = [];
+  const addedLines: number[] = [];
+  const modifiedLines: number[] = [];
+  const deletedAfterLines: number[] = [];
+
+  const lines = raw.split("\n");
+  let i = 0;
+
+  // Skip diff header lines (diff --git, index, ---, +++)
+  while (i < lines.length && !lines[i]!.startsWith("@@")) i++;
+
+  while (i < lines.length) {
+    const hunkHeader = lines[i]!.match(
+      /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/,
+    );
+    if (!hunkHeader) {
+      i++;
+      continue;
+    }
+
+    const oldStart = parseInt(hunkHeader[1]!);
+    const oldCount = parseInt(hunkHeader[2] ?? "1");
+    const newStart = parseInt(hunkHeader[3]!);
+    const newCount = parseInt(hunkHeader[4] ?? "1");
+
+    const hunkLines: DiffLine[] = [];
+    let oldLine = oldStart;
+    let newLine = newStart;
+    i++;
+
+    // Track consecutive remove+add runs within a hunk to detect modifications
+    let removeRun: number[] = [];
+    let addRun: number[] = [];
+
+    function flushRuns() {
+      if (removeRun.length > 0 && addRun.length > 0) {
+        // Paired removes + adds = modifications
+        const paired = Math.min(removeRun.length, addRun.length);
+        for (let j = 0; j < paired; j++) modifiedLines.push(addRun[j]!);
+        // Extra adds beyond the paired count are pure additions
+        for (let j = paired; j < addRun.length; j++)
+          addedLines.push(addRun[j]!);
+        // Extra removes beyond paired = deletions
+        if (removeRun.length > addRun.length) {
+          // Mark the line after the last add as a deletion marker
+          const markerLine =
+            addRun.length > 0 ? addRun[addRun.length - 1]! : newLine;
+          deletedAfterLines.push(markerLine);
+        }
+      } else if (removeRun.length > 0) {
+        // Pure deletions
+        deletedAfterLines.push(newLine);
+      } else if (addRun.length > 0) {
+        // Pure additions
+        for (const l of addRun) addedLines.push(l);
+      }
+      removeRun = [];
+      addRun = [];
+    }
+
+    while (i < lines.length && !lines[i]!.startsWith("@@")) {
+      const line = lines[i]!;
+      if (line.startsWith("+")) {
+        if (removeRun.length === 0 && addRun.length === 0) {
+          // Starting a new run
+        }
+        addRun.push(newLine);
+        hunkLines.push({
+          kind: "add",
+          content: line.slice(1),
+          newLine,
+          oldLine: null,
+        });
+        newLine++;
+      } else if (line.startsWith("-")) {
+        removeRun.push(oldLine);
+        hunkLines.push({
+          kind: "remove",
+          content: line.slice(1),
+          newLine: null,
+          oldLine,
+        });
+        oldLine++;
+      } else if (line.startsWith(" ") || line === "") {
+        flushRuns();
+        hunkLines.push({
+          kind: "context",
+          content: line.slice(1),
+          newLine,
+          oldLine,
+        });
+        newLine++;
+        oldLine++;
+      } else {
+        // End of diff (e.g. "\ No newline at end of file")
+        break;
+      }
+      i++;
+    }
+    flushRuns();
+
+    hunks.push({ oldStart, oldCount, newStart, newCount, lines: hunkLines });
+  }
+
+  return { hunks, addedLines, modifiedLines, deletedAfterLines };
 }
 
 function parseGitStatus(xy: string): FileGitStatus | null {

@@ -35,6 +35,8 @@ import {
   FsReadFileOutputSchema,
   FsWatchInputSchema,
   FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -111,6 +113,8 @@ export const contract = oc.router({
     listDir: oc.input(FsListDirInputSchema).output(z.array(FileEntrySchema)),
     // Read file contents (up to 1MB, truncated beyond)
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
+    // Get parsed unified diff for a file against HEAD
+    fileDiff: oc.input(FsFileDiffInputSchema).output(FsFileDiffOutputSchema),
     // Stream change notifications for a workspace root — yields whenever the file index updates
     onChange: oc
       .input(FsWatchInputSchema)

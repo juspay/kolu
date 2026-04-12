@@ -11,6 +11,10 @@ export {
   FsReadFileOutputSchema,
   FsWatchInputSchema,
   FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
 } from "./schemas.ts";
 
 export type {
@@ -22,6 +26,10 @@ export type {
   FsReadFileInput,
   FsReadFileOutput,
   FsChangeEvent,
+  FsFileDiffInput,
+  FsFileDiffOutput,
+  DiffLine,
+  DiffHunk,
 } from "./schemas.ts";
 
 export { fuzzyScore, type FuzzyResult } from "./scorer.ts";

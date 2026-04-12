@@ -68,6 +68,42 @@ export const FsReadFileOutputSchema = z.object({
   truncated: z.boolean(),
 });
 
+/** Input for file diff. */
+export const FsFileDiffInputSchema = z.object({
+  root: z.string(),
+  filePath: z.string(),
+});
+
+/** A single line in a diff hunk. */
+export const DiffLineSchema = z.object({
+  kind: z.enum(["context", "add", "remove"]),
+  content: z.string(),
+  /** Line number in the new file (null for removed lines). */
+  newLine: z.number().nullable(),
+  /** Line number in the old file (null for added lines). */
+  oldLine: z.number().nullable(),
+});
+
+/** A diff hunk with header and lines. */
+export const DiffHunkSchema = z.object({
+  oldStart: z.number(),
+  oldCount: z.number(),
+  newStart: z.number(),
+  newCount: z.number(),
+  lines: z.array(DiffLineSchema),
+});
+
+/** Output for file diff — parsed unified diff. */
+export const FsFileDiffOutputSchema = z.object({
+  hunks: z.array(DiffHunkSchema),
+  /** Set of new-file line numbers that are additions. */
+  addedLines: z.array(z.number()),
+  /** Set of new-file line numbers that have modifications (changed from old). */
+  modifiedLines: z.array(z.number()),
+  /** Line numbers in new file right after a deletion (gutter marker position). */
+  deletedAfterLines: z.array(z.number()),
+});
+
 /** Input for watching a workspace root. */
 export const FsWatchInputSchema = z.object({
   root: z.string(),
@@ -88,3 +124,7 @@ export type FsListDirInput = z.infer<typeof FsListDirInputSchema>;
 export type FsReadFileInput = z.infer<typeof FsReadFileInputSchema>;
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 export type FsChangeEvent = z.infer<typeof FsChangeEventSchema>;
+export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
+export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;

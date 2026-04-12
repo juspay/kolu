@@ -277,6 +277,7 @@ const App: Component = () => {
           if (!open) fileBrowser.closePeek();
         }}
         filePath={fileBrowser.peekFile()?.path ?? null}
+        root={store.activeMeta()?.git?.repoRoot ?? null}
         content={fileBrowser.peekFile()?.content ?? null}
       />
       <ShortcutsHelp
