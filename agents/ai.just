@@ -33,7 +33,8 @@ apm-audit:
 # sessions in the same worktree would see stop hooks / rules / skills
 # disappear mid-CI and crash. See #468. Instead we stage a fresh tree
 # in a scratch dir and diff. The `apm` recipe above is destructive and
-# stays a dev-only action.
+# stays a dev-only action. This workaround can be removed if upstream
+# adds content verification to `apm audit --ci`: microsoft/apm#684.
 apm-sync: apm-audit
     #!/usr/bin/env bash
     set -euo pipefail
