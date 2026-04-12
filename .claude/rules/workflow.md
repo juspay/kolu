@@ -47,11 +47,26 @@ Each event corresponds to one GitHub status post by `just ci`. The `description`
 
 > **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
 
-**Verification**: All step events arrive with success states (no `failed after`). After `just ci` exits, you can also cross-check via:
+**Verification**: After `just ci` exits, confirm that **every expected context** reported success — not just that the ones which did report are green. Silence (a missing context) means the step never ran.
 
+1. Get the expected contexts: `just ci::_contexts` (one per line, e.g. `nix@x86_64-linux`).
+2. Query posted statuses and cross-check:
+
+```bash
+export EXPECTED=$(just ci::_contexts | sed 's/^/ci\//')
+export POSTED=$(gh api "repos/<owner>/<repo>/statuses/<sha>" \
+  --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context) \(.state)"')
+
+# Check for missing contexts (expected but never posted)
+echo "$EXPECTED" | while read ctx; do
+  echo "$POSTED" | grep -q "^$ctx " || echo "MISSING: $ctx"
+done
+
+# Check for non-success contexts
+echo "$POSTED" | grep -v ' success$' || true
 ```
-gh api "repos/<owner>/<repo>/statuses/<sha>" --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context): \(.state)"'
-```
+
+Both checks must pass: no `MISSING` lines and no non-success states. If any context is missing, the step was blocked before it could post — investigate why (see #471 for a prior example).
 
 **On failure** — read the log file (path is in the event's description) to diagnose.
 
