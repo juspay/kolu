@@ -273,6 +273,13 @@ const Terminal: Component<{
         screen.setAttribute("aria-readonly", "true");
         screen.style.caretColor = "transparent";
         screen.style.outline = "none";
+        // Chrome 94+ on Android: prevent the soft keyboard from
+        // auto-showing on focus so users with an external keyboard
+        // aren't forced to dismiss it every tap.  MobileKeyBar
+        // provides a toggle button that calls show()/hide().
+        if ("virtualKeyboard" in navigator) {
+          screen.setAttribute("virtualkeyboardpolicy", "manual");
+        }
       }
     }
     // Expose for e2e tests: read buffer content at viewport position.
