@@ -10,7 +10,6 @@ import type { FsReadFileOutput } from "kolu-common";
 
 // Singleton state — created once, used by all consumers.
 const [fileSearchOpen, setFileSearchOpen] = createSignal(false);
-const [fileTreeOpen, setFileTreeOpen] = createSignal(false);
 const [filePeekOpen, setFilePeekOpen] = createSignal(false);
 const [peekFile, setPeekFile] = createSignal<{
   path: string;
@@ -38,8 +37,6 @@ export function useFileBrowser() {
   return {
     fileSearchOpen,
     setFileSearchOpen,
-    fileTreeOpen,
-    setFileTreeOpen,
     filePeekOpen,
     peekFile,
     openPeek,

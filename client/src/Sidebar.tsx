@@ -324,11 +324,11 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
-  fileTreeOpen: boolean;
-  onToggleFileTree: () => void;
   fileTreeRoot: Accessor<string | null>;
   onOpenFile: (root: string, filePath: string) => void;
 }> = (props) => {
+  type SidebarTab = "terminals" | "files";
+  const [activeTab, setActiveTab] = createSignal<SidebarTab>("terminals");
   const { showTipOnce } = useTips();
 
   function handleSelect(id: TerminalId) {
@@ -376,132 +376,153 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        <Tip label="New terminal" class="w-full">
-          <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
-            <button
-              data-testid="create-terminal"
-              class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-              onClick={props.onCreate}
-            >
-              + New terminal
-            </button>
-            <div class="w-px my-1.5 bg-edge" />
-            <button
-              data-testid="new-terminal-menu"
-              class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-              onClick={props.onNewTerminalMenu}
-              title="More options"
-            >
-              <svg
-                class="w-3 h-3"
-                viewBox="0 0 12 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M3 5l3 3 3-3" />
-              </svg>
-            </button>
-          </div>
-        </Tip>
-        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
-          <DragDropProvider
-            collisionDetector={closestCenter}
-            onDragStart={({ draggable }) => {
-              setActiveItem(draggable.id as TerminalId);
-              setDragFrom(
-                props.terminalIds.indexOf(draggable.id as TerminalId),
-              );
+        {/* Tab bar — switches between Terminals and Files */}
+        <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
+          <button
+            data-testid="sidebar-tab-terminals"
+            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            classList={{
+              "text-fg bg-surface-2": activeTab() === "terminals",
+              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
+                activeTab() !== "terminals",
             }}
-            onDragOver={({ droppable }) =>
-              setDropTarget(droppable ? (droppable.id as TerminalId) : null)
-            }
-            onDragEnd={handleDragEnd}
+            onClick={() => setActiveTab("terminals")}
           >
-            <DragDropSensors />
-            <SortableProvider ids={props.terminalIds}>
-              <For each={props.terminalIds}>
-                {(id, index) => {
-                  const edge = (): "above" | "below" | null => {
-                    const from = dragFrom();
-                    const target = dropTarget();
-                    if (from === null || target !== id) return null;
-                    const toIdx = index();
-                    return from > toIdx ? "above" : "below";
-                  };
-                  return (
-                    <SidebarEntry
-                      id={id}
-                      isActive={props.activeId === id}
-                      metadata={props.getMetadata(id)}
-                      unread={props.isUnread(id)}
-                      displayInfo={props.getDisplayInfo(id)}
-                      terminalTheme={props.getTerminalTheme(id)}
-                      previewMode={props.previewMode}
-                      onSelect={handleSelect}
-                      onClose={props.onCloseTerminal}
-                      dropEdge={edge()}
-                    />
-                  );
-                }}
-              </For>
-            </SortableProvider>
-            <DragOverlay>
-              <Show when={activeItem()}>
-                {(dragId) => {
-                  const d = () => props.getDisplayInfo(dragId());
-                  return (
-                    <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
-                      <span style={{ color: d()?.repoColor }}>
-                        {d()?.name ?? "terminal"}
-                      </span>
-                    </div>
-                  );
-                }}
-              </Show>
-            </DragOverlay>
-          </DragDropProvider>
-        </nav>
-        {/* File tree — collapsible section scoped to active workspace */}
-        <Show when={props.fileTreeRoot()}>
-          <div class="border-t border-edge">
-            <button
-              class="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-fg-3 hover:text-fg-2 transition-colors"
-              onClick={props.onToggleFileTree}
-            >
-              <svg
-                class="w-3 h-3 transition-transform"
-                classList={{ "rotate-90": props.fileTreeOpen }}
-                viewBox="0 0 12 12"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
+            Terminals
+          </button>
+          <div class="w-px my-1.5 bg-edge" />
+          <button
+            data-testid="sidebar-tab-files"
+            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            classList={{
+              "text-fg bg-surface-2": activeTab() === "files",
+              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
+                activeTab() !== "files",
+            }}
+            onClick={() => setActiveTab("files")}
+          >
+            Files
+          </button>
+        </div>
+
+        {/* Terminals tab */}
+        <Show when={activeTab() === "terminals"}>
+          <Tip label="New terminal" class="w-full">
+            <div class="flex mx-1.5 rounded-2xl bg-surface-1 overflow-hidden">
+              <button
+                data-testid="create-terminal"
+                class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+                onClick={props.onCreate}
               >
-                <path d="M4 2l4 4-4 4" />
-              </svg>
-              Files
-            </button>
-            <Show when={props.fileTreeOpen}>
-              <div class="max-h-64 overflow-y-auto">
-                <FileTree
-                  root={props.fileTreeRoot}
-                  onOpenFile={props.onOpenFile}
-                />
-              </div>
-            </Show>
-          </div>
+                + New terminal
+              </button>
+              <div class="w-px my-1.5 bg-edge" />
+              <button
+                data-testid="new-terminal-menu"
+                class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+                onClick={props.onNewTerminalMenu}
+                title="More options"
+              >
+                <svg
+                  class="w-3 h-3"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M3 5l3 3 3-3" />
+                </svg>
+              </button>
+            </div>
+          </Tip>
+          <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
+            <DragDropProvider
+              collisionDetector={closestCenter}
+              onDragStart={({ draggable }) => {
+                setActiveItem(draggable.id as TerminalId);
+                setDragFrom(
+                  props.terminalIds.indexOf(draggable.id as TerminalId),
+                );
+              }}
+              onDragOver={({ droppable }) =>
+                setDropTarget(droppable ? (droppable.id as TerminalId) : null)
+              }
+              onDragEnd={handleDragEnd}
+            >
+              <DragDropSensors />
+              <SortableProvider ids={props.terminalIds}>
+                <For each={props.terminalIds}>
+                  {(id, index) => {
+                    const edge = (): "above" | "below" | null => {
+                      const from = dragFrom();
+                      const target = dropTarget();
+                      if (from === null || target !== id) return null;
+                      const toIdx = index();
+                      return from > toIdx ? "above" : "below";
+                    };
+                    return (
+                      <SidebarEntry
+                        id={id}
+                        isActive={props.activeId === id}
+                        metadata={props.getMetadata(id)}
+                        unread={props.isUnread(id)}
+                        displayInfo={props.getDisplayInfo(id)}
+                        terminalTheme={props.getTerminalTheme(id)}
+                        previewMode={props.previewMode}
+                        onSelect={handleSelect}
+                        onClose={props.onCloseTerminal}
+                        dropEdge={edge()}
+                      />
+                    );
+                  }}
+                </For>
+              </SortableProvider>
+              <DragOverlay>
+                <Show when={activeItem()}>
+                  {(dragId) => {
+                    const d = () => props.getDisplayInfo(dragId());
+                    return (
+                      <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
+                        <span style={{ color: d()?.repoColor }}>
+                          {d()?.name ?? "terminal"}
+                        </span>
+                      </div>
+                    );
+                  }}
+                </Show>
+              </DragOverlay>
+            </DragDropProvider>
+          </nav>
+          {/* Sticky footer hint */}
+          <Show when={props.terminalIds.length > 1}>
+            <div
+              data-testid="sidebar-footer-hint"
+              class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
+            >
+              <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
+              <span>cycle terminals</span>
+            </div>
+          </Show>
         </Show>
-        {/* Sticky footer hint — surfaces the MRU cycle keybind without
-         *  needing the user to discover it via the shortcuts help dialog. */}
-        <Show when={props.terminalIds.length > 1}>
-          <div
-            data-testid="sidebar-footer-hint"
-            class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
-          >
-            <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
-            <span>cycle terminals</span>
+
+        {/* Files tab */}
+        <Show when={activeTab() === "files"}>
+          <div class="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
+            <Show
+              when={props.fileTreeRoot()}
+              fallback={
+                <div class="px-3 py-4 text-xs text-fg-3 italic">
+                  Open a terminal in a git repository to browse files
+                </div>
+              }
+            >
+              <FileTree
+                root={props.fileTreeRoot}
+                onOpenFile={props.onOpenFile}
+              />
+            </Show>
           </div>
         </Show>
       </aside>

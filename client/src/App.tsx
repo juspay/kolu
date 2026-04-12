@@ -403,8 +403,6 @@ const App: Component = () => {
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
-          fileTreeOpen={fileBrowser.fileTreeOpen()}
-          onToggleFileTree={() => fileBrowser.setFileTreeOpen((v) => !v)}
           fileTreeRoot={() => store.activeMeta()?.git?.repoRoot ?? null}
           onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
         />

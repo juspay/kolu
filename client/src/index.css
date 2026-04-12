@@ -1,5 +1,6 @@
 @import "kolu-fonts";
 @import "tailwindcss";
+@import "highlight.js/styles/github-dark.css" layer(hljs);
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the

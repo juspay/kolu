@@ -1,13 +1,99 @@
 /**
- * File peek modal — read-only view of file contents with line numbers.
+ * File peek modal — read-only view of file contents with line numbers
+ * and syntax highlighting via highlight.js (lazy-loaded on first open).
  * Deliberately no editing — Kolu is terminal-first, the file browser's
  * job is navigation and context, not authoring.
  */
 
-import { type Component, Show, For, createMemo } from "solid-js";
+import {
+  type Component,
+  Show,
+  For,
+  createMemo,
+  createSignal,
+  createEffect,
+  on,
+} from "solid-js";
 import Dialog from "@corvu/dialog";
 import ModalDialog from "./ModalDialog";
 import type { FsReadFileOutput } from "kolu-common";
+
+/** Map file extension to highlight.js language name. */
+const EXT_TO_LANG: Record<string, string> = {
+  ts: "typescript",
+  tsx: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  py: "python",
+  rs: "rust",
+  go: "go",
+  rb: "ruby",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  fish: "bash",
+  json: "json",
+  yaml: "yaml",
+  yml: "yaml",
+  toml: "ini",
+  md: "markdown",
+  html: "xml",
+  htm: "xml",
+  xml: "xml",
+  svg: "xml",
+  css: "css",
+  scss: "scss",
+  sql: "sql",
+  nix: "nix",
+  hs: "haskell",
+  ex: "elixir",
+  exs: "elixir",
+  c: "c",
+  h: "c",
+  cpp: "cpp",
+  hpp: "cpp",
+  java: "java",
+  kt: "kotlin",
+  swift: "swift",
+  lua: "lua",
+  vim: "vim",
+  dockerfile: "dockerfile",
+  makefile: "makefile",
+  feature: "gherkin",
+};
+
+function getLang(filePath: string): string | undefined {
+  const name = filePath.split("/").pop()?.toLowerCase() ?? "";
+  // Handle extensionless files like Dockerfile, Makefile
+  if (EXT_TO_LANG[name]) return EXT_TO_LANG[name];
+  const ext = name.split(".").pop() ?? "";
+  return EXT_TO_LANG[ext];
+}
+
+/** Lazy-load highlight.js and highlight code. Returns HTML lines. */
+async function highlightLines(
+  code: string,
+  lang: string | undefined,
+): Promise<string[]> {
+  const hljs = (await import("highlight.js")).default;
+  let html: string;
+  if (lang) {
+    try {
+      html = hljs.highlight(code, {
+        language: lang,
+        ignoreIllegals: true,
+      }).value;
+    } catch {
+      // Language not registered — fall back to auto-detect
+      html = hljs.highlightAuto(code).value;
+    }
+  } else {
+    html = hljs.highlightAuto(code).value;
+  }
+  return html.split("\n");
+}
 
 const FilePeek: Component<{
   open: boolean;
@@ -15,15 +101,31 @@ const FilePeek: Component<{
   filePath: string | null;
   content: FsReadFileOutput | null;
 }> = (props) => {
-  const lines = createMemo(() => {
+  const rawLines = createMemo(() => {
     if (!props.content) return [];
     return props.content.content.split("\n");
   });
 
   const lineNumWidth = createMemo(() => {
-    const count = lines().length;
+    const count = rawLines().length;
     return Math.max(String(count).length, 3);
   });
+
+  // Highlighted HTML lines — populated async after content loads
+  const [hlLines, setHlLines] = createSignal<string[] | null>(null);
+
+  // Trigger highlighting when content or filePath changes
+  createEffect(
+    on(
+      () => [props.content, props.filePath] as const,
+      ([content, filePath]) => {
+        setHlLines(null);
+        if (!content || !filePath) return;
+        const lang = getLang(filePath);
+        void highlightLines(content.content, lang).then(setHlLines);
+      },
+    ),
+  );
 
   return (
     <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -86,20 +188,35 @@ const FilePeek: Component<{
           >
             <table class="w-full border-collapse">
               <tbody>
-                <For each={lines()}>
-                  {(line, i) => (
-                    <tr class="hover:bg-surface-2 transition-colors">
-                      <td
-                        class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-3 select-none border-r border-edge"
-                        style={{ width: `${lineNumWidth() + 2}ch` }}
-                      >
-                        {i() + 1}
-                      </td>
-                      <td class="pl-3 pr-4 whitespace-pre text-fg">
-                        {line || " "}
-                      </td>
-                    </tr>
-                  )}
+                <For each={rawLines()}>
+                  {(line, i) => {
+                    const highlighted = () => hlLines()?.[i()];
+                    return (
+                      <tr class="hover:bg-surface-2 transition-colors">
+                        <td
+                          class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-3 select-none border-r border-edge"
+                          style={{ width: `${lineNumWidth() + 2}ch` }}
+                        >
+                          {i() + 1}
+                        </td>
+                        <Show
+                          when={highlighted()}
+                          fallback={
+                            <td class="pl-3 pr-4 whitespace-pre text-fg">
+                              {line || " "}
+                            </td>
+                          }
+                        >
+                          {(html) => (
+                            <td
+                              class="pl-3 pr-4 whitespace-pre text-fg"
+                              innerHTML={html() || " "}
+                            />
+                          )}
+                        </Show>
+                      </tr>
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
