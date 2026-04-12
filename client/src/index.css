@@ -12,29 +12,6 @@ body {
   overscroll-behavior: contain;
 }
 
-/* Print styles — when printing the Claude transcript, hide everything
- * except the transcript content and let it flow naturally. */
-@media print {
-  header,
-  aside,
-  [data-testid="terminal-viewport"],
-  [data-testid="sidebar"],
-  [data-corvu-resizable-handle],
-  .print\\:hidden {
-    display: none !important;
-  }
-  [data-testid="right-panel"] {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100% !important;
-    border: none !important;
-  }
-  [data-testid="transcript-content"] {
-    background: white !important;
-    color: black !important;
-  }
-}
-
 /*
  * @theme registers color names with Tailwind and generates :root CSS custom properties.
  * Values here double as the dark palette — :root:not(.dark) overrides them for light mode.

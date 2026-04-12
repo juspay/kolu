@@ -386,14 +386,112 @@ const DiffView: Component<{
   );
 };
 
-// --- Inline Transcript View ---
+// --- Session Conversation View ---
 
-/** State color for Claude state indicators. */
-const STATE_STYLE: Record<string, { dot: string; label: string }> = {
-  thinking: { dot: "bg-accent animate-pulse", label: "Thinking" },
-  tool_use: { dot: "bg-yellow-400 animate-pulse", label: "Tool use" },
-  waiting: { dot: "bg-fg-3", label: "Waiting" },
+/** Extract user text from a user message's content field. */
+function extractUserText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((c: Record<string, unknown>) => {
+        if (c.type === "tool_result")
+          return `[Tool result: ${String(c.content ?? "").slice(0, 200)}]`;
+        return String(c.text ?? c.content ?? "");
+      })
+      .join("\n");
+  }
+  return "";
+}
+
+/** Extract renderable blocks from an assistant message's content array. */
+function extractAssistantBlocks(
+  content: unknown[],
+): Array<
+  | { kind: "text"; text: string }
+  | { kind: "tool_use"; name: string; input: string }
+  | { kind: "thinking"; text: string }
+> {
+  const blocks: Array<
+    | { kind: "text"; text: string }
+    | { kind: "tool_use"; name: string; input: string }
+    | { kind: "thinking"; text: string }
+  > = [];
+  for (const item of content) {
+    const c = item as Record<string, unknown>;
+    if (c.type === "text" && typeof c.text === "string" && c.text.trim()) {
+      blocks.push({ kind: "text", text: c.text });
+    } else if (c.type === "tool_use" && typeof c.name === "string") {
+      blocks.push({
+        kind: "tool_use",
+        name: c.name,
+        input: JSON.stringify(c.input, null, 2).slice(0, 500),
+      });
+    } else if (
+      c.type === "thinking" &&
+      typeof c.thinking === "string" &&
+      c.thinking.trim()
+    ) {
+      blocks.push({ kind: "thinking", text: c.thinking.slice(0, 300) });
+    }
+  }
+  return blocks;
+}
+
+type ConversationMsg = {
+  role: "user" | "assistant";
+  timestamp: string;
+  text?: string;
+  blocks?: ReturnType<typeof extractAssistantBlocks>;
+  model?: string;
 };
+
+/** Parse raw JSONL events into a conversation thread (user + assistant messages only). */
+function parseConversation(events: unknown[]): ConversationMsg[] {
+  const messages: ConversationMsg[] = [];
+  for (const ev of events) {
+    const e = ev as Record<string, unknown>;
+    const ts = typeof e.timestamp === "string" ? e.timestamp : "";
+    if (e.type === "user" && e.message) {
+      const msg = e.message as Record<string, unknown>;
+      const text = extractUserText(msg.content);
+      // Skip internal tool results
+      if (text && !text.startsWith("[Tool result:")) {
+        messages.push({ role: "user", timestamp: ts, text });
+      }
+    } else if (e.type === "assistant" && e.message) {
+      const msg = e.message as Record<string, unknown>;
+      if (Array.isArray(msg.content)) {
+        const blocks = extractAssistantBlocks(msg.content);
+        if (blocks.length > 0) {
+          messages.push({
+            role: "assistant",
+            timestamp: ts,
+            blocks,
+            model: typeof msg.model === "string" ? msg.model : undefined,
+          });
+        }
+      }
+    }
+  }
+  return messages;
+}
+
+function formatTime(ts: string): string {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleTimeString();
+  } catch {
+    return ts;
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 const TranscriptView: Component<{
   terminalId: Accessor<TerminalId | null>;
@@ -403,113 +501,151 @@ const TranscriptView: Component<{
     (id) => client.claude.getTranscript({ id }),
   );
 
-  /** Print the transcript section using the browser's print dialog. */
+  const conversation = createMemo(() => {
+    const snap = snapshot();
+    if (!snap) return [];
+    return parseConversation(snap.rawEvents);
+  });
+
+  /** Open a standalone HTML page with the conversation, ready for print/PDF. */
   function handlePrint() {
-    window.print();
+    const msgs = conversation();
+    if (msgs.length === 0) return;
+
+    const lines = msgs.map((msg) => {
+      if (msg.role === "user") {
+        return `<div style="margin:16px 0;padding:12px 16px;background:#f0f4f8;border-radius:8px;border-left:3px solid #3b82f6">
+          <div style="font-size:11px;color:#6b7280;margin-bottom:4px">You &middot; ${escapeHtml(formatTime(msg.timestamp))}</div>
+          <div style="white-space:pre-wrap">${escapeHtml(msg.text ?? "")}</div></div>`;
+      }
+      const blocks = (msg.blocks ?? [])
+        .map((b) => {
+          if (b.kind === "text")
+            return `<div style="white-space:pre-wrap">${escapeHtml(b.text)}</div>`;
+          if (b.kind === "tool_use")
+            return `<div style="margin:8px 0;padding:8px 12px;background:#f3f4f6;border-radius:4px;font-family:monospace;font-size:12px">
+              <div style="color:#6366f1;font-weight:600;margin-bottom:4px">${escapeHtml(b.name)}</div>
+              <pre style="margin:0;overflow:auto;font-size:11px;color:#4b5563">${escapeHtml(b.input)}</pre></div>`;
+          if (b.kind === "thinking")
+            return `<div style="margin:4px 0;padding:8px;color:#9ca3af;font-style:italic;font-size:12px;border-left:2px solid #d1d5db">${escapeHtml(b.text)}${b.text.length >= 300 ? "..." : ""}</div>`;
+          return "";
+        })
+        .join("");
+      return `<div style="margin:16px 0;padding:12px 16px;background:#faf5ff;border-radius:8px;border-left:3px solid #8b5cf6">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">Claude${msg.model ? ` &middot; ${escapeHtml(msg.model)}` : ""} &middot; ${escapeHtml(formatTime(msg.timestamp))}</div>
+        ${blocks}</div>`;
+    });
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Claude Session</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;max-width:800px;margin:0 auto;padding:24px;color:#1f2937;font-size:14px;line-height:1.6}
+@media print{body{padding:12px}}</style></head>
+<body><h1 style="font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:12px;margin-bottom:8px">Claude Session Transcript</h1>
+${lines.join("\n")}</body></html>`;
+
+    const win = window.open("", "_blank");
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => win.print(), 300);
+    }
   }
 
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full" data-testid="transcript-view">
       <div class="flex items-center justify-between px-3 py-2 border-b border-edge">
-        <span class="text-xs font-semibold text-fg">Claude Session</span>
-        <Show when={snapshot()}>
+        <span class="text-xs font-semibold text-fg">Session</span>
+        <Show when={conversation().length > 0}>
           <button
             class="text-[0.65rem] text-fg-3 hover:text-fg transition-colors px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3"
             onClick={handlePrint}
-            title="Print / Save as PDF"
+            title="Open printable transcript in new tab"
           >
             Print
           </button>
         </Show>
       </div>
-      <Show
-        when={snapshot()}
-        fallback={
-          <div class="flex-1 flex items-center justify-center text-fg-3 text-xs px-4 text-center">
-            {snapshot.loading
-              ? "Loading..."
-              : snapshot.error instanceof Error
-                ? `Failed: ${snapshot.error.message}`
-                : "No active Claude session for this terminal."}
-          </div>
-        }
-      >
-        {(snap) => (
-          <div
-            class="flex-1 overflow-auto px-4 py-3 space-y-3 print:bg-white print:text-black"
-            data-testid="transcript-content"
-          >
-            {/* Session header */}
-            <div class="text-[0.65rem] text-fg-3 font-mono border-b border-edge pb-2">
-              <div class="truncate">{snap().transcriptPath}</div>
-              <div>Started: {new Date(snap().startedAt).toLocaleString()}</div>
-              <div>
-                {snap().stateChanges.length} transitions ·{" "}
-                {snap().rawEvents.length} events
+      <div class="flex-1 min-h-0 overflow-auto">
+        <Show
+          when={!snapshot.loading}
+          fallback={<div class="p-4 text-xs text-fg-3">Loading session...</div>}
+        >
+          <Show
+            when={conversation().length > 0}
+            fallback={
+              <div class="flex-1 flex items-center justify-center text-fg-3 text-xs px-4 py-8 text-center">
+                {snapshot.error instanceof Error
+                  ? `Failed: ${snapshot.error.message}`
+                  : "No active Claude session for this terminal."}
               </div>
-            </div>
-
-            {/* Timeline — each state change as a card */}
-            <div class="space-y-1.5">
-              <For
-                each={snap().stateChanges}
-                fallback={
-                  <div class="text-xs text-fg-3 italic py-2">
-                    No state transitions recorded yet.
-                  </div>
-                }
-              >
-                {(change) => {
-                  const style = () =>
-                    change.info
-                      ? (STATE_STYLE[change.info.state] ?? {
-                          dot: "bg-fg-3",
-                          label: change.info.state,
-                        })
-                      : { dot: "bg-red-400", label: "Session ended" };
-                  return (
-                    <div class="flex items-start gap-2 text-xs py-1 px-2 rounded hover:bg-surface-2 transition-colors print:hover:bg-transparent">
-                      <span
-                        class={`shrink-0 w-2 h-2 rounded-full mt-1 ${style().dot}`}
-                      />
-                      <div class="min-w-0">
-                        <span class="text-fg font-medium">{style().label}</span>
-                        <Show when={change.info?.model}>
-                          <span class="text-fg-3 ml-1.5">
-                            {change.info!.model}
+            }
+          >
+            <div class="px-3 py-2 space-y-3">
+              <For each={conversation()}>
+                {(msg) => (
+                  <Show
+                    when={msg.role === "user"}
+                    fallback={
+                      /* Assistant message */
+                      <div class="rounded-lg border border-edge/50 overflow-hidden">
+                        <div class="px-3 py-1.5 bg-surface-0 text-[0.6rem] text-fg-3 flex items-center gap-1.5">
+                          <span class="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                          <span class="font-medium">Claude</span>
+                          <Show when={msg.model}>
+                            <span class="text-fg-3/60">{msg.model}</span>
+                          </Show>
+                          <span class="ml-auto">
+                            {formatTime(msg.timestamp)}
                           </span>
-                        </Show>
-                        <Show when={change.info?.summary}>
-                          <div class="text-fg-2 text-[0.65rem] truncate mt-0.5">
-                            {change.info!.summary}
-                          </div>
-                        </Show>
-                        <div class="text-fg-3 text-[0.6rem] font-mono mt-0.5">
-                          {new Date(change.ts).toLocaleTimeString()}
+                        </div>
+                        <div class="px-3 py-2 space-y-2">
+                          <For each={msg.blocks ?? []}>
+                            {(block) =>
+                              match(block)
+                                .with({ kind: "text" }, (b) => (
+                                  <div class="text-xs text-fg whitespace-pre-wrap leading-relaxed">
+                                    {b.text}
+                                  </div>
+                                ))
+                                .with({ kind: "tool_use" }, (b) => (
+                                  <details class="text-[0.65rem]">
+                                    <summary class="text-accent cursor-pointer hover:underline font-mono">
+                                      {b.name}
+                                    </summary>
+                                    <pre class="mt-1 p-2 bg-surface-0 rounded text-fg-3 font-mono overflow-auto max-h-32 text-[0.6rem]">
+                                      {b.input}
+                                    </pre>
+                                  </details>
+                                ))
+                                .with({ kind: "thinking" }, (b) => (
+                                  <div class="text-[0.65rem] text-fg-3 italic border-l-2 border-edge pl-2">
+                                    {b.text}
+                                    {b.text.length >= 300 ? "..." : ""}
+                                  </div>
+                                ))
+                                .exhaustive()
+                            }
+                          </For>
                         </div>
                       </div>
+                    }
+                  >
+                    {/* User message */}
+                    <div class="rounded-lg bg-accent/10 border border-accent/20 px-3 py-2">
+                      <div class="text-[0.6rem] text-fg-3 mb-1 flex items-center gap-1.5">
+                        <span class="font-medium">You</span>
+                        <span class="ml-auto">{formatTime(msg.timestamp)}</span>
+                      </div>
+                      <div class="text-xs text-fg whitespace-pre-wrap leading-relaxed">
+                        {msg.text}
+                      </div>
                     </div>
-                  );
-                }}
+                  </Show>
+                )}
               </For>
             </div>
-
-            {/* Raw events — collapsed by default */}
-            <Show when={snap().rawEvents.length > 0}>
-              <details class="text-[0.6rem] print:hidden">
-                <summary class="text-fg-3 cursor-pointer hover:text-fg-2 py-1">
-                  Raw JSONL ({snap().rawEvents.length} events)
-                </summary>
-                <pre class="mt-1 overflow-auto font-mono text-fg-3 whitespace-pre-wrap max-h-48 bg-surface-0 rounded p-2">
-                  <For each={snap().rawEvents}>
-                    {(ev) => <div>{JSON.stringify(ev)}</div>}
-                  </For>
-                </pre>
-              </details>
-            </Show>
-          </div>
-        )}
-      </Show>
+          </Show>
+        </Show>
+      </div>
     </div>
   );
 };
