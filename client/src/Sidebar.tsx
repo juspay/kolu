@@ -24,8 +24,6 @@ import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
-import FileTree from "./FileTree";
-import GitChanges from "./GitChanges";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type {
   AgentInfo,
@@ -33,7 +31,6 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common";
-import type { Accessor } from "solid-js";
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "./useViewport";
 
@@ -325,12 +322,7 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
-  fileTreeRoot: Accessor<string | null>;
-  onOpenFile: (root: string, filePath: string) => void;
-  onOpenDiff: (root: string, filePath: string) => void;
 }> = (props) => {
-  type SidebarTab = "terminals" | "files" | "changes";
-  const [activeTab, setActiveTab] = createSignal<SidebarTab>("terminals");
   const { showTipOnce } = useTips();
 
   function handleSelect(id: TerminalId) {
@@ -378,185 +370,102 @@ const Sidebar: Component<{
           "translate-x-0": props.open,
         }}
       >
-        {/* Tab bar — switches between Terminals and Files */}
-        <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
-          <button
-            data-testid="sidebar-tab-terminals"
-            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-            classList={{
-              "text-fg bg-surface-2": activeTab() === "terminals",
-              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
-                activeTab() !== "terminals",
-            }}
-            onClick={() => setActiveTab("terminals")}
-          >
-            Terminals
-          </button>
-          <div class="w-px my-1.5 bg-edge" />
-          <button
-            data-testid="sidebar-tab-files"
-            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-            classList={{
-              "text-fg bg-surface-2": activeTab() === "files",
-              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
-                activeTab() !== "files",
-            }}
-            onClick={() => setActiveTab("files")}
-          >
-            Files
-          </button>
-          <div class="w-px my-1.5 bg-edge" />
-          <button
-            data-testid="sidebar-tab-changes"
-            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-            classList={{
-              "text-fg bg-surface-2": activeTab() === "changes",
-              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
-                activeTab() !== "changes",
-            }}
-            onClick={() => setActiveTab("changes")}
-          >
-            Changes
-          </button>
-        </div>
-
-        {/* Terminals tab */}
-        <Show when={activeTab() === "terminals"}>
-          <Tip label="New terminal" class="w-full">
-            <div class="flex mx-1.5 rounded-2xl bg-surface-1 overflow-hidden">
-              <button
-                data-testid="create-terminal"
-                class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-                onClick={props.onCreate}
+        <Tip label="New terminal" class="w-full">
+          <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
+            <button
+              data-testid="create-terminal"
+              class="flex-1 p-2 text-sm text-fg-2 hover:text-fg hover:bg-surface-2 transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onCreate}
+            >
+              + New terminal
+            </button>
+            <div class="w-px my-1.5 bg-edge" />
+            <button
+              data-testid="new-terminal-menu"
+              class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+              onClick={props.onNewTerminalMenu}
+              title="More options"
+            >
+              <svg
+                class="w-3 h-3"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
               >
-                + New terminal
-              </button>
-              <div class="w-px my-1.5 bg-edge" />
-              <button
-                data-testid="new-terminal-menu"
-                class="px-2.5 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
-                onClick={props.onNewTerminalMenu}
-                title="More options"
-              >
-                <svg
-                  class="w-3 h-3"
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path d="M3 5l3 3 3-3" />
-                </svg>
-              </button>
-            </div>
-          </Tip>
-          <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
-            <DragDropProvider
-              collisionDetector={closestCenter}
-              onDragStart={({ draggable }) => {
-                setActiveItem(draggable.id as TerminalId);
-                setDragFrom(
-                  props.terminalIds.indexOf(draggable.id as TerminalId),
-                );
-              }}
-              onDragOver={({ droppable }) =>
-                setDropTarget(droppable ? (droppable.id as TerminalId) : null)
-              }
-              onDragEnd={handleDragEnd}
-            >
-              <DragDropSensors />
-              <SortableProvider ids={props.terminalIds}>
-                <For each={props.terminalIds}>
-                  {(id, index) => {
-                    const edge = (): "above" | "below" | null => {
-                      const from = dragFrom();
-                      const target = dropTarget();
-                      if (from === null || target !== id) return null;
-                      const toIdx = index();
-                      return from > toIdx ? "above" : "below";
-                    };
-                    return (
-                      <SidebarEntry
-                        id={id}
-                        isActive={props.activeId === id}
-                        metadata={props.getMetadata(id)}
-                        unread={props.isUnread(id)}
-                        displayInfo={props.getDisplayInfo(id)}
-                        terminalTheme={props.getTerminalTheme(id)}
-                        previewMode={props.previewMode}
-                        onSelect={handleSelect}
-                        onClose={props.onCloseTerminal}
-                        dropEdge={edge()}
-                      />
-                    );
-                  }}
-                </For>
-              </SortableProvider>
-              <DragOverlay>
-                <Show when={activeItem()}>
-                  {(dragId) => {
-                    const d = () => props.getDisplayInfo(dragId());
-                    return (
-                      <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
-                        <span style={{ color: d()?.repoColor }}>
-                          {d()?.name ?? "terminal"}
-                        </span>
-                      </div>
-                    );
-                  }}
-                </Show>
-              </DragOverlay>
-            </DragDropProvider>
-          </nav>
-          {/* Sticky footer hint */}
-          <Show when={props.terminalIds.length > 1}>
-            <div
-              data-testid="sidebar-footer-hint"
-              class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
-            >
-              <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
-              <span>cycle terminals</span>
-            </div>
-          </Show>
-        </Show>
-
-        {/* Files tab */}
-        <Show when={activeTab() === "files"}>
-          <div class="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
-            <Show
-              when={props.fileTreeRoot()}
-              fallback={
-                <div class="px-3 py-4 text-xs text-fg-3 italic">
-                  Open a terminal in a git repository to browse files
-                </div>
-              }
-            >
-              <FileTree
-                root={props.fileTreeRoot}
-                onOpenFile={props.onOpenFile}
-              />
-            </Show>
+                <path d="M3 5l3 3 3-3" />
+              </svg>
+            </button>
           </div>
-        </Show>
-
-        {/* Changes tab */}
-        <Show when={activeTab() === "changes"}>
-          <div class="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
-            <Show
-              when={props.fileTreeRoot()}
-              fallback={
-                <div class="px-3 py-4 text-xs text-fg-3 italic">
-                  Open a terminal in a git repository to see changes
-                </div>
-              }
-            >
-              <GitChanges
-                root={props.fileTreeRoot}
-                onOpenDiff={props.onOpenDiff}
-              />
-            </Show>
+        </Tip>
+        <nav class="flex-1 min-h-0 overflow-y-auto py-0.5 sidebar-scroll">
+          <DragDropProvider
+            collisionDetector={closestCenter}
+            onDragStart={({ draggable }) => {
+              setActiveItem(draggable.id as TerminalId);
+              setDragFrom(
+                props.terminalIds.indexOf(draggable.id as TerminalId),
+              );
+            }}
+            onDragOver={({ droppable }) =>
+              setDropTarget(droppable ? (droppable.id as TerminalId) : null)
+            }
+            onDragEnd={handleDragEnd}
+          >
+            <DragDropSensors />
+            <SortableProvider ids={props.terminalIds}>
+              <For each={props.terminalIds}>
+                {(id, index) => {
+                  const edge = (): "above" | "below" | null => {
+                    const from = dragFrom();
+                    const target = dropTarget();
+                    if (from === null || target !== id) return null;
+                    const toIdx = index();
+                    return from > toIdx ? "above" : "below";
+                  };
+                  return (
+                    <SidebarEntry
+                      id={id}
+                      isActive={props.activeId === id}
+                      metadata={props.getMetadata(id)}
+                      unread={props.isUnread(id)}
+                      displayInfo={props.getDisplayInfo(id)}
+                      terminalTheme={props.getTerminalTheme(id)}
+                      previewMode={props.previewMode}
+                      onSelect={handleSelect}
+                      onClose={props.onCloseTerminal}
+                      dropEdge={edge()}
+                    />
+                  );
+                }}
+              </For>
+            </SortableProvider>
+            <DragOverlay>
+              <Show when={activeItem()}>
+                {(dragId) => {
+                  const d = () => props.getDisplayInfo(dragId());
+                  return (
+                    <div class="py-1.5 px-2.5 text-sm bg-surface-2 border border-edge rounded-2xl shadow-lg">
+                      <span style={{ color: d()?.repoColor }}>
+                        {d()?.name ?? "terminal"}
+                      </span>
+                    </div>
+                  );
+                }}
+              </Show>
+            </DragOverlay>
+          </DragDropProvider>
+        </nav>
+        {/* Sticky footer hint */}
+        <Show when={props.terminalIds.length > 1}>
+          <div
+            data-testid="sidebar-footer-hint"
+            class="shrink-0 px-3 py-2 border-t border-edge text-[0.7rem] text-fg-3 flex items-center gap-1.5"
+          >
+            <Kbd>{formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)}</Kbd>
+            <span>cycle terminals</span>
           </div>
         </Show>
       </aside>

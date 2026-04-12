@@ -19,6 +19,7 @@ interface ShortcutDeps {
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
   setFileSearchOpen: Setter<boolean>;
+  toggleRightPanel: () => void;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -187,6 +188,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.fileBrowser.keybind)) {
     deps.setFileSearchOpen((v) => !v);
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
+    deps.toggleRightPanel();
     return true;
   }
 

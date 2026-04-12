@@ -146,6 +146,10 @@ export const SHORTCUTS = {
     keybind: { key: "o", code: "KeyO", mod: true },
     label: "Browse files",
   },
+  toggleRightPanel: {
+    keybind: { key: "b", code: "KeyB", mod: true },
+    label: "Toggle right panel",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**
