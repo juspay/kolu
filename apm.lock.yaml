@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-12T13:32:34.725553+00:00'
+generated_at: '2026-04-12T14:02:02.429862+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -16,6 +16,8 @@ dependencies:
   - .claude/rules/streaming.md
   - .claude/rules/toast-conventions.md
   - .claude/rules/workflow.md
+  - .claude/skills/ci
+  - .claude/skills/test
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -47,7 +49,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: bf326121e72c49d4b3c849d61d8798ca42caf71c
+  resolved_commit: 42dd082e95daacc090b13da3b09373c55ccf51c0
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -58,4 +60,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:1087074544f2086da8694112467e7b4cf84a7f565a1185f328bb3cab62a889b1
+  content_hash: sha256:ca8a3d21307fe49f6eee2bb807a02d3d46000aff1de99de71b91172166e11944
