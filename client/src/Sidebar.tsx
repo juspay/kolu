@@ -25,6 +25,7 @@ import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import FileTree from "./FileTree";
+import GitChanges from "./GitChanges";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type {
   AgentInfo,
@@ -327,7 +328,7 @@ const Sidebar: Component<{
   fileTreeRoot: Accessor<string | null>;
   onOpenFile: (root: string, filePath: string) => void;
 }> = (props) => {
-  type SidebarTab = "terminals" | "files";
+  type SidebarTab = "terminals" | "files" | "changes";
   const [activeTab, setActiveTab] = createSignal<SidebarTab>("terminals");
   const { showTipOnce } = useTips();
 
@@ -402,6 +403,19 @@ const Sidebar: Component<{
             onClick={() => setActiveTab("files")}
           >
             Files
+          </button>
+          <div class="w-px my-1.5 bg-edge" />
+          <button
+            data-testid="sidebar-tab-changes"
+            class="flex-1 p-2 text-xs font-medium transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50"
+            classList={{
+              "text-fg bg-surface-2": activeTab() === "changes",
+              "text-fg-3 hover:text-fg-2 hover:bg-surface-2/50":
+                activeTab() !== "changes",
+            }}
+            onClick={() => setActiveTab("changes")}
+          >
+            Changes
           </button>
         </div>
 
@@ -519,6 +533,25 @@ const Sidebar: Component<{
               }
             >
               <FileTree
+                root={props.fileTreeRoot}
+                onOpenFile={props.onOpenFile}
+              />
+            </Show>
+          </div>
+        </Show>
+
+        {/* Changes tab */}
+        <Show when={activeTab() === "changes"}>
+          <div class="flex-1 min-h-0 overflow-y-auto sidebar-scroll">
+            <Show
+              when={props.fileTreeRoot()}
+              fallback={
+                <div class="px-3 py-4 text-xs text-fg-3 italic">
+                  Open a terminal in a git repository to see changes
+                </div>
+              }
+            >
+              <GitChanges
                 root={props.fileTreeRoot}
                 onOpenFile={props.onOpenFile}
               />
