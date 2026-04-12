@@ -127,7 +127,7 @@ Evaluate the planned approach for structural simplicity. Invoke the `hickey` ski
 
 Use `ExitPlanMode` to present the plan. Once approved, continue autonomously from **branch**.
 
-**Verify**: Complecting concerns addressed or justified.
+**Verify**: Every finding has an action (fix or defer with issue link). No unactioned findings.
 
 ---
 
@@ -197,7 +197,9 @@ Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three pas
 
 When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
-**Verify**: All 3 passes clean ("All clear").
+**Cross-reference hickey actions**: After code-police completes, check every hickey finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey (which finds structural issues before implementation) and police (which verifies the implementation after).
+
+**Verify**: All 3 passes clean ("All clear") AND all hickey "Fix in this PR" actions addressed in the diff.
 **If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
 
 ---
@@ -265,7 +267,9 @@ CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) a
 
 **If `forge == github`**: Re-check the PR title/body against current scope. If scope changed, update via `gh pr edit` per the `forge-pr` skill.
 
-**Verify**: PR title/body matches the delivered scope.
+**Surface deferred hickey findings**: If the hickey step produced any **"Defer `#issue`"** actions, append a `> **Deferred:** #123, #124` line to the PR body (via `gh pr edit`) so reviewers see the outstanding structural debt. These are easy to miss in a PR comment — the description is what reviewers actually read.
+
+**Verify**: PR title/body matches the delivered scope, and any deferred hickey issues are linked in the body.
 
 ---
 
