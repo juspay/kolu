@@ -21,6 +21,25 @@ describe("parseAgentCommand", () => {
     [`aider --model opus -m "refactor this"`, "aider --model opus"],
     // repeated identity
     ["claude", "claude"],
+    // session-resume flags stripped — juspay/kolu#467: `-c` and
+    // `--resume` were creating distinct recent-agents MRU entries for
+    // what is semantically the same invocation.
+    [
+      "claude --dangerously-skip-permissions -c",
+      "claude --dangerously-skip-permissions",
+    ],
+    [
+      "claude --dangerously-skip-permissions --resume",
+      "claude --dangerously-skip-permissions",
+    ],
+    ["claude --continue --model sonnet", "claude --model sonnet"],
+    ["claude -r --model sonnet", "claude --model sonnet"],
+    // `--resume` with an optional session-id value — value stripped
+    // by the same "skip next non-flag token" branch as prompt flags.
+    [
+      "claude --resume abc123-session-uuid --model sonnet",
+      "claude --model sonnet",
+    ],
   ])("normalizes %j → %j", (raw, expected) => {
     expect(parseAgentCommand(raw)).toBe(expected);
   });
