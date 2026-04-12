@@ -19,11 +19,17 @@ export type RightPanelView =
   | "diff"
   | "transcript";
 
+/** List views the user can navigate back to from peek/diff. */
+type ListOrigin = "files" | "changes";
+
 // Singleton state
 const [fileSearchOpen, setFileSearchOpen] = createSignal(false);
 const [rightPanelOpen, setRightPanelOpen] = createSignal(false);
 const [rightPanelView, setRightPanelView] =
   createSignal<RightPanelView>("files");
+
+/** Tracks which list view the user drilled in from, so "back" returns there. */
+let listOrigin: ListOrigin = "files";
 
 // Peek state
 const [peekFile, setPeekFile] = createSignal<{
@@ -50,6 +56,11 @@ export function useFileBrowser() {
   }
 
   async function openPeek(root: string, filePath: string): Promise<void> {
+    // Remember where we came from — if already on a list view, save it
+    const current = rightPanelView();
+    if (current === "files" || current === "changes") {
+      listOrigin = current;
+    }
     try {
       const content = await client.fs.readFile({ root, filePath });
       setPeekFile({ path: filePath, root, content });
@@ -62,6 +73,10 @@ export function useFileBrowser() {
   }
 
   function openDiff(root: string, filePath: string): void {
+    const current = rightPanelView();
+    if (current === "files" || current === "changes") {
+      listOrigin = current;
+    }
     setDiffTarget({ root, filePath });
     showView("diff");
   }
@@ -70,15 +85,24 @@ export function useFileBrowser() {
     showView("transcript");
   }
 
-  /** Navigate back from peek/diff to the previous list view. */
+  /** Navigate back from peek/diff to the list view the user came from. */
   function goBack(): void {
     const view = rightPanelView();
     if (view === "peek" || view === "diff") {
       setPeekFile(null);
       setDiffTarget(null);
-      setRightPanelView("files");
+      setRightPanelView(listOrigin);
     }
   }
+
+  /** Human-readable label for the list view the user drilled in from. */
+  const originLabel = (): string => {
+    const labels: Record<ListOrigin, string> = {
+      files: "Files",
+      changes: "Changes",
+    };
+    return labels[listOrigin];
+  };
 
   return {
     fileSearchOpen,
@@ -95,5 +119,6 @@ export function useFileBrowser() {
     openDiff,
     openTranscript,
     goBack,
+    originLabel,
   } as const;
 }

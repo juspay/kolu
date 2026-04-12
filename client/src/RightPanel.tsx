@@ -119,11 +119,37 @@ function formatBytes(bytes: number): string {
 
 // --- Inline Peek View ---
 
+/** Breadcrumb header for detail views — shows "Origin › filename" with back nav. */
+const DetailBreadcrumb: Component<{
+  origin: string;
+  filePath: string;
+  onBack: () => void;
+  children?: any;
+}> = (props) => (
+  <div class="flex items-center gap-1.5 px-3 py-2 border-b border-edge shrink-0 min-w-0">
+    <button
+      class="text-fg-3 hover:text-accent transition-colors text-xs shrink-0"
+      onClick={props.onBack}
+    >
+      {props.origin}
+    </button>
+    <span class="text-fg-3 text-xs shrink-0">›</span>
+    <span class="text-xs text-fg truncate font-mono">{props.filePath}</span>
+    <Show when={props.children}>
+      <span class="ml-auto shrink-0 flex items-center gap-1.5">
+        {props.children}
+      </span>
+    </Show>
+  </div>
+);
+
 const PeekView: Component<{
   filePath: string;
   root: string;
   content: FsReadFileOutput;
   onBack: () => void;
+  /** Label for the breadcrumb origin (e.g. "Files" or "Changes"). */
+  originLabel: string;
 }> = (props) => {
   const rawLines = createMemo(() => props.content.content.split("\n"));
   const lineNumWidth = createMemo(() =>
@@ -156,30 +182,16 @@ const PeekView: Component<{
 
   return (
     <div class="flex flex-col h-full">
-      {/* Header */}
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-edge shrink-0">
-        <button
-          class="text-fg-3 hover:text-fg transition-colors"
-          onClick={props.onBack}
-          title="Back"
-        >
-          <svg
-            class="w-3.5 h-3.5"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M8 2L4 6l4 4" />
-          </svg>
-        </button>
-        <span class="text-xs text-fg truncate font-mono">{props.filePath}</span>
-        <span class="ml-auto text-[0.65rem] text-fg-3 shrink-0">
+      <DetailBreadcrumb
+        origin={props.originLabel}
+        filePath={props.filePath}
+        onBack={props.onBack}
+      >
+        <span class="text-[0.65rem] text-fg-3">
           {props.content.lineCount} lines ·{" "}
           {formatBytes(props.content.byteLength)}
         </span>
-      </div>
-      {/* Content */}
+      </DetailBreadcrumb>
       <div class="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5">
         <table class="w-full border-collapse">
           <tbody>
@@ -238,6 +250,7 @@ const DiffView: Component<{
   root: string;
   filePath: string;
   onBack: () => void;
+  originLabel: string;
 }> = (props) => {
   const [diff, setDiff] = createSignal<FsFileDiffOutput | null>(null);
   const [loading, setLoading] = createSignal(true);
@@ -270,34 +283,20 @@ const DiffView: Component<{
 
   return (
     <div class="flex flex-col h-full">
-      {/* Header */}
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-edge shrink-0">
-        <button
-          class="text-fg-3 hover:text-fg transition-colors"
-          onClick={props.onBack}
-          title="Back"
-        >
-          <svg
-            class="w-3.5 h-3.5"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M8 2L4 6l4 4" />
-          </svg>
-        </button>
-        <span class="text-xs text-fg truncate font-mono">{props.filePath}</span>
+      <DetailBreadcrumb
+        origin={props.originLabel}
+        filePath={props.filePath}
+        onBack={props.onBack}
+      >
         <Show when={diff()}>
-          <span class="text-[0.65rem] text-green-400 font-mono shrink-0">
+          <span class="text-[0.65rem] text-green-400 font-mono">
             +{totalAdded()}
           </span>
-          <span class="text-[0.65rem] text-red-400 font-mono shrink-0">
+          <span class="text-[0.65rem] text-red-400 font-mono">
             -{totalRemoved()}
           </span>
         </Show>
-      </div>
-      {/* Diff content */}
+      </DetailBreadcrumb>
       <div class="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5">
         <Show
           when={!loading()}
@@ -478,6 +477,8 @@ const RightPanel: Component<{
     content: FsReadFileOutput;
   } | null;
   diffTarget: { root: string; filePath: string } | null;
+  /** Label of the list view the user navigated from (for breadcrumb). */
+  originLabel: string;
   onBack: () => void;
   terminalId: Accessor<TerminalId | null>;
 }> = (props) => {
@@ -572,6 +573,7 @@ const RightPanel: Component<{
                   root={file().root}
                   content={file().content}
                   onBack={props.onBack}
+                  originLabel={props.originLabel}
                 />
               )}
             </Show>
@@ -583,6 +585,7 @@ const RightPanel: Component<{
                   root={target().root}
                   filePath={target().filePath}
                   onBack={props.onBack}
+                  originLabel={props.originLabel}
                 />
               )}
             </Show>

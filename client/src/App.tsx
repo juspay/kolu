@@ -340,6 +340,8 @@ const App: Component = () => {
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
+        onToggleRightPanel={fileBrowser.toggleRightPanel}
+        rightPanelOpen={fileBrowser.rightPanelOpen()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         randomTheme={randomTheme()}
@@ -465,6 +467,7 @@ const App: Component = () => {
                 onOpenDiff={(root, path) => fileBrowser.openDiff(root, path)}
                 peekFile={fileBrowser.peekFile()}
                 diffTarget={fileBrowser.diffTarget()}
+                originLabel={fileBrowser.originLabel()}
                 onBack={fileBrowser.goBack}
                 terminalId={store.activeId}
               />

@@ -33,6 +33,8 @@ const Header: Component<{
   themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
+  onToggleRightPanel?: () => void;
+  rightPanelOpen?: boolean;
   onSearch?: () => void;
   appTitle?: string;
   randomTheme?: boolean;
@@ -143,6 +145,31 @@ const Header: Component<{
             </button>
           </Tip>
         )}
+        <Tip
+          label={`Toggle panel (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
+        >
+          <button
+            data-testid="right-panel-toggle"
+            class="h-7 w-7 flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            classList={{
+              "text-accent bg-surface-3": !!props.rightPanelOpen,
+              "text-fg-2 hover:text-fg hover:bg-surface-2":
+                !props.rightPanelOpen,
+            }}
+            onClick={() => props.onToggleRightPanel?.()}
+          >
+            <svg
+              class="w-4 h-4"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <rect x="1" y="2" width="14" height="12" rx="2" />
+              <line x1="10" y1="2" x2="10" y2="14" />
+            </svg>
+          </button>
+        </Tip>
         <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
