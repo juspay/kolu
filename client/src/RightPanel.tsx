@@ -388,6 +388,13 @@ const DiffView: Component<{
 
 // --- Inline Transcript View ---
 
+/** State color for Claude state indicators. */
+const STATE_STYLE: Record<string, { dot: string; label: string }> = {
+  thinking: { dot: "bg-accent animate-pulse", label: "Thinking" },
+  tool_use: { dot: "bg-yellow-400 animate-pulse", label: "Tool use" },
+  waiting: { dot: "bg-fg-3", label: "Waiting" },
+};
+
 const TranscriptView: Component<{
   terminalId: Accessor<TerminalId | null>;
 }> = (props) => {
@@ -396,10 +403,24 @@ const TranscriptView: Component<{
     (id) => client.claude.getTranscript({ id }),
   );
 
+  /** Print the transcript section using the browser's print dialog. */
+  function handlePrint() {
+    window.print();
+  }
+
   return (
     <div class="flex flex-col h-full">
-      <div class="px-3 py-2 border-b border-edge text-xs font-semibold text-fg">
-        Claude transcript
+      <div class="flex items-center justify-between px-3 py-2 border-b border-edge">
+        <span class="text-xs font-semibold text-fg">Claude Session</span>
+        <Show when={snapshot()}>
+          <button
+            class="text-[0.65rem] text-fg-3 hover:text-fg transition-colors px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3"
+            onClick={handlePrint}
+            title="Print / Save as PDF"
+          >
+            Print
+          </button>
+        </Show>
       </div>
       <Show
         when={snapshot()}
@@ -414,49 +435,79 @@ const TranscriptView: Component<{
         }
       >
         {(snap) => (
-          <>
-            <div class="px-3 py-1.5 border-b border-edge text-[0.65rem] text-fg-3 font-mono break-all">
-              <div>{snap().transcriptPath}</div>
-              <div>since {new Date(snap().startedAt).toLocaleTimeString()}</div>
+          <div
+            class="flex-1 overflow-auto px-4 py-3 space-y-3 print:bg-white print:text-black"
+            data-testid="transcript-content"
+          >
+            {/* Session header */}
+            <div class="text-[0.65rem] text-fg-3 font-mono border-b border-edge pb-2">
+              <div class="truncate">{snap().transcriptPath}</div>
+              <div>Started: {new Date(snap().startedAt).toLocaleString()}</div>
+              <div>
+                {snap().stateChanges.length} transitions ·{" "}
+                {snap().rawEvents.length} events
+              </div>
             </div>
-            <div class="flex-1 grid grid-cols-2 min-h-0">
-              <section class="flex flex-col min-h-0 border-r border-edge">
-                <header class="px-3 py-1.5 text-[0.65rem] font-semibold text-fg-2 border-b border-edge">
-                  Server ({snap().stateChanges.length})
-                </header>
-                <pre class="flex-1 overflow-auto px-3 py-1.5 text-[0.6rem] font-mono text-fg whitespace-pre-wrap">
-                  <For
-                    each={snap().stateChanges}
-                    fallback={
-                      <span class="text-fg-3">No transitions yet.</span>
-                    }
-                  >
-                    {(change) => (
-                      <div>
-                        {new Date(change.ts).toLocaleTimeString()}{" "}
-                        {change.info
-                          ? `${change.info.state}${change.info.model ? ` (${change.info.model})` : ""}`
-                          : "session ended"}
+
+            {/* Timeline — each state change as a card */}
+            <div class="space-y-1.5">
+              <For
+                each={snap().stateChanges}
+                fallback={
+                  <div class="text-xs text-fg-3 italic py-2">
+                    No state transitions recorded yet.
+                  </div>
+                }
+              >
+                {(change) => {
+                  const style = () =>
+                    change.info
+                      ? (STATE_STYLE[change.info.state] ?? {
+                          dot: "bg-fg-3",
+                          label: change.info.state,
+                        })
+                      : { dot: "bg-red-400", label: "Session ended" };
+                  return (
+                    <div class="flex items-start gap-2 text-xs py-1 px-2 rounded hover:bg-surface-2 transition-colors print:hover:bg-transparent">
+                      <span
+                        class={`shrink-0 w-2 h-2 rounded-full mt-1 ${style().dot}`}
+                      />
+                      <div class="min-w-0">
+                        <span class="text-fg font-medium">{style().label}</span>
+                        <Show when={change.info?.model}>
+                          <span class="text-fg-3 ml-1.5">
+                            {change.info!.model}
+                          </span>
+                        </Show>
+                        <Show when={change.info?.summary}>
+                          <div class="text-fg-2 text-[0.65rem] truncate mt-0.5">
+                            {change.info!.summary}
+                          </div>
+                        </Show>
+                        <div class="text-fg-3 text-[0.6rem] font-mono mt-0.5">
+                          {new Date(change.ts).toLocaleTimeString()}
+                        </div>
                       </div>
-                    )}
-                  </For>
-                </pre>
-              </section>
-              <section class="flex flex-col min-h-0">
-                <header class="px-3 py-1.5 text-[0.65rem] font-semibold text-fg-2 border-b border-edge">
-                  Disk ({snap().rawEvents.length})
-                </header>
-                <pre class="flex-1 overflow-auto px-3 py-1.5 text-[0.6rem] font-mono text-fg whitespace-pre-wrap">
-                  <For
-                    each={snap().rawEvents}
-                    fallback={<span class="text-fg-3">No events yet.</span>}
-                  >
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+
+            {/* Raw events — collapsed by default */}
+            <Show when={snap().rawEvents.length > 0}>
+              <details class="text-[0.6rem] print:hidden">
+                <summary class="text-fg-3 cursor-pointer hover:text-fg-2 py-1">
+                  Raw JSONL ({snap().rawEvents.length} events)
+                </summary>
+                <pre class="mt-1 overflow-auto font-mono text-fg-3 whitespace-pre-wrap max-h-48 bg-surface-0 rounded p-2">
+                  <For each={snap().rawEvents}>
                     {(ev) => <div>{JSON.stringify(ev)}</div>}
                   </For>
                 </pre>
-              </section>
-            </div>
-          </>
+              </details>
+            </Show>
+          </div>
         )}
       </Show>
     </div>

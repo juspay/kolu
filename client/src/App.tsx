@@ -395,7 +395,17 @@ const App: Component = () => {
          *  blocking shrinking below canvas intrinsic size. */}
         <Resizable
           orientation="horizontal"
-          sizes={fileBrowser.rightPanelOpen() ? [0.65, 0.35] : [1, 0]}
+          sizes={
+            fileBrowser.rightPanelOpen()
+              ? [1 - fileBrowser.rightPanelSize(), fileBrowser.rightPanelSize()]
+              : [1, 0]
+          }
+          onSizesChange={(sizes) => {
+            // Persist user's drag so the panel remembers its width
+            if (sizes[1] !== undefined && sizes[1] > 0.05) {
+              fileBrowser.setRightPanelSize(sizes[1]);
+            }
+          }}
           class="flex-1 min-h-0 min-w-0"
         >
           <Resizable.Panel as="div" class="min-w-0 flex flex-col" minSize={0.3}>

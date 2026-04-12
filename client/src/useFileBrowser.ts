@@ -27,6 +27,8 @@ const [fileSearchOpen, setFileSearchOpen] = createSignal(false);
 const [rightPanelOpen, setRightPanelOpen] = createSignal(false);
 const [rightPanelView, setRightPanelView] =
   createSignal<RightPanelView>("files");
+/** User's preferred panel width as a fraction (0..1). Persisted across open/close. */
+const [rightPanelSize, setRightPanelSize] = createSignal(0.35);
 
 /** Tracks which list view the user drilled in from, so "back" returns there. */
 let listOrigin: ListOrigin = "files";
@@ -120,5 +122,7 @@ export function useFileBrowser() {
     openTranscript,
     goBack,
     originLabel,
+    rightPanelSize,
+    setRightPanelSize,
   } as const;
 }
