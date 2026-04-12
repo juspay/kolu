@@ -13,6 +13,21 @@ Review the current changes (scoped to the current branch/PR) against the rules b
 
 Two similar instances are fine — don't abstract prematurely. Three is the threshold for extraction. But identical content that must stay in sync (same HTML, same version string) should be deduplicated immediately regardless of count. Versions, ports, paths — define once, reference everywhere.
 
+### prefer-focused-library
+
+Before hand-rolling a utility (string tokenizer, quoted-string parser, date helper, semver comparator, URL builder, CLI arg parser, tree walker, regex-based matcher, path normalizer, etc.), check whether a focused library solves the same problem. If one exists with a matching scope and a reasonable bundle cost, **prefer it — even if it's a new dependency**. Hand-rolling is only justified when the library would add capabilities you actively don't want (tagging, env expansion, i18n layers, etc. you'd have to ignore), or when the hand-roll is genuinely a handful of lines with no branching.
+
+_Rationale_: "Zero deps" is an easiness judgment dressed as a simplicity judgment. Code you don't own is genuinely simpler than code you do own — it doesn't accumulate private test fixtures, it doesn't bitrot when requirements shift, and its edge cases are someone else's problem to fix. Hand-rolled utilities routinely grow past the library they displaced as new edge cases surface. A small focused library with a single exported function is the _same_ complexity to your reader as a one-line utility import, and _less_ complexity than a 40-line loop with state variables.
+
+_How to apply_: When you're about to write a loop with nested state-machine variables, a tokenizer, a parser, a semver comparator, a date math helper, a quoted-string handler, or a path normalizer — **stop and search for the focused library first**. Only fall back to hand-roll after seeing a concrete library and judging that its scope genuinely exceeds what you need.
+
+_Anti-patterns in this rule's application_:
+
+- "It's already in the tree" is not a _requirement_ for preferring the library. Adding a small focused dep is fine. The "already transitive" check is a convenience shortcut, not a gate.
+- "Only ~40 lines, well-scoped" is not a license to hand-roll. 40 lines of state-machine code is usually worse than one line of library call plus a dep.
+- "I don't want a dep" is dependency-aversion, not simplicity. State it as such in the eval and evaluate it honestly as a preference, not as a neutral principle.
+- The gating criteria are **scope fit** and **bundle cost** — not ideology in either direction. Left-pad exists; don't flip to "always use a library." Judge each case on whether the library's surface matches what you need.
+
 ### invalid-states-unrepresentable
 
 Use discriminated unions, not booleans or stringly-typed fields. If two fields can't both be `undefined` at the same time, model that in the type.
