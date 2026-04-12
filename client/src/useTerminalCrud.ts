@@ -127,8 +127,14 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCopyTerminalText() {
-    const id = store.activeId();
-    if (id === null) return;
+    const parentId = store.activeId();
+    if (parentId === null) return;
+    // When a split is expanded and focused, copy its text instead of the parent's.
+    const panel = subPanel.getSubPanel(parentId);
+    const id =
+      !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
+        ? panel.activeSubTab
+        : parentId;
     try {
       const text = await client.terminal.screenText({ id });
       if (navigator.clipboard?.writeText) {
