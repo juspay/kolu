@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-12T13:32:34.725553+00:00'
+generated_at: '2026-04-12T14:02:02.429862+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -16,6 +16,8 @@ dependencies:
   - .claude/rules/streaming.md
   - .claude/rules/toast-conventions.md
   - .claude/rules/workflow.md
+  - .claude/skills/ci
+  - .claude/skills/test
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
