@@ -16,6 +16,9 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
+import FileSearch from "./FileSearch";
+import FilePeek from "./FilePeek";
+import FileTree from "./FileTree";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
@@ -36,6 +39,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { useFileBrowser } from "./useFileBrowser";
 
 const App: Component = () => {
   const { preferences, updatePreferences } = useServerState();
@@ -70,6 +74,7 @@ const App: Component = () => {
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
+  const fileBrowser = useFileBrowser();
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -130,6 +135,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    setFileSearchOpen: fileBrowser.setFileSearchOpen,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -195,6 +201,7 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
+    setFileSearchOpen: fileBrowser.setFileSearchOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
@@ -257,6 +264,20 @@ const App: Component = () => {
         onOpenChange={handlePaletteOpenChange}
         initialGroup={paletteInitialGroup()}
         transparentOverlay={isPreviewingTheme()}
+      />
+      <FileSearch
+        open={fileBrowser.fileSearchOpen()}
+        onOpenChange={fileBrowser.setFileSearchOpen}
+        activeMeta={store.activeMeta}
+        onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
+      />
+      <FilePeek
+        open={fileBrowser.filePeekOpen()}
+        onOpenChange={(open) => {
+          if (!open) fileBrowser.closePeek();
+        }}
+        filePath={fileBrowser.peekFile()?.path ?? null}
+        content={fileBrowser.peekFile()?.content ?? null}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -382,6 +403,10 @@ const App: Component = () => {
           onReorder={crud.reorderTerminals}
           open={sidebarOpen()}
           onClose={closeSidebar}
+          fileTreeOpen={fileBrowser.fileTreeOpen()}
+          onToggleFileTree={() => fileBrowser.setFileTreeOpen((v) => !v)}
+          fileTreeRoot={() => store.activeMeta()?.git?.repoRoot ?? null}
+          onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
         />
         {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
         <div class="flex-1 min-h-0 min-w-0 flex flex-col">

@@ -56,6 +56,7 @@ export interface CommandDeps {
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  setFileSearchOpen: (open: boolean) => void;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -197,6 +198,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Random theme",
             keybind: SHORTCUTS.randomizeTheme.keybind,
             onSelect: () => deps.handleRandomizeTheme(),
+          },
+        ]
+      : []),
+    ...(deps.activeId() !== null
+      ? [
+          {
+            name: "Browse files",
+            keybind: SHORTCUTS.fileBrowser.keybind,
+            onSelect: () => deps.setFileSearchOpen(true),
           },
         ]
       : []),

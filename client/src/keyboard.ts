@@ -142,6 +142,10 @@ export const SHORTCUTS = {
     keybind: { key: "p", code: "KeyP", mod: true },
     label: "Export session as PDF",
   },
+  fileBrowser: {
+    keybind: { key: "o", code: "KeyO", mod: true },
+    label: "Browse files",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

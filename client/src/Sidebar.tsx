@@ -24,6 +24,7 @@ import TerminalPreview from "./TerminalPreview";
 import { useTips } from "./useTips";
 import { sidebarSwitchTip } from "./tips";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
+import FileTree from "./FileTree";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type {
   AgentInfo,
@@ -31,6 +32,7 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common";
+import type { Accessor } from "solid-js";
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "./useViewport";
 
@@ -322,6 +324,10 @@ const Sidebar: Component<{
   onReorder: (ids: TerminalId[]) => void;
   open: boolean;
   onClose: () => void;
+  fileTreeOpen: boolean;
+  onToggleFileTree: () => void;
+  fileTreeRoot: Accessor<string | null>;
+  onOpenFile: (root: string, filePath: string) => void;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -458,6 +464,35 @@ const Sidebar: Component<{
             </DragOverlay>
           </DragDropProvider>
         </nav>
+        {/* File tree — collapsible section scoped to active workspace */}
+        <Show when={props.fileTreeRoot()}>
+          <div class="border-t border-edge">
+            <button
+              class="flex items-center gap-1.5 w-full px-3 py-1.5 text-xs text-fg-3 hover:text-fg-2 transition-colors"
+              onClick={props.onToggleFileTree}
+            >
+              <svg
+                class="w-3 h-3 transition-transform"
+                classList={{ "rotate-90": props.fileTreeOpen }}
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path d="M4 2l4 4-4 4" />
+              </svg>
+              Files
+            </button>
+            <Show when={props.fileTreeOpen}>
+              <div class="max-h-64 overflow-y-auto">
+                <FileTree
+                  root={props.fileTreeRoot}
+                  onOpenFile={props.onOpenFile}
+                />
+              </div>
+            </Show>
+          </div>
+        </Show>
         {/* Sticky footer hint — surfaces the MRU cycle keybind without
          *  needing the user to discover it via the shortcuts help dialog. */}
         <Show when={props.terminalIds.length > 1}>

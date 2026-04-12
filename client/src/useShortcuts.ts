@@ -18,6 +18,7 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  setFileSearchOpen: Setter<boolean>;
   toggleSubPanel: (parentId: TerminalId) => void;
   getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
@@ -181,6 +182,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.exportSessionAsPdf.keybind)) {
     deps.handleExportSessionAsPdf();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.fileBrowser.keybind)) {
+    deps.setFileSearchOpen((v) => !v);
     return true;
   }
 

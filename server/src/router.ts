@@ -29,6 +29,7 @@ import {
   updateServerState,
 } from "./state.ts";
 import { log } from "./log.ts";
+import { WorkspaceFsService } from "kolu-workspace-fs";
 
 const t = implement(contract);
 
@@ -225,6 +226,86 @@ export const appRouter = t.router({
     }),
     test__set: t.state.test__set.handler(async ({ input }) => {
       testSetServerState(input);
+    }),
+  },
+  fs: {
+    search: t.fs.search.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        return svc.search(input.query, input.limit);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
+    listDir: t.fs.listDir.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        return svc.listDir(input.dirPath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
+    readFile: t.fs.readFile.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        return await svc.readFile(input.filePath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
+    /**
+     * Stream filesystem change notifications for a workspace root.
+     * Yields an initial event immediately, then yields on each change batch.
+     */
+    onChange: t.fs.onChange.handler(async function* ({ input, signal }) {
+      const svc = WorkspaceFsService.acquire(input.root);
+      let unsub: (() => void) | null = null;
+      try {
+        await svc.waitReady();
+        yield { updatedAt: Date.now() };
+
+        // Convert callback-based onChange to async iterator
+        let waiting: ((value: void) => void) | null = null;
+        let pending = false;
+
+        unsub = svc.onChange(() => {
+          if (waiting) {
+            const resolve = waiting;
+            waiting = null;
+            resolve();
+          } else {
+            pending = true;
+          }
+        });
+
+        signal?.addEventListener("abort", () => {
+          // Unblock any pending await so the loop exits
+          if (waiting) {
+            waiting();
+            waiting = null;
+          }
+        });
+
+        while (!signal?.aborted) {
+          if (pending) {
+            pending = false;
+            yield { updatedAt: Date.now() };
+          } else {
+            await new Promise<void>((resolve) => {
+              waiting = resolve;
+            });
+            if (!signal?.aborted) {
+              yield { updatedAt: Date.now() };
+            }
+          }
+        }
+      } finally {
+        unsub?.();
+        WorkspaceFsService.release(input.root);
+      }
     }),
   },
 });

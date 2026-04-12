@@ -1,6 +1,7 @@
 packages:
   - common
   - integrations/claude-code
+  - workspace-fs
   - server
   - client
   - tests

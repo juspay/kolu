@@ -21,6 +21,7 @@ let
       ./tsconfig.base.json
       ./common
       ./integrations
+      ./workspace-fs
       ./server
       ./client
       # pnpm.patchedDependencies entries — read by pnpm during install and
