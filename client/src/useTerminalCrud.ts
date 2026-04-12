@@ -22,6 +22,17 @@ export function useTerminalCrud(deps: {
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
 
+  /** The terminal the user is currently interacting with —
+   *  the active sub-tab when a split has focus, otherwise the workspace root. */
+  function focusedTerminalId(): TerminalId | null {
+    const parentId = store.activeId();
+    if (parentId === null) return null;
+    const panel = subPanel.getSubPanel(parentId);
+    return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
+      ? panel.activeSubTab
+      : parentId;
+  }
+
   // --- Handlers ---
 
   /** Set a terminal's theme name on the server. */
@@ -127,14 +138,8 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleCopyTerminalText() {
-    const parentId = store.activeId();
-    if (parentId === null) return;
-    // When a split is expanded and focused, copy its text instead of the parent's.
-    const panel = subPanel.getSubPanel(parentId);
-    const id =
-      !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
-        ? panel.activeSubTab
-        : parentId;
+    const id = focusedTerminalId();
+    if (id === null) return;
     try {
       const text = await client.terminal.screenText({ id });
       if (navigator.clipboard?.writeText) {
@@ -167,7 +172,7 @@ export function useTerminalCrud(deps: {
    *  seen agent CLI — the user reviews/edits and hits Enter themselves.
    *  No-op if no terminal is active. */
   function handleRunInActiveTerminal(command: string) {
-    const id = store.activeId();
+    const id = focusedTerminalId();
     if (id === null) return;
     void client.terminal
       .sendInput({ id, data: command })
