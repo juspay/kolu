@@ -147,6 +147,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.3.6)
+      kolu-integration-common:
+        specifier: workspace:*
+        version: link:../common
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -164,8 +167,21 @@ importers:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  integrations/common:
+    dependencies:
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   integrations/opencode:
     dependencies:
+      kolu-integration-common:
+        specifier: workspace:*
+        version: link:../common
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0

@@ -1,5 +1,6 @@
 packages:
   - common
+  - integrations/common
   - integrations/claude-code
   - integrations/opencode
   - server

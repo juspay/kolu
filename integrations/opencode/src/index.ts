@@ -20,26 +20,18 @@
  *   - role: "assistant", finish: other      → "thinking" (still working)
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { match } from "ts-pattern";
+import { OPENCODE_DB_PATH } from "./config.ts";
+
+// Re-export config so consumers can reference it (e.g. for env override docs).
+export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 // --- OpenCode schemas (single source of truth) ---
 
-/** Task progress for a session — total todos and completed count.
- *  Defined locally (not imported from kolu-claude-code) to avoid an
- *  integration↔integration dependency. Structurally identical to
- *  ClaudeCodeInfoSchema's TaskProgress so the discriminated union in
- *  kolu-common composes cleanly. */
-export const TaskProgressSchema = z.object({
-  total: z.number(),
-  completed: z.number(),
-});
-
-export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+export { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
+import { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
@@ -56,16 +48,6 @@ export const OpenCodeInfoSchema = z.object({
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
-
-// --- Configuration ---
-
-/** Path to OpenCode's SQLite database. Configurable via env for testing. */
-export const OPENCODE_DB_PATH =
-  process.env.KOLU_OPENCODE_DB ??
-  path.join(os.homedir(), ".local", "share", "opencode", "opencode.db");
-
-/** Path to the SQLite WAL file — fs.watch this to detect writes. */
-export const OPENCODE_DB_WAL_PATH = `${OPENCODE_DB_PATH}-wal`;
 
 // --- Logger type ---
 
@@ -127,6 +109,30 @@ export function findSessionByDirectory(
     return null;
   } finally {
     db.close();
+  }
+}
+
+// --- Session title refresh ---
+
+/** Re-read the current session title from the DB. Returns null if absent. */
+export function getSessionTitle(
+  sessionId: string,
+  log?: Logger,
+  db?: DatabaseSync,
+): string | null {
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return null;
+  try {
+    const row = conn
+      .prepare("SELECT title FROM session WHERE id = ?")
+      .get(sessionId) as { title: string } | undefined;
+    return row?.title || null;
+  } catch (err) {
+    log?.debug({ err, sessionId }, "opencode session title query failed");
+    return null;
+  } finally {
+    if (ownsDb) conn.close();
   }
 }
 
@@ -245,8 +251,6 @@ export function parseMessageState(data: string): DerivedState | null {
     .otherwise(() => null);
 }
 
-// --- File watching ---
-
 // --- Session watcher (encapsulates per-session lifecycle) ---
 
 export {
@@ -256,99 +260,5 @@ export {
 } from "./session-watcher.ts";
 
 // --- Shared WAL watcher ---
-//
-// Every OpenCodeWatcher wants to react to opencode.db-wal changes.
-// Rather than have each create its own fs.watch (N sessions = N duplicate
-// watchers + N duplicate dispatches per event, modulo kernel inotify
-// coalescing), this module refcounts a single watcher: first subscriber
-// lazily installs it, last unsubscribe tears it down.
-//
-// `sharedWalWatcher` is a single nullable structure (not a {watcher,
-// listeners} pair) so the "active iff non-empty" invariant is mechanical
-// — there's no way for the two halves to disagree.
-//
-// Per-listener `onError` is required (not optional) so fault isolation
-// is a type-system obligation, not a convention. If one listener's
-// callback throws, its own onError runs, and iteration continues to
-// the next listener unaffected.
-//
-// Mirrors `subscribeSessionsDir` in kolu-claude-code.
 
-interface WalListener {
-  cb: () => void;
-  onError: (err: unknown) => void;
-}
-
-let sharedWalWatcher: {
-  cleanup: () => void;
-  listeners: Set<WalListener>;
-} | null = null;
-
-/**
- * Subscribe to changes in OpenCode's SQLite WAL file. Returns an
- * unsubscribe function. The underlying `fs.watch` is shared across all
- * subscribers — refcounted, installed on first subscribe, torn down on
- * last unsubscribe.
- *
- * `onError` receives any exception thrown by `onChange` and runs in
- * place of breaking the iteration over peer listeners. Callers must
- * provide one (silent swallowing would hide bugs) — pass a logger call
- * like `(err) => log.warn({ err }, "...")`.
- */
-export function subscribeOpenCodeDb(
-  onChange: () => void,
-  onError: (err: unknown) => void,
-  log?: Logger,
-): () => void {
-  if (!sharedWalWatcher) {
-    const listeners = new Set<WalListener>();
-    const cleanup = installWalWatcher(() => {
-      // Snapshot before iteration so a listener that subscribes or
-      // unsubscribes synchronously can't skip a peer for this event.
-      for (const l of [...listeners]) {
-        try {
-          l.cb();
-        } catch (err) {
-          l.onError(err);
-        }
-      }
-    }, log);
-    sharedWalWatcher = { cleanup, listeners };
-  }
-  const listener: WalListener = { cb: onChange, onError };
-  sharedWalWatcher.listeners.add(listener);
-  return () => {
-    if (!sharedWalWatcher) return;
-    sharedWalWatcher.listeners.delete(listener);
-    if (sharedWalWatcher.listeners.size === 0) {
-      sharedWalWatcher.cleanup();
-      sharedWalWatcher = null;
-    }
-  };
-}
-
-/** Install a single fs.watch on opencode.db-wal, falling back to the
- *  parent directory if the WAL doesn't exist yet — OpenCode creates it
- *  lazily when the DB is first written to. Returns a cleanup function.
- *  Returns a no-op cleanup if no watcher could be attached. */
-function installWalWatcher(onChange: () => void, log?: Logger): () => void {
-  // Try the WAL file first
-  try {
-    const w = fs.watch(OPENCODE_DB_WAL_PATH, () => onChange());
-    return () => w.close();
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, path: OPENCODE_DB_WAL_PATH }, "WAL fs.watch failed");
-    }
-  }
-
-  // Fall back to the parent directory — fires when WAL is created
-  const dir = path.dirname(OPENCODE_DB_PATH);
-  try {
-    const w = fs.watch(dir, () => onChange());
-    return () => w.close();
-  } catch (err) {
-    log?.debug({ err, dir }, "opencode db dir fs.watch failed");
-    return () => {};
-  }
-}
+export { subscribeOpenCodeDb } from "./wal-watcher.ts";

@@ -22,12 +22,8 @@ import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 
 // --- Claude Code schemas (single source of truth) ---
 
-export const TaskProgressSchema = z.object({
-  /** Total number of tasks created (excluding deleted). */
-  total: z.number(),
-  /** Number of tasks with status "completed". */
-  completed: z.number(),
-});
+export { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
+import { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
 
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
@@ -46,7 +42,6 @@ export const ClaudeCodeInfoSchema = z.object({
 });
 
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
-export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
 // --- Configuration ---
 

@@ -8,30 +8,7 @@ import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { AgentInfo, TaskProgress } from "kolu-common";
-
-/** Extract the summary/title from any agent kind.
- *  Both Claude Code and OpenCode carry `summary`. */
-function agentSummary(agent: AgentInfo): string | null {
-  switch (agent.kind) {
-    case "claude-code":
-      return agent.summary;
-    case "opencode":
-      return agent.summary;
-  }
-}
-
-/** Extract task/todo progress from any agent kind.
- *  Claude Code derives this from TaskCreate/TaskUpdate tool calls in the
- *  JSONL transcript; OpenCode reads it directly from its `todo` table. */
-function agentTaskProgress(agent: AgentInfo): TaskProgress | null {
-  switch (agent.kind) {
-    case "claude-code":
-      return agent.taskProgress;
-    case "opencode":
-      return agent.taskProgress;
-  }
-}
+import type { AgentInfo } from "kolu-common";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -148,7 +125,7 @@ const TerminalMeta: Component<{
               <div class="mt-1">
                 <div class="flex items-center gap-1.5">
                   <AgentIndicator agent={agent()} />
-                  <Show when={agentTaskProgress(agent())}>
+                  <Show when={agent().taskProgress}>
                     {(tp) => (
                       <div
                         data-testid="agent-task-progress"
@@ -170,7 +147,7 @@ const TerminalMeta: Component<{
                     )}
                   </Show>
                 </div>
-                <Show when={agentSummary(agent())}>
+                <Show when={agent().summary}>
                   {(summary) => (
                     <div
                       data-testid="agent-summary"
@@ -203,7 +180,7 @@ const TerminalMeta: Component<{
                *  `fg` to the foreground value directly. */}
               <Show
                 when={
-                  !(info().meta.agent && agentSummary(info().meta.agent!)) &&
+                  !(info().meta.agent && info().meta.agent!.summary) &&
                   info().meta.foreground
                 }
               >

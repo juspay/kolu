@@ -17,6 +17,7 @@ import {
   type OpenCodeSession,
   type TaskProgress,
   deriveSessionState,
+  getSessionTitle,
   getSessionTaskProgress,
   openDb,
   subscribeOpenCodeDb,
@@ -113,13 +114,17 @@ export function createOpenCodeWatcher(
     }
 
     const taskProgress = getSessionTaskProgress(session.id, log, db);
+    // Re-read title on each refresh so mid-conversation title changes
+    // (e.g. OpenCode auto-generating a title after the first exchange)
+    // are picked up live, not stuck at the snapshot from session match.
+    const summary = getSessionTitle(session.id, log, db) ?? session.title;
 
     const info: OpenCodeInfo = {
       kind: "opencode",
       state: derived.state,
       sessionId: session.id,
       model: derived.model,
-      summary: session.title,
+      summary,
       taskProgress,
     };
 
