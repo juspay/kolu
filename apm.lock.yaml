@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-12T13:24:18.911633+00:00'
+generated_at: '2026-04-12T13:32:34.725553+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -58,4 +58,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:38a20197bcb411a82c2893ef852ca47ab30db9c14852d279e8753bd9c21ae386
+  content_hash: sha256:1087074544f2086da8694112467e7b4cf84a7f565a1185f328bb3cab62a889b1

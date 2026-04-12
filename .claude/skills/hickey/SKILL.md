@@ -76,6 +76,7 @@ Scan for known structural patterns **and any additional patterns from project in
 | ORM | Object identity + relational model + query | Plain data + declarative queries |
 | Conditionals scattered across code | One decision braided across many sites | Rules, declarative policies, lookup tables |
 | Callbacks/closures over mutable state | Control flow + state + time | Streams, queues, immutable values |
+| Hand-rolled utility (tokenizer, parser, walker, normalizer, state machine, date/semver/URL helper, CLI arg parser) when a focused library solves the exact problem | *Scope decision* (how much to implement) with *implementation choice* (write it yourself) | Use the library. Hand-roll only when the library adds surface area you actively don't want, not when it would save you writing code you'd otherwise own. "Zero deps" is an easiness judgment dressed as a simplicity judgment — code you don't own is genuinely simpler than code you do own: it doesn't accumulate private test fixtures, it doesn't bitrot when requirements shift, and its edge cases are someone else's problem to fix. |
 
 **Fragmentation patterns (things-that-belong-together split apart)**
 
