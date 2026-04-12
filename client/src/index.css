@@ -1,5 +1,6 @@
 @import "kolu-fonts";
 @import "tailwindcss";
+@import "highlight.js/styles/github-dark.css" layer(hljs);
 
 /* Suppress the browser's pull-to-refresh and scroll-chaining at the
  * document level. Without this, swiping down at the top of the
@@ -9,6 +10,72 @@
 html,
 body {
   overscroll-behavior: contain;
+}
+
+/* Minimal prose styles for markdown rendered in the transcript view.
+ * Avoids pulling in @tailwindcss/typography for a handful of elements. */
+.prose-xs h1,
+.prose-xs h2,
+.prose-xs h3 {
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+.prose-xs h1 {
+  font-size: 1.1em;
+}
+.prose-xs h2 {
+  font-size: 1em;
+}
+.prose-xs h3 {
+  font-size: 0.95em;
+}
+.prose-xs p {
+  margin: 0.4em 0;
+}
+.prose-xs ul,
+.prose-xs ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+.prose-xs li {
+  margin: 0.15em 0;
+}
+.prose-xs code {
+  background: var(--color-surface-0);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  font-family: ui-monospace, monospace;
+}
+.prose-xs pre {
+  background: var(--color-surface-0);
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+}
+.prose-xs pre code {
+  background: none;
+  padding: 0;
+}
+.prose-xs strong {
+  font-weight: 600;
+}
+.prose-xs a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.prose-xs blockquote {
+  border-left: 2px solid var(--color-edge);
+  padding-left: 0.75em;
+  margin: 0.5em 0;
+  color: var(--color-fg-2);
+}
+.prose-xs hr {
+  border: none;
+  border-top: 1px solid var(--color-edge);
+  margin: 0.75em 0;
 }
 
 /*

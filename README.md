@@ -71,6 +71,13 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 **Debugging detection:** the command palette has a `Debug → Show Claude transcript` entry (visible only when the active terminal has a Claude session) that opens a side-by-side view of the server's state-change log next to the raw JSONL events from disk since monitoring began. Use it when state seems stuck or transitions feel missed.
 
+### File Browser
+
+- Fuzzy file search (<kbd>Cmd/Ctrl+O</kbd>) — scoped to the active terminal's workspace root, ranked by fuzzy score with match highlighting
+- Collapsible file tree in the sidebar — lazy directory listing with git status decorations (modified/untracked/added dots)
+- Read-only peek modal — select a file to view its contents with line numbers, up to 1MB
+- Live sync via `fs.watch` — no manual refresh after agents create or modify files
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
@@ -84,13 +91,14 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 ## Architecture
 
-pnpm monorepo, three packages:
+pnpm monorepo, four packages:
 
-| Package   | Stack                                                                                                                                            |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `common/` | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
-| `server/` | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
-| `client/` | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+| Package         | Stack                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `common/`       | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
+| `workspace-fs/` | File indexing, fuzzy scoring, git status, and `fs.watch` — consumed by the server                                                                |
+| `server/`       | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `client/`       | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
 
 ### Communication
 

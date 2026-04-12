@@ -142,6 +142,14 @@ export const SHORTCUTS = {
     keybind: { key: "p", code: "KeyP", mod: true },
     label: "Export session as PDF",
   },
+  fileBrowser: {
+    keybind: { key: "o", code: "KeyO", mod: true },
+    label: "Browse files",
+  },
+  toggleRightPanel: {
+    keybind: { key: "b", code: "KeyB", mod: true },
+    label: "Toggle right panel",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

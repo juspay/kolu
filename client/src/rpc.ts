@@ -87,6 +87,9 @@ export const stream = {
         context: { ...STREAM_RETRY, onRetry: opts.onRetry },
       },
     ),
+  /** Stream filesystem change notifications for a workspace root. */
+  fsOnChange: (root: string, signal?: AbortSignal) =>
+    client.fs.onChange({ root }, { signal, context: STREAM_RETRY }),
 };
 
 /**

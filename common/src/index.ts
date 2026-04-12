@@ -11,12 +11,46 @@ import {
   ClaudeTranscriptDebugSchema,
 } from "kolu-claude-code";
 
+import {
+  FileGitStatusSchema,
+  FileStagingSchema,
+  FileEntrySchema,
+  FsSearchResultSchema,
+  FsSearchInputSchema,
+  FsListDirInputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
+  FsWatchInputSchema,
+  FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
+} from "kolu-workspace-fs/schemas";
+
 // Re-export integration schemas so consumers import from kolu-common only.
 export {
   ClaudeCodeInfoSchema,
   TaskProgressSchema,
   ClaudeStateChangeSchema,
   ClaudeTranscriptDebugSchema,
+};
+
+export {
+  FileGitStatusSchema,
+  FileStagingSchema,
+  FileEntrySchema,
+  FsSearchResultSchema,
+  FsSearchInputSchema,
+  FsListDirInputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
+  FsWatchInputSchema,
+  FsChangeEventSchema,
+  FsFileDiffInputSchema,
+  FsFileDiffOutputSchema,
+  DiffLineSchema,
+  DiffHunkSchema,
 };
 
 // --- Zod schemas ---
@@ -309,3 +343,17 @@ export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 export type ServerState = z.infer<typeof ServerStateSchema>;
 export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;
+
+export type FileGitStatus = z.infer<typeof FileGitStatusSchema>;
+export type FileStaging = z.infer<typeof FileStagingSchema>;
+export type FileEntry = z.infer<typeof FileEntrySchema>;
+export type FsSearchResult = z.infer<typeof FsSearchResultSchema>;
+export type FsSearchInput = z.infer<typeof FsSearchInputSchema>;
+export type FsListDirInput = z.infer<typeof FsListDirInputSchema>;
+export type FsReadFileInput = z.infer<typeof FsReadFileInputSchema>;
+export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
+export type FsChangeEvent = z.infer<typeof FsChangeEventSchema>;
+export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
+export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
+export type DiffLine = z.infer<typeof DiffLineSchema>;
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;

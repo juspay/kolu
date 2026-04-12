@@ -16,8 +16,10 @@ import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
+import FileSearch from "./FileSearch";
+import RightPanel from "./RightPanel";
+import Resizable from "@corvu/resizable";
 import ShortcutsHelp from "./ShortcutsHelp";
-import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
@@ -36,6 +38,7 @@ import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
+import { useFileBrowser } from "./useFileBrowser";
 
 const App: Component = () => {
   const { preferences, updatePreferences } = useServerState();
@@ -70,6 +73,7 @@ const App: Component = () => {
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
+  const fileBrowser = useFileBrowser();
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -95,9 +99,6 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
-
-  // Claude transcript debug dialog state
-  const [claudeTranscriptOpen, setClaudeTranscriptOpen] = createSignal(false);
 
   // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
@@ -130,6 +131,8 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
+    setFileSearchOpen: fileBrowser.setFileSearchOpen,
+    toggleRightPanel: fileBrowser.toggleRightPanel,
     toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
     getSubTerminalIds: store.getSubTerminalIds,
     cycleSubTab: (parentId, direction) =>
@@ -195,6 +198,7 @@ const App: Component = () => {
     handleRandomizeTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
+    setFileSearchOpen: fileBrowser.setFileSearchOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
@@ -203,7 +207,7 @@ const App: Component = () => {
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
-    setClaudeTranscriptOpen,
+    setClaudeTranscriptOpen: () => fileBrowser.openTranscript(),
   });
 
   // Reset state on close and return focus to terminal
@@ -258,14 +262,15 @@ const App: Component = () => {
         initialGroup={paletteInitialGroup()}
         transparentOverlay={isPreviewingTheme()}
       />
+      <FileSearch
+        open={fileBrowser.fileSearchOpen()}
+        onOpenChange={fileBrowser.setFileSearchOpen}
+        activeMeta={store.activeMeta}
+        onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
+      />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
-      />
-      <ClaudeTranscriptDialog
-        open={claudeTranscriptOpen()}
-        onOpenChange={withRefocus(setClaudeTranscriptOpen)}
-        terminalId={store.activeId}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
@@ -335,6 +340,8 @@ const App: Component = () => {
         themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
+        onToggleRightPanel={fileBrowser.toggleRightPanel}
+        rightPanelOpen={fileBrowser.rightPanelOpen()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         randomTheme={randomTheme()}
@@ -383,50 +390,100 @@ const App: Component = () => {
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
-          <div
-            class="flex-1 min-h-0 overflow-hidden"
-            style={{ "background-color": activeTheme().background }}
-            data-testid="terminal-viewport"
-          >
-            <Show
-              when={!session.isLoading()}
-              fallback={
-                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                  Connecting...
-                </div>
-              }
+        {/* Terminal + right panel — resizable horizontal split.
+         *  min-w-0 on the outer div prevents flex min-width:auto from
+         *  blocking shrinking below canvas intrinsic size. */}
+        <Resizable
+          orientation="horizontal"
+          sizes={
+            fileBrowser.rightPanelOpen()
+              ? [1 - fileBrowser.rightPanelSize(), fileBrowser.rightPanelSize()]
+              : [1, 0]
+          }
+          onSizesChange={(sizes) => {
+            // Persist user's drag so the panel remembers its width
+            if (sizes[1] !== undefined && sizes[1] > 0.05) {
+              fileBrowser.setRightPanelSize(sizes[1]);
+            }
+          }}
+          class="flex-1 min-h-0 min-w-0"
+        >
+          <Resizable.Panel as="div" class="min-w-0 flex flex-col" minSize={0.3}>
+            <div
+              class="flex-1 min-h-0 overflow-hidden"
+              style={{ "background-color": activeTheme().background }}
+              data-testid="terminal-viewport"
             >
-              <Show when={store.terminalIds().length === 0}>
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
-                />
-              </Show>
-              <For each={store.terminalIds()}>
-                {(id) => (
-                  <TerminalPane
-                    terminalId={id}
-                    visible={store.activeId() === id}
-                    theme={getTerminalTheme(id)}
-                    searchOpen={searchOpen()}
-                    onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={store.getSubTerminalIds(id)}
-                    getMetadata={store.getMetadata}
-                    onCreateSubTerminal={(parentId, cwd) =>
-                      void crud.handleCreateSubTerminal(parentId, cwd)
-                    }
-                    onCloseTerminal={closeTerminal}
-                    activeMeta={store.activeMeta()}
-                    scrollLockEnabled={scrollLock()}
+              <Show
+                when={!session.isLoading()}
+                fallback={
+                  <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                    Connecting...
+                  </div>
+                }
+              >
+                <Show when={store.terminalIds().length === 0}>
+                  <EmptyState
+                    savedSession={session.savedSession() ?? undefined}
+                    onRestore={() => void session.handleRestoreSession()}
                   />
-                )}
-              </For>
+                </Show>
+                <For each={store.terminalIds()}>
+                  {(id) => (
+                    <TerminalPane
+                      terminalId={id}
+                      visible={store.activeId() === id}
+                      theme={getTerminalTheme(id)}
+                      searchOpen={searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={store.getSubTerminalIds(id)}
+                      getMetadata={store.getMetadata}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void crud.handleCreateSubTerminal(parentId, cwd)
+                      }
+                      onCloseTerminal={closeTerminal}
+                      activeMeta={store.activeMeta()}
+                      scrollLockEnabled={scrollLock()}
+                    />
+                  )}
+                </For>
+              </Show>
+            </div>
+            <MobileKeyBar activeId={store.activeId} />
+          </Resizable.Panel>
+
+          <Show when={fileBrowser.rightPanelOpen()}>
+            <Resizable.Handle
+              class="shrink-0 w-1 bg-edge hover:bg-accent-bright transition-colors cursor-col-resize"
+              aria-label="Resize right panel"
+            />
+          </Show>
+
+          <Resizable.Panel
+            as="div"
+            class="min-w-0 overflow-hidden"
+            minSize={0}
+            collapsible
+            collapsedSize={0}
+          >
+            <Show when={fileBrowser.rightPanelOpen()}>
+              <RightPanel
+                view={fileBrowser.rightPanelView()}
+                onViewChange={fileBrowser.setRightPanelView}
+                fileTreeRoot={() => store.activeMeta()?.git?.repoRoot ?? null}
+                onOpenFile={(root, path) =>
+                  void fileBrowser.openPeek(root, path)
+                }
+                onOpenDiff={(root, path) => fileBrowser.openDiff(root, path)}
+                peekFile={fileBrowser.peekFile()}
+                diffTarget={fileBrowser.diffTarget()}
+                originLabel={fileBrowser.originLabel()}
+                onBack={fileBrowser.goBack}
+                terminalId={store.activeId}
+              />
             </Show>
-          </div>
-          <MobileKeyBar activeId={store.activeId} />
-        </div>
+          </Resizable.Panel>
+        </Resizable>
       </div>
     </div>
   );

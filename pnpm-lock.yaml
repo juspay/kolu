@@ -85,6 +85,12 @@ importers:
       '@xterm/xterm':
         specifier: ^6.0.0
         version: 6.0.0
+      highlight.js:
+        specifier: ^11.11.1
+        version: 11.11.1
+      marked:
+        specifier: ^18.0.0
+        version: 18.0.0
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16
@@ -131,6 +137,9 @@ importers:
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
+      kolu-workspace-fs:
+        specifier: workspace:*
+        version: link:../workspace-fs
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -208,6 +217,9 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-workspace-fs:
+        specifier: workspace:*
+        version: link:../workspace-fs
       node-pty:
         specifier: ^1.0.0
         version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)
@@ -266,6 +278,22 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
+
+  workspace-fs:
+    dependencies:
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
 packages:
 
@@ -2550,6 +2578,10 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
+  highlight.js@11.11.1:
+    resolution: {integrity: sha512-Xwwo44whKBVCYoliBQwaPvtd/2tYFkRQtXDWj1nackaV2JPXx3L0+Jvd8/qCJ2p+ML0/XVkJ2q+Mr+UVdpJK5w==}
+    engines: {node: '>=12.0.0'}
+
   hono-pino@0.10.3:
     resolution: {integrity: sha512-n0RNPIFOoq25Fg8b4D5gus4sVqI0z+8I17ibl96+p43d07UnZ0EMM/It0qSgfc7UtaC+XP5FkFmRHwBp6owsNA==}
     engines: {node: '>=18'}
@@ -2902,6 +2934,11 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  marked@18.0.0:
+    resolution: {integrity: sha512-2e7Qiv/HJSXj8rDEpgTvGKsP8yYtI9xXHKDnrftrmnrJPaFNM7VRb2YCzWaX4BP1iCJ/XPduzDJZMFoqTCcIMA==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -6404,6 +6441,8 @@ snapshots:
 
   help-me@5.0.0: {}
 
+  highlight.js@11.11.1: {}
+
   hono-pino@0.10.3(hono@4.12.12)(pino@10.3.1):
     dependencies:
       defu: 6.1.7
@@ -6700,6 +6739,8 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  marked@18.0.0: {}
 
   math-intrinsics@1.1.0: {}
 

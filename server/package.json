@@ -26,6 +26,7 @@
     "hono-pino": "^0.10.3",
     "kolu-claude-code": "workspace:*",
     "kolu-common": "workspace:*",
+    "kolu-workspace-fs": "workspace:*",
     "node-pty": "^1.0.0",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",

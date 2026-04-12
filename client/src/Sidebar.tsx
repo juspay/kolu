@@ -458,8 +458,7 @@ const Sidebar: Component<{
             </DragOverlay>
           </DragDropProvider>
         </nav>
-        {/* Sticky footer hint — surfaces the MRU cycle keybind without
-         *  needing the user to discover it via the shortcuts help dialog. */}
+        {/* Sticky footer hint */}
         <Show when={props.terminalIds.length > 1}>
           <div
             data-testid="sidebar-footer-hint"
