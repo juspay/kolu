@@ -45,65 +45,40 @@ const TerminalPane: Component<{
   }
 
   return (
-    <div class="w-full h-full relative" classList={{ hidden: !props.visible }}>
+    <div
+      class="w-full h-full relative flex flex-col"
+      classList={{ hidden: !props.visible }}
+    >
       {/*
-        No subs: plain terminal. With subs: Resizable split.
-        Sub-terminals mount once via Show+For and stay alive across collapse.
+        Main terminal lives inside Resizable unconditionally so it is never
+        unmounted when splits are created/removed. Sub-panel content is gated
+        by Show/For without affecting the main terminal's lifecycle.
       */}
-      <Show
-        when={hasSubs()}
-        fallback={
-          <div class="flex flex-col h-full">
-            <div class="flex-1 min-h-0">
-              <Terminal
-                terminalId={props.terminalId}
-                visible={props.visible}
-                theme={props.theme}
-                searchOpen={props.searchOpen}
-                onSearchOpenChange={props.onSearchOpenChange}
-                scrollLockEnabled={props.scrollLockEnabled}
-              />
-            </div>
-            <SplitStrip
-              variant="prompt"
-              onClick={() =>
-                props.onCreateSubTerminal(
-                  props.terminalId,
-                  props.activeMeta?.cwd,
-                )
-              }
-            />
-          </div>
+      <Resizable
+        orientation="vertical"
+        sizes={
+          isExpanded()
+            ? [1 - panelState().panelSize, panelState().panelSize]
+            : [1, 0]
         }
+        onSizesChange={handleSizesChange}
+        class="flex-1 min-h-0"
       >
-        <Resizable
-          orientation="vertical"
-          sizes={
-            isExpanded()
-              ? [1 - panelState().panelSize, panelState().panelSize]
-              : [1, 0]
-          }
-          onSizesChange={handleSizesChange}
-          class="h-full"
-        >
-          <Resizable.Panel
-            as="div"
-            class="min-h-0 overflow-hidden"
-            minSize={0.2}
-          >
-            <Terminal
-              terminalId={props.terminalId}
-              visible={props.visible}
-              focused={shouldFocusMain()}
-              theme={props.theme}
-              searchOpen={props.searchOpen}
-              onSearchOpenChange={props.onSearchOpenChange}
-              onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
-              scrollLockEnabled={props.scrollLockEnabled}
-            />
-          </Resizable.Panel>
+        <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+          <Terminal
+            terminalId={props.terminalId}
+            visible={props.visible}
+            focused={shouldFocusMain()}
+            theme={props.theme}
+            searchOpen={props.searchOpen}
+            onSearchOpenChange={props.onSearchOpenChange}
+            onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
+            scrollLockEnabled={props.scrollLockEnabled}
+          />
+        </Resizable.Panel>
 
-          {/* Resize handle — only visible when expanded */}
+        {/* Resize handle — only visible when expanded */}
+        <Show when={hasSubs()}>
           <Resizable.Handle
             data-testid="resize-handle"
             class="shrink-0 transition-all"
@@ -113,66 +88,74 @@ const TerminalPane: Component<{
             }}
             aria-label="Resize terminal split"
           />
+        </Show>
 
-          {/* Collapsed strip — plain button, no Corvu resize interference */}
-          <Show when={!isExpanded()}>
-            <SplitStrip
-              variant="collapsed"
-              count={props.subTerminalIds.length}
-              onClick={() => subPanel.expandPanel(props.terminalId)}
+        {/* Collapsed strip — plain button, no Corvu resize interference */}
+        <Show when={hasSubs() && !isExpanded()}>
+          <SplitStrip
+            variant="collapsed"
+            count={props.subTerminalIds.length}
+            onClick={() => subPanel.expandPanel(props.terminalId)}
+          />
+        </Show>
+
+        <Resizable.Panel
+          as="div"
+          class="min-h-0 overflow-hidden flex flex-col"
+          minSize={0}
+          collapsible
+          collapsedSize={0}
+          onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+          onExpand={() => subPanel.expandPanel(props.terminalId)}
+        >
+          <Show when={isExpanded()}>
+            <SubPanelTabBar
+              subIds={props.subTerminalIds}
+              activeSubTab={activeSubTab()}
+              getMetadata={props.getMetadata}
+              onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
+              onClose={props.onCloseTerminal}
+              onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+              onCreate={() =>
+                props.onCreateSubTerminal(
+                  props.terminalId,
+                  props.activeMeta?.cwd,
+                )
+              }
             />
           </Show>
+          <div class="flex-1 min-h-0">
+            <For each={props.subTerminalIds}>
+              {(subId) => (
+                <Terminal
+                  terminalId={subId}
+                  visible={
+                    props.visible && isExpanded() && activeSubTab() === subId
+                  }
+                  focused={shouldFocusSub(subId)}
+                  theme={props.theme}
+                  searchOpen={false}
+                  onSearchOpenChange={() => {}}
+                  onFocus={() =>
+                    subPanel.setFocusTarget(props.terminalId, "sub")
+                  }
+                  scrollLockEnabled={props.scrollLockEnabled}
+                  isSub
+                />
+              )}
+            </For>
+          </div>
+        </Resizable.Panel>
+      </Resizable>
 
-          <Resizable.Panel
-            as="div"
-            class="min-h-0 overflow-hidden flex flex-col"
-            minSize={0}
-            collapsible
-            collapsedSize={0}
-            onCollapse={() => subPanel.collapsePanel(props.terminalId)}
-            onExpand={() => subPanel.expandPanel(props.terminalId)}
-          >
-            <Show when={isExpanded()}>
-              <SubPanelTabBar
-                subIds={props.subTerminalIds}
-                activeSubTab={activeSubTab()}
-                getMetadata={props.getMetadata}
-                onSelect={(id) =>
-                  subPanel.setActiveSubTab(props.terminalId, id)
-                }
-                onClose={props.onCloseTerminal}
-                onCollapse={() => subPanel.collapsePanel(props.terminalId)}
-                onCreate={() =>
-                  props.onCreateSubTerminal(
-                    props.terminalId,
-                    props.activeMeta?.cwd,
-                  )
-                }
-              />
-            </Show>
-            <div class="flex-1 min-h-0">
-              <For each={props.subTerminalIds}>
-                {(subId) => (
-                  <Terminal
-                    terminalId={subId}
-                    visible={
-                      props.visible && isExpanded() && activeSubTab() === subId
-                    }
-                    focused={shouldFocusSub(subId)}
-                    theme={props.theme}
-                    searchOpen={false}
-                    onSearchOpenChange={() => {}}
-                    onFocus={() =>
-                      subPanel.setFocusTarget(props.terminalId, "sub")
-                    }
-                    scrollLockEnabled={props.scrollLockEnabled}
-                    isSub
-                  />
-                )}
-              </For>
-            </div>
-          </Resizable.Panel>
-        </Resizable>
+      {/* Prompt strip — only when no splits exist */}
+      <Show when={!hasSubs()}>
+        <SplitStrip
+          variant="prompt"
+          onClick={() =>
+            props.onCreateSubTerminal(props.terminalId, props.activeMeta?.cwd)
+          }
+        />
       </Show>
     </div>
   );
