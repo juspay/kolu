@@ -3,9 +3,9 @@ import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
 When("I click the sidebar toggle", async function (this: KoluWorld) {
-  // Mobile: header burger (sidebar-toggle). Desktop: status bar button (statusbar-sidebar-toggle).
+  // Mobile: header burger (sidebar-toggle). Desktop: status bar button (sidebar-toggle-desktop).
   const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
-  const desktop = this.page.locator('[data-testid="statusbar-sidebar-toggle"]');
+  const desktop = this.page.locator('[data-testid="sidebar-toggle-desktop"]');
   if (await mobile.isVisible()) {
     await mobile.click();
   } else {

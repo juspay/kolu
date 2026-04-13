@@ -18,8 +18,8 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
   handleCopyTerminalText: () => void;
@@ -147,14 +147,7 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
     const id = deps.activeId();
-    if (id) {
-      // If no sub-terminals exist yet, create one
-      if (deps.getSubTerminalIds(id).length === 0) {
-        deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
-      } else {
-        deps.toggleSubPanel(id);
-      }
-    }
+    if (id) deps.toggleSubPanel(id);
     return true;
   }
 

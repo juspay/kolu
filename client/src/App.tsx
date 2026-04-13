@@ -15,7 +15,6 @@ import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
-import StatusBar from "./StatusBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
@@ -116,6 +115,18 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
+  function handleToggleSubPanel(parentId: TerminalId) {
+    if (store.getSubTerminalIds(parentId).length === 0) {
+      void crud.handleCreateSubTerminal(
+        parentId,
+        store.activeMeta()?.cwd ?? undefined,
+      );
+    } else {
+      subPanel.togglePanel(parentId);
+    }
+  }
+
   function handleExportSessionAsPdf() {
     const id = store.activeId();
     if (id === null) return;
@@ -135,8 +146,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
-    getSubTerminalIds: store.getSubTerminalIds,
+    toggleSubPanel: handleToggleSubPanel,
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(
         parentId,
@@ -193,8 +203,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
-    getSubTerminalIds: store.getSubTerminalIds,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
@@ -336,6 +345,7 @@ const App: Component = () => {
       />
       <PwaInstallBar />
       <Header
+        status={wsStatus()}
         onOpenPalette={() => openPalette()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
@@ -358,6 +368,24 @@ const App: Component = () => {
         }
         startupTips={startupTips()}
         onStartupTipsChange={setStartupTips}
+        themeName={activeThemeName()}
+        onThemeClick={() => openPaletteGroup("Theme")}
+        sidebarOpen={sidebarOpen()}
+        hasSubPanel={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0
+        }
+        subPanelExpanded={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0 &&
+          !subPanel.getSubPanel(store.activeId()!).collapsed
+        }
+        onToggleSubPanel={() => {
+          const id = store.activeId();
+          if (id) handleToggleSubPanel(id);
+        }}
+        rightPanelCollapsed={rightPanel.collapsed()}
+        onToggleRightPanel={rightPanel.togglePanel}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile.
        *  --active-terminal-{bg,fg} published here so child components
@@ -489,33 +517,6 @@ const App: Component = () => {
           </Show>
         </div>
       </div>
-      <StatusBar
-        status={wsStatus()}
-        themeName={activeThemeName()}
-        onThemeClick={() => openPaletteGroup("Theme")}
-        sidebarOpen={sidebarOpen()}
-        onToggleSidebar={toggleSidebar}
-        hasSubPanel={
-          store.activeId() !== null &&
-          store.getSubTerminalIds(store.activeId()!).length > 0
-        }
-        subPanelExpanded={
-          store.activeId() !== null &&
-          store.getSubTerminalIds(store.activeId()!).length > 0 &&
-          !subPanel.getSubPanel(store.activeId()!).collapsed
-        }
-        onToggleSubPanel={() => {
-          const id = store.activeId();
-          if (!id) return;
-          if (store.getSubTerminalIds(id).length === 0) {
-            void crud.handleCreateSubTerminal(id, store.activeMeta()?.cwd);
-          } else {
-            subPanel.togglePanel(id);
-          }
-        }}
-        rightPanelCollapsed={rightPanel.collapsed()}
-        onToggleRightPanel={rightPanel.togglePanel}
-      />
     </div>
   );
 };

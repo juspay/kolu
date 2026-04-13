@@ -75,7 +75,7 @@ export class KoluWorld extends World {
       const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
       const toggle = (await mobile.isVisible())
         ? mobile
-        : this.page.locator('[data-testid="statusbar-sidebar-toggle"]');
+        : this.page.locator('[data-testid="sidebar-toggle-desktop"]');
       await toggle.click();
       await this.page.waitForFunction(
         () => {
