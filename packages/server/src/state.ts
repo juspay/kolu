@@ -100,9 +100,15 @@ export const store = new Conf<PersistedState>({
         ...current,
       });
     },
-    // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — reset to defaults.
+    // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
     "1.7.0": (store: Conf<PersistedState>) => {
-      store.set("preferences", DEFAULT_PREFERENCES);
+      const current = store.get("preferences") as Record<string, unknown> | undefined;
+      const { rightPanelCollapsed, rightPanelSize, ...rest } = current ?? {};
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...rest,
+        rightPanel: DEFAULT_PREFERENCES.rightPanel,
+      });
     },
   },
 });
