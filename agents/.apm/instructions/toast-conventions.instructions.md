@@ -1,6 +1,6 @@
 ---
 description: Toast notification conventions using solid-sonner
-applyTo: "client/src/**"
+applyTo: "packages/client/src/**"
 ---
 
 ## Toast Conventions

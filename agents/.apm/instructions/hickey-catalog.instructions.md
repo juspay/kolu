@@ -1,6 +1,6 @@
 ---
 description: Project-specific complecting patterns for hickey evaluations — SolidJS reactive framework
-applyTo: "client/src/**"
+applyTo: "packages/client/src/**"
 ---
 
 ## Additional Complecting Patterns

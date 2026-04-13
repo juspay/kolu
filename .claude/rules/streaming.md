@@ -1,6 +1,6 @@
 ---
 paths:
-  - "{client/src,server/src,common/src}/**"
+  - "{packages/client/src,packages/server/src,packages/common/src}/**"
 ---
 
 ## oRPC Streaming Procedures
@@ -9,15 +9,15 @@ Three invariants an agent editing any single file would otherwise miss. They are
 
 ### 1. Route client calls through the `stream` namespace
 
-Every async-iterator RPC the client consumes goes through `client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
+Every async-iterator RPC the client consumes goes through `packages/client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
 
-**When adding a new streaming procedure** (to `common/src/contract.ts` + `server/src/router.ts`), also add a corresponding entry to the `stream` object. Consumers MUST use `stream.xxx(...)` — calling `client.xxx(...)` directly silently loses reconnect handling.
+**When adding a new streaming procedure** (to `packages/common/src/contract.ts` + `packages/server/src/router.ts`), also add a corresponding entry to the `stream` object. Consumers MUST use `stream.xxx(...)` — calling `client.xxx(...)` directly silently loses reconnect handling.
 
 `stream.attach` takes an `onRetry` callback because imperative consumers (xterm.js `Terminal.tsx`, `TerminalPreview.tsx`) must clear their buffer before the retried iterator delivers its fresh snapshot — otherwise scrollback double-paints.
 
 ### 2. Server handlers yield snapshot-then-deltas
 
-Every server-side streaming handler in `server/src/router.ts` MUST yield a full state snapshot as its first item, then stream deltas. This is the invariant that makes `ClientRetryPlugin`'s transparent re-subscribe work: on reconnect, the plugin re-invokes the source, and the new iterator's first yield is a fresh snapshot that replaces stale client state.
+Every server-side streaming handler in `packages/server/src/router.ts` MUST yield a full state snapshot as its first item, then stream deltas. This is the invariant that makes `ClientRetryPlugin`'s transparent re-subscribe work: on reconnect, the plugin re-invokes the source, and the new iterator's first yield is a fresh snapshot that replaces stale client state.
 
 Two acceptable shapes:
 

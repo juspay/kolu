@@ -1,6 +1,6 @@
 ---
 paths:
-  - "tests/features/**"
+  - "packages/tests/features/**"
 ---
 
 ## E2E Tests
