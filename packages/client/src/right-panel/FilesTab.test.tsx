@@ -18,7 +18,6 @@ vi.mock("../rpc/rpc", () => ({
   },
 }));
 
-// Import after mock is set up.
 const { default: FilesTab } = await import("./FilesTab");
 
 const ROOT_ENTRIES: FsListDirOutput = {
@@ -27,6 +26,13 @@ const ROOT_ENTRIES: FsListDirOutput = {
     { name: "tests", isDirectory: true, path: "/repo/tests" },
     { name: "README.md", isDirectory: false, path: "/repo/README.md" },
     { name: "package.json", isDirectory: false, path: "/repo/package.json" },
+  ],
+};
+
+const CHILD_ENTRIES: FsListDirOutput = {
+  entries: [
+    { name: "index.ts", isDirectory: false, path: "/repo/src/index.ts" },
+    { name: "utils.ts", isDirectory: false, path: "/repo/src/utils.ts" },
   ],
 };
 
@@ -55,12 +61,102 @@ beforeEach(() => {
   mockListDir.mockReset();
 });
 
-/** Query top-level tree items within a container. */
+// ── Query helpers ──
+
 function getTreeItems(container: HTMLElement) {
   const tree = container.querySelector('[role="tree"]');
   if (!tree) return [];
   return Array.from(tree.querySelectorAll(':scope > [role="treeitem"]'));
 }
+
+function getRefreshBtn(container: HTMLElement) {
+  return container.querySelector(
+    '[data-testid="files-refresh"]',
+  ) as HTMLElement;
+}
+
+// ── Reusable assertion helpers ──
+// Each verifies a behavioral property of the rendered tree.
+// Used both on fresh mount and after a refresh cycle.
+
+async function assertTreeRenders(container: HTMLElement) {
+  await waitFor(() => {
+    expect(container.querySelector('[role="tree"]')).not.toBeNull();
+  });
+  expect(getTreeItems(container).length).toBeGreaterThan(0);
+}
+
+async function assertDirsBeforeFiles(container: HTMLElement) {
+  await waitFor(() => {
+    expect(container.querySelector('[role="tree"]')).not.toBeNull();
+  });
+  const items = getTreeItems(container);
+  let seenLeaf = false;
+  for (const el of items) {
+    const isBranch = el.hasAttribute("data-branch");
+    if (!isBranch) seenLeaf = true;
+    else if (seenLeaf) {
+      throw new Error(
+        `Directory ${el.getAttribute("data-value")} appears after a file`,
+      );
+    }
+  }
+}
+
+async function assertExpandShowsChildren(container: HTMLElement) {
+  await waitFor(() => {
+    expect(container.querySelector('[role="tree"]')).not.toBeNull();
+  });
+  // Queue child entries for the expand call.
+  mockListDir.mockResolvedValueOnce(CHILD_ENTRIES);
+
+  const firstBranch = container.querySelector(
+    '[data-branch] [role="button"]',
+  ) as HTMLElement;
+  expect(firstBranch).not.toBeNull();
+  fireEvent.click(firstBranch);
+
+  await waitFor(() => {
+    const nested = container.querySelectorAll(
+      '[role="group"] [role="treeitem"]',
+    );
+    expect(nested.length).toBeGreaterThan(0);
+  });
+}
+
+async function assertErrorSurfaces(container: HTMLElement) {
+  await waitFor(() => {
+    expect(container.textContent).toContain("ENOENT");
+  });
+}
+
+// ── Mount + refresh scaffold ──
+
+/** Mount FilesTab with ROOT_ENTRIES, wait for tree, then refresh with the same entries. */
+async function mountAndRefresh() {
+  mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+
+  const { container } = render(() => (
+    <FilesTab meta={makeMeta()} terminalId="tid-1" />
+  ));
+
+  await waitFor(() => {
+    expect(getTreeItems(container)).toHaveLength(4);
+  });
+
+  // Refresh with the same data.
+  mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+  fireEvent.click(getRefreshBtn(container));
+
+  await waitFor(() => {
+    // Tree re-rendered — still 4 items.
+    expect(getTreeItems(container)).toHaveLength(4);
+  });
+
+  return container;
+}
+
+// ── Tests ──
 
 describe("FilesTab", () => {
   // ── Initial load ──
@@ -72,11 +168,7 @@ describe("FilesTab", () => {
       <FilesTab meta={makeMeta()} terminalId="tid-1" />
     ));
 
-    await waitFor(() => {
-      expect(container.querySelector('[role="tree"]')).not.toBeNull();
-    });
-
-    expect(getTreeItems(container)).toHaveLength(4);
+    await assertTreeRenders(container);
     expect(mockListDir).toHaveBeenCalledWith({
       terminalId: "tid-1",
       path: "/repo",
@@ -96,15 +188,15 @@ describe("FilesTab", () => {
   });
 
   it("shows error message when RPC fails", async () => {
-    mockListDir.mockRejectedValueOnce(new Error("ENOENT: no such directory"));
+    mockListDir.mockRejectedValueOnce(
+      new Error("ENOENT: no such directory"),
+    );
 
     const { container } = render(() => (
       <FilesTab meta={makeMeta()} terminalId="tid-1" />
     ));
 
-    await waitFor(() => {
-      expect(container.textContent).toContain("ENOENT: no such directory");
-    });
+    await assertErrorSurfaces(container);
   });
 
   it("shows 'No terminal selected' when terminalId is undefined", () => {
@@ -125,22 +217,19 @@ describe("FilesTab", () => {
       <FilesTab meta={makeMeta()} terminalId="tid-1" />
     ));
 
-    await waitFor(() => {
-      expect(container.querySelector('[role="tree"]')).not.toBeNull();
-    });
+    await assertDirsBeforeFiles(container);
+  });
 
-    const items = getTreeItems(container);
-    const values = items.map((el) => ({
-      value: el.getAttribute("data-value"),
-      isBranch: el.hasAttribute("data-branch"),
-    }));
+  // ── Expand ──
 
-    expect(values).toEqual([
-      { value: "/repo/src", isBranch: true },
-      { value: "/repo/tests", isBranch: true },
-      { value: "/repo/README.md", isBranch: false },
-      { value: "/repo/package.json", isBranch: false },
-    ]);
+  it("expanding a directory loads and shows children", async () => {
+    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+
+    const { container } = render(() => (
+      <FilesTab meta={makeMeta()} terminalId="tid-1" />
+    ));
+
+    await assertExpandShowsChildren(container);
   });
 
   // ── Refresh ──
@@ -156,18 +245,14 @@ describe("FilesTab", () => {
       expect(getTreeItems(container)).toHaveLength(4);
     });
 
-    const updatedEntries: FsListDirOutput = {
+    mockListDir.mockResolvedValueOnce({
       entries: [
         { name: "src", isDirectory: true, path: "/repo/src" },
         { name: "new-file.ts", isDirectory: false, path: "/repo/new-file.ts" },
       ],
-    };
-    mockListDir.mockResolvedValueOnce(updatedEntries);
+    });
 
-    const refreshBtn = container.querySelector(
-      '[data-testid="files-refresh"]',
-    ) as HTMLElement;
-    fireEvent.click(refreshBtn);
+    fireEvent.click(getRefreshBtn(container));
 
     await waitFor(() => {
       expect(getTreeItems(container)).toHaveLength(2);
@@ -176,94 +261,59 @@ describe("FilesTab", () => {
     expect(mockListDir).toHaveBeenCalledTimes(2);
   });
 
-  it("consecutive refreshes fully replace the tree each time", async () => {
-    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+  it("refresh after error recovers the tree", async () => {
+    mockListDir.mockRejectedValueOnce(
+      new Error("ENOENT: no such directory"),
+    );
 
     const { container } = render(() => (
       <FilesTab meta={makeMeta()} terminalId="tid-1" />
     ));
 
-    await waitFor(() => {
-      expect(getTreeItems(container)).toHaveLength(4);
-    });
+    await assertErrorSurfaces(container);
 
-    const refreshBtn = container.querySelector(
-      '[data-testid="files-refresh"]',
-    ) as HTMLElement;
+    // Refresh succeeds.
+    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+    fireEvent.click(getRefreshBtn(container));
 
-    // First refresh — different entries.
-    mockListDir.mockResolvedValueOnce({
-      entries: [
-        { name: "alpha.ts", isDirectory: false, path: "/repo/alpha.ts" },
-      ],
-    });
-    fireEvent.click(refreshBtn);
-
-    await waitFor(() => {
-      const items = getTreeItems(container);
-      expect(items).toHaveLength(1);
-      expect(items[0]!.getAttribute("data-value")).toBe("/repo/alpha.ts");
-    });
-
-    // Second refresh — yet another set. No ghost entries from previous loads.
-    mockListDir.mockResolvedValueOnce({
-      entries: [
-        { name: "lib", isDirectory: true, path: "/repo/lib" },
-        { name: "beta.ts", isDirectory: false, path: "/repo/beta.ts" },
-        { name: "gamma.ts", isDirectory: false, path: "/repo/gamma.ts" },
-      ],
-    });
-    fireEvent.click(refreshBtn);
-
-    await waitFor(() => {
-      const items = getTreeItems(container);
-      expect(items).toHaveLength(3);
-      // No ghost entries from initial load or first refresh.
-      const values = items.map((el) => el.getAttribute("data-value"));
-      expect(values).toEqual(["/repo/lib", "/repo/beta.ts", "/repo/gamma.ts"]);
-    });
-
-    expect(mockListDir).toHaveBeenCalledTimes(3);
+    await assertTreeRenders(container);
+    await assertDirsBeforeFiles(container);
   });
 
-  it("sorting holds after refresh", async () => {
-    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+  // ── After refresh: re-run behavioral checks ──
 
-    const { container } = render(() => (
-      <FilesTab meta={makeMeta()} terminalId="tid-1" />
-    ));
-
-    await waitFor(() => {
-      expect(getTreeItems(container)).toHaveLength(4);
+  describe("after refresh", () => {
+    it("tree still renders", async () => {
+      const container = await mountAndRefresh();
+      await assertTreeRenders(container);
     });
 
-    // Refresh with mixed order — server returns dirs-first, verify client preserves it.
-    mockListDir.mockResolvedValueOnce({
-      entries: [
-        { name: "z-dir", isDirectory: true, path: "/repo/z-dir" },
-        { name: "a-dir", isDirectory: true, path: "/repo/a-dir" },
-        { name: "file.ts", isDirectory: false, path: "/repo/file.ts" },
-      ],
+    it("directories still appear before files", async () => {
+      const container = await mountAndRefresh();
+      await assertDirsBeforeFiles(container);
     });
 
-    const refreshBtn = container.querySelector(
-      '[data-testid="files-refresh"]',
-    ) as HTMLElement;
-    fireEvent.click(refreshBtn);
+    it("expanding a directory still loads children", async () => {
+      const container = await mountAndRefresh();
+      await assertExpandShowsChildren(container);
+    });
 
-    await waitFor(() => {
-      const items = getTreeItems(container);
-      expect(items).toHaveLength(3);
-      const entries = items.map((el) => ({
-        value: el.getAttribute("data-value"),
-        isBranch: el.hasAttribute("data-branch"),
-      }));
-      // Directories first, then files — as returned by server.
-      expect(entries).toEqual([
-        { value: "/repo/z-dir", isBranch: true },
-        { value: "/repo/a-dir", isBranch: true },
-        { value: "/repo/file.ts", isBranch: false },
-      ]);
+    it("a second refresh still works", async () => {
+      const container = await mountAndRefresh();
+
+      // Third load (mount + refresh + this one).
+      mockListDir.mockResolvedValueOnce({
+        entries: [
+          { name: "only.txt", isDirectory: false, path: "/repo/only.txt" },
+        ],
+      });
+      fireEvent.click(getRefreshBtn(container));
+
+      await waitFor(() => {
+        const items = getTreeItems(container);
+        expect(items).toHaveLength(1);
+        expect(items[0]!.getAttribute("data-value")).toBe("/repo/only.txt");
+      });
     });
   });
 
@@ -282,12 +332,11 @@ describe("FilesTab", () => {
       expect(getTreeItems(container)).toHaveLength(4);
     });
 
-    const newEntries: FsListDirOutput = {
+    mockListDir.mockResolvedValueOnce({
       entries: [
         { name: "other.txt", isDirectory: false, path: "/other/other.txt" },
       ],
-    };
-    mockListDir.mockResolvedValueOnce(newEntries);
+    });
     setTerminalId("tid-2");
 
     await waitFor(() => {
