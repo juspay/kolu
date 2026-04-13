@@ -79,9 +79,16 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 **Why SQLite, not REST?** The OpenCode TUI doesn't expose an HTTP server by default — that's a separate `opencode serve` mode. Reading the SQLite DB directly works against the actual TUI users run, with no port discovery and no extra processes. SQLite WAL mode allows concurrent readers while OpenCode is writing, so we can open the DB read-only without blocking it.
 
+**What we detect:**
+
+| State    | Indicator          | How                                                                     |
+| -------- | ------------------ | ----------------------------------------------------------------------- |
+| Thinking | Pulsing accent dot | Latest assistant message has no `time.completed`                        |
+| Tool use | Spinning yellow    | Thinking + any `part` with `type: "tool"` and `state.status: "running"` |
+| Waiting  | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`  |
+
 **What we can't detect (yet):**
 
-- **Tool use vs thinking** — v1 maps both to "thinking"; future work can parse `part.data` for `tool` parts in the `running` state
 - **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the most recently updated one
 - **Non-default DB location** — set `KOLU_OPENCODE_DB` to override the path
 
@@ -106,6 +113,7 @@ pnpm monorepo:
 | `server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
 | `client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
 | `integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
+| `integrations/common/`      | Shared schemas (TaskProgress) and types (Logger) used by both integration packages                                                               |
 | `integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`                                                          |
 
 ### Communication

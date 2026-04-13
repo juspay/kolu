@@ -131,6 +131,9 @@ importers:
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
+      kolu-integration-common:
+        specifier: workspace:*
+        version: link:../integrations/common
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode

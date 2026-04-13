@@ -21,6 +21,7 @@
   "dependencies": {
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
+    "kolu-integration-common": "workspace:*",
     "kolu-opencode": "workspace:*",
     "zod": "^4.3.6"
   }

@@ -22,10 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
-
-type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-};
+import type { Logger } from "kolu-integration-common";
 
 interface WalListener {
   cb: () => void;
@@ -80,12 +77,9 @@ export function subscribeOpenCodeDb(
   };
 }
 
-/** Install a single fs.watch on opencode.db-wal, falling back to the
- *  parent directory if the WAL doesn't exist yet — OpenCode creates it
- *  lazily when the DB is first written to. Returns a cleanup function.
- *  Returns a no-op cleanup if no watcher could be attached. */
-function installWalWatcher(onChange: () => void, log?: Logger): () => void {
-  // Try the WAL file first
+/** Try to attach an fs.watch directly to the WAL file. Returns the
+ *  watcher's cleanup function, or null if the file doesn't exist yet. */
+function tryWatchWal(onChange: () => void, log?: Logger): (() => void) | null {
   try {
     const w = fs.watch(OPENCODE_DB_WAL_PATH, () => onChange());
     return () => w.close();
@@ -93,15 +87,43 @@ function installWalWatcher(onChange: () => void, log?: Logger): () => void {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, path: OPENCODE_DB_WAL_PATH }, "WAL fs.watch failed");
     }
+    return null;
   }
+}
 
-  // Fall back to the parent directory — fires when WAL is created
+/** Install a single fs.watch on opencode.db-wal, falling back to the
+ *  parent directory if the WAL doesn't exist yet. When the directory
+ *  watcher fires and the WAL file has appeared, promotes itself to a
+ *  direct WAL watcher and tears down the directory watcher.
+ *
+ *  Mirrors `watchOrWaitForDir` in kolu-claude-code. */
+function installWalWatcher(onChange: () => void, log?: Logger): () => void {
+  // Try the WAL file directly first
+  const direct = tryWatchWal(onChange, log);
+  if (direct) return direct;
+
+  // WAL doesn't exist yet — watch the parent directory and promote
+  // to the WAL file once it appears.
+  let promoted: (() => void) | null = null;
+  let dirWatcher: fs.FSWatcher | null = null;
   const dir = path.dirname(OPENCODE_DB_PATH);
   try {
-    const w = fs.watch(dir, () => onChange());
-    return () => w.close();
+    dirWatcher = fs.watch(dir, () => {
+      if (promoted) return; // already promoted
+      const walCleanup = tryWatchWal(onChange, log);
+      if (!walCleanup) return; // WAL still absent
+      promoted = walCleanup;
+      dirWatcher?.close();
+      dirWatcher = null;
+      // Kick — WAL may already have data written between our first
+      // attempt and the directory event.
+      onChange();
+    });
   } catch (err) {
     log?.debug({ err, dir }, "opencode db dir fs.watch failed");
-    return () => {};
   }
+  return () => {
+    dirWatcher?.close();
+    promoted?.();
+  };
 }

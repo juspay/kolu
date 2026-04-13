@@ -30,8 +30,16 @@ export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 // --- OpenCode schemas (single source of truth) ---
 
-export { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
-import { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
+export {
+  TaskProgressSchema,
+  type TaskProgress,
+  type Logger,
+} from "kolu-integration-common";
+import {
+  TaskProgressSchema,
+  type TaskProgress,
+  type Logger,
+} from "kolu-integration-common";
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
@@ -48,14 +56,6 @@ export const OpenCodeInfoSchema = z.object({
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
-
-// --- Logger type ---
-
-type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-};
 
 // --- Database session lookup ---
 
@@ -172,6 +172,36 @@ export function getSessionTaskProgress(
   }
 }
 
+// --- Tool detection ---
+
+/**
+ * Check whether a session has any tool parts currently in the "running"
+ * state. Used to distinguish `tool_use` from `thinking` when the
+ * assistant message is still in flight.
+ */
+export function hasRunningTools(
+  sessionId: string,
+  log?: Logger,
+  db?: DatabaseSync,
+): boolean {
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return false;
+  try {
+    const row = conn
+      .prepare(
+        "SELECT COUNT(*) AS n FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
+      )
+      .get(sessionId) as { n: number } | undefined;
+    return (row?.n ?? 0) > 0;
+  } catch (err) {
+    log?.debug({ err, sessionId }, "opencode running-tools query failed");
+    return false;
+  } finally {
+    if (ownsDb) conn.close();
+  }
+}
+
 // --- State derivation ---
 
 /** Shape of the JSON in `message.data`. Only the fields we read. */
@@ -245,7 +275,9 @@ export function parseMessageState(data: string): DerivedState | null {
       if (m.time?.completed && m.finish === "stop") {
         return { state: "waiting" as const, model };
       }
-      // Otherwise still working (no completion yet, or non-stop finish reason)
+      // Otherwise still working (no completion yet, or non-stop finish
+      // reason like "tool-calls"). The watcher upgrades "thinking" to
+      // "tool_use" when hasRunningTools() finds active tool parts.
       return { state: "thinking" as const, model };
     })
     .otherwise(() => null);

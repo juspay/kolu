@@ -19,17 +19,11 @@ import {
   deriveSessionState,
   getSessionTitle,
   getSessionTaskProgress,
+  hasRunningTools,
   openDb,
   subscribeOpenCodeDb,
 } from "./index.ts";
-
-// --- Logger interface (shared across the package) ---
-
-type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-};
+import type { Logger } from "kolu-integration-common";
 
 // --- Tuning constants ---
 
@@ -113,6 +107,14 @@ export function createOpenCodeWatcher(
       return;
     }
 
+    // When the assistant is actively generating (state === "thinking"),
+    // check whether any tool parts are in the "running" state to
+    // distinguish tool execution from LLM generation.
+    const state =
+      derived.state === "thinking" && hasRunningTools(session.id, log, db)
+        ? ("tool_use" as const)
+        : derived.state;
+
     const taskProgress = getSessionTaskProgress(session.id, log, db);
     // Re-read title on each refresh so mid-conversation title changes
     // (e.g. OpenCode auto-generating a title after the first exchange)
@@ -121,7 +123,7 @@ export function createOpenCodeWatcher(
 
     const info: OpenCodeInfo = {
       kind: "opencode",
-      state: derived.state,
+      state,
       sessionId: session.id,
       model: derived.model,
       summary,

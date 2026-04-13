@@ -1,4 +1,4 @@
-/** Shared schemas used by multiple integration packages.
+/** Shared schemas and types used by multiple integration packages.
  *  Lives here (not in kolu-common) to avoid circular dependencies:
  *  kolu-common imports from integration packages for their agent schemas,
  *  so integration packages can't import back from kolu-common. */
@@ -14,3 +14,12 @@ export const TaskProgressSchema = z.object({
 });
 
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+
+/** Logger interface accepted by integration library functions.
+ *  Structurally compatible with pino child loggers — the server
+ *  creates a `log.child(...)` and passes it through. */
+export type Logger = {
+  debug: (obj: Record<string, unknown>, msg: string) => void;
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+};

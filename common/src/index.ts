@@ -4,9 +4,9 @@
 // this module re-exports them and composes the AgentInfo union.
 
 import { z } from "zod";
+import { TaskProgressSchema } from "kolu-integration-common";
 import {
   ClaudeCodeInfoSchema,
-  TaskProgressSchema,
   ClaudeStateChangeSchema,
   ClaudeTranscriptDebugSchema,
 } from "kolu-claude-code";
@@ -14,8 +14,8 @@ import { OpenCodeInfoSchema } from "kolu-opencode";
 
 // Re-export integration schemas so consumers import from kolu-common only.
 export {
-  ClaudeCodeInfoSchema,
   TaskProgressSchema,
+  ClaudeCodeInfoSchema,
   ClaudeStateChangeSchema,
   ClaudeTranscriptDebugSchema,
   OpenCodeInfoSchema,
