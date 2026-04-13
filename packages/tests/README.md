@@ -5,7 +5,7 @@ End-to-end tests using [Cucumber.js](https://github.com/cucumber/cucumber-js) wi
 ## Structure
 
 ```
-tests/
+packages/tests/
 ├── cucumber.js              # Cucumber config (profiles)
 ├── features/                # Gherkin scenarios
 │   ├── smoke.feature        # Page load, health endpoint
@@ -33,7 +33,7 @@ Scenarios tagged `@skip` are excluded by default (regression harnesses for known
 Set `HEADLESS=false` to see the browser:
 
 ```bash
-cd tests && REUSE_SERVER=1 HEADLESS=false nix develop ..#default -c npx tsx node_modules/.bin/cucumber-js --profile ui
+cd packages/tests && REUSE_SERVER=1 HEADLESS=false nix develop ../..#default -c npx tsx node_modules/.bin/cucumber-js --profile ui
 ```
 
 ## How it works
