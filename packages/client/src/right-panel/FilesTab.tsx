@@ -140,6 +140,9 @@ const FilesTab: Component<{
   > | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // Bumped on every loadRoot to force TreeView.Root remount — clears Ark UI's
+  // internal expand/load state so previously-expanded nodes re-trigger loadChildren.
+  const [treeKey, setTreeKey] = createSignal(0);
 
   const root = () => props.meta?.git?.repoRoot ?? props.meta?.cwd ?? null;
 
@@ -152,6 +155,7 @@ const FilesTab: Component<{
     setError(null);
     try {
       const result = await client.fs.listDir({ terminalId, path: rootPath });
+      setTreeKey((k) => k + 1);
       setCollection(buildRootCollection(result.entries));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load directory");
@@ -228,21 +232,26 @@ const FilesTab: Component<{
             </div>
           </Show>
 
-          <Show when={collection()}>
-            {(coll) => (
-              <TreeView.Root
-                collection={coll()}
-                loadChildren={loadChildren}
-                onLoadChildrenComplete={(e) => setCollection(e.collection)}
-              >
-                <TreeView.Tree class="text-[11px]">
-                  <For each={coll().rootNode.children}>
-                    {(node, i) => <TreeNode node={node} indexPath={[i()]} />}
-                  </For>
-                </TreeView.Tree>
-              </TreeView.Root>
-            )}
-          </Show>
+          {/* Keyed on treeKey to force full TreeView remount on refresh —
+              clears Ark UI's internal expand/load tracking. */}
+          <For each={collection() ? [treeKey()] : []}>
+            {() => {
+              const coll = () => collection()!;
+              return (
+                <TreeView.Root
+                  collection={coll()}
+                  loadChildren={loadChildren}
+                  onLoadChildrenComplete={(e) => setCollection(e.collection)}
+                >
+                  <TreeView.Tree class="text-[11px]">
+                    <For each={coll().rootNode.children}>
+                      {(node, i) => <TreeNode node={node} indexPath={[i()]} />}
+                    </For>
+                  </TreeView.Tree>
+                </TreeView.Root>
+              );
+            }}
+          </For>
         </Show>
       </div>
     </div>
