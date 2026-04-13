@@ -50,7 +50,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 68923230c5b19d297c8a5aa99e1601e3a61250c4
+  resolved_commit: a95be9cf6737cc5a4cbdcf15a27d9fbe595ce31b
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -61,4 +61,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:5e469f1b205bd9eaef6a1977e783ab9fbeddba80384f9d5a9b1e54e91e2dcf4f
+  content_hash: sha256:b739999d8a072a44b5c3c104d960992563edbc670fccaa7747e2a89d054b1712
