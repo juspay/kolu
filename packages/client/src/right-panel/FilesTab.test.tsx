@@ -176,6 +176,97 @@ describe("FilesTab", () => {
     expect(mockListDir).toHaveBeenCalledTimes(2);
   });
 
+  it("consecutive refreshes fully replace the tree each time", async () => {
+    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+
+    const { container } = render(() => (
+      <FilesTab meta={makeMeta()} terminalId="tid-1" />
+    ));
+
+    await waitFor(() => {
+      expect(getTreeItems(container)).toHaveLength(4);
+    });
+
+    const refreshBtn = container.querySelector(
+      '[data-testid="files-refresh"]',
+    ) as HTMLElement;
+
+    // First refresh — different entries.
+    mockListDir.mockResolvedValueOnce({
+      entries: [
+        { name: "alpha.ts", isDirectory: false, path: "/repo/alpha.ts" },
+      ],
+    });
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      const items = getTreeItems(container);
+      expect(items).toHaveLength(1);
+      expect(items[0]!.getAttribute("data-value")).toBe("/repo/alpha.ts");
+    });
+
+    // Second refresh — yet another set. No ghost entries from previous loads.
+    mockListDir.mockResolvedValueOnce({
+      entries: [
+        { name: "lib", isDirectory: true, path: "/repo/lib" },
+        { name: "beta.ts", isDirectory: false, path: "/repo/beta.ts" },
+        { name: "gamma.ts", isDirectory: false, path: "/repo/gamma.ts" },
+      ],
+    });
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      const items = getTreeItems(container);
+      expect(items).toHaveLength(3);
+      // No ghost entries from initial load or first refresh.
+      const values = items.map((el) => el.getAttribute("data-value"));
+      expect(values).toEqual(["/repo/lib", "/repo/beta.ts", "/repo/gamma.ts"]);
+    });
+
+    expect(mockListDir).toHaveBeenCalledTimes(3);
+  });
+
+  it("sorting holds after refresh", async () => {
+    mockListDir.mockResolvedValueOnce(ROOT_ENTRIES);
+
+    const { container } = render(() => (
+      <FilesTab meta={makeMeta()} terminalId="tid-1" />
+    ));
+
+    await waitFor(() => {
+      expect(getTreeItems(container)).toHaveLength(4);
+    });
+
+    // Refresh with mixed order — server returns dirs-first, verify client preserves it.
+    mockListDir.mockResolvedValueOnce({
+      entries: [
+        { name: "z-dir", isDirectory: true, path: "/repo/z-dir" },
+        { name: "a-dir", isDirectory: true, path: "/repo/a-dir" },
+        { name: "file.ts", isDirectory: false, path: "/repo/file.ts" },
+      ],
+    });
+
+    const refreshBtn = container.querySelector(
+      '[data-testid="files-refresh"]',
+    ) as HTMLElement;
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      const items = getTreeItems(container);
+      expect(items).toHaveLength(3);
+      const entries = items.map((el) => ({
+        value: el.getAttribute("data-value"),
+        isBranch: el.hasAttribute("data-branch"),
+      }));
+      // Directories first, then files — as returned by server.
+      expect(entries).toEqual([
+        { value: "/repo/z-dir", isBranch: true },
+        { value: "/repo/a-dir", isBranch: true },
+        { value: "/repo/file.ts", isBranch: false },
+      ]);
+    });
+  });
+
   // ── Terminal switching ──
 
   it("reloads the tree when terminalId changes", async () => {
