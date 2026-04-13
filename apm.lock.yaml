@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-13T17:15:47.540273+00:00'
+generated_at: '2026-04-13T17:31:15.766641+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -50,7 +50,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: c9ab1385f9cffb5ccd728220a741db774aed0c78
+  resolved_commit: 68923230c5b19d297c8a5aa99e1601e3a61250c4
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -61,4 +61,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:4c6d61ed129f2943797b04e4ace10716cae9c531672ad18229094e2007d6e0c1
+  content_hash: sha256:5e469f1b205bd9eaef6a1977e783ab9fbeddba80384f9d5a9b1e54e91e2dcf4f

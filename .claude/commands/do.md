@@ -165,6 +165,8 @@ Otherwise: implement the planned changes. Prefer simplicity. Do the boring obvio
 
 **Verify**: Code changes match the planned approach. All distinct user-facing paths have test coverage.
 
+**Incremental commit**: After verification, commit and push all changes (unless `--no-git`).
+
 ---
 
 ### check
@@ -174,7 +176,7 @@ Read the project's instructions to find the check command — a fast static-corr
 This is the cheapest gate in the pipeline, so it runs first — fail fast on broken code before any downstream step does work over it. If no check command is documented, skip this step with a note.
 
 **Verify**: Check ran without errors, or no command configured.
-**If failed** (max 3 attempts): Fix the errors and re-run check. Do not fall back to **implement** — the agent is already in fix mode and the failure is local to just-written code.
+**If failed** (max 3 attempts): Fix the errors, commit and push the fix (unless `--no-git`), then re-run check. Do not fall back to **implement** — the agent is already in fix mode and the failure is local to just-written code.
 
 ---
 
@@ -185,7 +187,7 @@ Read the project's instructions to find which documentation files to keep in syn
 If no documentation files are documented, skip this step with a note.
 
 **Verify**: Docs match current code.
-**If outdated** (max 3 attempts): Fix the outdated sections and re-verify.
+**If outdated** (max 3 attempts): Fix the outdated sections, commit and push (unless `--no-git`), then re-verify.
 
 ---
 
@@ -202,7 +204,7 @@ When `/code-police` asks about scope: **changes in the current branch/PR only**.
 **For followup entry points**: Run hickey on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey step (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
 
 **Verify**: All 3 passes clean ("All clear") AND all hickey "Fix in this PR" actions addressed in the diff.
-**If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
+**If violations found** (max 3 attempts): Fix the violations, commit and push the fixes (unless `--no-git`), then re-invoke `/code-police`.
 
 ---
 
@@ -214,15 +216,17 @@ If no format command is documented, skip this step with a note.
 
 **Verify**: Format command ran without error, or no command configured.
 
+**Incremental commit**: If the formatter made changes, commit and push them (unless `--no-git`).
+
 ---
 
 ### commit
 
 **If `--no-git`**: Skip with status `skipped` and reason `"--no-git"`. Move to **test**. The working-tree changes stay uncommitted — that is the point.
 
-Create a NEW commit (never amend) with a conventional commit message. Push to the PR branch.
+Final catch-all commit. If earlier incremental commits already captured everything, `git status` will be clean — record this step as `passed` with verification noting no uncommitted changes remain. Otherwise, create a NEW commit (never amend) with a conventional commit message and push to the PR branch.
 
-**Verify**: `git log -1` shows a new commit on the feature branch, and it's pushed to remote.
+**Verify**: No uncommitted changes remain. Latest commit is pushed to remote.
 
 ---
 
@@ -235,7 +239,7 @@ Use `git diff origin/HEAD...HEAD --name-only` to identify changed files and dete
 If changes are purely internal with no user-facing impact, unit tests may suffice — skip e2e if no relevant scenarios exist. If no test command is documented, skip with a note.
 
 **Verify**: Tests pass (exit code 0), or no relevant tests to run.
-**If failed** (max 4 attempts): Analyze the failure. If flaky, re-run. If real: fix → go to **fmt**, then retry.
+**If failed** (max 4 attempts): Analyze the failure. If flaky, re-run. If real: fix → **fmt** → commit and push (unless `--no-git`) → retry.
 
 ---
 
@@ -347,6 +351,7 @@ COMMENT
 - **Never skip steps.** Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
+- **Commit early, commit often.** Unless `--no-git` is set, create a NEW commit and push immediately after each of these events (the **commit** step is just the final one): after **implement** completes, after **check** fixes, after **docs** changes, after **police** fixes, after **fmt** changes, after **test** fixes — any time there are staged or unstaged changes worth preserving. Use conventional commit messages scoped to what just happened (e.g., `fix: resolve type errors from check`, `style: apply formatter`). This keeps the remote branch up-to-date and preserves incremental progress. **Project-level workflow instructions may override this** — if the project documents a different commit strategy (e.g., squash-only, single-commit PRs), follow that instead.
 - **Background for CI.** Run CI with `run_in_background: true`.
 - **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey pause.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
