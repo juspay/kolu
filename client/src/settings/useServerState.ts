@@ -17,7 +17,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
-import { DEFAULT_PREFERENCES } from "kolu-common";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
   ServerState,
   Preferences,

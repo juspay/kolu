@@ -8,7 +8,7 @@
 
 import fs from "node:fs";
 import Conf from "conf";
-import { DEFAULT_PREFERENCES } from "kolu-common";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
   Preferences,
   RecentRepo,

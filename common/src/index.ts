@@ -261,18 +261,6 @@ export const PreferencesSchema = z.object({
   rightPanelSize: z.number(),
 });
 
-export const DEFAULT_PREFERENCES: Preferences = {
-  seenTips: [],
-  startupTips: true,
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  colorScheme: "dark",
-  sidebarAgentPreviews: "attention",
-  rightPanelCollapsed: true,
-  rightPanelSize: 0.25,
-};
-
 // --- Server state ---
 
 /** What conf stores to disk — survives server restart. */
