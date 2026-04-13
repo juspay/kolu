@@ -8,6 +8,8 @@ import Kbd from "./Kbd";
 import Tip from "./Tip";
 import AgentIndicator from "./AgentIndicator";
 import SettingsPopover from "./SettingsPopover";
+import { useTips } from "./useTips";
+import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
 import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
@@ -40,7 +42,7 @@ const Header: Component<{
   onActivityAlertsChange?: (on: boolean) => void;
   sidebarAgentPreviews?: SidebarAgentPreviews;
   onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
-  // Theme (status bar items)
+  // Theme
   themeName?: string;
   onThemeClick?: () => void;
   // Panel toggles
@@ -52,6 +54,7 @@ const Header: Component<{
   onToggleRightPanel?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
+  const { showTipOnce } = useTips();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -75,7 +78,7 @@ const Header: Component<{
       </div>
 
       {/* Zone B: Agent status — click opens inspector panel */}
-      <div class="flex-1 min-w-0 flex items-center gap-2 px-2">
+      <div class="flex-1 min-w-0 flex items-center gap-1 px-2">
         <Show when={props.meta?.agent}>
           {(agent) => (
             <button
@@ -86,33 +89,12 @@ const Header: Component<{
             </button>
           )}
         </Show>
-        {/* Connection dot + theme name — desktop only */}
-        <div class="hidden sm:flex items-center gap-2 ml-auto">
-          <Tip label="Connection status">
-            <span
-              class={`inline-block w-1.5 h-1.5 rounded-full ${statusStyles[props.status]}`}
-              data-ws-status={props.status}
-            />
-          </Tip>
-          <Show when={props.themeName}>
-            {(name) => (
-              <button
-                data-testid="theme-name"
-                class="text-[10px] text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[14ch]"
-                onClick={props.onThemeClick}
-                title={`Theme: ${name()}`}
-              >
-                {name()}
-              </button>
-            )}
-          </Show>
-        </div>
       </div>
 
-      {/* Zone C: Panel toggles (desktop) + controls */}
-      <div class="flex items-center gap-1 px-2 sm:px-3 shrink-0">
+      {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
+      <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {/* Panel toggle icons — desktop only */}
-        <div class="hidden sm:flex items-center gap-0.5 mr-1">
+        <div class="hidden sm:flex items-center gap-0.5">
           <Tip
             label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
           >
@@ -180,7 +162,23 @@ const Header: Component<{
             </button>
           </Tip>
         </div>
-
+        {props.themeName && (
+          <Tip label={`Theme: ${props.themeName}`}>
+            <button
+              data-testid="theme-name"
+              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded-lg transition-colors cursor-pointer max-w-[14ch] truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              onClick={() => {
+                props.onThemeClick?.();
+                setTimeout(
+                  () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                  500,
+                );
+              }}
+            >
+              {props.themeName}
+            </button>
+          </Tip>
+        )}
         <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
@@ -230,6 +228,13 @@ const Header: Component<{
           >
             <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
           </button>
+        </Tip>
+        <Tip label="Connection status">
+          <div class="flex items-center gap-1.5" data-ws-status={props.status}>
+            <span
+              class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
+            />
+          </div>
         </Tip>
       </div>
     </header>
