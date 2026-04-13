@@ -44,7 +44,7 @@ For narrow, single-file lookups, `Grep`/`Read` directly is fine. The line is: if
 
 Every non-trivial claim in your response must be backed by a `file:line` reference you actually read in this session. If you cannot cite a file:line for a claim, either go read the source and come back, or explicitly mark the claim as a guess (e.g. "I'm guessing — haven't verified") so the user can weigh it accordingly.
 
-**Claims about third-party library behavior require file:line references inside that library's source** — not just citations in your own project. "`Terminal.tsx:139` calls `clearTextureAtlas()`" tells you nothing about what `clearTextureAtlas()` *does*; you need a citation in the library's own file to back any claim about its effect.
+**Claims about third-party library behavior require file:line references inside that library's source** — not just citations in your own project. "`Terminal.tsx:139` calls `clearTextureAtlas()`" tells you nothing about what `clearTextureAtlas()` _does_; you need a citation in the library's own file to back any claim about its effect.
 
 ### Hedge words are a stop signal
 

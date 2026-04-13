@@ -251,7 +251,7 @@ Read the project's instructions to find the CI command and verification method. 
 
 **Active state**: Before waiting for background CI, set `active` to `"waiting"` in `.do-results.json`. When CI returns (success or failure), set it back to `"working"` before proceeding. This lets the stop hook allow graceful exits while the agent is idle.
 
-CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
+CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the _verification method_ may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
 **Verify**: Use the verification method described in the project's instructions (e.g., checking commit statuses on GitHub, reading CI output elsewhere). If no CI command is documented, skip with a note.
 
@@ -338,13 +338,13 @@ COMMENT
 
 ## Entry Points
 
-| ID               | Starts at             | Use case                                |
-| ---------------- | --------------------- | --------------------------------------- |
-| `default`        | **sync**              | Full workflow from scratch              |
-| `followup`       | **implement**         | Additional changes on existing PR       |
-| `post-implement` | **fmt**               | Skip research/impl, start at formatting |
-| `polish`         | **police**            | Just the quality gate                   |
-| `ci-only`        | **ci**                | Just run CI                             |
+| ID               | Starts at     | Use case                                |
+| ---------------- | ------------- | --------------------------------------- |
+| `default`        | **sync**      | Full workflow from scratch              |
+| `followup`       | **implement** | Additional changes on existing PR       |
+| `post-implement` | **fmt**       | Skip research/impl, start at formatting |
+| `polish`         | **police**    | Just the quality gate                   |
+| `ci-only`        | **ci**        | Just run CI                             |
 
 ## Rules
 
