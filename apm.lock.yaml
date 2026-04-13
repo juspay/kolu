@@ -50,15 +50,15 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: a95be9cf6737cc5a4cbdcf15a27d9fbe595ce31b
+  resolved_commit: ecc3d9a74103175d5210cca1adb615bb1bfe6840
   resolved_ref: master
   package_type: apm_package
   deployed_files:
-  - .claude/commands/do.md
   - .claude/commands/talk.md
   - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
   - .claude/skills/code-police
+  - .claude/skills/do
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:b739999d8a072a44b5c3c104d960992563edbc670fccaa7747e2a89d054b1712
+  content_hash: sha256:a356170037ca7ec094c9ee5a23b7b3ff0e490fece7b656f9b30382f69ddd1e8a
