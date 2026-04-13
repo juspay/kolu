@@ -19,7 +19,6 @@ const TerminalPane: Component<{
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   onCloseTerminal: (id: TerminalId) => void;
   activeMeta: TerminalMetadata | null;
-  scrollLockEnabled?: boolean;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -72,7 +71,6 @@ const TerminalPane: Component<{
             searchOpen={props.searchOpen}
             onSearchOpenChange={props.onSearchOpenChange}
             onFocus={() => subPanel.setFocusTarget(props.terminalId, "main")}
-            scrollLockEnabled={props.scrollLockEnabled}
           />
         </Resizable.Panel>
 
@@ -130,7 +128,6 @@ const TerminalPane: Component<{
                   onFocus={() =>
                     subPanel.setFocusTarget(props.terminalId, "sub")
                   }
-                  scrollLockEnabled={props.scrollLockEnabled}
                   isSub
                 />
               )}

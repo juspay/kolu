@@ -31,7 +31,6 @@ import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import { useTerminals } from "./terminal/useTerminals";
-import { useServerState } from "./settings/useServerState";
 import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
@@ -41,16 +40,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 
 const App: Component = () => {
-  const { preferences, updatePreferences } = useServerState();
-  const randomTheme = () => preferences().randomTheme;
-  const scrollLock = () => preferences().scrollLock;
-  const activityAlerts = () => preferences().activityAlerts;
-  const sidebarAgentPreviews = () => preferences().sidebarAgentPreviews;
-
-  const { store, crud, session, worktree, alerts } = useTerminals({
-    randomTheme,
-    activityAlerts,
-  });
+  const { store, crud, session, worktree, alerts } = useTerminals();
 
   // Expose for e2e test access
   (window as any).__koluSimulateAlert = alerts.simulateAlert;
@@ -391,7 +381,6 @@ const App: Component = () => {
           isUnread={store.isUnread}
           getDisplayInfo={store.getDisplayInfo}
           getTerminalTheme={getTerminalTheme}
-          previewMode={sidebarAgentPreviews()}
           onSelect={store.setActiveId}
           onCloseTerminal={closeTerminal}
           onCreate={() => crud.handleCreate()}
@@ -454,7 +443,6 @@ const App: Component = () => {
                         }
                         onCloseTerminal={closeTerminal}
                         activeMeta={store.activeMeta()}
-                        scrollLockEnabled={scrollLock()}
                       />
                     )}
                   </For>
