@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="client/favicon.svg" width="64" alt="kolu icon" />
+  <img src="packages/client/favicon.svg" width="64" alt="kolu icon" />
 </p>
 
 # kolu
@@ -107,25 +107,25 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 pnpm monorepo:
 
-| Package                     | Stack                                                                                                                                            |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
-| `server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
-| `client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
-| `integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
-| `integrations/common/`      | Shared schemas (TaskProgress) and types (Logger) used by both integration packages                                                               |
-| `integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`                                                          |
+| Package                              | Stack                                                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                             |
+| `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
+| `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
+| `packages/integrations/common/`      | Shared schemas (TaskProgress) and types (Logger) used by both integration packages                                                               |
+| `packages/integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`                                                          |
 
 ### Communication
 
-All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Two communication patterns:
+All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `packages/common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Two communication patterns:
 
 | Pattern            | Semantics                                  | Client integration                    | Used for                                                   |
 | ------------------ | ------------------------------------------ | ------------------------------------- | ---------------------------------------------------------- |
 | Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder`     |
 | Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, activity sparklines, server state |
 
-Subscriptions use [`createSubscription`](client/src/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
+Subscriptions use [`createSubscription`](packages/client/src/rpc/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
 
 ### Data flow
 
@@ -175,11 +175,11 @@ flowchart TB
   style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
 ```
 
-**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](packages/server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
 **Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent providers detect coding agents: the Claude provider wakes on title events (OSC 2) and `fs.watch` on `~/.claude/sessions/` to check each terminal's pty foreground pid; the OpenCode provider queries OpenCode's SQLite database directly (`~/.local/share/opencode/opencode.db`) and watches its WAL file for live state updates. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler parses it, matches the first token against a known-agents allowlist, and pushes normalized invocations to a bounded recent-agents MRU published via the server-state stream — powering the agent-aware command palette entries without any `/proc` lookups or argv scraping.
 
-**User actions** — command palette and sidebar dispatch plain oRPC client calls ([`useTerminalCrud`](client/src/useTerminalCrud.ts), [`useWorktreeOps`](client/src/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](client/src/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
+**User actions** — command palette and sidebar dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
@@ -191,7 +191,7 @@ flowchart TB
 
 [^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
 
-[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; the `stream` namespace in `client/src/rpc.ts` routes every async-iterator procedure through oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so consumers transparently re-subscribe after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
+[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; the `stream` namespace in `packages/client/src/rpc/rpc.ts` routes every async-iterator procedure through oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so consumers transparently re-subscribe after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
 
 ### Build & packaging
 

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "client/src/**"
+  - "packages/client/src/**"
 ---
 
 ## Toast Conventions

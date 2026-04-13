@@ -19,10 +19,10 @@ let
       ./pnpm-workspace.yaml
       ./pnpm-lock.yaml
       ./tsconfig.base.json
-      ./common
-      ./integrations
-      ./server
-      ./client
+      ./packages/common
+      ./packages/integrations
+      ./packages/server
+      ./packages/client
       # pnpm.patchedDependencies entries — read by pnpm during install and
       # applied to the upstream tarball. Currently:
       #   - node-pty@1.1.0.patch: adds a foregroundPid accessor wrapping
@@ -72,7 +72,7 @@ let
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
       node-gyp rebuild
       popd
-      ln -sfn $KOLU_FONTS_DIR client/public/fonts
+      ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
       pnpm --filter kolu-client build
       runHook postBuild
     '';
@@ -80,7 +80,7 @@ let
     installPhase = ''
       runHook preInstall
       cp -r . $out
-      rm -rf $out/client/src $out/client/node_modules
+      rm -rf $out/packages/client/src $out/packages/client/node_modules
       chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
       runHook postInstall
     '';
@@ -90,8 +90,8 @@ let
   # Only this re-runs on docs-only commits; the expensive build above is cached.
   koluStamped = pkgs.runCommand "kolu-stamped" { } ''
     cp -r ${kolu} $out
-    chmod -R u+w $out/client/dist
-    find $out/client/dist -name '*.js' -exec \
+    chmod -R u+w $out/packages/client/dist
+    find $out/packages/client/dist -name '*.js' -exec \
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
   '';
 
@@ -110,8 +110,8 @@ let
     # (baseline, SIGUSR2, near-OOM) correlate to one directory.
     # Unset = passthrough, zero overhead.
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu \
-      --add-flags "${koluStamped}/server/src/index.ts" \
-      --set KOLU_CLIENT_DIST "${koluStamped}/client/dist" \
+      --add-flags "${koluStamped}/packages/server/src/index.ts" \
+      --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
       --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \

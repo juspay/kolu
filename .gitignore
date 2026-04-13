@@ -8,8 +8,8 @@ apm_modules/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 test-results/
-tests/reports/
-client/public/fonts
+packages/tests/reports/
+packages/client/public/fonts
 .worktrees
 .logs/
 .do-results.json
