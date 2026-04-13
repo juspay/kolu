@@ -12,35 +12,28 @@ jobs:
       - uses: actions/checkout@v4
       - run: just ci::fmt ci::typecheck ci::unit ci::apm-sync
 
-  nix-linux:
-    runs-on: x86_64-linux
+  nix:
+    runs-on: ${{ matrix.system }}
+    strategy:
+      matrix:
+        system: [x86_64-linux, aarch64-darwin]
     steps:
       - uses: actions/checkout@v4
       - run: just ci::nix
 
-  nix-darwin:
-    runs-on: aarch64-darwin
+  e2e:
+    needs: nix
+    runs-on: ${{ matrix.system }}
+    strategy:
+      matrix:
+        system: [x86_64-linux, aarch64-darwin]
     steps:
       - uses: actions/checkout@v4
-      - run: just ci::nix
+      - run: just ci::e2e
 
-  hm-linux:
-    needs: nix-linux
+  home-manager:
+    needs: nix
     runs-on: x86_64-linux
     steps:
       - uses: actions/checkout@v4
       - run: just ci::home-manager
-
-  e2e-linux:
-    needs: nix-linux
-    runs-on: x86_64-linux
-    steps:
-      - uses: actions/checkout@v4
-      - run: just ci::e2e
-
-  e2e-darwin:
-    needs: nix-darwin
-    runs-on: aarch64-darwin
-    steps:
-      - uses: actions/checkout@v4
-      - run: just ci::e2e
