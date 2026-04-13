@@ -36,6 +36,12 @@ jobs:
         system: [x86_64-linux, aarch64-darwin]
     steps:
       - uses: actions/checkout@v4
+      # Playwright's bundled Chromium needs a virtual framebuffer on headless Linux
+      - name: Start Xvfb
+        if: runner.os == 'Linux'
+        run: |
+          Xvfb :99 -screen 0 1280x720x24 &
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
       - run: just ci::e2e
 
   home-manager:
