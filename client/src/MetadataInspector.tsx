@@ -94,13 +94,13 @@ const MetadataInspector: Component<{ meta: TerminalMetadata | null }> = (
                     <span class="text-fg">{git().repoName}</span>
                   </Row>
                   <Row label="Root">
-                    <span class="font-mono text-fg-3">{git().repoRoot}</span>
+                    <span class="font-mono text-fg-3">
+                      {git().mainRepoRoot}
+                    </span>
                   </Row>
                   <Show when={git().isWorktree}>
                     <Row label="Worktree">
-                      <span class="font-mono text-fg-3">
-                        {git().worktreePath}
-                      </span>
+                      <span class="font-mono text-fg-3">{git().repoRoot}</span>
                     </Row>
                   </Show>
                 </div>
