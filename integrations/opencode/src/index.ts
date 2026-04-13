@@ -175,12 +175,17 @@ export function getSessionTaskProgress(
 // --- Tool detection ---
 
 /**
- * Check whether a session has any tool parts currently in the "running"
- * state. Used to distinguish `tool_use` from `thinking` when the
- * assistant message is still in flight.
+ * Check whether the given message has any tool parts currently in the
+ * "running" state. Scoped to one message (the current assistant turn)
+ * rather than the entire session — a session with thousands of completed
+ * tool parts from prior turns only needs to check the handful of parts
+ * belonging to the latest message.
+ *
+ * Uses the `part_message_id_id_idx` index for an O(parts-in-message)
+ * scan, not O(all-parts-in-session).
  */
 export function hasRunningTools(
-  sessionId: string,
+  messageId: string,
   log?: Logger,
   db?: DatabaseSync,
 ): boolean {
@@ -190,12 +195,12 @@ export function hasRunningTools(
   try {
     const row = conn
       .prepare(
-        "SELECT COUNT(*) AS n FROM part WHERE session_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
+        "SELECT COUNT(*) AS n FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
       )
-      .get(sessionId) as { n: number } | undefined;
+      .get(messageId) as { n: number } | undefined;
     return (row?.n ?? 0) > 0;
   } catch (err) {
-    log?.debug({ err, sessionId }, "opencode running-tools query failed");
+    log?.debug({ err, messageId }, "opencode running-tools query failed");
     return false;
   } finally {
     if (ownsDb) conn.close();
@@ -213,9 +218,16 @@ interface MessageData {
   time?: { created?: number; completed?: number };
 }
 
-export type DerivedState = {
+/** State derived from message JSON content only. */
+export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
   model: string | null;
+};
+
+/** Full derived state including the message ID for scoping
+ *  downstream queries (e.g. tool-part lookup) to the current turn. */
+export type DerivedState = ParsedMessageState & {
+  messageId: string;
 };
 
 /**
@@ -237,11 +249,13 @@ export function deriveSessionState(
   try {
     const row = conn
       .prepare(
-        "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
+        "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
       )
-      .get(sessionId) as { data: string } | undefined;
+      .get(sessionId) as { id: string; data: string } | undefined;
     if (!row) return null;
-    return parseMessageState(row.data);
+    const parsed = parseMessageState(row.data);
+    if (!parsed) return null;
+    return { ...parsed, messageId: row.id };
   } catch (err) {
     log?.warn({ err, sessionId }, "opencode message query failed");
     return null;
@@ -252,7 +266,7 @@ export function deriveSessionState(
 
 /** Parse a `message.data` JSON blob into derived state.
  *  Exported for unit testing. */
-export function parseMessageState(data: string): DerivedState | null {
+export function parseMessageState(data: string): ParsedMessageState | null {
   let parsed: MessageData;
   try {
     parsed = JSON.parse(data) as MessageData;

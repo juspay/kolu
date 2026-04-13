@@ -108,10 +108,13 @@ export function createOpenCodeWatcher(
     }
 
     // When the assistant is actively generating (state === "thinking"),
-    // check whether any tool parts are in the "running" state to
-    // distinguish tool execution from LLM generation.
+    // check whether the current message has any tool parts in the
+    // "running" state to distinguish tool execution from LLM generation.
+    // Scoped to derived.messageId (the latest message) — not the entire
+    // session — so we only scan the handful of current-turn parts.
     const state =
-      derived.state === "thinking" && hasRunningTools(session.id, log, db)
+      derived.state === "thinking" &&
+      hasRunningTools(derived.messageId, log, db)
         ? ("tool_use" as const)
         : derived.state;
 
