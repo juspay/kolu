@@ -455,6 +455,7 @@ const App: Component = () => {
               <Show when={!rightPanel.collapsed()}>
                 <RightPanel
                   meta={store.activeMeta()}
+                  terminalId={store.activeId() ?? undefined}
                   onToggle={rightPanel.togglePanel}
                   themeName={activeThemeName()}
                   onThemeClick={() => openPaletteGroup("Theme")}

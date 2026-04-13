@@ -11,6 +11,7 @@ import { useRightPanel } from "./useRightPanel";
 
 type TabProps = {
   meta: TerminalMetadata | null;
+  terminalId: string | undefined;
   themeName?: string;
   onThemeClick?: () => void;
 };
@@ -20,13 +21,28 @@ const TABS: {
   label: string;
   component: Component<TabProps>;
 }[] = [
-  { id: "inspector", label: "Inspector", component: MetadataInspector },
-  { id: "files", label: "Files", component: (p) => <FilesTab meta={p.meta} /> },
+  {
+    id: "inspector",
+    label: "Inspector",
+    component: (p) => (
+      <MetadataInspector
+        meta={p.meta}
+        themeName={p.themeName}
+        onThemeClick={p.onThemeClick}
+      />
+    ),
+  },
+  {
+    id: "files",
+    label: "Files",
+    component: (p) => <FilesTab meta={p.meta} terminalId={p.terminalId} />,
+  },
   { id: "git", label: "Git", component: (p) => <GitTab meta={p.meta} /> },
 ];
 
 const RightPanel: Component<{
   meta: TerminalMetadata | null;
+  terminalId: string | undefined;
   onToggle: () => void;
   themeName?: string;
   onThemeClick?: () => void;
@@ -71,6 +87,7 @@ const RightPanel: Component<{
             TABS[0]!.component
           }
           meta={props.meta}
+          terminalId={props.terminalId}
           themeName={props.themeName}
           onThemeClick={props.onThemeClick}
         />

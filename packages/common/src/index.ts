@@ -286,6 +286,27 @@ export const ServerStatePatchSchema = z.object({
   preferences: PreferencesPatchSchema.optional(),
 });
 
+// --- Filesystem ---
+
+export const FsListDirInputSchema = z.object({
+  terminalId: z.string().uuid(),
+  path: z.string(),
+});
+
+export const FsDirEntrySchema = z.object({
+  name: z.string(),
+  isDirectory: z.boolean(),
+  path: z.string(),
+});
+
+export const FsListDirOutputSchema = z.object({
+  entries: z.array(FsDirEntrySchema),
+});
+
+export type FsListDirInput = z.infer<typeof FsListDirInputSchema>;
+export type FsDirEntry = z.infer<typeof FsDirEntrySchema>;
+export type FsListDirOutput = z.infer<typeof FsListDirOutputSchema>;
+
 // --- Derived types ---
 
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;

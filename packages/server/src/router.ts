@@ -22,6 +22,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
+import { listDir } from "./fs.ts";
 import { worktreeCreate, worktreeRemove } from "./git.ts";
 import {
   getServerState,
@@ -180,6 +181,9 @@ export const appRouter = t.router({
         return;
       }
     }),
+  },
+  fs: {
+    listDir: t.fs.listDir.handler(async ({ input }) => listDir(input)),
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {

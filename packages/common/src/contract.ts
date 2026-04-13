@@ -26,6 +26,8 @@ import {
   WorktreeRemoveInputSchema,
   ServerStateSchema,
   ServerStatePatchSchema,
+  FsListDirInputSchema,
+  FsListDirOutputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -72,6 +74,9 @@ export const contract = oc.router({
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
+  },
+  fs: {
+    listDir: oc.input(FsListDirInputSchema).output(FsListDirOutputSchema),
   },
   git: {
     worktreeCreate: oc

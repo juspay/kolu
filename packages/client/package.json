@@ -11,6 +11,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@ark-ui/solid": "^5.36.0",
     "@corvu/dialog": "^0.2.4",
     "@corvu/drawer": "^0.2.2",
     "@corvu/resizable": "^0.2.5",
