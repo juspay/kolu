@@ -2,8 +2,8 @@
 
 import { type Component, For, Show } from "solid-js";
 import type { SavedSession } from "kolu-common";
-import { SHORTCUTS, formatKeybind } from "./keyboard";
-import Kbd from "./Kbd";
+import { SHORTCUTS, formatKeybind } from "./input/keyboard";
+import Kbd from "./ui/Kbd";
 
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },

@@ -4,9 +4,9 @@
 
 import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ModalDialog";
-import { PrStateIcon, WorktreeIcon } from "./Icons";
-import ChecksIndicator from "./ChecksIndicator";
+import ModalDialog from "./ui/ModalDialog";
+import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
+import ChecksIndicator from "./sidebar/ChecksIndicator";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 export interface CloseConfirmTarget {

@@ -11,8 +11,8 @@
 import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { FONT_FAMILY } from "./theme";
-import { getTerminalRefs } from "./terminalRefs";
-import { terminalName } from "./terminalDisplay";
+import { getTerminalRefs } from "./terminal/terminalRefs";
+import { terminalName } from "./terminal/terminalDisplay";
 
 export function exportSessionAsPdf(
   id: TerminalId,

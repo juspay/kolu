@@ -1,7 +1,7 @@
 /** Terminal display info — everything needed to render a terminal in any surface.
  *  Combines server metadata with client-derived properties (colors, activity, sub-count). */
 
-import { cwdBasename } from "./path";
+import { cwdBasename } from "../path";
 import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
 
 export type TerminalDisplayInfo = {

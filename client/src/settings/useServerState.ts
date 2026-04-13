@@ -15,8 +15,8 @@
 import { createEffect, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { createSubscription } from "./createSubscription";
-import { client, stream } from "./rpc";
+import { createSubscription } from "../rpc/createSubscription";
+import { client, stream } from "../rpc/rpc";
 import type {
   ServerState,
   Preferences,

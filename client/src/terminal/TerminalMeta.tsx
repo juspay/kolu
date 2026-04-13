@@ -2,11 +2,11 @@
  *  Shared between Sidebar entries and Mission Control cards. */
 
 import { type Component, Show } from "solid-js";
-import ChecksIndicator from "./ChecksIndicator";
-import AgentIndicator from "./AgentIndicator";
-import ActivityGraph from "./ActivityGraph";
-import Tip from "./Tip";
-import { PrStateIcon, WorktreeIcon } from "./Icons";
+import ChecksIndicator from "../sidebar/ChecksIndicator";
+import AgentIndicator from "../sidebar/AgentIndicator";
+import ActivityGraph from "../sidebar/ActivityGraph";
+import Tip from "../ui/Tip";
+import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { AgentInfo } from "kolu-common";
 

@@ -10,8 +10,8 @@ import {
   onCleanup,
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "./Icons";
-import Tip from "./Tip";
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
+import Tip from "../ui/Tip";
 import type {
   SearchAddon,
   ISearchResultChangeEvent,

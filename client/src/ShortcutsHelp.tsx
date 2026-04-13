@@ -2,9 +2,9 @@
 
 import { type Component } from "solid-js";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ModalDialog";
-import { SHORTCUTS, formatKeybind, type Keybind } from "./keyboard";
-import Kbd from "./Kbd";
+import ModalDialog from "./ui/ModalDialog";
+import { SHORTCUTS, formatKeybind, type Keybind } from "./input/keyboard";
+import Kbd from "./ui/Kbd";
 
 interface DisplayEntry {
   label: string;

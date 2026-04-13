@@ -22,10 +22,10 @@ import {
 } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ModalDialog";
-import { type Keybind, formatKeybind } from "./keyboard";
-import { useTips } from "./useTips";
-import Kbd from "./Kbd";
+import ModalDialog from "./ui/ModalDialog";
+import { type Keybind, formatKeybind } from "./input/keyboard";
+import { useTips } from "./settings/useTips";
+import Kbd from "./ui/Kbd";
 
 /** A command that can be executed from the palette, or a group containing sub-commands. */
 export interface PaletteCommand {

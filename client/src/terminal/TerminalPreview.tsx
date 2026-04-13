@@ -15,9 +15,9 @@ import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { FONT_FAMILY } from "./theme";
-import { stream } from "./rpc";
-import { isExpectedCleanupError } from "./streamCleanup";
+import { FONT_FAMILY } from "../theme";
+import { stream } from "../rpc/rpc";
+import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import type { TerminalId } from "kolu-common";
 
 /** Font size for the internal xterm instance. Large enough to render crisp
