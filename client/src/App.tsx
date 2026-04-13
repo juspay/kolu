@@ -17,7 +17,6 @@ import TerminalPane from "./terminal/TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
-import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Dialog from "@corvu/dialog";
 import Resizable from "@corvu/resizable";
@@ -89,9 +88,6 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
-
-  // Claude transcript debug dialog state
-  const [claudeTranscriptOpen, setClaudeTranscriptOpen] = createSignal(false);
 
   // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
@@ -208,7 +204,6 @@ const App: Component = () => {
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
-    setClaudeTranscriptOpen,
     toggleRightPanel: rightPanel.togglePanel,
   });
 
@@ -267,11 +262,6 @@ const App: Component = () => {
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
-      />
-      <ClaudeTranscriptDialog
-        open={claudeTranscriptOpen()}
-        onOpenChange={withRefocus(setClaudeTranscriptOpen)}
-        terminalId={store.activeId}
       />
       <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
         <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">

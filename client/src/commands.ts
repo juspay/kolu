@@ -64,7 +64,6 @@ export interface CommandDeps {
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
-  setClaudeTranscriptOpen: (open: boolean) => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -228,14 +227,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 description: "Prefill an agent CLI into the active terminal",
                 children: (): PaletteItem[] =>
                   agentItems(recentAgents(), deps.handleRunInActiveTerminal),
-              },
-            ]
-          : []),
-        ...(deps.activeMeta()?.agent?.kind === "claude-code"
-          ? [
-              {
-                name: "Show Claude transcript",
-                onSelect: () => deps.setClaudeTranscriptOpen(true),
               },
             ]
           : []),
