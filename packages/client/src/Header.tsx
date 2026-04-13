@@ -10,7 +10,7 @@ import AgentIndicator from "./sidebar/AgentIndicator";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useTips } from "./settings/useTips";
 import { CONTEXTUAL_TIPS } from "./settings/tips";
-import { useRightPanel } from "./inspector/useRightPanel";
+import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import type { TerminalMetadata } from "kolu-common";
 

@@ -100,35 +100,9 @@ export const store = new Conf<PersistedState>({
         ...current,
       });
     },
-    // rightPanel nested object — migrates flat rightPanelCollapsed/rightPanelSize to nested + adds tab.
+    // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — reset to defaults.
     "1.7.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as
-        | (Record<string, unknown> & {
-            rightPanelCollapsed?: boolean;
-            rightPanelSize?: number;
-          })
-        | undefined;
-      // Extract flat fields from pre-1.7.0 layout
-      const collapsed =
-        current?.rightPanelCollapsed ??
-        DEFAULT_PREFERENCES.rightPanel.collapsed;
-      const size =
-        current?.rightPanelSize ?? DEFAULT_PREFERENCES.rightPanel.size;
-      // Remove flat fields, add nested object
-      const {
-        rightPanelCollapsed: _,
-        rightPanelSize: __,
-        ...rest
-      } = current ?? {};
-      store.set("preferences", {
-        ...DEFAULT_PREFERENCES,
-        ...rest,
-        rightPanel: {
-          collapsed,
-          size,
-          tab: DEFAULT_PREFERENCES.rightPanel.tab,
-        },
-      } as unknown as Preferences);
+      store.set("preferences", DEFAULT_PREFERENCES);
     },
   },
 });
