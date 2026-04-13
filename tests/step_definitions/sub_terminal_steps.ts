@@ -262,8 +262,9 @@ Then(
 );
 
 Then("the resize handle should be visible", async function (this: KoluWorld) {
+  // Handle is an invisible hit zone (h-0 with ::before pseudo-element) — check attached, not visible
   const handle = this.page.locator('[data-testid="resize-handle"]');
-  await handle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
 });
 
 Then(
