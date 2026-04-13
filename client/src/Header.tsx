@@ -1,16 +1,8 @@
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
-import { shortenCwd } from "./path";
-import {
-  MenuIcon,
-  PrStateIcon,
-  SearchIcon,
-  SettingsIcon,
-  WorktreeIcon,
-} from "./Icons";
+import { MenuIcon, SearchIcon, SettingsIcon } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Kbd from "./Kbd";
 import Tip from "./Tip";
-import ChecksIndicator from "./ChecksIndicator";
 import AgentIndicator from "./AgentIndicator";
 import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
@@ -71,59 +63,12 @@ const Header: Component<{
           {props.appTitle ?? "kolu"}
         </span>
       </div>
-      {/* Zone B: Context — elastic shock absorber, truncates under pressure */}
-      <Show when={props.meta} fallback={<div class="flex-1" />}>
-        {(meta) => (
-          <div
-            class="flex-1 min-w-0 flex items-center gap-1 text-xs overflow-hidden"
-            data-testid="header-cwd"
-          >
-            <span class="text-fg-2 truncate" title={meta().cwd}>
-              {shortenCwd(meta().cwd)}
-            </span>
-            <Show when={meta().git}>
-              {(git) => (
-                <span
-                  class="text-fg-3 min-w-0 truncate"
-                  data-testid="header-branch"
-                  title={git().branch}
-                >
-                  &middot; {git().branch}
-                  <Show when={git().isWorktree}>
-                    <WorktreeIcon class="inline w-3 h-3 ml-0.5" />
-                  </Show>
-                </span>
-              )}
-            </Show>
-            <Show when={meta().pr}>
-              {(pr) => (
-                <a
-                  href={pr().url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent min-w-0 transition-colors"
-                  data-testid="header-pr"
-                >
-                  &middot;
-                  <PrStateIcon state={pr().state} class="w-3 h-3" />
-                  <Show when={pr().checks}>
-                    {(checks) => <ChecksIndicator status={checks()} />}
-                  </Show>
-                  #{pr().number}
-                  <span class="truncate hidden sm:inline">{pr().title}</span>
-                </a>
-              )}
-            </Show>
-            <Show when={meta().agent}>
-              {(agent) => (
-                <span class="shrink-0">
-                  &middot; <AgentIndicator agent={agent()} />
-                </span>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
+      {/* Zone B: Spacer + agent status — CWD/branch/PR details live in the inspector panel */}
+      <div class="flex-1 min-w-0 flex items-center gap-1 px-2">
+        <Show when={props.meta?.agent}>
+          {(agent) => <AgentIndicator agent={agent()} />}
+        </Show>
+      </div>
       {/* Zone C: Controls — rigid, never clips */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {props.themeName && (

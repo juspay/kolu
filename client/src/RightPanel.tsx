@@ -18,14 +18,14 @@ const RightPanel: Component<{
       fallback={
         <button
           data-testid="right-panel-strip"
-          class="flex flex-col items-center justify-center gap-1 w-6 shrink-0
-                 bg-surface-1 border-l border-edge hover:bg-surface-2
+          class="flex flex-col items-center justify-center gap-1.5 w-6 shrink-0
+                 bg-surface-0 border-l border-edge/50 hover:bg-surface-1
                  transition-colors cursor-pointer"
           onClick={props.onToggle}
           aria-label={`Expand inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
         >
-          <span class="text-accent text-xs">◂</span>
-          <Kbd class="text-[9px]">
+          <span class="text-accent/70 text-[10px]">◂</span>
+          <Kbd class="text-[8px]">
             {formatKeybind(SHORTCUTS.toggleRightPanel.keybind)}
           </Kbd>
         </button>
@@ -33,21 +33,21 @@ const RightPanel: Component<{
     >
       <div
         data-testid="right-panel"
-        class="flex flex-col h-full min-w-0 bg-surface-0"
+        class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge/50"
       >
-        <div class="flex items-center justify-between h-8 px-3 shrink-0 border-b border-edge bg-surface-1">
-          <span class="text-[11px] font-semibold uppercase tracking-wider text-fg-3">
+        <div class="flex items-center justify-between h-8 px-3 shrink-0 bg-surface-1/50">
+          <span class="text-[9px] font-bold uppercase tracking-[0.15em] text-fg-3/60">
             Inspector
           </span>
           <button
-            class="p-0.5 text-fg-3 hover:text-fg rounded transition-colors cursor-pointer"
+            class="p-0.5 text-fg-3/50 hover:text-fg rounded transition-colors cursor-pointer"
             onClick={props.onToggle}
             aria-label="Collapse inspector"
           >
-            ▸
+            <span class="text-[10px]">▸</span>
           </button>
         </div>
-        <div class="flex-1 min-h-0">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <MetadataInspector meta={props.meta} />
         </div>
       </div>
