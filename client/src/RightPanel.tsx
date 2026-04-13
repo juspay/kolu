@@ -11,6 +11,8 @@ const RightPanel: Component<{
   meta: TerminalMetadata | null;
   collapsed: boolean;
   onToggle: () => void;
+  themeName?: string;
+  onThemeClick?: () => void;
 }> = (props) => {
   return (
     <Show
@@ -53,7 +55,11 @@ const RightPanel: Component<{
           </button>
         </div>
         <div class="flex-1 min-h-0 overflow-hidden">
-          <MetadataInspector meta={props.meta} />
+          <MetadataInspector
+            meta={props.meta}
+            themeName={props.themeName}
+            onThemeClick={props.onThemeClick}
+          />
         </div>
       </div>
     </Show>

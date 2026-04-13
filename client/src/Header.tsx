@@ -1,3 +1,6 @@
+/** Header — app title bar with agent status and controls.
+ *  Burger is mobile-only (desktop uses StatusBar). */
+
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
 import { MenuIcon, SearchIcon, SettingsIcon } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
@@ -5,24 +8,13 @@ import Kbd from "./Kbd";
 import Tip from "./Tip";
 import AgentIndicator from "./AgentIndicator";
 import SettingsPopover from "./SettingsPopover";
-import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
 import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
 import type { ColorScheme } from "./useColorScheme";
 
-/** WS connection status indicator colors and animations. */
-const statusStyles: Record<WsStatus, string> = {
-  connecting: "bg-warning animate-pulse",
-  open: "bg-ok",
-  closed: "bg-danger",
-};
-
 const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
-  onThemeClick?: () => void;
-  themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
   onSearch?: () => void;
@@ -41,18 +33,17 @@ const Header: Component<{
   onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
-  const { showTipOnce } = useTips();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
     <header class="flex items-center h-10 shrink-0 bg-surface-1 border-b border-edge">
-      {/* Zone A: Identity — rigid, never compresses */}
+      {/* Zone A: Identity — burger is mobile-only (desktop uses StatusBar) */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         <Tip label="Toggle sidebar">
           <button
             data-testid="sidebar-toggle"
-            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onToggleSidebar?.()}
           >
             <MenuIcon />
@@ -63,31 +54,14 @@ const Header: Component<{
           {props.appTitle ?? "kolu"}
         </span>
       </div>
-      {/* Zone B: Spacer + agent status — CWD/branch/PR details live in the inspector panel */}
+      {/* Zone B: Agent status */}
       <div class="flex-1 min-w-0 flex items-center gap-1 px-2">
         <Show when={props.meta?.agent}>
           {(agent) => <AgentIndicator agent={agent()} />}
         </Show>
       </div>
-      {/* Zone C: Controls — rigid, never clips */}
+      {/* Zone C: Controls */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
-        {props.themeName && (
-          <Tip label={`Theme: ${props.themeName}`}>
-            <button
-              data-testid="theme-name"
-              class="h-7 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2/50 hover:bg-surface-3/50 rounded-lg transition-colors cursor-pointer max-w-[14ch] truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              onClick={() => {
-                props.onThemeClick?.();
-                setTimeout(
-                  () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
-                  500,
-                );
-              }}
-            >
-              {props.themeName}
-            </button>
-          </Tip>
-        )}
         <Tip
           label={`Find in terminal (${formatKeybind(SHORTCUTS.findInTerminal.keybind)})`}
         >
@@ -137,13 +111,6 @@ const Header: Component<{
           >
             <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
           </button>
-        </Tip>
-        <Tip label="Connection status">
-          <div class="flex items-center gap-1.5" data-ws-status={props.status}>
-            <span
-              class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
-            />
-          </div>
         </Tip>
       </div>
     </header>

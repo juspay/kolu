@@ -5,7 +5,6 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
-import SplitStrip from "./SplitStrip";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -91,15 +90,6 @@ const TerminalPane: Component<{
           />
         </Show>
 
-        {/* Collapsed strip — plain button, no Corvu resize interference */}
-        <Show when={hasSubs() && !isExpanded()}>
-          <SplitStrip
-            variant="collapsed"
-            count={props.subTerminalIds.length}
-            onClick={() => subPanel.expandPanel(props.terminalId)}
-          />
-        </Show>
-
         <Resizable.Panel
           as="div"
           class="min-h-0 overflow-hidden flex flex-col"
@@ -148,16 +138,6 @@ const TerminalPane: Component<{
           </div>
         </Resizable.Panel>
       </Resizable>
-
-      {/* Prompt strip — only when no splits exist */}
-      <Show when={!hasSubs()}>
-        <SplitStrip
-          variant="prompt"
-          onClick={() =>
-            props.onCreateSubTerminal(props.terminalId, props.activeMeta?.cwd)
-          }
-        />
-      </Show>
     </div>
   );
 };

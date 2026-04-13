@@ -74,10 +74,10 @@ Feature: Sub-terminals
     And the sidebar entry should show sub-terminal count 1
     And there should be no page errors
 
-  Scenario: Collapsed indicator visible when sub-panel is collapsed
+  Scenario: Collapsed sub-panel re-expands via toggle
     When I create a sub-terminal via command palette
     And I toggle the sub-panel via command palette
-    Then the collapsed indicator should be visible
+    Then the sub-panel should not be visible
     When I toggle the sub-panel via command palette
     Then the sub-panel should be visible
     And there should be no page errors

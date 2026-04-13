@@ -336,10 +336,7 @@ const App: Component = () => {
       />
       <PwaInstallBar />
       <Header
-        status={wsStatus()}
         onOpenPalette={() => openPalette()}
-        onThemeClick={() => openPaletteGroup("Theme")}
-        themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
         onSearch={() => setSearchOpen(true)}
@@ -475,6 +472,8 @@ const App: Component = () => {
                   meta={store.activeMeta()}
                   collapsed={rightPanel.collapsed()}
                   onToggle={rightPanel.togglePanel}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => openPaletteGroup("Theme")}
                 />
               </Show>
             </Resizable.Panel>
@@ -490,6 +489,9 @@ const App: Component = () => {
         </div>
       </div>
       <StatusBar
+        status={wsStatus()}
+        themeName={activeThemeName()}
+        onThemeClick={() => openPaletteGroup("Theme")}
         sidebarOpen={sidebarOpen()}
         onToggleSidebar={toggleSidebar}
         hasSubPanel={

@@ -53,9 +53,11 @@ const Row: Component<{ label: string; children: JSX.Element }> = (props) => (
   </div>
 );
 
-const MetadataInspector: Component<{ meta: TerminalMetadata | null }> = (
-  props,
-) => {
+const MetadataInspector: Component<{
+  meta: TerminalMetadata | null;
+  themeName?: string;
+  onThemeClick?: () => void;
+}> = (props) => {
   return (
     <Show
       when={props.meta}
@@ -203,6 +205,20 @@ const MetadataInspector: Component<{ meta: TerminalMetadata | null }> = (
                     )}
                   </Show>
                 </div>
+              </Section>
+            )}
+          </Show>
+
+          {/* Theme */}
+          <Show when={props.themeName}>
+            {(name) => (
+              <Section title="Theme">
+                <button
+                  class="text-[11px] text-accent hover:underline cursor-pointer"
+                  onClick={props.onThemeClick}
+                >
+                  {name()}
+                </button>
               </Section>
             )}
           </Show>

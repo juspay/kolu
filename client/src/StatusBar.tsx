@@ -1,13 +1,23 @@
-/** StatusBar — footer bar with panel toggle icons. Desktop only.
- *  Provides a persistent, unified home for sidebar, sub-panel, and
- *  right panel toggles — like Zed's bottom status bar. */
+/** StatusBar — footer bar with connection status, theme name, and panel toggle icons.
+ *  Desktop only — mobile uses MobileKeyBar + header burger. */
 
 import { type Component, Show } from "solid-js";
 import { createMediaQuery } from "@solid-primitives/media";
 import { SHORTCUTS, formatKeybind } from "./keyboard";
 import Tip from "./Tip";
+import type { WsStatus } from "./rpc";
+
+/** WS connection status indicator colors. */
+const statusStyles: Record<WsStatus, string> = {
+  connecting: "bg-warning animate-pulse",
+  open: "bg-ok",
+  closed: "bg-danger",
+};
 
 const StatusBar: Component<{
+  status: WsStatus;
+  themeName?: string;
+  onThemeClick?: () => void;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   hasSubPanel: boolean;
@@ -24,13 +34,37 @@ const StatusBar: Component<{
         data-testid="status-bar"
         class="flex items-center h-6 shrink-0 bg-surface-1 border-t border-edge text-[10px] text-fg-3 px-2"
       >
+        {/* Left: connection + theme */}
+        <div class="flex items-center gap-2">
+          <Tip label="Connection status">
+            <span
+              class={`inline-block w-1.5 h-1.5 rounded-full ${statusStyles[props.status]}`}
+              data-ws-status={props.status}
+            />
+          </Tip>
+          <Show when={props.themeName}>
+            {(name) => (
+              <button
+                data-testid="theme-name"
+                class="text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[16ch]"
+                onClick={props.onThemeClick}
+                title={`Theme: ${name()}`}
+              >
+                {name()}
+              </button>
+            )}
+          </Show>
+        </div>
+
         <div class="flex-1" />
+
+        {/* Right: panel toggles */}
         <div class="flex items-center gap-0.5">
-          {/* Sidebar toggle */}
           <Tip
             label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
           >
             <button
+              data-testid="sidebar-toggle"
               class="flex items-center justify-center w-6 h-5 rounded hover:bg-surface-2 hover:text-fg transition-colors cursor-pointer"
               classList={{ "text-fg-2": props.sidebarOpen }}
               onClick={props.onToggleSidebar}
@@ -49,7 +83,6 @@ const StatusBar: Component<{
             </button>
           </Tip>
 
-          {/* Sub-panel (bottom split) toggle */}
           <Tip
             label={`Toggle split (${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)})`}
           >
@@ -74,7 +107,6 @@ const StatusBar: Component<{
             </button>
           </Tip>
 
-          {/* Right panel toggle */}
           <Tip
             label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
           >
