@@ -61,4 +61,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:14e2152c74582ae0ce99b9f7564d42e67297e0685442a82426c84935297c4220
+  content_hash: sha256:4c6d61ed129f2943797b04e4ace10716cae9c531672ad18229094e2007d6e0c1
