@@ -19,8 +19,17 @@ home-manager: nix
 typecheck:
     cd "{{ root }}" && just check
 
+# xvfb-run provides a virtual framebuffer so Playwright's Chromium can
+# launch on headless Linux (NixOS CI runners have no display server).
 e2e: nix
-    cd "{{ root }}" && just test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{ root }}"
+    if [[ "$(uname)" == "Linux" ]]; then
+        {{ nix_shell }} xvfb-run just test
+    else
+        just test
+    fi
 
 # Run vitest unit tests (server + client)
 unit:

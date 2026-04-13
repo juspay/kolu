@@ -29,6 +29,7 @@ pkgs.mkShell {
     nixpkgs-fmt
     prettier
     uv # uvx — needed by APM (agents/ai.just)
+    xvfb-run # virtual framebuffer — Playwright Chromium on headless Linux CI
     # node-gyp toolchain — required by `pnpm install` to recompile node-pty
     # after applying patches/node-pty@1.1.0.patch (the patched install
     # script forces node-gyp rebuild). The build derivation already lists
