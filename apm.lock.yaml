@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-13T18:13:40.278107+00:00'
+generated_at: '2026-04-13T18:34:21.331493+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -19,18 +19,6 @@ dependencies:
   - .claude/rules/workflow.md
   - .claude/skills/ci
   - .claude/skills/test
-  - .github/instructions/apm-workflow.instructions.md
-  - .github/instructions/architecture.instructions.md
-  - .github/instructions/code-police-rules.instructions.md
-  - .github/instructions/e2e-testing.instructions.md
-  - .github/instructions/hickey-catalog.instructions.md
-  - .github/instructions/nix.instructions.md
-  - .github/instructions/solidjs.instructions.md
-  - .github/instructions/state.instructions.md
-  - .github/instructions/streaming.instructions.md
-  - .github/instructions/toast-conventions.instructions.md
-  - .github/instructions/workflow.instructions.md
-  - .github/prompts/whatchanged.prompt.md
   - .github/skills/ci
   - .github/skills/test
   source: local
@@ -67,7 +55,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 68923230c5b19d297c8a5aa99e1601e3a61250c4
+  resolved_commit: a95be9cf6737cc5a4cbdcf15a27d9fbe595ce31b
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -78,12 +66,7 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  - .github/hooks/agency-do-stop-guard.json
-  - .github/hooks/scripts/agency/scripts/do-stop-guard.sh
-  - .github/instructions/apm-sources.instructions.md
-  - .github/prompts/do.prompt.md
-  - .github/prompts/talk.prompt.md
   - .github/skills/code-police
   - .github/skills/forge-pr
   - .github/skills/hickey
-  content_hash: sha256:5e469f1b205bd9eaef6a1977e783ab9fbeddba80384f9d5a9b1e54e91e2dcf4f
+  content_hash: sha256:b739999d8a072a44b5c3c104d960992563edbc670fccaa7747e2a89d054b1712

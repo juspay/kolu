@@ -10,6 +10,7 @@ import AgentIndicator from "./sidebar/AgentIndicator";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useTips } from "./settings/useTips";
 import { CONTEXTUAL_TIPS } from "./settings/tips";
+import { useRightPanel } from "./inspector/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import type { TerminalMetadata } from "kolu-common";
 
@@ -80,11 +81,10 @@ const Header: Component<{
   hasSubPanel?: boolean;
   subPanelExpanded?: boolean;
   onToggleSubPanel?: () => void;
-  rightPanelCollapsed?: boolean;
-  onToggleRightPanel?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
+  const rightPanel = useRightPanel();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -140,9 +140,9 @@ const Header: Component<{
           />
           <PanelToggleIcon
             orientation="right"
-            active={!props.rightPanelCollapsed}
+            active={!rightPanel.collapsed()}
             label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
-            onClick={() => props.onToggleRightPanel?.()}
+            onClick={() => rightPanel.togglePanel()}
           />
         </div>
         {props.themeName && (

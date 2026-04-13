@@ -8,10 +8,11 @@
 
 import fs from "node:fs";
 import Conf from "conf";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
+  Preferences,
   RecentRepo,
   RecentAgent,
-  Preferences,
   PersistedState,
   ServerState,
   ServerStatePatch,
@@ -24,17 +25,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.5.0";
-
-const DEFAULT_PREFERENCES: Preferences = {
-  seenTips: [],
-  startupTips: true,
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  colorScheme: "dark",
-  sidebarAgentPreviews: "attention",
-};
+const SCHEMA_VERSION = "1.6.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -98,6 +89,16 @@ export const store = new Conf<PersistedState>({
       if (!store.has("recentAgents")) {
         store.set("recentAgents", []);
       }
+    },
+    // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
+    "1.6.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | Partial<Preferences>
+        | undefined;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...current,
+      });
     },
   },
 });

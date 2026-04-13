@@ -1,3 +1,5 @@
+import type { Preferences } from "./index";
+
 /**
  * Centralized config defaults for kolu.
  *
@@ -26,3 +28,16 @@ export const ACTIVITY_IDLE_THRESHOLD_S = 5;
 
 /** Rolling window for activity history (ms). Both server and client use this. */
 export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Default preference values — single source of truth for server and client. */
+export const DEFAULT_PREFERENCES: Preferences = {
+  seenTips: [],
+  startupTips: true,
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  colorScheme: "dark",
+  sidebarAgentPreviews: "attention",
+  rightPanelCollapsed: true,
+  rightPanelSize: 0.25,
+};
