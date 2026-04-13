@@ -225,6 +225,8 @@ Before(async function (this: KoluWorld, scenario) {
           activityAlerts: true,
           colorScheme: "dark",
           sidebarAgentPreviews: "attention",
+          rightPanelCollapsed: true,
+          rightPanelSize: 0.25,
         },
       },
     }),
