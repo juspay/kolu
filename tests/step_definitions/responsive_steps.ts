@@ -5,9 +5,7 @@ import * as assert from "node:assert";
 When("I click the sidebar toggle", async function (this: KoluWorld) {
   // Mobile: header burger (sidebar-toggle). Desktop: status bar button (statusbar-sidebar-toggle).
   const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
-  const desktop = this.page.locator(
-    '[data-testid="statusbar-sidebar-toggle"]',
-  );
+  const desktop = this.page.locator('[data-testid="statusbar-sidebar-toggle"]');
   if (await mobile.isVisible()) {
     await mobile.click();
   } else {
