@@ -25,7 +25,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.6.0";
+const SCHEMA_VERSION = "1.7.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -98,6 +98,18 @@ export const store = new Conf<PersistedState>({
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...current,
+      });
+    },
+    // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
+    "1.7.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | Record<string, unknown>
+        | undefined;
+      const { rightPanelCollapsed, rightPanelSize, ...rest } = current ?? {};
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...rest,
+        rightPanel: DEFAULT_PREFERENCES.rightPanel,
       });
     },
   },
@@ -204,9 +216,14 @@ export function updateServerState(patch: ServerStatePatch): void {
     store.set("session", patch.session);
   }
   if (patch.preferences !== undefined) {
+    const current = store.get("preferences");
+    const { rightPanel: rpPatch, ...rest } = patch.preferences;
     store.set("preferences", {
-      ...store.get("preferences"),
-      ...patch.preferences,
+      ...current,
+      ...rest,
+      ...(rpPatch !== undefined && {
+        rightPanel: { ...current.rightPanel, ...rpPatch },
+      }),
     });
   }
   // Notify live query subscribers

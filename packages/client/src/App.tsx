@@ -21,7 +21,7 @@ import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Dialog from "@corvu/dialog";
 import Resizable from "@corvu/resizable";
 import EmptyState from "./EmptyState";
-import RightPanel from "./inspector/RightPanel";
+import RightPanel from "./right-panel/RightPanel";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
@@ -34,7 +34,7 @@ import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
-import { useRightPanel } from "./inspector/useRightPanel";
+import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 
