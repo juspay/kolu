@@ -5,6 +5,7 @@
 # Run `just ci` locally to debug a failing GHA job.
 
 root := `git rev-parse --show-toplevel`
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + root + ' -c' }
 
 [parallel]
 default: fmt typecheck unit apm-sync nix
@@ -27,7 +28,7 @@ unit:
 
 # Verify vendored .claude/ matches .apm/ sources + security audit
 apm-sync:
-    cd "{{ root }}" && just ai::apm-sync
+    cd "{{ root }}" && {{ nix_shell }} just ai::apm-sync
 
 fmt:
     cd "{{ root }}" && just fmt-check
