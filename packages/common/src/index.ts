@@ -215,6 +215,8 @@ export const SavedTerminalSchema = z.object({
   branch: z.string().optional(),
   /** Ordering within group at save time. */
   sortOrder: z.number().optional(),
+  /** Theme name at save time. */
+  themeName: z.string().optional(),
 });
 
 export const SavedSessionSchema = z.object({

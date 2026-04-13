@@ -110,6 +110,7 @@ export function snapshotSession(): SavedTerminal[] {
       ...(m.parentId && { parentId: m.parentId }),
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
+      ...(m.themeName && { themeName: m.themeName }),
     };
   });
 }

@@ -6,6 +6,7 @@ import {
 } from "../support/world.ts";
 import * as assert from "node:assert";
 import * as os from "node:os";
+import type { SavedTerminal } from "kolu-common";
 
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */
@@ -14,15 +15,23 @@ async function postSavedSession(
   count: number,
 ): Promise<void> {
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
+  await postSavedSessionPayload(
+    page,
+    dirs.map((cwd, i) => ({ id: String(i), cwd })),
+  );
+}
+
+/** Post an arbitrary saved-session terminal list. */
+async function postSavedSessionPayload(
+  page: KoluWorld["page"],
+  terminals: SavedTerminal[],
+): Promise<void> {
   const resp = await page.request.fetch("/rpc/state/test__set", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     data: JSON.stringify({
       json: {
-        session: {
-          terminals: dirs.map((cwd, i) => ({ id: String(i), cwd })),
-          savedAt: Date.now(),
-        },
+        session: { terminals, savedAt: Date.now() },
       },
     }),
   });
@@ -64,7 +73,9 @@ Then(
     // because Playwright's isVisible() can throw on transient DOM states during
     // mount — treating those as "not visible" just routes to the self-heal below.
     if (await card.isVisible().catch(() => false)) return;
-    if (this.savedSessionTerminalCount !== undefined) {
+    if (this.savedSessionTerminals) {
+      await postSavedSessionPayload(this.page, this.savedSessionTerminals);
+    } else if (this.savedSessionTerminalCount !== undefined) {
       await postSavedSession(this.page, this.savedSessionTerminalCount);
     }
     await card.waitFor({ state: "visible", timeout: 10000 });
@@ -113,5 +124,61 @@ Then(
       expected,
       `Expected ${expected} sidebar entries, got ${actual}`,
     );
+  },
+);
+
+// --- Ordering scenario ---
+
+/** Directories used for the reversed-sort-order scenario.
+ *  Array order is alphabetical; sortOrder is assigned in reverse so that
+ *  a correct restore should produce sidebar order /etc, /tmp, /var
+ *  (sortOrder 1000, 2000, 3000) even though the array is /etc, /tmp, /var. */
+const ORDERED_DIRS = ["/etc", "/tmp", "/var"];
+
+Given(
+  "a saved session with reversed sort order",
+  async function (this: KoluWorld) {
+    this.savedSessionTerminalCount = ORDERED_DIRS.length;
+    // Array order: /etc(3000), /tmp(2000), /var(1000)
+    // Expected sidebar order after restore: /var, /tmp, /etc (ascending sortOrder)
+    const terminals = ORDERED_DIRS.map((cwd, i) => ({
+      id: String(i),
+      cwd,
+      sortOrder: (ORDERED_DIRS.length - i) * 1000,
+    }));
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this.page, terminals);
+  },
+);
+
+Then(
+  "the sidebar entries should be in sort order",
+  async function (this: KoluWorld) {
+    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
+    const count = await entries.count();
+    const titles: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const title = await entries.nth(i).getAttribute("title");
+      titles.push(title ?? "");
+    }
+    // Ascending sortOrder: /var(1000), /tmp(2000), /etc(3000)
+    const expected = [...ORDERED_DIRS].reverse();
+    assert.deepStrictEqual(
+      titles,
+      expected,
+      `Sidebar order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
+    );
+  },
+);
+
+// --- Theme restore scenario ---
+
+Given(
+  "a saved session with theme {string}",
+  async function (this: KoluWorld, themeName: string) {
+    this.savedSessionTerminalCount = 1;
+    const terminals = [{ id: "0", cwd: os.homedir(), themeName }];
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this.page, terminals);
   },
 );

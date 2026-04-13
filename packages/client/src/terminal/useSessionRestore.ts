@@ -11,7 +11,7 @@ import type { TerminalStore } from "./useTerminalStore";
 export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
-  handleCreate: (cwd?: string) => Promise<TerminalId>;
+  handleCreate: (cwd?: string, themeName?: string) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
@@ -106,10 +106,18 @@ export function useSessionRestore(deps: {
     );
     try {
       const oldToNew = new Map<string, TerminalId>();
-      const topLevel = session.terminals.filter((t) => !t.parentId);
-      const subTerminals = session.terminals.filter((t) => t.parentId);
+      const bySortOrder = (
+        a: { sortOrder?: number },
+        b: { sortOrder?: number },
+      ) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      const topLevel = session.terminals
+        .filter((t) => !t.parentId)
+        .sort(bySortOrder);
+      const subTerminals = session.terminals
+        .filter((t) => t.parentId)
+        .sort(bySortOrder);
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd);
+        const newId = await deps.handleCreate(t.cwd, t.themeName);
         oldToNew.set(t.id, newId);
       }
       for (const t of subTerminals) {

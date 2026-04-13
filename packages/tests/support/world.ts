@@ -31,6 +31,7 @@ export class KoluWorld extends World {
 
   // Stashed state for comparison across steps
   savedSessionTerminalCount?: number;
+  savedSessionTerminals?: import("kolu-common").SavedTerminal[];
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;

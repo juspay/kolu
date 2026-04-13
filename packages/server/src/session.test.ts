@@ -69,6 +69,17 @@ describe("session persistence", () => {
     expect(session!.terminals[2]!.parentId).toBe("a");
   });
 
+  it("preserves themeName on round-trip", () => {
+    const terminals: SavedTerminal[] = [
+      { id: "a", cwd: "/a", sortOrder: 0, themeName: "Dracula" },
+      { id: "b", cwd: "/b", sortOrder: 1 },
+    ];
+    saveSession(terminals);
+    const session = getSavedSession();
+    expect(session!.terminals[0]!.themeName).toBe("Dracula");
+    expect(session!.terminals[1]!.themeName).toBeUndefined();
+  });
+
   it("clearSavedSession removes the session", () => {
     saveSession([terminal]);
     expect(getSavedSession()).not.toBeNull();
