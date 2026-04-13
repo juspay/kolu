@@ -483,7 +483,6 @@ const App: Component = () => {
               <Show when={!rightPanel.collapsed()}>
                 <RightPanel
                   meta={store.activeMeta()}
-                  collapsed={rightPanel.collapsed()}
                   onToggle={rightPanel.togglePanel}
                   themeName={activeThemeName()}
                   onThemeClick={() => openPaletteGroup("Theme")}
@@ -491,14 +490,6 @@ const App: Component = () => {
               </Show>
             </Resizable.Panel>
           </Resizable>
-
-          <Show when={rightPanel.collapsed()}>
-            <RightPanel
-              meta={store.activeMeta()}
-              collapsed={true}
-              onToggle={rightPanel.togglePanel}
-            />
-          </Show>
         </div>
       </div>
     </div>

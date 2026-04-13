@@ -8,16 +8,7 @@ Feature: Right panel (inspector)
     Then the right panel should be visible
     When I press the toggle inspector shortcut
     Then the right panel should not be visible
-    And the edge strip should be visible
     When I press the toggle inspector shortcut
-    Then the right panel should be visible
-    And there should be no page errors
-
-  Scenario: Edge strip expands collapsed panel
-    When I press the toggle inspector shortcut
-    Then the right panel should not be visible
-    And the edge strip should be visible
-    When I click the edge strip
     Then the right panel should be visible
     And there should be no page errors
 
@@ -80,8 +71,7 @@ Feature: Right panel (inspector)
     Then the right panel should not be visible
     When I refresh the page
     Then the right panel should not be visible
-    And the edge strip should be visible
-    When I click the edge strip
+    When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I refresh the page
     Then the right panel should be visible
