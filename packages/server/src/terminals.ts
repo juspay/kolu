@@ -274,6 +274,7 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
     updateMetadata(entry, id, (m) => {
       m.themeName = themeName;
     });
+    emitChanged();
   }
 }
 
@@ -288,6 +289,7 @@ export function reorderTerminals(ids: TerminalId[]): void {
     }
   }
   log.debug({ count: ids.length }, "terminals reordered");
+  emitChanged();
   emitListChanged();
 }
 
