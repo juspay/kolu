@@ -24,7 +24,7 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 ## Feature Discoverability (Tips)
 
-When adding a new user-facing feature or shortcut, consider adding a tip so users discover it. See `tips.ts` and `useTips.ts` for the registry and API.
+When adding a new user-facing feature or shortcut, consider adding a tip so users discover it. See `settings/tips.ts` and `settings/useTips.ts` for the registry and API.
 
 ## Git
 
