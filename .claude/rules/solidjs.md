@@ -1,11 +1,11 @@
 ---
 paths:
-  - "client/src/**"
+  - "packages/client/src/**"
 ---
 
 ## UI
 
-- Extract reusable UI into SolidJS components (one component per file in `client/src/`).
+- Extract reusable UI into SolidJS components (one component per file in `packages/client/src/`).
 - Follow the [frontend-design skill](https://github.com/anthropics/claude-code/blob/main/plugins/frontend-design/skills/frontend-design/SKILL.md) for UI design decisions — bold intentionality over generic aesthetics.
 
 ## SolidJS Patterns

@@ -1,6 +1,6 @@
 ---
 description: E2E test conventions — semantic selectors, no CSS class matching
-applyTo: "tests/features/**"
+applyTo: "packages/tests/features/**"
 ---
 
 ## E2E Tests

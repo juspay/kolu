@@ -37,11 +37,11 @@ check: install
 
 # Run server with auto-reload
 server:
-    cd server && {{ nix_shell }} pnpm dev
+    cd packages/server && {{ nix_shell }} pnpm dev
 
 # Run client with Vite dev server (HMR)
 client:
-    cd client && {{ nix_shell }} pnpm dev
+    cd packages/client && {{ nix_shell }} pnpm dev
 
 # Run unit tests (vitest) across server and client packages
 test-unit: install
@@ -52,7 +52,7 @@ test: install
     #!/usr/bin/env bash
     set -euo pipefail
     KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
-    cd tests
+    cd packages/tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
 
@@ -73,10 +73,10 @@ test-quick *args: install
     trap 'rm -f "$wrapper"' EXIT
     cat > "$wrapper" <<SCRIPT
     #!/bin/sh
-    KOLU_CLIENT_DIST="$PWD/client/dist" exec tsx "$PWD/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
+    KOLU_CLIENT_DIST="$PWD/packages/client/dist" exec tsx "$PWD/packages/server/src/index.ts" --allow-nix-shell-with-env-whitelist default "\$@"
     SCRIPT
     chmod +x "$wrapper"
-    cd tests
+    cd packages/tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
         {{ nix_shell }} node --import tsx \
