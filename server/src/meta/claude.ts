@@ -63,7 +63,6 @@ export function startClaudeCodeProvider(
     current?.destroy();
     current = null;
 
-
     if (!newSession) {
       plog.debug("claude code session ended");
       if (entry.info.meta.agent !== null) {
@@ -88,7 +87,6 @@ export function startClaudeCodeProvider(
       },
       plog,
     );
-
   }
 
   // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.

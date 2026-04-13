@@ -9,11 +9,7 @@ import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { OpenCodeInfoSchema } from "kolu-opencode";
 
 // Re-export integration schemas so consumers import from kolu-common only.
-export {
-  TaskProgressSchema,
-  ClaudeCodeInfoSchema,
-  OpenCodeInfoSchema,
-};
+export { TaskProgressSchema, ClaudeCodeInfoSchema, OpenCodeInfoSchema };
 
 // --- Zod schemas ---
 
