@@ -339,6 +339,7 @@ const App: Component = () => {
         onOpenPalette={() => openPalette()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
+        onAgentClick={() => rightPanel.expandPanel()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         randomTheme={randomTheme()}

@@ -17,6 +17,7 @@ const Header: Component<{
   onOpenPalette?: () => void;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
+  onAgentClick?: () => void;
   onSearch?: () => void;
   appTitle?: string;
   randomTheme?: boolean;
@@ -54,10 +55,17 @@ const Header: Component<{
           {props.appTitle ?? "kolu"}
         </span>
       </div>
-      {/* Zone B: Agent status */}
+      {/* Zone B: Agent status — click opens inspector panel */}
       <div class="flex-1 min-w-0 flex items-center gap-1 px-2">
         <Show when={props.meta?.agent}>
-          {(agent) => <AgentIndicator agent={agent()} />}
+          {(agent) => (
+            <button
+              class="cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => props.onAgentClick?.()}
+            >
+              <AgentIndicator agent={agent()} />
+            </button>
+          )}
         </Show>
       </div>
       {/* Zone C: Controls */}
