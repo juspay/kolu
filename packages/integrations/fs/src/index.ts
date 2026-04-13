@@ -1,6 +1,6 @@
 /** Filesystem operations for workspace browsing. */
 
-export { listDir, type DirEntry, type ListDirOptions } from "./list-dir.ts";
+export { listDir, type ListDirOptions } from "./list-dir.ts";
 export {
   FsListDirInputSchema,
   FsDirEntrySchema,

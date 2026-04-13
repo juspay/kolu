@@ -3,12 +3,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "kolu-integration-common";
-
-export interface DirEntry {
-  name: string;
-  isDirectory: boolean;
-  path: string;
-}
+import type { FsDirEntry } from "./schemas.ts";
 
 export interface ListDirOptions {
   /** Absolute path to list. */
@@ -23,7 +18,7 @@ export interface ListDirOptions {
  *
  * Throws if the resolved path escapes the security root.
  */
-export async function listDir(opts: ListDirOptions): Promise<DirEntry[]> {
+export async function listDir(opts: ListDirOptions): Promise<FsDirEntry[]> {
   const resolved = path.resolve(opts.root, opts.path);
 
   // Path traversal guard: resolved path must be under root.
