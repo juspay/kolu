@@ -52,10 +52,10 @@ After each step's verification, record results via the `do-results` script. The 
 - Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
 - **Always use the `do-results` script** (in this skill's directory) — never write the JSON file directly. Commands:
   - **Initialize**: `do-results init <forge> <noGit>` — creates the skeleton with a timestamp
-  - **Record a step**: `do-results step <name> <status> "<verification>" "<startedAt>" "<completedAt>" ["<reason>"]`
+  - **Record a step**: `do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — pass `now` for either timestamp to auto-generate the current UTC time
   - **Update top-level field**: `do-results set <field> <value>` (e.g., `set active waiting`, `set status completed`)
   - **Patch last step**: `do-results patch-last <field> <value>` (e.g., `patch-last completedAt "2026-..."`)
-- Capture timestamps via Bash: `date -u +%Y-%m-%dT%H:%M:%SZ`. Do not guess or hallucinate timestamps.
+- Pass `now` as a timestamp argument to `do-results step` — the script resolves it to UTC internally. Do not run `date` yourself or guess timestamps.
 
 ## Progress tracking
 
@@ -244,7 +244,7 @@ Read the project's instructions to find the CI command and verification method. 
 
 CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
-**Verify**: Use the verification method described in the project's instructions (e.g., checking commit statuses on GitHub, reading CI output elsewhere). If no CI command is documented, skip with a note.
+**Verify**: Use the verification method described in the project's instructions (e.g., checking commit statuses on GitHub, reading CI output elsewhere). If no CI command is documented, skip with a note. **The CI result must cover `HEAD`.** Before recording the step as passed, compare the commit SHA that CI ran against with `git rev-parse HEAD`. If they differ (e.g., a commit was pushed after CI started — whether from a fix retry, user-requested changes, or any other source), re-run CI against the current HEAD. CI passing on a stale commit does not satisfy verification.
 
 **On failure** — read logs or output to diagnose.
 
