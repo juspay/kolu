@@ -57,6 +57,32 @@ export const OpenCodeInfoSchema = z.object({
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 
+// --- Database helpers ---
+
+/** Run `fn` with a DatabaseSync connection. If `db` is provided, uses it
+ *  without owning it (caller manages lifecycle). If absent, opens a fresh
+ *  connection and closes it after `fn` returns. Returns null if the DB
+ *  can't be opened or if `fn` throws (logged at error via `errorMsg`). */
+function withDb<T>(
+  fn: (db: DatabaseSync) => T,
+  errorMsg: string,
+  errorCtx: Record<string, unknown>,
+  log?: Logger,
+  db?: DatabaseSync,
+): T | null {
+  const ownsDb = db === undefined;
+  const conn = db ?? openDb(log);
+  if (!conn) return null;
+  try {
+    return fn(conn);
+  } catch (err) {
+    log?.error({ err, ...errorCtx }, errorMsg);
+    return null;
+  } finally {
+    if (ownsDb) conn.close();
+  }
+}
+
 // --- Database session lookup ---
 
 export interface OpenCodeSession {
@@ -88,28 +114,26 @@ export function findSessionByDirectory(
   directory: string,
   log?: Logger,
 ): OpenCodeSession | null {
-  const db = openDb(log);
-  if (!db) return null;
-  try {
-    const row = db
-      .prepare(
-        "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-      )
-      .get(directory) as
-      | { id: string; title: string; directory: string }
-      | undefined;
-    if (!row) return null;
-    return {
-      id: row.id,
-      title: row.title || null,
-      directory: row.directory,
-    };
-  } catch (err) {
-    log?.error({ err, directory }, "opencode session query failed");
-    return null;
-  } finally {
-    db.close();
-  }
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
+        )
+        .get(directory) as
+        | { id: string; title: string; directory: string }
+        | undefined;
+      if (!row) return null;
+      return {
+        id: row.id,
+        title: row.title || null,
+        directory: row.directory,
+      };
+    },
+    "opencode session query failed",
+    { directory },
+    log,
+  );
 }
 
 // --- Session title refresh ---
@@ -120,20 +144,18 @@ export function getSessionTitle(
   log?: Logger,
   db?: DatabaseSync,
 ): string | null {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return null;
-  try {
-    const row = conn
-      .prepare("SELECT title FROM session WHERE id = ?")
-      .get(sessionId) as { title: string } | undefined;
-    return row?.title || null;
-  } catch (err) {
-    log?.debug({ err, sessionId }, "opencode session title query failed");
-    return null;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare("SELECT title FROM session WHERE id = ?")
+        .get(sessionId) as { title: string } | undefined;
+      return row?.title || null;
+    },
+    "opencode session title query failed",
+    { sessionId },
+    log,
+    db,
+  );
 }
 
 // --- Todo progress ---
@@ -151,25 +173,23 @@ export function getSessionTaskProgress(
   log?: Logger,
   db?: DatabaseSync,
 ): TaskProgress | null {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return null;
-  try {
-    const row = conn
-      .prepare(
-        "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
-      )
-      .get(sessionId) as
-      | { total: number; completed: number | null }
-      | undefined;
-    if (!row || row.total === 0) return null;
-    return { total: row.total, completed: row.completed ?? 0 };
-  } catch (err) {
-    log?.error({ err, sessionId }, "opencode todo query failed");
-    return null;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
+        )
+        .get(sessionId) as
+        | { total: number; completed: number | null }
+        | undefined;
+      if (!row || row.total === 0) return null;
+      return { total: row.total, completed: row.completed ?? 0 };
+    },
+    "opencode todo query failed",
+    { sessionId },
+    log,
+    db,
+  );
 }
 
 // --- Tool detection ---
@@ -189,22 +209,22 @@ export function hasRunningTools(
   log?: Logger,
   db?: DatabaseSync,
 ): boolean {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return false;
-  try {
-    const row = conn
-      .prepare(
-        "SELECT COUNT(*) AS n FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
-      )
-      .get(messageId) as { n: number } | undefined;
-    return (row?.n ?? 0) > 0;
-  } catch (err) {
-    log?.error({ err, messageId }, "opencode running-tools query failed");
-    return false;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  return (
+    withDb(
+      (conn) => {
+        const row = conn
+          .prepare(
+            "SELECT COUNT(*) AS n FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
+          )
+          .get(messageId) as { n: number } | undefined;
+        return (row?.n ?? 0) > 0;
+      },
+      "opencode running-tools query failed",
+      { messageId },
+      log,
+      db,
+    ) ?? false
+  );
 }
 
 // --- State derivation ---
@@ -243,25 +263,23 @@ export function deriveSessionState(
   log?: Logger,
   db?: DatabaseSync,
 ): DerivedState | null {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return null;
-  try {
-    const row = conn
-      .prepare(
-        "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
-      )
-      .get(sessionId) as { id: string; data: string } | undefined;
-    if (!row) return null;
-    const parsed = parseMessageState(row.data);
-    if (!parsed) return null;
-    return { ...parsed, messageId: row.id };
-  } catch (err) {
-    log?.error({ err, sessionId }, "opencode message query failed");
-    return null;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
+        )
+        .get(sessionId) as { id: string; data: string } | undefined;
+      if (!row) return null;
+      const parsed = parseMessageState(row.data);
+      if (!parsed) return null;
+      return { ...parsed, messageId: row.id };
+    },
+    "opencode message query failed",
+    { sessionId },
+    log,
+    db,
+  );
 }
 
 /** Parse a `message.data` JSON blob into derived state.
