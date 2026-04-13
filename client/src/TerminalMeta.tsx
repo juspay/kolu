@@ -8,12 +8,7 @@ import ActivityGraph from "./ActivityGraph";
 import Tip from "./Tip";
 import { PrStateIcon, WorktreeIcon } from "./Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { AgentInfo, ClaudeCodeInfo } from "kolu-common";
-
-/** Narrow an AgentInfo to ClaudeCodeInfo, returning undefined for other kinds. */
-function asClaudeCode(agent: AgentInfo): ClaudeCodeInfo | undefined {
-  return agent.kind === "claude-code" ? agent : undefined;
-}
+import type { AgentInfo } from "kolu-common";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -130,7 +125,7 @@ const TerminalMeta: Component<{
               <div class="mt-1">
                 <div class="flex items-center gap-1.5">
                   <AgentIndicator agent={agent()} />
-                  <Show when={asClaudeCode(agent())?.taskProgress}>
+                  <Show when={agent().taskProgress}>
                     {(tp) => (
                       <div
                         data-testid="agent-task-progress"
@@ -152,7 +147,7 @@ const TerminalMeta: Component<{
                     )}
                   </Show>
                 </div>
-                <Show when={asClaudeCode(agent())?.summary}>
+                <Show when={agent().summary}>
                   {(summary) => (
                     <div
                       data-testid="agent-summary"
@@ -185,10 +180,8 @@ const TerminalMeta: Component<{
                *  `fg` to the foreground value directly. */}
               <Show
                 when={
-                  !(
-                    info().meta.agent &&
-                    asClaudeCode(info().meta.agent!)?.summary
-                  ) && info().meta.foreground
+                  !(info().meta.agent && info().meta.agent!.summary) &&
+                  info().meta.foreground
                 }
               >
                 {(fg) => (

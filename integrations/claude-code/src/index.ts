@@ -22,12 +22,8 @@ import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 
 // --- Claude Code schemas (single source of truth) ---
 
-export const TaskProgressSchema = z.object({
-  /** Total number of tasks created (excluding deleted). */
-  total: z.number(),
-  /** Number of tasks with status "completed". */
-  completed: z.number(),
-});
+export { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
+import { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
 
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
@@ -46,7 +42,6 @@ export const ClaudeCodeInfoSchema = z.object({
 });
 
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
-export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
 // --- Configuration ---
 
@@ -274,7 +269,7 @@ export function deriveState(
 export function extractTasks(
   lines: string[],
   tasks: Map<string, "pending" | "in_progress" | "completed">,
-  plog: { warn: (obj: Record<string, unknown>, msg: string) => void },
+  plog: { error: (obj: Record<string, unknown>, msg: string) => void },
 ): boolean {
   let changed = false;
   for (const line of lines) {
@@ -313,13 +308,16 @@ export function extractTasks(
       if (block.type !== "tool_use" || block.name !== "TaskUpdate") continue;
       const input = block.input;
       if (!input || typeof input !== "object") {
-        plog.warn({ block }, "TaskUpdate tool call has unexpected input shape");
+        plog.error(
+          { block },
+          "TaskUpdate tool call has unexpected input shape",
+        );
         continue;
       }
       const taskId = input.taskId;
       const status = input.status;
       if (typeof taskId !== "string" || typeof status !== "string") {
-        plog.warn({ input }, "TaskUpdate tool call missing taskId or status");
+        plog.error({ input }, "TaskUpdate tool call missing taskId or status");
         continue;
       }
       if (status === "deleted") {
