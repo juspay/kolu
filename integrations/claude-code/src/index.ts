@@ -160,42 +160,6 @@ export function findTranscriptPath(session: SessionFile): string | null {
 // --- JSONL reading ---
 
 /**
- * Read JSONL lines from a file starting at the given byte offset.
- * Used by the debug transcript procedure to surface every event since
- * monitoring began (not just the state-derivation tail).
- *
- * Unlike `tailJsonlLines`, this never trims a partial first line — the
- * caller anchors `offset` at a known line boundary (the file size at
- * watcher-attach time).
- */
-export function readJsonlFromOffset(
-  filePath: string,
-  offset: number,
-): unknown[] {
-  try {
-    const stat = fs.statSync(filePath);
-    if (offset >= stat.size) return [];
-    const length = stat.size - offset;
-    const fd = fs.openSync(filePath, "r");
-    const buf = Buffer.alloc(length);
-    fs.readSync(fd, buf, 0, length, offset);
-    fs.closeSync(fd);
-    const out: unknown[] = [];
-    for (const line of buf.toString("utf8").split("\n")) {
-      if (line.length === 0) continue;
-      try {
-        out.push(JSON.parse(line));
-      } catch {
-        out.push({ __unparsed: line });
-      }
-    }
-    return out;
-  } catch (err) {
-    return [];
-  }
-}
-
-/**
  * Read the last N bytes of a file and parse JSONL lines.
  * Returns lines in order (oldest first).
  */
@@ -498,26 +462,6 @@ export async function fetchSessionSummary(
   return info?.summary ?? null;
 }
 
-// --- Debug schemas ---
-
-/** A single state transition the server observed. `info: null` = session ended. */
-export const ClaudeStateChangeSchema = z.object({
-  ts: z.number(),
-  info: ClaudeCodeInfoSchema.nullable(),
-});
-
-/** Diagnostic snapshot comparing what the server saw against the on-disk JSONL.
- *  Used by the Debug → "Show Claude transcript" command. */
-export const ClaudeTranscriptDebugSchema = z.object({
-  transcriptPath: z.string(),
-  /** epoch ms when kolu attached its transcript watcher (= start of monitoring). */
-  startedAt: z.number(),
-  /** What the server believes happened — every transition that passed `infoEqual`. */
-  stateChanges: z.array(ClaudeStateChangeSchema),
-  /** Raw JSONL lines from disk, from `startedAt` offset to EOF. One element per line. */
-  rawEvents: z.array(z.unknown()),
-});
-
 // --- Session watcher ---
 
 export {
@@ -525,7 +469,5 @@ export {
   getPendingSummaryFetches,
   infoEqual,
   type SessionWatcher,
-  type ClaudeStateChange,
-  type ClaudeTranscriptDebug,
   type WatcherLog,
 } from "./session-watcher.ts";

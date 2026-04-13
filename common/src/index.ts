@@ -5,19 +5,13 @@
 
 import { z } from "zod";
 import { TaskProgressSchema } from "kolu-integration-common";
-import {
-  ClaudeCodeInfoSchema,
-  ClaudeStateChangeSchema,
-  ClaudeTranscriptDebugSchema,
-} from "kolu-claude-code";
+import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { OpenCodeInfoSchema } from "kolu-opencode";
 
 // Re-export integration schemas so consumers import from kolu-common only.
 export {
   TaskProgressSchema,
   ClaudeCodeInfoSchema,
-  ClaudeStateChangeSchema,
-  ClaudeTranscriptDebugSchema,
   OpenCodeInfoSchema,
 };
 
@@ -295,8 +289,6 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
-export type ClaudeStateChange = z.infer<typeof ClaudeStateChangeSchema>;
-export type ClaudeTranscriptDebug = z.infer<typeof ClaudeTranscriptDebugSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;

@@ -20,30 +20,12 @@ import {
   encodeProjectPath,
   findTranscriptPath,
   tailJsonlLines,
-  readJsonlFromOffset,
   deriveState,
   extractTasks,
   deriveTaskProgress,
   watchOrWaitForDir,
   fetchSessionSummary,
 } from "./index.ts";
-
-// --- Debug types ---
-// Structurally identical to the Zod-inferred types from the schemas
-// in index.ts. Defined as interfaces here to avoid a circular import
-// (index.ts re-exports from this module).
-
-export interface ClaudeStateChange {
-  ts: number;
-  info: ClaudeCodeInfo | null;
-}
-
-export interface ClaudeTranscriptDebug {
-  transcriptPath: string;
-  startedAt: number;
-  stateChanges: ClaudeStateChange[];
-  rawEvents: unknown[];
-}
 
 // --- Equality helpers ---
 
@@ -90,20 +72,9 @@ const TRANSCRIPT_DEBOUNCE_MS = 150;
  *  of file size. */
 const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 
-/** Cap on the per-SessionWatcher debug accumulator. Only read by the
- *  "Show Claude transcript" debug view, which paginates — 500 entries is
- *  more than the UI displays. Prevents unbounded growth in a debug-only
- *  array over long sessions. */
-const MAX_STATE_CHANGES = 500;
-
 // --- Transcript watching lifecycle ---
 
-/**
- * Transcript-watching state machine — mutually exclusive states.
- * Diagnostic state (stateChanges, startOffset) lives alongside the
- * watcher, not embedded in the union — it shares the SessionWatcher
- * lifetime, not the transcript-attach lifecycle.
- */
+/** Transcript-watching state machine — mutually exclusive states. */
 type TranscriptWatching =
   | { kind: "none" }
   | { kind: "waiting"; dirWatcher: () => void }
@@ -135,7 +106,6 @@ export const getPendingSummaryFetches = (): number => pendingSummaryFetches;
 export interface SessionWatcher {
   readonly session: SessionFile;
   readonly destroy: () => void;
-  readonly getDebug: () => ClaudeTranscriptDebug | null;
 }
 
 /**
@@ -167,11 +137,6 @@ export function createSessionWatcher(
   // Null when idle. Cleared on destroy.
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
 
-  // Diagnostic state — shares the SessionWatcher lifetime.
-  let debugStartOffset = 0;
-  let debugStartedAt = 0;
-  const stateChanges: ClaudeStateChange[] = [];
-
   let destroyed = false;
 
   function teardownTranscriptWatching() {
@@ -201,8 +166,6 @@ export function createSessionWatcher(
     try {
       const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
       transcriptWatching = { kind: "watching", path: tp, fileWatcher };
-      debugStartOffset = fs.statSync(tp).size;
-      debugStartedAt = Date.now();
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
@@ -270,9 +233,6 @@ export function createSessionWatcher(
         "claude code state updated",
       );
       lastInfo = info;
-      // Ring-buffer the debug accumulator — see MAX_STATE_CHANGES.
-      if (stateChanges.length >= MAX_STATE_CHANGES) stateChanges.shift();
-      stateChanges.push({ ts: Date.now(), info });
       onUpdate(info);
     }
 
@@ -375,19 +335,6 @@ export function createSessionWatcher(
         transcriptDebounceTimer = null;
       }
       teardownTranscriptWatching();
-    },
-
-    getDebug(): ClaudeTranscriptDebug | null {
-      if (transcriptWatching.kind !== "watching") return null;
-      return {
-        transcriptPath: transcriptWatching.path,
-        startedAt: debugStartedAt,
-        stateChanges: [...stateChanges],
-        rawEvents: readJsonlFromOffset(
-          transcriptWatching.path,
-          debugStartOffset,
-        ),
-      };
     },
   };
 }

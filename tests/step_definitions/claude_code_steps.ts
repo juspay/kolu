@@ -310,38 +310,6 @@ When(
 );
 
 Then(
-  "the Claude transcript dialog should be visible",
-  async function (this: KoluWorld) {
-    const dialog = this.page.locator('[data-testid="claude-transcript"]');
-    await dialog.waitFor({ state: "visible", timeout: 10_000 });
-  },
-);
-
-Then(
-  "the Claude transcript dialog should show at least {int} server transition(s)",
-  async function (this: KoluWorld, min: number) {
-    const dialog = this.page.locator('[data-testid="claude-transcript"]');
-    await dialog.waitFor({ state: "visible", timeout: 10_000 });
-    // The "Server saw" header includes the count from `stateChanges`. After
-    // `setupTranscriptWatching` runs the initial derive, an existing JSONL
-    // tail produces ≥1 transition — that's the value we assert against.
-    // (rawEvents stays empty by design when content predates the watcher.)
-    await this.page.waitForFunction(
-      (min) => {
-        const dialog = document.querySelector(
-          '[data-testid="claude-transcript"]',
-        );
-        const text = dialog?.textContent ?? "";
-        const m = text.match(/Server saw \((\d+) transitions?\)/);
-        return m ? parseInt(m[1]!, 10) >= min : false;
-      },
-      min,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
   "palette item {string} should not be visible",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator('[data-testid="command-palette"]');

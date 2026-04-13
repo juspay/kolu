@@ -26,7 +26,6 @@ import {
   WorktreeRemoveInputSchema,
   ServerStateSchema,
   ServerStatePatchSchema,
-  ClaudeTranscriptDebugSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -79,14 +78,6 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-  },
-  claude: {
-    /** Diagnostic snapshot of the active terminal's Claude transcript:
-     *  the server's state-change log alongside raw JSONL since monitoring started.
-     *  Returns null if the terminal has no active Claude session. */
-    getTranscript: oc
-      .input(TerminalAttachInputSchema)
-      .output(ClaudeTranscriptDebugSchema.nullable()),
   },
   state: {
     // Stream server state changes (preferences, recent repos, session). Yields current state immediately.

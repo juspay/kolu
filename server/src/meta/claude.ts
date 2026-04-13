@@ -62,7 +62,7 @@ export function startClaudeCodeProvider(
     // Tear down previous session watcher.
     current?.destroy();
     current = null;
-    delete entry.getClaudeDebug;
+
 
     if (!newSession) {
       plog.debug("claude code session ended");
@@ -89,7 +89,6 @@ export function startClaudeCodeProvider(
       plog,
     );
 
-    entry.getClaudeDebug = () => current?.getDebug() ?? null;
   }
 
   // Subscribe to title events — each shell preexec/precmd OSC 2 fires here.
@@ -114,7 +113,7 @@ export function startClaudeCodeProvider(
     abort.abort();
     unsubscribeSessionsDir();
     current?.destroy();
-    delete entry.getClaudeDebug;
+
     plog.debug("stopped");
   };
 }
