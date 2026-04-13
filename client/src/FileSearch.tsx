@@ -65,6 +65,8 @@ const FileSearch: Component<{
   onOpenChange: (open: boolean) => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   onOpenFile: (root: string, filePath: string) => void;
+  /** Optional: preview a file without committing (on arrow key). */
+  onPreviewFile?: (root: string, filePath: string) => void;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
   const [query, setQuery] = createSignal("");
@@ -131,22 +133,40 @@ const FileSearch: Component<{
     if (!props.open) return;
     const items = results();
     const key = e.key;
+    function previewSelected(idx: number) {
+      const selected = items[idx];
+      const currentRoot = root();
+      if (selected && currentRoot && props.onPreviewFile) {
+        props.onPreviewFile(currentRoot, selected.path);
+      }
+    }
+
     switch (key) {
       case "ArrowDown":
         if (items.length === 0) return;
-        setSelectedIndex((i) => Math.min(i + 1, items.length - 1));
+        setSelectedIndex((i) => {
+          const next = Math.min(i + 1, items.length - 1);
+          previewSelected(next);
+          return next;
+        });
         break;
       case "ArrowUp":
         if (items.length === 0) return;
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndex((i) => {
+          const prev = Math.max(i - 1, 0);
+          previewSelected(prev);
+          return prev;
+        });
         break;
       case "Tab":
         if (items.length === 0) return;
-        setSelectedIndex((i) =>
-          e.shiftKey
+        setSelectedIndex((i) => {
+          const next = e.shiftKey
             ? (i - 1 + items.length) % items.length
-            : (i + 1) % items.length,
-        );
+            : (i + 1) % items.length;
+          previewSelected(next);
+          return next;
+        });
         break;
       case "Enter": {
         const selected = items[selectedIndex()];

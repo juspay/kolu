@@ -1,5 +1,5 @@
 /**
- * Right panel — resizable sidebar hosting Files, Changes, Peek, Diff,
+ * Right panel — resizable sidebar hosting Files, Changes, Peek, Diff, Blame,
  * and Claude Transcript views inline. Content stays visible alongside
  * the terminal — no modals needed for file/diff context.
  */
@@ -26,7 +26,8 @@ import Kbd from "./Kbd";
 import type {
   FsReadFileOutput,
   FsFileDiffOutput,
-  DiffHunk,
+  FsBlameOutput,
+  BlameLine,
   TerminalId,
 } from "kolu-common";
 import type { RightPanelView } from "./useFileBrowser";
@@ -73,24 +74,27 @@ function getLang(filePath: string): string | undefined {
   return EXT_TO_LANG[ext];
 }
 
+async function highlightCode(
+  code: string,
+  lang: string | undefined,
+): Promise<string> {
+  const hljs = (await import("highlight.js")).default;
+  if (lang) {
+    try {
+      return hljs.highlight(code, { language: lang, ignoreIllegals: true })
+        .value;
+    } catch {
+      return hljs.highlightAuto(code).value;
+    }
+  }
+  return hljs.highlightAuto(code).value;
+}
+
 async function highlightLines(
   code: string,
   lang: string | undefined,
 ): Promise<string[]> {
-  const hljs = (await import("highlight.js")).default;
-  let html: string;
-  if (lang) {
-    try {
-      html = hljs.highlight(code, {
-        language: lang,
-        ignoreIllegals: true,
-      }).value;
-    } catch {
-      html = hljs.highlightAuto(code).value;
-    }
-  } else {
-    html = hljs.highlightAuto(code).value;
-  }
+  const html = await highlightCode(code, lang);
   return html.split("\n");
 }
 
@@ -120,7 +124,7 @@ function formatBytes(bytes: number): string {
 
 // --- Inline Peek View ---
 
-/** Breadcrumb header for detail views — shows "Origin › filename" with back nav. */
+/** Breadcrumb header for detail views — shows "Origin > filename" with back nav. */
 const DetailBreadcrumb: Component<{
   origin: string;
   filePath: string;
@@ -134,7 +138,7 @@ const DetailBreadcrumb: Component<{
     >
       {props.origin}
     </button>
-    <span class="text-fg-3 text-xs shrink-0">›</span>
+    <span class="text-fg-3 text-xs shrink-0">&rsaquo;</span>
     <span class="text-xs text-fg truncate font-mono">{props.filePath}</span>
     <Show when={props.children}>
       <span class="ml-auto shrink-0 flex items-center gap-1.5">
@@ -144,11 +148,60 @@ const DetailBreadcrumb: Component<{
   </div>
 );
 
+/** Search-in-file bar for peek view. */
+const SearchInFile: Component<{
+  visible: boolean;
+  onClose: () => void;
+  onSearch: (query: string) => void;
+}> = (props) => {
+  let inputRef!: HTMLInputElement;
+
+  createEffect(() => {
+    if (props.visible) {
+      requestAnimationFrame(() => inputRef?.focus());
+    }
+  });
+
+  return (
+    <Show when={props.visible}>
+      <div class="flex items-center gap-2 px-3 py-1.5 bg-surface-2 border-b border-edge">
+        <svg
+          class="w-3 h-3 text-fg-3 shrink-0"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+        >
+          <circle cx="7" cy="7" r="5" />
+          <path d="M11 11l3.5 3.5" />
+        </svg>
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="Find in file..."
+          class="flex-1 bg-transparent text-xs text-fg outline-none placeholder-fg-3"
+          onInput={(e) => props.onSearch(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              props.onClose();
+              e.preventDefault();
+            }
+          }}
+        />
+        <button class="text-fg-3 hover:text-fg text-xs" onClick={props.onClose}>
+          &times;
+        </button>
+      </div>
+    </Show>
+  );
+};
+
 const PeekView: Component<{
   filePath: string;
   root: string;
   content: FsReadFileOutput;
   onBack: () => void;
+  onOpenBlame: (root: string, filePath: string) => void;
   /** Label for the breadcrumb origin (e.g. "Files" or "Changes"). */
   originLabel: string;
 }> = (props) => {
@@ -162,6 +215,19 @@ const PeekView: Component<{
   const gutterMap = createMemo(() =>
     diffData() ? buildGutterMap(diffData()!) : new Map<number, GutterMark>(),
   );
+
+  // Search-in-file state
+  const [searchVisible, setSearchVisible] = createSignal(false);
+  const [searchQuery, setSearchQuery] = createSignal("");
+  const searchMatches = createMemo(() => {
+    const q = searchQuery().toLowerCase();
+    if (!q) return new Set<number>();
+    const matches = new Set<number>();
+    rawLines().forEach((line, i) => {
+      if (line.toLowerCase().includes(q)) matches.add(i + 1);
+    });
+    return matches;
+  });
 
   createEffect(
     on(
@@ -181,71 +247,125 @@ const PeekView: Component<{
     ),
   );
 
+  // Intercept Cmd+F for search-in-file
+  function handleKeyDown(e: KeyboardEvent) {
+    const mod = navigator.platform.includes("Mac") ? e.metaKey : e.ctrlKey;
+    if (mod && e.key === "f") {
+      e.preventDefault();
+      e.stopPropagation();
+      setSearchVisible(true);
+    }
+  }
+
   return (
-    <div class="flex flex-col h-full">
+    <div class="flex flex-col h-full" onKeyDown={handleKeyDown} tabIndex={-1}>
       <DetailBreadcrumb
         origin={props.originLabel}
         filePath={props.filePath}
         onBack={props.onBack}
       >
+        <button
+          class="text-[0.6rem] text-fg-3 hover:text-accent transition-colors px-1"
+          onClick={() => props.onOpenBlame(props.root, props.filePath)}
+          title="Show git blame"
+        >
+          Blame
+        </button>
         <span class="text-[0.65rem] text-fg-3">
-          {props.content.lineCount} lines ·{" "}
+          {props.content.lineCount} lines &middot;{" "}
           {formatBytes(props.content.byteLength)}
         </span>
       </DetailBreadcrumb>
-      <div class="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5">
-        <table class="w-full border-collapse">
-          <tbody>
-            <For each={rawLines()}>
-              {(line, i) => {
-                const lineNum = () => i() + 1;
-                const highlighted = () => hlLines()?.[i()];
-                const gutter = () => gutterMap().get(lineNum()) ?? null;
-                return (
-                  <tr class="hover:bg-surface-2 transition-colors">
-                    <td class="w-1 p-0">
-                      <Show when={gutter()}>
-                        {(mark) => (
-                          <div
-                            class={`w-0.5 h-full ${GUTTER_COLORS[mark()]}`}
-                            title={mark()}
+      {/* Binary file — show image or info */}
+      <Show when={props.content.binary}>
+        <div class="flex-1 flex items-center justify-center p-4">
+          <Show
+            when={props.content.mimeType?.startsWith("image/")}
+            fallback={
+              <div class="text-center text-fg-3 text-sm">
+                <div class="mb-2">Binary file</div>
+                <div class="text-[0.65rem]">
+                  {props.content.mimeType ?? "unknown type"} &middot;{" "}
+                  {formatBytes(props.content.byteLength)}
+                </div>
+              </div>
+            }
+          >
+            <img
+              src={`data:${props.content.mimeType};base64,${props.content.content}`}
+              alt={props.filePath}
+              class="max-w-full max-h-full object-contain rounded border border-edge"
+            />
+          </Show>
+        </div>
+      </Show>
+      <Show when={!props.content.binary}>
+        <SearchInFile
+          visible={searchVisible()}
+          onClose={() => {
+            setSearchVisible(false);
+            setSearchQuery("");
+          }}
+          onSearch={setSearchQuery}
+        />
+        <div class="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5">
+          <table class="w-full border-collapse">
+            <tbody>
+              <For each={rawLines()}>
+                {(line, i) => {
+                  const lineNum = () => i() + 1;
+                  const highlighted = () => hlLines()?.[i()];
+                  const gutter = () => gutterMap().get(lineNum()) ?? null;
+                  const isSearchHit = () => searchMatches().has(lineNum());
+                  return (
+                    <tr
+                      class="hover:bg-surface-2 transition-colors"
+                      classList={{ "bg-yellow-500/15": isSearchHit() }}
+                    >
+                      <td class="w-1 p-0">
+                        <Show when={gutter()}>
+                          {(mark) => (
+                            <div
+                              class={`w-0.5 h-full ${GUTTER_COLORS[mark()]}`}
+                              title={mark()}
+                            />
+                          )}
+                        </Show>
+                      </td>
+                      <td
+                        class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-2 select-none border-r border-edge"
+                        style={{ width: `${lineNumWidth() + 2}ch` }}
+                      >
+                        {lineNum()}
+                      </td>
+                      <Show
+                        when={highlighted()}
+                        fallback={
+                          <td class="pl-3 pr-4 whitespace-pre text-fg">
+                            {line || " "}
+                          </td>
+                        }
+                      >
+                        {(html) => (
+                          <td
+                            class="pl-3 pr-4 whitespace-pre text-fg"
+                            innerHTML={html() || " "}
                           />
                         )}
                       </Show>
-                    </td>
-                    <td
-                      class="sticky left-0 bg-surface-1 text-fg-3 text-right pr-3 pl-2 select-none border-r border-edge"
-                      style={{ width: `${lineNumWidth() + 2}ch` }}
-                    >
-                      {lineNum()}
-                    </td>
-                    <Show
-                      when={highlighted()}
-                      fallback={
-                        <td class="pl-3 pr-4 whitespace-pre text-fg">
-                          {line || " "}
-                        </td>
-                      }
-                    >
-                      {(html) => (
-                        <td
-                          class="pl-3 pr-4 whitespace-pre text-fg"
-                          innerHTML={html() || " "}
-                        />
-                      )}
-                    </Show>
-                  </tr>
-                );
-              }}
-            </For>
-          </tbody>
-        </table>
-      </div>
+                    </tr>
+                  );
+                }}
+              </For>
+            </tbody>
+          </table>
+        </div>
+      </Show>
     </div>
   );
 };
 
-// --- Inline Diff View ---
+// --- Inline Diff View (with sticky hunk headers) ---
 
 const DiffView: Component<{
   root: string;
@@ -322,7 +442,8 @@ const DiffView: Component<{
                           />
                         </tr>
                       </Show>
-                      <tr class="bg-blue-500/5">
+                      {/* Sticky hunk header */}
+                      <tr class="bg-blue-500/5 sticky top-0 z-10">
                         <td
                           colspan="4"
                           class="px-3 py-1 text-fg-3 text-[0.65rem] select-none"
@@ -377,6 +498,101 @@ const DiffView: Component<{
                       </For>
                     </>
                   )}
+                </For>
+              </tbody>
+            </table>
+          </Show>
+        </Show>
+      </div>
+    </div>
+  );
+};
+
+// --- Blame View ---
+
+const BlameView: Component<{
+  root: string;
+  filePath: string;
+  onBack: () => void;
+  originLabel: string;
+}> = (props) => {
+  const [blame, setBlame] = createSignal<FsBlameOutput | null>(null);
+  const [loading, setLoading] = createSignal(true);
+
+  createEffect(
+    on(
+      () => [props.root, props.filePath] as const,
+      ([root, filePath]) => {
+        setBlame(null);
+        setLoading(true);
+        void client.fs
+          .blame({ root, filePath })
+          .then(setBlame)
+          .catch((err: unknown) => console.warn("Failed to load blame:", err))
+          .finally(() => setLoading(false));
+      },
+    ),
+  );
+
+  return (
+    <div class="flex flex-col h-full">
+      <DetailBreadcrumb
+        origin={props.originLabel}
+        filePath={props.filePath}
+        onBack={props.onBack}
+      >
+        <span class="text-[0.65rem] text-fg-3">Blame</span>
+      </DetailBreadcrumb>
+      <div class="flex-1 min-h-0 overflow-auto font-mono text-xs leading-5">
+        <Show
+          when={!loading()}
+          fallback={<div class="p-4 text-fg-3">Loading blame...</div>}
+        >
+          <Show
+            when={(blame()?.lines.length ?? 0) > 0}
+            fallback={
+              <div class="p-4 text-fg-3 italic">
+                No blame data (untracked file?)
+              </div>
+            }
+          >
+            <table class="w-full border-collapse">
+              <tbody>
+                <For each={blame()!.lines}>
+                  {(bl, i) => {
+                    const prevSha = () =>
+                      i() > 0 ? blame()!.lines[i() - 1]?.sha : null;
+                    const isNewGroup = () => bl.sha !== prevSha();
+                    return (
+                      <tr
+                        class="hover:bg-surface-2"
+                        classList={{
+                          "border-t border-edge/30": isNewGroup(),
+                        }}
+                      >
+                        {/* Blame info — only show on first line of a group */}
+                        <td class="w-20 pl-2 pr-1 text-[0.55rem] text-fg-3 truncate select-none align-top">
+                          <Show when={isNewGroup()}>
+                            <span class="text-accent/80" title={bl.summary}>
+                              {bl.sha}
+                            </span>
+                          </Show>
+                        </td>
+                        <td class="w-16 pr-1 text-[0.55rem] text-fg-3/60 truncate select-none align-top">
+                          <Show when={isNewGroup()}>
+                            {bl.author.split(" ")[0]}
+                          </Show>
+                        </td>
+                        <td class="w-16 pr-1 text-[0.55rem] text-fg-3/40 select-none align-top">
+                          <Show when={isNewGroup()}>{bl.date}</Show>
+                        </td>
+                        <td class="w-8 text-right pr-2 text-fg-3/50 select-none text-[0.6rem]">
+                          {bl.line}
+                        </td>
+                        <td class="pl-2 pr-3 whitespace-pre text-fg-2"> </td>
+                      </tr>
+                    );
+                  }}
                 </For>
               </tbody>
             </table>
@@ -444,6 +660,7 @@ type ConversationMsg = {
   text?: string;
   blocks?: ReturnType<typeof extractAssistantBlocks>;
   model?: string;
+  toolCallCount?: number;
 };
 
 /** Parse raw JSONL events into a conversation thread (user + assistant messages only). */
@@ -463,12 +680,16 @@ function parseConversation(events: unknown[]): ConversationMsg[] {
       const msg = e.message as Record<string, unknown>;
       if (Array.isArray(msg.content)) {
         const blocks = extractAssistantBlocks(msg.content);
+        const toolCallCount = blocks.filter(
+          (b) => b.kind === "tool_use",
+        ).length;
         if (blocks.length > 0) {
           messages.push({
             role: "assistant",
             timestamp: ts,
             blocks,
             model: typeof msg.model === "string" ? msg.model : undefined,
+            toolCallCount,
           });
         }
       }
@@ -494,10 +715,45 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Render markdown to HTML. Synchronous — marked is fast enough for inline use. */
+/** Render markdown to HTML with syntax-highlighted code blocks. */
 function renderMarkdown(text: string): string {
   return marked.parse(text, { async: false, breaks: true }) as string;
 }
+
+/** Highlight code blocks in already-rendered markdown HTML.
+ *  Finds <pre><code class="language-xxx"> blocks and applies hljs. */
+async function highlightCodeBlocks(container: HTMLElement): Promise<void> {
+  const hljs = (await import("highlight.js")).default;
+  const codeBlocks = container.querySelectorAll("pre code[class*='language-']");
+  for (const block of codeBlocks) {
+    hljs.highlightElement(block as HTMLElement);
+  }
+  // Also auto-detect unclassed code blocks
+  const plainBlocks = container.querySelectorAll(
+    "pre code:not([class*='language-']):not(.hljs)",
+  );
+  for (const block of plainBlocks) {
+    hljs.highlightElement(block as HTMLElement);
+  }
+}
+
+/** Component that renders markdown with syntax-highlighted code blocks. */
+const MarkdownContent: Component<{ text: string }> = (props) => {
+  let ref!: HTMLDivElement;
+
+  createEffect(() => {
+    const html = renderMarkdown(props.text);
+    ref.innerHTML = html;
+    void highlightCodeBlocks(ref);
+  });
+
+  return (
+    <div
+      ref={ref}
+      class="text-xs text-fg leading-relaxed prose-xs max-w-none"
+    />
+  );
+};
 
 const TranscriptView: Component<{
   terminalId: Accessor<TerminalId | null>;
@@ -506,6 +762,7 @@ const TranscriptView: Component<{
     () => props.terminalId(),
     (id) => client.claude.getTranscript({ id }),
   );
+  const [toolCallsExpanded, setToolCallsExpanded] = createSignal(false);
 
   const conversation = createMemo(() => {
     const snap = snapshot();
@@ -513,10 +770,10 @@ const TranscriptView: Component<{
     return parseConversation(snap.rawEvents);
   });
 
-  /** Open a standalone HTML page with the conversation, ready for print/PDF. */
-  function handlePrint() {
+  /** Generate a standalone HTML page string from conversation. */
+  function generateHtml(): string {
     const msgs = conversation();
-    if (msgs.length === 0) return;
+    if (msgs.length === 0) return "";
 
     const lines = msgs.map((msg) => {
       if (msg.role === "user") {
@@ -528,9 +785,8 @@ const TranscriptView: Component<{
         .map((b) => {
           if (b.kind === "text") return renderMarkdown(b.text);
           if (b.kind === "tool_use")
-            return `<div style="margin:8px 0;padding:8px 12px;background:#f3f4f6;border-radius:4px;font-family:monospace;font-size:12px">
-              <div style="color:#6366f1;font-weight:600;margin-bottom:4px">${escapeHtml(b.name)}</div>
-              <pre style="margin:0;overflow:auto;font-size:11px;color:#4b5563">${escapeHtml(b.input)}</pre></div>`;
+            return `<details style="margin:8px 0"><summary style="cursor:pointer;color:#6366f1;font-weight:600;font-family:monospace;font-size:12px">${escapeHtml(b.name)}</summary>
+              <pre style="margin:4px 0;padding:8px 12px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#4b5563;overflow:auto">${escapeHtml(b.input)}</pre></details>`;
           if (b.kind === "thinking")
             return `<div style="margin:4px 0;padding:8px;color:#9ca3af;font-style:italic;font-size:12px;border-left:2px solid #d1d5db">${escapeHtml(b.text)}${b.text.length >= 300 ? "..." : ""}</div>`;
           return "";
@@ -541,7 +797,7 @@ const TranscriptView: Component<{
         ${blocks}</div>`;
     });
 
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Claude Session</title>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Claude Session</title>
 <style>body{font-family:-apple-system,system-ui,sans-serif;max-width:800px;margin:0 auto;padding:24px;color:#1f2937;font-size:14px;line-height:1.6}
 code{background:#f3f4f6;padding:2px 6px;border-radius:3px;font-size:0.9em;font-family:ui-monospace,monospace}
 pre{background:#f3f4f6;padding:12px 16px;border-radius:6px;overflow-x:auto;font-size:0.85em;margin:8px 0}
@@ -552,7 +808,12 @@ ul,ol{padding-left:24px}
 @media print{body{padding:12px}}</style></head>
 <body><h1 style="font-size:18px;border-bottom:1px solid #e5e7eb;padding-bottom:12px;margin-bottom:8px">Claude Session Transcript</h1>
 ${lines.join("\n")}</body></html>`;
+  }
 
+  /** Open a standalone HTML page with the conversation, ready for print/PDF. */
+  function handlePrint() {
+    const html = generateHtml();
+    if (!html) return;
     const win = window.open("", "_blank");
     if (win) {
       win.document.write(html);
@@ -561,18 +822,40 @@ ${lines.join("\n")}</body></html>`;
     }
   }
 
+  /** Download the transcript as a standalone HTML file. */
+  function handleDownloadHtml() {
+    const html = generateHtml();
+    if (!html) return;
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `claude-session-${new Date().toISOString().slice(0, 10)}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div class="flex flex-col h-full" data-testid="transcript-view">
       <div class="flex items-center justify-between px-3 py-2 border-b border-edge">
         <span class="text-xs font-semibold text-fg">Session</span>
         <Show when={conversation().length > 0}>
-          <button
-            class="text-[0.65rem] text-fg-3 hover:text-fg transition-colors px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3"
-            onClick={handlePrint}
-            title="Open printable transcript in new tab"
-          >
-            Print
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              class="text-[0.65rem] text-fg-3 hover:text-fg transition-colors px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3"
+              onClick={handlePrint}
+              title="Open printable transcript in new tab"
+            >
+              Print
+            </button>
+            <button
+              class="text-[0.65rem] text-fg-3 hover:text-fg transition-colors px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3"
+              onClick={handleDownloadHtml}
+              title="Download as HTML file"
+            >
+              Save HTML
+            </button>
+          </div>
         </Show>
       </div>
       <div class="flex-1 min-h-0 overflow-auto">
@@ -609,34 +892,76 @@ ${lines.join("\n")}</body></html>`;
                           </span>
                         </div>
                         <div class="px-3 py-2 space-y-2">
-                          <For each={msg.blocks ?? []}>
-                            {(block) =>
-                              match(block)
-                                .with({ kind: "text" }, (b) => (
-                                  <div
-                                    class="text-xs text-fg leading-relaxed prose prose-xs prose-invert max-w-none"
-                                    innerHTML={renderMarkdown(b.text)}
-                                  />
-                                ))
-                                .with({ kind: "tool_use" }, (b) => (
-                                  <details class="text-[0.65rem]">
-                                    <summary class="text-accent cursor-pointer hover:underline font-mono">
-                                      {b.name}
-                                    </summary>
-                                    <pre class="mt-1 p-2 bg-surface-0 rounded text-fg-3 font-mono overflow-auto max-h-32 text-[0.6rem]">
-                                      {b.input}
-                                    </pre>
-                                  </details>
-                                ))
-                                .with({ kind: "thinking" }, (b) => (
-                                  <div class="text-[0.65rem] text-fg-3 italic border-l-2 border-edge pl-2">
-                                    {b.text}
-                                    {b.text.length >= 300 ? "..." : ""}
-                                  </div>
-                                ))
-                                .exhaustive()
+                          {/* Collapsible tool calls */}
+                          <Show
+                            when={
+                              (msg.toolCallCount ?? 0) > 0 &&
+                              !toolCallsExpanded()
                             }
-                          </For>
+                          >
+                            <For
+                              each={
+                                msg.blocks?.filter((b) => b.kind === "text") ??
+                                []
+                              }
+                            >
+                              {(block) =>
+                                match(block)
+                                  .with({ kind: "text" }, (b) => (
+                                    <MarkdownContent text={b.text} />
+                                  ))
+                                  .otherwise(() => null)
+                              }
+                            </For>
+                            <button
+                              class="text-[0.6rem] text-accent hover:underline"
+                              onClick={() => setToolCallsExpanded(true)}
+                            >
+                              Show {msg.toolCallCount} tool call
+                              {(msg.toolCallCount ?? 0) > 1 ? "s" : ""}
+                            </button>
+                          </Show>
+                          {/* Expanded: show all blocks */}
+                          <Show
+                            when={
+                              (msg.toolCallCount ?? 0) === 0 ||
+                              toolCallsExpanded()
+                            }
+                          >
+                            <For each={msg.blocks ?? []}>
+                              {(block) =>
+                                match(block)
+                                  .with({ kind: "text" }, (b) => (
+                                    <MarkdownContent text={b.text} />
+                                  ))
+                                  .with({ kind: "tool_use" }, (b) => (
+                                    <details class="text-[0.65rem]">
+                                      <summary class="text-accent cursor-pointer hover:underline font-mono">
+                                        {b.name}
+                                      </summary>
+                                      <pre class="mt-1 p-2 bg-surface-0 rounded text-fg-3 font-mono overflow-auto max-h-32 text-[0.6rem]">
+                                        {b.input}
+                                      </pre>
+                                    </details>
+                                  ))
+                                  .with({ kind: "thinking" }, (b) => (
+                                    <div class="text-[0.65rem] text-fg-3 italic border-l-2 border-edge pl-2">
+                                      {b.text}
+                                      {b.text.length >= 300 ? "..." : ""}
+                                    </div>
+                                  ))
+                                  .exhaustive()
+                              }
+                            </For>
+                            <Show when={toolCallsExpanded()}>
+                              <button
+                                class="text-[0.6rem] text-fg-3 hover:text-fg"
+                                onClick={() => setToolCallsExpanded(false)}
+                              >
+                                Collapse tool calls
+                              </button>
+                            </Show>
+                          </Show>
                         </div>
                       </div>
                     }
@@ -670,6 +995,7 @@ const RightPanel: Component<{
   fileTreeRoot: Accessor<string | null>;
   onOpenFile: (root: string, filePath: string) => void;
   onOpenDiff: (root: string, filePath: string) => void;
+  onOpenBlame: (root: string, filePath: string) => void;
   peekFile: {
     path: string;
     root: string;
@@ -680,6 +1006,12 @@ const RightPanel: Component<{
   originLabel: string;
   onBack: () => void;
   terminalId: Accessor<TerminalId | null>;
+  /** Callback to stage a file. */
+  onStageFile: (root: string, filePath: string) => void;
+  /** Callback to unstage a file. */
+  onUnstageFile: (root: string, filePath: string) => void;
+  /** Refresh signal — increments when fs changes are detected. */
+  refreshSignal?: Accessor<number>;
 }> = (props) => {
   const isListView = () =>
     props.view === "files" ||
@@ -743,6 +1075,7 @@ const RightPanel: Component<{
                 <FileTree
                   root={props.fileTreeRoot}
                   onOpenFile={props.onOpenFile}
+                  refreshSignal={props.refreshSignal}
                 />
               </Show>
             </div>
@@ -760,6 +1093,9 @@ const RightPanel: Component<{
                 <GitChanges
                   root={props.fileTreeRoot}
                   onOpenDiff={props.onOpenDiff}
+                  onStageFile={props.onStageFile}
+                  onUnstageFile={props.onUnstageFile}
+                  refreshSignal={props.refreshSignal}
                 />
               </Show>
             </div>
@@ -772,6 +1108,7 @@ const RightPanel: Component<{
                   root={file().root}
                   content={file().content}
                   onBack={props.onBack}
+                  onOpenBlame={props.onOpenBlame}
                   originLabel={props.originLabel}
                 />
               )}
@@ -781,6 +1118,18 @@ const RightPanel: Component<{
             <Show when={props.diffTarget}>
               {(target) => (
                 <DiffView
+                  root={target().root}
+                  filePath={target().filePath}
+                  onBack={props.onBack}
+                  originLabel={props.originLabel}
+                />
+              )}
+            </Show>
+          ))
+          .with("blame", () => (
+            <Show when={props.diffTarget}>
+              {(target) => (
+                <BlameView
                   root={target().root}
                   filePath={target().filePath}
                   onBack={props.onBack}

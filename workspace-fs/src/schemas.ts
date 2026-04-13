@@ -72,6 +72,10 @@ export const FsReadFileOutputSchema = z.object({
   byteLength: z.number(),
   /** Whether the content was truncated (file > 1MB). */
   truncated: z.boolean(),
+  /** True if the file appears to be binary (content is base64-encoded for images). */
+  binary: z.boolean().optional(),
+  /** MIME type hint for binary files (e.g. "image/png"). */
+  mimeType: z.string().optional(),
 });
 
 /** Input for file diff. */
@@ -121,6 +125,36 @@ export const FsChangeEventSchema = z.object({
   updatedAt: z.number(),
 });
 
+/** A single blame entry for a line range. */
+export const BlameLineSchema = z.object({
+  /** Line number (1-based). */
+  line: z.number(),
+  /** Commit SHA (short). */
+  sha: z.string(),
+  author: z.string(),
+  /** ISO date string. */
+  date: z.string(),
+  /** Commit summary. */
+  summary: z.string(),
+});
+
+/** Input for file blame. */
+export const FsBlameInputSchema = z.object({
+  root: z.string(),
+  filePath: z.string(),
+});
+
+/** Output for file blame. */
+export const FsBlameOutputSchema = z.object({
+  lines: z.array(BlameLineSchema),
+});
+
+/** Input for staging a file. */
+export const FsStageInputSchema = z.object({
+  root: z.string(),
+  filePath: z.string(),
+});
+
 // Derived types
 export type FileGitStatus = z.infer<typeof FileGitStatusSchema>;
 export type FileEntry = z.infer<typeof FileEntrySchema>;
@@ -135,3 +169,7 @@ export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
 export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
 export type DiffLine = z.infer<typeof DiffLineSchema>;
 export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+export type BlameLine = z.infer<typeof BlameLineSchema>;
+export type FsBlameInput = z.infer<typeof FsBlameInputSchema>;
+export type FsBlameOutput = z.infer<typeof FsBlameOutputSchema>;
+export type FsStageInput = z.infer<typeof FsStageInputSchema>;

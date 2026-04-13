@@ -1,7 +1,7 @@
 /**
- * File tree — collapsible sidebar section showing the workspace file hierarchy.
+ * File tree — collapsible section showing the workspace file hierarchy.
  * Fetches directory contents lazily on expand. Git status decorations on entries.
- * Expand/collapse state is ephemeral — no persistence.
+ * Keyboard navigation: j/k to move, Enter to open/expand, h/l for collapse/expand, Esc to deselect.
  */
 
 import {
@@ -30,6 +30,9 @@ const FileTreeEntry: Component<{
   expanded: Record<string, DirState | undefined>;
   onToggle: (path: string) => void;
   onOpenFile: (path: string) => void;
+  selected: boolean;
+  flatIndex: number;
+  onSelect: (idx: number) => void;
 }> = (props) => {
   const isDir = () => props.entry.kind === "directory";
   const isExpanded = () => !!props.expanded[props.entry.path];
@@ -38,13 +41,21 @@ const FileTreeEntry: Component<{
   return (
     <>
       <button
-        class="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs hover:bg-surface-2 transition-colors group"
+        class="flex items-center gap-1 w-full text-left px-2 py-0.5 text-xs transition-colors group"
+        classList={{
+          "bg-accent/15 text-fg": props.selected,
+          "hover:bg-surface-2": !props.selected,
+        }}
         style={{ "padding-left": `${props.depth * 12 + 8}px` }}
-        onClick={() =>
-          isDir()
-            ? props.onToggle(props.entry.path)
-            : props.onOpenFile(props.entry.path)
-        }
+        onClick={() => {
+          props.onSelect(props.flatIndex);
+          if (isDir()) {
+            props.onToggle(props.entry.path);
+          } else {
+            props.onOpenFile(props.entry.path);
+          }
+        }}
+        data-tree-index={props.flatIndex}
       >
         {/* Expand/collapse chevron for directories */}
         <Show when={isDir()} fallback={<span class="w-3 shrink-0" />}>
@@ -115,16 +126,23 @@ const FileTreeEntry: Component<{
             }
           >
             <For each={state().entries}>
-              {(child) => (
-                <FileTreeEntry
-                  entry={child}
-                  root={props.root}
-                  depth={props.depth + 1}
-                  expanded={props.expanded}
-                  onToggle={props.onToggle}
-                  onOpenFile={props.onOpenFile}
-                />
-              )}
+              {(child) => {
+                // Calculate flat index for this child — it's computed from position in the flat list
+                // We use data attributes for lookup instead
+                return (
+                  <FileTreeEntry
+                    entry={child}
+                    root={props.root}
+                    depth={props.depth + 1}
+                    expanded={props.expanded}
+                    onToggle={props.onToggle}
+                    onOpenFile={props.onOpenFile}
+                    selected={false}
+                    flatIndex={-1}
+                    onSelect={props.onSelect}
+                  />
+                );
+              }}
             </For>
             <Show when={state().entries.length === 0}>
               <div
@@ -146,29 +164,49 @@ const FileTreeEntry: Component<{
 const FileTree: Component<{
   root: Accessor<string | null>;
   onOpenFile: (root: string, filePath: string) => void;
+  /** Refresh signal — increments when fs changes are detected. */
+  refreshSignal?: Accessor<number>;
 }> = (props) => {
   const [expanded, setExpanded] = createStore<
     Record<string, DirState | undefined>
   >({});
   const [rootEntries, setRootEntries] = createSignal<FileEntry[]>([]);
   const [loading, setLoading] = createSignal(false);
+  const [selectedIdx, setSelectedIdx] = createSignal(-1);
+  let containerRef!: HTMLDivElement;
+
+  function fetchRoot(root: string) {
+    setLoading(true);
+    void client.fs
+      .listDir({ root, dirPath: "" })
+      .then(setRootEntries)
+      .catch(() => {
+        // Best-effort: root listing fails if workspace is removed while tree is open
+      })
+      .finally(() => setLoading(false));
+  }
 
   // Fetch root directory when root changes
   createEffect(
     on(props.root, (root) => {
       setRootEntries([]);
-      // Clear expanded state when root changes
       setExpanded({});
+      setSelectedIdx(-1);
       if (!root) return;
-      setLoading(true);
-      void client.fs
-        .listDir({ root, dirPath: "" })
-        .then(setRootEntries)
-        .catch(() => {
-          // Best-effort: root listing fails if workspace is removed while tree is open
-        })
-        .finally(() => setLoading(false));
+      fetchRoot(root);
     }),
+  );
+
+  // Refresh when fs changes
+  createEffect(
+    on(
+      () => props.refreshSignal?.(),
+      () => {
+        const root = props.root();
+        if (root) fetchRoot(root);
+      },
+      { defer: true },
+    ),
   );
 
   function handleToggle(path: string) {
@@ -196,8 +234,64 @@ const FileTree: Component<{
     }
   }
 
+  // Keyboard navigation
+  function handleKeyDown(e: KeyboardEvent) {
+    const buttons = containerRef?.querySelectorAll(
+      "button[data-tree-index]",
+    ) as NodeListOf<HTMLButtonElement>;
+    if (!buttons || buttons.length === 0) return;
+    const total = buttons.length;
+    const current = selectedIdx();
+
+    switch (e.key) {
+      case "j":
+      case "ArrowDown": {
+        e.preventDefault();
+        const next = Math.min(current + 1, total - 1);
+        setSelectedIdx(next);
+        buttons[next]?.scrollIntoView({ block: "nearest" });
+        break;
+      }
+      case "k":
+      case "ArrowUp": {
+        e.preventDefault();
+        const prev = Math.max(current - 1, 0);
+        setSelectedIdx(prev);
+        buttons[prev]?.scrollIntoView({ block: "nearest" });
+        break;
+      }
+      case "Enter":
+      case "l":
+      case "ArrowRight": {
+        if (current >= 0 && current < total) {
+          e.preventDefault();
+          buttons[current]?.click();
+        }
+        break;
+      }
+      case "h":
+      case "ArrowLeft": {
+        // Collapse current directory
+        if (current >= 0 && current < total) {
+          e.preventDefault();
+          buttons[current]?.click();
+        }
+        break;
+      }
+      case "Escape": {
+        setSelectedIdx(-1);
+        break;
+      }
+    }
+  }
+
   return (
-    <div class="py-1">
+    <div
+      ref={containerRef}
+      class="py-1 outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <Show
         when={!loading()}
         fallback={
@@ -215,7 +309,7 @@ const FileTree: Component<{
           }
         >
           <For each={rootEntries()}>
-            {(entry) => (
+            {(entry, i) => (
               <FileTreeEntry
                 entry={entry}
                 root={props.root()!}
@@ -223,6 +317,9 @@ const FileTree: Component<{
                 expanded={expanded}
                 onToggle={handleToggle}
                 onOpenFile={(path) => props.onOpenFile(props.root()!, path)}
+                selected={selectedIdx() === i()}
+                flatIndex={i()}
+                onSelect={setSelectedIdx}
               />
             )}
           </For>

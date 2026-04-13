@@ -17,6 +17,7 @@ export type RightPanelView =
   | "changes"
   | "peek"
   | "diff"
+  | "blame"
   | "transcript";
 
 /** List views the user can navigate back to from peek/diff. */
@@ -87,10 +88,19 @@ export function useFileBrowser() {
     showView("transcript");
   }
 
-  /** Navigate back from peek/diff to the list view the user came from. */
+  function openBlame(root: string, filePath: string): void {
+    const current = rightPanelView();
+    if (current === "files" || current === "changes") {
+      listOrigin = current;
+    }
+    setDiffTarget({ root, filePath });
+    showView("blame");
+  }
+
+  /** Navigate back from peek/diff/blame to the list view the user came from. */
   function goBack(): void {
     const view = rightPanelView();
-    if (view === "peek" || view === "diff") {
+    if (view === "peek" || view === "diff" || view === "blame") {
       setPeekFile(null);
       setDiffTarget(null);
       setRightPanelView(listOrigin);
@@ -119,6 +129,7 @@ export function useFileBrowser() {
     diffTarget,
     openPeek,
     openDiff,
+    openBlame,
     openTranscript,
     goBack,
     originLabel,

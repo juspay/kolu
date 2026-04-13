@@ -5,6 +5,7 @@ import {
   createSignal,
   createEffect,
   on,
+  onCleanup,
   Show,
   For,
 } from "solid-js";
@@ -28,7 +29,8 @@ import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
 
 import type { TerminalId } from "kolu-common";
-import { client, wsStatus, serverProcessId } from "./rpc";
+import { client, stream, wsStatus, serverProcessId } from "./rpc";
+import { toast } from "solid-sonner";
 import TransportOverlay from "./TransportOverlay";
 import { useTerminals } from "./useTerminals";
 import { useServerState } from "./useServerState";
@@ -74,6 +76,48 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
   const fileBrowser = useFileBrowser();
+
+  // --- Live filesystem change stream ---
+  // Subscribes to fs.onChange for the active workspace root.
+  // Increments a counter that triggers FileTree/GitChanges to refresh.
+  const [fsRefreshSignal, setFsRefreshSignal] = createSignal(0);
+  createEffect(
+    on(
+      () => store.activeMeta()?.git?.repoRoot ?? null,
+      (root) => {
+        if (!root) return;
+        const ac = new AbortController();
+        onCleanup(() => ac.abort());
+        void (async () => {
+          try {
+            const iter = await stream.fsOnChange(root, ac.signal);
+            for await (const _ of iter) {
+              setFsRefreshSignal((n) => n + 1);
+            }
+          } catch {
+            // Stream ended (abort or reconnect) — handled by retry plugin
+          }
+        })();
+      },
+    ),
+  );
+
+  // --- Stage/unstage file actions ---
+  function handleStageFile(root: string, filePath: string) {
+    void client.fs
+      .stage({ root, filePath })
+      .catch((err: Error) =>
+        toast.error(`Failed to stage ${filePath}: ${err.message}`),
+      );
+  }
+
+  function handleUnstageFile(root: string, filePath: string) {
+    void client.fs
+      .unstage({ root, filePath })
+      .catch((err: Error) =>
+        toast.error(`Failed to unstage ${filePath}: ${err.message}`),
+      );
+  }
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -267,6 +311,7 @@ const App: Component = () => {
         onOpenChange={fileBrowser.setFileSearchOpen}
         activeMeta={store.activeMeta}
         onOpenFile={(root, path) => void fileBrowser.openPeek(root, path)}
+        onPreviewFile={(root, path) => void fileBrowser.openPeek(root, path)}
       />
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
@@ -475,11 +520,15 @@ const App: Component = () => {
                   void fileBrowser.openPeek(root, path)
                 }
                 onOpenDiff={(root, path) => fileBrowser.openDiff(root, path)}
+                onOpenBlame={(root, path) => fileBrowser.openBlame(root, path)}
                 peekFile={fileBrowser.peekFile()}
                 diffTarget={fileBrowser.diffTarget()}
                 originLabel={fileBrowser.originLabel()}
                 onBack={fileBrowser.goBack}
                 terminalId={store.activeId}
+                onStageFile={handleStageFile}
+                onUnstageFile={handleUnstageFile}
+                refreshSignal={fsRefreshSignal}
               />
             </Show>
           </Resizable.Panel>

@@ -26,6 +26,10 @@ import {
   FsFileDiffOutputSchema,
   DiffLineSchema,
   DiffHunkSchema,
+  BlameLineSchema,
+  FsBlameInputSchema,
+  FsBlameOutputSchema,
+  FsStageInputSchema,
 } from "kolu-workspace-fs/schemas";
 
 // Re-export integration schemas so consumers import from kolu-common only.
@@ -51,6 +55,10 @@ export {
   FsFileDiffOutputSchema,
   DiffLineSchema,
   DiffHunkSchema,
+  BlameLineSchema,
+  FsBlameInputSchema,
+  FsBlameOutputSchema,
+  FsStageInputSchema,
 };
 
 // --- Zod schemas ---
@@ -357,3 +365,7 @@ export type FsFileDiffInput = z.infer<typeof FsFileDiffInputSchema>;
 export type FsFileDiffOutput = z.infer<typeof FsFileDiffOutputSchema>;
 export type DiffLine = z.infer<typeof DiffLineSchema>;
 export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+export type BlameLine = z.infer<typeof BlameLineSchema>;
+export type FsBlameInput = z.infer<typeof FsBlameInputSchema>;
+export type FsBlameOutput = z.infer<typeof FsBlameOutputSchema>;
+export type FsStageInput = z.infer<typeof FsStageInputSchema>;

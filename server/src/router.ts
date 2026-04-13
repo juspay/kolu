@@ -265,6 +265,33 @@ export const appRouter = t.router({
         WorkspaceFsService.release(input.root);
       }
     }),
+    blame: t.fs.blame.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        return await svc.blame(input.filePath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
+    stage: t.fs.stage.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        await svc.stageFile(input.filePath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
+    unstage: t.fs.unstage.handler(async ({ input }) => {
+      const svc = WorkspaceFsService.acquire(input.root);
+      try {
+        await svc.waitReady();
+        await svc.unstageFile(input.filePath);
+      } finally {
+        WorkspaceFsService.release(input.root);
+      }
+    }),
     /**
      * Stream filesystem change notifications for a workspace root.
      * Yields an initial event immediately, then yields on each change batch.

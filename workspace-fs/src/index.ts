@@ -16,6 +16,10 @@ export {
   FsFileDiffOutputSchema,
   DiffLineSchema,
   DiffHunkSchema,
+  BlameLineSchema,
+  FsBlameInputSchema,
+  FsBlameOutputSchema,
+  FsStageInputSchema,
 } from "./schemas.ts";
 
 export type {
@@ -32,6 +36,10 @@ export type {
   FsFileDiffOutput,
   DiffLine,
   DiffHunk,
+  BlameLine,
+  FsBlameInput,
+  FsBlameOutput,
+  FsStageInput,
 } from "./schemas.ts";
 
 export { fuzzyScore, type FuzzyResult } from "./scorer.ts";

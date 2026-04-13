@@ -23,6 +23,8 @@ import type {
   DiffHunk,
   DiffLine,
   FsFileDiffOutput,
+  BlameLine,
+  FsBlameOutput,
 } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
@@ -175,12 +177,15 @@ export class WorkspaceFsService {
     });
   }
 
-  /** Read file contents. Truncates at 1MB. Rejects paths that escape the root. */
+  /** Read file contents. Truncates at 1MB. Rejects paths that escape the root.
+   *  Binary files (images) are returned as base64-encoded content with a mimeType hint. */
   async readFile(filePath: string): Promise<{
     content: string;
     lineCount: number;
     byteLength: number;
     truncated: boolean;
+    binary?: boolean;
+    mimeType?: string;
   }> {
     const absPath = resolve(this.root, filePath);
     // Prevent path traversal (e.g. ../../etc/passwd)
@@ -188,6 +193,31 @@ export class WorkspaceFsService {
       throw new Error(`Path escapes workspace root: ${filePath}`);
     }
     const stats = await stat(absPath);
+
+    // Check for binary/image files by extension
+    const mime = getMimeType(filePath);
+    if (mime) {
+      // Binary file — return base64-encoded (cap at 5MB for images)
+      if (stats.size > 5 * 1024 * 1024) {
+        return {
+          content: "",
+          lineCount: 0,
+          byteLength: stats.size,
+          truncated: true,
+          binary: true,
+          mimeType: mime,
+        };
+      }
+      const buf = await readFile(absPath);
+      return {
+        content: buf.toString("base64"),
+        lineCount: 0,
+        byteLength: stats.size,
+        truncated: false,
+        binary: true,
+        mimeType: mime,
+      };
+    }
 
     if (stats.size > MAX_FILE_SIZE) {
       const { createReadStream } = await import("node:fs");
@@ -271,6 +301,34 @@ export class WorkspaceFsService {
     }
 
     return parseDiff(stdout);
+  }
+
+  /** Get git blame for a file. Returns per-line blame info. */
+  async blame(filePath: string): Promise<FsBlameOutput> {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["blame", "--porcelain", "--", filePath],
+      { cwd: this.root, maxBuffer: 10 * 1024 * 1024 },
+    ).catch(() => ({ stdout: "" }));
+
+    if (!stdout.trim()) return { lines: [] };
+    return parseBlame(stdout);
+  }
+
+  /** Stage a file (git add). */
+  async stageFile(filePath: string): Promise<void> {
+    await execFileAsync("git", ["add", "--", filePath], { cwd: this.root });
+    this.scheduleRefresh();
+  }
+
+  /** Unstage a file (git reset HEAD). */
+  async unstageFile(filePath: string): Promise<void> {
+    await execFileAsync("git", ["reset", "HEAD", "--", filePath], {
+      cwd: this.root,
+    }).catch(() => {
+      // reset fails on initial commit — ignore
+    });
+    this.scheduleRefresh();
   }
 
   /** Subscribe to change notifications. Returns unsubscribe function. */
@@ -519,6 +577,84 @@ function parseDiff(raw: string): FsFileDiffOutput {
   }
 
   return { hunks, addedLines, modifiedLines, deletedAfterLines };
+}
+
+/** Known binary/image MIME types by extension. */
+const MIME_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  bmp: "image/bmp",
+  avif: "image/avif",
+};
+
+function getMimeType(filePath: string): string | undefined {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_TYPES[ext];
+}
+
+/** Parse `git blame --porcelain` output into structured line data. */
+function parseBlame(raw: string): FsBlameOutput {
+  const lines: BlameLine[] = [];
+  const commitInfo = new Map<
+    string,
+    { author: string; date: string; summary: string }
+  >();
+
+  const rawLines = raw.split("\n");
+  let i = 0;
+
+  while (i < rawLines.length) {
+    const headerMatch = rawLines[i]?.match(
+      /^([0-9a-f]{40})\s+(\d+)\s+(\d+)(?:\s+(\d+))?$/,
+    );
+    if (!headerMatch) {
+      i++;
+      continue;
+    }
+
+    const sha = headerMatch[1]!.slice(0, 8);
+    const lineNum = parseInt(headerMatch[3]!);
+    i++;
+
+    // Parse header fields until content line
+    let author = "";
+    let date = "";
+    let summary = "";
+
+    while (i < rawLines.length && !rawLines[i]?.startsWith("\t")) {
+      const line = rawLines[i]!;
+      if (line.startsWith("author ")) author = line.slice(7);
+      else if (line.startsWith("author-time ")) {
+        const ts = parseInt(line.slice(12));
+        date = new Date(ts * 1000).toISOString().slice(0, 10);
+      } else if (line.startsWith("summary ")) summary = line.slice(8);
+      i++;
+    }
+
+    // Skip content line
+    if (i < rawLines.length && rawLines[i]?.startsWith("\t")) i++;
+
+    // Cache commit info for repeated SHAs
+    if (author || summary) {
+      commitInfo.set(sha, { author, date, summary });
+    }
+
+    const info = commitInfo.get(sha) ?? { author: "", date: "", summary: "" };
+    lines.push({
+      line: lineNum,
+      sha,
+      author: info.author,
+      date: info.date,
+      summary: info.summary,
+    });
+  }
+
+  return { lines };
 }
 
 function parseGitStatus(xy: string): FileGitStatus | null {

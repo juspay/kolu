@@ -37,6 +37,9 @@ import {
   FsChangeEventSchema,
   FsFileDiffInputSchema,
   FsFileDiffOutputSchema,
+  FsBlameInputSchema,
+  FsBlameOutputSchema,
+  FsStageInputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -115,6 +118,12 @@ export const contract = oc.router({
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
     // Get parsed unified diff for a file against HEAD
     fileDiff: oc.input(FsFileDiffInputSchema).output(FsFileDiffOutputSchema),
+    // Get git blame for a file
+    blame: oc.input(FsBlameInputSchema).output(FsBlameOutputSchema),
+    // Stage a file (git add)
+    stage: oc.input(FsStageInputSchema).output(z.void()),
+    // Unstage a file (git reset HEAD)
+    unstage: oc.input(FsStageInputSchema).output(z.void()),
     // Stream change notifications for a workspace root — yields whenever the file index updates
     onChange: oc
       .input(FsWatchInputSchema)

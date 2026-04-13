@@ -3,6 +3,8 @@
  * between "list only" (click to open diff in panel) and "full diff"
  * (all diffs expanded inline). Selective mode lets you expand individual
  * files without committing to the full-diff view.
+ *
+ * Stage/unstage buttons per file. Keyboard nav with j/k.
  */
 
 import {
@@ -133,30 +135,53 @@ const InlineDiff: Component<{ root: string; filePath: string }> = (props) => {
 const GitChanges: Component<{
   root: Accessor<string | null>;
   onOpenDiff: (root: string, filePath: string) => void;
+  onStageFile: (root: string, filePath: string) => void;
+  onUnstageFile: (root: string, filePath: string) => void;
+  /** Refresh signal — increments when fs changes are detected. */
+  refreshSignal?: Accessor<number>;
 }> = (props) => {
   const [changedFiles, setChangedFiles] = createSignal<FsSearchResult[]>([]);
   const [loading, setLoading] = createSignal(false);
-  /** "list" = click opens in panel; "full" = all diffs inline; "selective" = individual toggles. */
+  /** "list" = click opens in panel; "full" = all diffs inline. */
   const [mode, setMode] = createSignal<"list" | "full">("list");
   /** Which files are individually expanded (used in list mode). */
   const [expanded, setExpanded] = createStore<Record<string, boolean>>({});
+  const [selectedIdx, setSelectedIdx] = createSignal(-1);
+  let containerRef!: HTMLDivElement;
+
+  function fetchChanges(root: string) {
+    setLoading(true);
+    void client.fs
+      .search({ root, query: "", limit: 500 })
+      .then((results) => {
+        setChangedFiles(results.filter((f) => f.gitStatus !== null));
+      })
+      .catch(() => {
+        // Best-effort: workspace may not exist
+      })
+      .finally(() => setLoading(false));
+  }
 
   createEffect(
     on(props.root, (root) => {
       setChangedFiles([]);
       setExpanded({});
+      setSelectedIdx(-1);
       if (!root) return;
-      setLoading(true);
-      void client.fs
-        .search({ root, query: "", limit: 500 })
-        .then((results) => {
-          setChangedFiles(results.filter((f) => f.gitStatus !== null));
-        })
-        .catch(() => {
-          // Best-effort: workspace may not exist
-        })
-        .finally(() => setLoading(false));
+      fetchChanges(root);
     }),
+  );
+
+  // Refresh when fs changes
+  createEffect(
+    on(
+      () => props.refreshSignal?.(),
+      () => {
+        const root = props.root();
+        if (root) fetchChanges(root);
+      },
+      { defer: true },
+    ),
   );
 
   function toggleFile(path: string) {
@@ -167,8 +192,88 @@ const GitChanges: Component<{
     );
   }
 
+  // Keyboard navigation
+  function handleKeyDown(e: KeyboardEvent) {
+    const items = changedFiles();
+    if (items.length === 0) return;
+    const current = selectedIdx();
+
+    switch (e.key) {
+      case "j":
+      case "ArrowDown": {
+        e.preventDefault();
+        const next = Math.min(current + 1, items.length - 1);
+        setSelectedIdx(next);
+        containerRef
+          ?.querySelectorAll("[data-change-index]")
+          [next]?.scrollIntoView({ block: "nearest" });
+        break;
+      }
+      case "k":
+      case "ArrowUp": {
+        e.preventDefault();
+        const prev = Math.max(current - 1, 0);
+        setSelectedIdx(prev);
+        containerRef
+          ?.querySelectorAll("[data-change-index]")
+          [prev]?.scrollIntoView({ block: "nearest" });
+        break;
+      }
+      case "Enter": {
+        const file = items[current];
+        const root = props.root();
+        if (file && root) {
+          e.preventDefault();
+          props.onOpenDiff(root, file.path);
+        }
+        break;
+      }
+      case "l":
+      case "ArrowRight": {
+        const file = items[current];
+        if (file) {
+          e.preventDefault();
+          if (!expanded[file.path]) toggleFile(file.path);
+        }
+        break;
+      }
+      case "h":
+      case "ArrowLeft": {
+        const file = items[current];
+        if (file) {
+          e.preventDefault();
+          if (expanded[file.path]) toggleFile(file.path);
+        }
+        break;
+      }
+      case "s": {
+        // Stage/unstage with 's' key
+        const file = items[current];
+        const root = props.root();
+        if (file && root) {
+          e.preventDefault();
+          if (file.staging === "staged") {
+            props.onUnstageFile(root, file.path);
+          } else {
+            props.onStageFile(root, file.path);
+          }
+        }
+        break;
+      }
+      case "Escape": {
+        setSelectedIdx(-1);
+        break;
+      }
+    }
+  }
+
   return (
-    <div class="py-1">
+    <div
+      ref={containerRef}
+      class="py-1 outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
       <Show
         when={!loading()}
         fallback={
@@ -209,12 +314,18 @@ const GitChanges: Component<{
             </button>
           </div>
           <For each={changedFiles()}>
-            {(file) => {
+            {(file, i) => {
               const showDiff = () => mode() === "full" || !!expanded[file.path];
               return (
-                <div>
-                  <div class="flex items-center gap-1 w-full text-left px-2 py-1 text-xs hover:bg-surface-2 transition-colors group">
-                    {/* Expand toggle (in list mode) */}
+                <div data-change-index={i()}>
+                  <div
+                    class="flex items-center gap-1 w-full text-left px-2 py-1 text-xs transition-colors group"
+                    classList={{
+                      "bg-accent/15": selectedIdx() === i(),
+                      "hover:bg-surface-2": selectedIdx() !== i(),
+                    }}
+                  >
+                    {/* Expand toggle */}
                     <button
                       class="shrink-0 w-3 text-fg-3 hover:text-fg transition-colors"
                       onClick={() => toggleFile(file.path)}
@@ -249,15 +360,16 @@ const GitChanges: Component<{
                       }
                     >
                       {file.staging === "staged"
-                        ? "●"
+                        ? "\u25CF"
                         : file.staging === "partial"
-                          ? "◐"
+                          ? "\u25D0"
                           : ""}
                     </span>
                     {/* File path — click opens in panel diff view */}
                     <button
                       class="truncate text-fg-2 group-hover:text-fg text-left min-w-0 flex-1"
                       onClick={() => {
+                        setSelectedIdx(i());
                         const root = props.root();
                         if (root) props.onOpenDiff(root, file.path);
                       }}
@@ -268,6 +380,33 @@ const GitChanges: Component<{
                         </span>
                         {file.name}
                       </Show>
+                    </button>
+                    {/* Stage/unstage button */}
+                    <button
+                      class="shrink-0 text-[0.55rem] px-1 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      classList={{
+                        "text-green-400 hover:bg-green-500/10":
+                          file.staging !== "staged",
+                        "text-yellow-400 hover:bg-yellow-500/10":
+                          file.staging === "staged",
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const root = props.root();
+                        if (!root) return;
+                        if (file.staging === "staged") {
+                          props.onUnstageFile(root, file.path);
+                        } else {
+                          props.onStageFile(root, file.path);
+                        }
+                      }}
+                      title={
+                        file.staging === "staged"
+                          ? "Unstage file"
+                          : "Stage file"
+                      }
+                    >
+                      {file.staging === "staged" ? "Unstage" : "Stage"}
                     </button>
                   </div>
                   {/* Inline diff — shown when expanded */}
