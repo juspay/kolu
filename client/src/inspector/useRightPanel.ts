@@ -1,37 +1,24 @@
-/** Right panel state — singleton module. Tracks collapsed and size, persisted across sessions.
- *  Open by default on desktop (sm breakpoint), collapsed on mobile. */
+/** Right panel state — singleton module. Tracks collapsed and size, persisted via server preferences.
+ *  Defaults to collapsed. User's explicit choice sticks regardless of viewport. */
 
-import { createSignal } from "solid-js";
-import { makePersisted } from "@solid-primitives/storage";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { useServerState } from "../settings/useServerState";
 
-const SM_QUERY = window.matchMedia("(min-width: 640px)");
-const DEFAULT_PANEL_SIZE = 0.25;
-
-const [collapsed, setCollapsed] = makePersisted(
-  createSignal(!SM_QUERY.matches),
-  { name: "kolu-right-panel-collapsed" },
-);
-
-const [panelSize, setPanelSize] = makePersisted(
-  createSignal(DEFAULT_PANEL_SIZE),
-  { name: "kolu-right-panel-size" },
-);
-
-// Auto-collapse on mobile, auto-expand on desktop when viewport crosses sm breakpoint
-makeEventListener(SM_QUERY, "change", (e: MediaQueryListEvent) =>
-  setCollapsed(!e.matches),
-);
+const MIN_PANEL_SIZE = 0.05;
 
 export function useRightPanel() {
+  const { preferences, updatePreferences } = useServerState();
+
   return {
-    collapsed,
-    panelSize,
-    togglePanel: () => setCollapsed((prev) => !prev),
-    collapsePanel: () => setCollapsed(true),
-    expandPanel: () => setCollapsed(false),
+    collapsed: () => preferences().rightPanelCollapsed,
+    panelSize: () => preferences().rightPanelSize,
+    togglePanel: () =>
+      updatePreferences({
+        rightPanelCollapsed: !preferences().rightPanelCollapsed,
+      }),
+    collapsePanel: () => updatePreferences({ rightPanelCollapsed: true }),
+    expandPanel: () => updatePreferences({ rightPanelCollapsed: false }),
     setPanelSize: (size: number) => {
-      if (size > 0.05) setPanelSize(size);
+      if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanelSize: size });
     },
   } as const;
 }
