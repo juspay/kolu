@@ -77,13 +77,14 @@ const TerminalPane: Component<{
           />
         </Resizable.Panel>
 
-        {/* Resize handle — only visible when expanded */}
+        {/* Resize handle — invisible hit zone, visible on hover */}
         <Show when={hasSubs()}>
           <Resizable.Handle
             data-testid="resize-handle"
             class="shrink-0 transition-all"
             classList={{
-              "h-1 bg-edge hover:bg-accent-bright": isExpanded(),
+              "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+                isExpanded(),
               "h-0": !isExpanded(),
             }}
             aria-label="Resize terminal split"

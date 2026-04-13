@@ -19,8 +19,7 @@ const SplitStrip: Component<SplitStripProps> = (props) => {
       class="flex items-center justify-center gap-3 w-full h-6 shrink-0
              text-[11px] font-mono transition-all cursor-pointer"
       classList={{
-        "bg-surface-2 border-t border-edge-bright hover:bg-surface-3":
-          !isCollapsed(),
+        "bg-surface-2 border-t border-edge hover:bg-surface-3": !isCollapsed(),
         "bg-surface-1 border-t border-accent hover:brightness-110":
           isCollapsed(),
       }}

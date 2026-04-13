@@ -35,7 +35,7 @@ const Section: Component<{
   children: JSX.Element;
 }> = (props) => (
   <div
-    class="py-3 px-3 border-b border-edge/50"
+    class="py-3 px-3 border-b border-edge"
     data-testid={props["data-testid"]}
   >
     <div class="text-[9px] font-bold uppercase tracking-[0.15em] text-fg-3/60 mb-2">

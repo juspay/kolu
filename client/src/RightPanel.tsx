@@ -19,7 +19,7 @@ const RightPanel: Component<{
         <button
           data-testid="right-panel-strip"
           class="flex flex-col items-center justify-center gap-1.5 w-6 shrink-0
-                 bg-surface-0 border-l border-edge/50 hover:bg-surface-1
+                 bg-surface-0 border-l border-edge hover:bg-surface-1
                  transition-colors cursor-pointer"
           onClick={props.onToggle}
           aria-label={`Expand inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
@@ -33,12 +33,12 @@ const RightPanel: Component<{
     >
       <div
         data-testid="right-panel"
-        class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge/50"
+        class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
       >
         {/* Tab bar — phase 0 has one tab; future phases add transcript, files, changes */}
         <div class="flex items-center h-8 shrink-0 bg-surface-1/50">
           <button
-            class="h-full px-3 text-[10px] font-medium tracking-wide text-fg-2
+            class="h-full px-3 text-xs font-medium text-fg-2
                    border-b border-accent"
           >
             Inspector

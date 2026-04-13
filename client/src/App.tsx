@@ -15,6 +15,7 @@ import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./Sidebar";
 import TerminalPane from "./TerminalPane";
 import MobileKeyBar from "./MobileKeyBar";
+import StatusBar from "./StatusBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
@@ -389,8 +390,9 @@ const App: Component = () => {
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 flex">
+        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size.
+         *  overflow-hidden: prevent scrollbar when collapsed edge strip + Resizable exceed container width. */}
+        <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
           <Resizable
             orientation="horizontal"
             sizes={
@@ -454,7 +456,7 @@ const App: Component = () => {
             <Show when={!rightPanel.collapsed()}>
               <Resizable.Handle
                 data-testid="right-panel-handle"
-                class="shrink-0 w-1 bg-edge hover:bg-accent-bright transition-colors"
+                class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
                 aria-label="Resize inspector panel"
               />
             </Show>
@@ -487,6 +489,30 @@ const App: Component = () => {
           </Show>
         </div>
       </div>
+      <StatusBar
+        sidebarOpen={sidebarOpen()}
+        onToggleSidebar={toggleSidebar}
+        hasSubPanel={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0
+        }
+        subPanelExpanded={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0 &&
+          !subPanel.getSubPanel(store.activeId()!).collapsed
+        }
+        onToggleSubPanel={() => {
+          const id = store.activeId();
+          if (!id) return;
+          if (store.getSubTerminalIds(id).length === 0) {
+            void crud.handleCreateSubTerminal(id, store.activeMeta()?.cwd);
+          } else {
+            subPanel.togglePanel(id);
+          }
+        }}
+        rightPanelCollapsed={rightPanel.collapsed()}
+        onToggleRightPanel={rightPanel.togglePanel}
+      />
     </div>
   );
 };

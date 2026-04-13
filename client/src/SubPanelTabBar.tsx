@@ -16,7 +16,7 @@ const SubPanelTabBar: Component<{
   return (
     <div
       data-testid="sub-panel-tab-bar"
-      class="flex items-center gap-1 px-2 py-1 bg-surface-0 border-b border-edge-bright text-sm min-h-[32px] shrink-0"
+      class="flex items-center gap-1 px-2 py-1 bg-surface-0 border-b border-edge text-sm min-h-[32px] shrink-0"
     >
       <For each={props.subIds}>
         {(id, index) => {
