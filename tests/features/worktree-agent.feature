@@ -11,6 +11,8 @@ Feature: Agent-aware worktree creation
 
   Background:
     Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
 
   Scenario: Agent sub-palette appears under a recent repo when agents exist
     # `claude` is not installed in the test env, but the preexec hook

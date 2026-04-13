@@ -4,6 +4,8 @@ Feature: Recent repos in command palette
 
   Background:
     Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
 
   Scenario: Recent repo appears in "New terminal" picker after visiting a git repo
     When I set up a git repo at "/tmp/kolu-recent-test"
