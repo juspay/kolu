@@ -50,7 +50,7 @@ const MetadataInspector: Component<{
       {(meta) => (
         <div
           class="overflow-y-auto overflow-x-hidden h-full"
-          data-testid="header-cwd"
+          data-testid="inspector-cwd"
         >
           {/* Directory */}
           <Section title="Directory">
@@ -62,7 +62,7 @@ const MetadataInspector: Component<{
           {/* Git */}
           <Show when={meta().git}>
             {(git) => (
-              <Section title="Git" data-testid="header-branch">
+              <Section title="Git" data-testid="inspector-branch">
                 <div class="space-y-0.5">
                   <Row label="Branch">
                     <span class="font-mono text-fg">

@@ -6,7 +6,7 @@ Then(
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       (exp) => {
-        const el = document.querySelector('[data-testid="header-cwd"]');
+        const el = document.querySelector('[data-testid="inspector-cwd"]');
         return (el?.textContent ?? "").includes(exp);
       },
       expected,

@@ -30,13 +30,13 @@ When(
 );
 
 Then("the header should show a branch name", async function (this: KoluWorld) {
-  await waitForTestIdText(this, "header-branch");
+  await waitForTestIdText(this, "inspector-branch");
 });
 
 Then(
   "the header branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    await waitForTestIdText(this, "header-branch", expected);
+    await waitForTestIdText(this, "inspector-branch", expected);
   },
 );
 
@@ -55,7 +55,7 @@ Then(
   "the header should not show git context",
   async function (this: KoluWorld) {
     const count = await this.page
-      .locator('[data-testid="header-branch"]')
+      .locator('[data-testid="inspector-branch"]')
       .count();
     assert.strictEqual(
       count,
