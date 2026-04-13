@@ -9,7 +9,6 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
 import { stream } from "../rpc/rpc";
@@ -20,14 +19,10 @@ import { useSessionRestore } from "./useSessionRestore";
 import { useWorktreeOps } from "./useWorktreeOps";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 
-export function useTerminals(deps: {
-  randomTheme: Accessor<boolean>;
-  activityAlerts: Accessor<boolean>;
-}) {
+export function useTerminals() {
   const store = useTerminalStore();
 
   const alerts = useTerminalAlerts({
-    activityAlerts: deps.activityAlerts,
     activeId: store.activeId,
     getMetadata: store.getMetadata,
     isUnread: store.isUnread,
@@ -68,7 +63,6 @@ export function useTerminals(deps: {
 
   const crud = useTerminalCrud({
     store,
-    randomTheme: deps.randomTheme,
     subscribeExit,
   });
 

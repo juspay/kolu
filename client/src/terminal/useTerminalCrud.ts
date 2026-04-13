@@ -3,24 +3,24 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import { availableThemes } from "../theme";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { useTips } from "../settings/useTips";
+import { useServerState } from "../settings/useServerState";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
   store: TerminalStore;
-  randomTheme: Accessor<boolean>;
   subscribeExit: (id: TerminalId) => void;
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
+  const { preferences } = useServerState();
 
   /** The terminal the user is currently interacting with —
    *  the active sub-tab when a split has focus, otherwise the workspace root. */
@@ -99,7 +99,7 @@ export function useTerminalCrud(deps: {
       toast.error(`Failed to create terminal: ${err.message}`);
       throw err;
     });
-    const themeName = deps.randomTheme()
+    const themeName = preferences().randomTheme
       ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
           .name
       : undefined;

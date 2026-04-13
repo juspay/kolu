@@ -36,6 +36,7 @@ import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "../input/zoom";
 import { createScrollLock } from "../scrollLock";
+import { useServerState } from "../settings/useServerState";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -78,8 +79,6 @@ const Terminal: Component<{
   onSearchOpenChange: (open: boolean) => void;
   /** Fired when the user interacts with this terminal (click/keyboard focus). */
   onFocus?: () => void;
-  /** When true, viewport freezes when user scrolls up (default: true). */
-  scrollLockEnabled?: boolean;
   /** When true, this terminal lives in a sub-panel — it owns its own grid
    *  (its container is independent of the main viewport) and stays out of
    *  the viewport signal. Also used for e2e test selectors. */
@@ -89,7 +88,8 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const scrollLock = createScrollLock(() => props.scrollLockEnabled);
+  const { preferences } = useServerState();
+  const scrollLock = createScrollLock(() => preferences().scrollLock);
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */

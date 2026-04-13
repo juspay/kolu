@@ -21,6 +21,7 @@ import Tip from "../ui/Tip";
 import Kbd from "../ui/Kbd";
 import TerminalMeta from "../terminal/TerminalMeta";
 import TerminalPreview from "../terminal/TerminalPreview";
+import { useServerState } from "../settings/useServerState";
 import { useTips } from "../settings/useTips";
 import { sidebarSwitchTip } from "../settings/tips";
 import { formatKeybind, SHORTCUTS } from "../input/keyboard";
@@ -83,8 +84,6 @@ const SidebarEntry: Component<{
   unread: boolean;
   displayInfo: TerminalDisplayInfo | undefined;
   terminalTheme: ITheme;
-  /** Preview mode — see {@link shouldShowPreview} for the semantics. */
-  previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   dropEdge: "above" | "below" | null;
@@ -98,11 +97,12 @@ const SidebarEntry: Component<{
    *  match the main terminal exactly. Returns the current viewport dims
    *  when the card should render, otherwise `undefined` — lets the JSX
    *  `Show` narrow the type in the rendered branch. */
+  const { preferences } = useServerState();
   const showPreview = () => {
     const vp = viewportDimensions();
     if (!vp) return undefined;
     return shouldShowPreview(
-      props.previewMode,
+      preferences().sidebarAgentPreviews,
       props.metadata?.agent != null,
       props.unread,
     )
@@ -314,7 +314,6 @@ const Sidebar: Component<{
   isUnread: (id: TerminalId) => boolean;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   getTerminalTheme: (id: TerminalId) => ITheme;
-  previewMode: SidebarAgentPreviews;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
   onCreate: () => void;
@@ -433,7 +432,6 @@ const Sidebar: Component<{
                       unread={props.isUnread(id)}
                       displayInfo={props.getDisplayInfo(id)}
                       terminalTheme={props.getTerminalTheme(id)}
-                      previewMode={props.previewMode}
                       onSelect={handleSelect}
                       onClose={props.onCloseTerminal}
                       dropEdge={edge()}
