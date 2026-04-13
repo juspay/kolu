@@ -10,6 +10,7 @@ import fs from "node:fs";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common";
 import type {
+  Preferences,
   RecentRepo,
   RecentAgent,
   PersistedState,
