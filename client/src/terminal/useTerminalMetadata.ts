@@ -16,8 +16,11 @@
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { match } from "ts-pattern";
-import { createSubscription, type Subscription } from "./createSubscription";
-import { stream } from "./rpc";
+import {
+  createSubscription,
+  type Subscription,
+} from "../rpc/createSubscription";
+import { stream } from "../rpc/rpc";
 import type {
   TerminalId,
   TerminalInfo,

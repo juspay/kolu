@@ -3,7 +3,7 @@
 
 import type { Component } from "solid-js";
 import type { AgentInfo } from "kolu-common";
-import { ClaudeCodeIcon, OpenCodeIcon } from "./Icons";
+import { ClaudeCodeIcon, OpenCodeIcon } from "../ui/Icons";
 
 export const agentIcons: Record<
   AgentInfo["kind"],

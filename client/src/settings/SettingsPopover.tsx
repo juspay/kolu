@@ -4,7 +4,7 @@
 import { type Component, Show, For, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import Toggle from "./Toggle";
+import Toggle from "../ui/Toggle";
 import { useServerState } from "./useServerState";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
 import type { SidebarAgentPreviews } from "kolu-common";

@@ -2,7 +2,7 @@
 
 import { type Component, For } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { cwdBasename } from "./path";
+import { cwdBasename } from "../path";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];

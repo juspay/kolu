@@ -9,7 +9,7 @@
 
 import { type Component, For, Show } from "solid-js";
 import { createMediaQuery } from "@solid-primitives/media";
-import { client } from "./rpc";
+import { client } from "./rpc/rpc";
 import type { TerminalId } from "kolu-common";
 
 interface Key {

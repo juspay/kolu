@@ -5,9 +5,9 @@
  *  The terminal list is a live subscription — the server pushes updates on
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
-import { createSubscription } from "./createSubscription";
-import { stream } from "./rpc";
-import { useViewState } from "./useViewState";
+import { createSubscription } from "../rpc/createSubscription";
+import { stream } from "../rpc/rpc";
+import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {

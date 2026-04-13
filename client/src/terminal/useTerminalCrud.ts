@@ -5,11 +5,11 @@
 
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
-import { availableThemes } from "./theme";
-import { client } from "./rpc";
+import { availableThemes } from "../theme";
+import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
-import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
+import { useTips } from "../settings/useTips";
+import { CONTEXTUAL_TIPS } from "../settings/tips";
 import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 

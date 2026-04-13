@@ -12,8 +12,8 @@
 
 import { type Component, createResource, Show, For } from "solid-js";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ModalDialog";
-import { client } from "./rpc";
+import ModalDialog from "./ui/ModalDialog";
+import { client } from "./rpc/rpc";
 import type { TerminalId } from "kolu-common";
 
 const ClaudeTranscriptDialog: Component<{

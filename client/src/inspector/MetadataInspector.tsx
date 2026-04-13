@@ -4,8 +4,8 @@
 import { type Component, type JSX, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata } from "kolu-common";
-import { PrStateIcon, WorktreeIcon } from "./Icons";
-import ChecksIndicator from "./ChecksIndicator";
+import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import ChecksIndicator from "../sidebar/ChecksIndicator";
 import { agentIcons, agentNames, stateLabels } from "./agentDisplay";
 
 /** Labeled section with tight spacing. */

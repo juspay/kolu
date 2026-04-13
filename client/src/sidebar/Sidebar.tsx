@@ -17,14 +17,14 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import { match } from "ts-pattern";
-import Tip from "./Tip";
-import Kbd from "./Kbd";
-import TerminalMeta from "./TerminalMeta";
-import TerminalPreview from "./TerminalPreview";
-import { useTips } from "./useTips";
-import { sidebarSwitchTip } from "./tips";
-import { formatKeybind, SHORTCUTS } from "./keyboard";
-import type { TerminalDisplayInfo } from "./terminalDisplay";
+import Tip from "../ui/Tip";
+import Kbd from "../ui/Kbd";
+import TerminalMeta from "../terminal/TerminalMeta";
+import TerminalPreview from "../terminal/TerminalPreview";
+import { useTips } from "../settings/useTips";
+import { sidebarSwitchTip } from "../settings/tips";
+import { formatKeybind, SHORTCUTS } from "../input/keyboard";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type {
   AgentInfo,
   SidebarAgentPreviews,
@@ -32,7 +32,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
-import { viewportDimensions } from "./useViewport";
+import { viewportDimensions } from "../useViewport";
 
 type CardTier = "waiting" | "active" | "idle";
 

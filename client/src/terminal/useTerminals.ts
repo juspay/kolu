@@ -12,8 +12,8 @@
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
-import { stream } from "./rpc";
-import { isExpectedCleanupError } from "./streamCleanup";
+import { stream } from "../rpc/rpc";
+import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { useTerminalStore } from "./useTerminalStore";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useSessionRestore } from "./useSessionRestore";

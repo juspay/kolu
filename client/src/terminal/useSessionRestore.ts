@@ -3,8 +3,8 @@
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
-import { useServerState } from "./useServerState";
-import { lifecycle } from "./rpc";
+import { useServerState } from "../settings/useServerState";
+import { lifecycle } from "../rpc/rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 

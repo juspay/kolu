@@ -4,7 +4,7 @@
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { AgentInfo } from "kolu-common";
-import { agentIcons, agentNames, stateLabels } from "./agentDisplay";
+import { agentIcons, agentNames, stateLabels } from "../inspector/agentDisplay";
 
 /** Busy = actively working (thinking or running tools). Warning = needs user input. */
 const BUSY_COLOR = "text-busy";

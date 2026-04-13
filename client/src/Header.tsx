@@ -2,15 +2,15 @@
  *  Burger is mobile-only; panel toggles are desktop-only. */
 
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
-import { MenuIcon, SearchIcon, SettingsIcon } from "./Icons";
-import { formatKeybind, SHORTCUTS } from "./keyboard";
-import Kbd from "./Kbd";
-import Tip from "./Tip";
-import AgentIndicator from "./AgentIndicator";
-import SettingsPopover from "./SettingsPopover";
-import { useTips } from "./useTips";
-import { CONTEXTUAL_TIPS } from "./tips";
-import type { WsStatus } from "./rpc";
+import { MenuIcon, SearchIcon, SettingsIcon } from "./ui/Icons";
+import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import Kbd from "./ui/Kbd";
+import Tip from "./ui/Tip";
+import AgentIndicator from "./sidebar/AgentIndicator";
+import SettingsPopover from "./settings/SettingsPopover";
+import { useTips } from "./settings/useTips";
+import { CONTEXTUAL_TIPS } from "./settings/tips";
+import type { WsStatus } from "./rpc/rpc";
 import type { TerminalMetadata } from "kolu-common";
 
 /** WS connection status indicator colors. */

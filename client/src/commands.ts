@@ -3,11 +3,11 @@
 import { createMemo, batch } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
-import { SHORTCUTS } from "./keyboard";
+import { SHORTCUTS } from "./input/keyboard";
 import { availableThemes } from "./theme";
 import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
-import { useServerState } from "./useServerState";
-import { client } from "./rpc";
+import { useServerState } from "./settings/useServerState";
+import { client } from "./rpc/rpc";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
  *  "Recent agents" entry (phase 1 prefill flow). */
