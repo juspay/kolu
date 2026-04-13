@@ -13,7 +13,7 @@
 
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { publishForTerminal } from "../publisher.ts";
+import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startClaudeCodeProvider } from "./claude.ts";
@@ -36,8 +36,9 @@ export function createMetadata(
   };
 }
 
-/** Atomically mutate metadata and publish the snapshot to all subscribers.
- *  Single place to audit — impossible to forget the publish. */
+/** Atomically mutate metadata, publish the snapshot to subscribers, and
+ *  trigger a debounced session auto-save. Single place to audit —
+ *  impossible to forget either the client publish or the session save. */
 export function updateMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -60,6 +61,7 @@ export function updateMetadata(
     "metadata publish",
   );
   publishForTerminal("metadata", terminalId, { ...m });
+  publishSystem("session:changed", {});
 }
 
 /**

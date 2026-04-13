@@ -178,7 +178,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
             m.cwd = newCwd;
           });
           publishForTerminal("cwd", id, newCwd);
-          emitChanged();
         }
       },
     },
@@ -274,7 +273,6 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
     updateMetadata(entry, id, (m) => {
       m.themeName = themeName;
     });
-    emitChanged();
   }
 }
 
@@ -289,7 +287,6 @@ export function reorderTerminals(ids: TerminalId[]): void {
     }
   }
   log.debug({ count: ids.length }, "terminals reordered");
-  emitChanged();
   emitListChanged();
 }
 
