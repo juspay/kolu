@@ -9,7 +9,7 @@ Three invariants an agent editing any single file would otherwise miss. They are
 
 ### 1. Route client calls through the `stream` namespace
 
-Every async-iterator RPC the client consumes goes through `client/src/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
+Every async-iterator RPC the client consumes goes through `client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
 
 **When adding a new streaming procedure** (to `common/src/contract.ts` + `server/src/router.ts`), also add a corresponding entry to the `stream` object. Consumers MUST use `stream.xxx(...)` — calling `client.xxx(...)` directly silently loses reconnect handling.
 
