@@ -11,14 +11,57 @@ import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
-import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
-import type { ColorScheme } from "./useColorScheme";
+import type { TerminalMetadata } from "kolu-common";
 
 /** WS connection status indicator colors. */
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",
   open: "bg-ok",
   closed: "bg-danger",
+};
+
+/** Panel toggle icon positions — maps orientation to SVG line coordinates. */
+type PanelOrientation = "left" | "bottom" | "right";
+const panelLineCoords: Record<
+  PanelOrientation,
+  [number, number, number, number]
+> = {
+  left: [9, 3, 9, 21],
+  bottom: [3, 15, 21, 15],
+  right: [15, 3, 15, 21],
+};
+
+/** Compact panel toggle icon — rect with a divider line. */
+const PanelToggleIcon: Component<{
+  orientation: PanelOrientation;
+  active?: boolean;
+  label: string;
+  onClick?: () => void;
+  "data-testid"?: string;
+}> = (props) => {
+  const [x1, y1, x2, y2] = panelLineCoords[props.orientation];
+  return (
+    <Tip label={props.label}>
+      <button
+        data-testid={props["data-testid"]}
+        class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+        classList={{ "text-fg-2": props.active }}
+        onClick={props.onClick}
+        aria-label={props.label}
+      >
+        <svg
+          class="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1={x1} y1={y1} x2={x2} y2={y2} />
+        </svg>
+      </button>
+    </Tip>
+  );
 };
 
 const Header: Component<{
@@ -29,19 +72,6 @@ const Header: Component<{
   onAgentClick?: () => void;
   onSearch?: () => void;
   appTitle?: string;
-  // Settings
-  randomTheme?: boolean;
-  onRandomThemeChange?: (on: boolean) => void;
-  scrollLock?: boolean;
-  onScrollLockChange?: (on: boolean) => void;
-  colorScheme?: ColorScheme;
-  onColorSchemeChange?: (scheme: ColorScheme) => void;
-  startupTips?: boolean;
-  onStartupTipsChange?: (on: boolean) => void;
-  activityAlerts?: boolean;
-  onActivityAlertsChange?: (on: boolean) => void;
-  sidebarAgentPreviews?: SidebarAgentPreviews;
-  onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
   // Theme
   themeName?: string;
   onThemeClick?: () => void;
@@ -95,72 +125,25 @@ const Header: Component<{
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {/* Panel toggle icons — desktop only */}
         <div class="hidden sm:flex items-center gap-0.5">
-          <Tip
+          <PanelToggleIcon
+            orientation="left"
+            active={props.sidebarOpen}
             label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
-          >
-            <button
-              data-testid="sidebar-toggle-desktop"
-              class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-              classList={{ "text-fg-2": props.sidebarOpen }}
-              onClick={() => props.onToggleSidebar?.()}
-              aria-label="Toggle sidebar"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                stroke-width="2"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-            </button>
-          </Tip>
-          <Tip
+            onClick={() => props.onToggleSidebar?.()}
+            data-testid="sidebar-toggle-desktop"
+          />
+          <PanelToggleIcon
+            orientation="bottom"
+            active={props.hasSubPanel && props.subPanelExpanded}
             label={`Toggle split (${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)})`}
-          >
-            <button
-              class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-              classList={{
-                "text-fg-2": props.hasSubPanel && props.subPanelExpanded,
-              }}
-              onClick={() => props.onToggleSubPanel?.()}
-              aria-label="Toggle terminal split"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                stroke-width="2"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="15" x2="21" y2="15" />
-              </svg>
-            </button>
-          </Tip>
-          <Tip
+            onClick={() => props.onToggleSubPanel?.()}
+          />
+          <PanelToggleIcon
+            orientation="right"
+            active={!props.rightPanelCollapsed}
             label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
-          >
-            <button
-              class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-              classList={{ "text-fg-2": !props.rightPanelCollapsed }}
-              onClick={() => props.onToggleRightPanel?.()}
-              aria-label="Toggle inspector panel"
-            >
-              <svg
-                class="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                stroke-width="2"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="15" y1="3" x2="15" y2="21" />
-              </svg>
-            </button>
-          </Tip>
+            onClick={() => props.onToggleRightPanel?.()}
+          />
         </div>
         {props.themeName && (
           <Tip label={`Theme: ${props.themeName}`}>
@@ -204,20 +187,6 @@ const Header: Component<{
             open={settingsOpen()}
             onOpenChange={setSettingsOpen}
             triggerRef={settingsTriggerRef}
-            randomTheme={props.randomTheme ?? true}
-            onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
-            scrollLock={props.scrollLock ?? true}
-            onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
-            colorScheme={props.colorScheme ?? "dark"}
-            onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
-            activityAlerts={props.activityAlerts ?? true}
-            onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
-            sidebarAgentPreviews={props.sidebarAgentPreviews ?? "attention"}
-            onSidebarAgentPreviewsChange={(mode) =>
-              props.onSidebarAgentPreviewsChange?.(mode)
-            }
-            startupTips={props.startupTips ?? true}
-            onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />
         </div>
         <Tip label="Command palette">

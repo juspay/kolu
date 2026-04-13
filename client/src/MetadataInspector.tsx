@@ -3,30 +3,10 @@
 
 import { type Component, type JSX, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { AgentInfo, TerminalMetadata } from "kolu-common";
-import {
-  PrStateIcon,
-  WorktreeIcon,
-  ClaudeCodeIcon,
-  OpenCodeIcon,
-} from "./Icons";
+import type { TerminalMetadata } from "kolu-common";
+import { PrStateIcon, WorktreeIcon } from "./Icons";
 import ChecksIndicator from "./ChecksIndicator";
-
-const agentIcons: Record<AgentInfo["kind"], Component<{ class?: string }>> = {
-  "claude-code": ClaudeCodeIcon,
-  opencode: OpenCodeIcon,
-};
-
-const agentNames: Record<AgentInfo["kind"], string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-};
-
-const stateLabels: Record<AgentInfo["state"], string> = {
-  thinking: "Thinking",
-  tool_use: "Running tools",
-  waiting: "Waiting for input",
-};
+import { agentIcons, agentNames, stateLabels } from "./agentDisplay";
 
 /** Labeled section with tight spacing. */
 const Section: Component<{

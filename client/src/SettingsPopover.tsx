@@ -1,10 +1,12 @@
-/** Settings popover — toggleable settings anchored to a trigger button. */
+/** Settings popover — reads and writes preferences via useServerState directly.
+ *  Only needs open/close state and trigger ref from the parent. */
 
 import { type Component, Show, For, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Toggle from "./Toggle";
-import type { ColorScheme } from "./useColorScheme";
+import { useServerState } from "./useServerState";
+import { useColorScheme, type ColorScheme } from "./useColorScheme";
 import type { SidebarAgentPreviews } from "kolu-common";
 
 const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
@@ -28,19 +30,10 @@ const SettingsPopover: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: HTMLElement;
-  randomTheme: boolean;
-  onRandomThemeChange: (on: boolean) => void;
-  scrollLock: boolean;
-  onScrollLockChange: (on: boolean) => void;
-  colorScheme: ColorScheme;
-  onColorSchemeChange: (scheme: ColorScheme) => void;
-  startupTips: boolean;
-  onStartupTipsChange: (on: boolean) => void;
-  activityAlerts: boolean;
-  onActivityAlertsChange: (on: boolean) => void;
-  sidebarAgentPreviews: SidebarAgentPreviews;
-  onSidebarAgentPreviewsChange: (mode: SidebarAgentPreviews) => void;
 }> = (props) => {
+  const { preferences, updatePreferences } = useServerState();
+  const { colorScheme, setColorScheme } = useColorScheme();
+
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, right: 0 });
 
@@ -99,12 +92,11 @@ const SettingsPopover: Component<{
                     data-testid={`color-scheme-${opt.value}`}
                     class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
                     classList={{
-                      "bg-accent text-surface-0":
-                        props.colorScheme === opt.value,
+                      "bg-accent text-surface-0": colorScheme() === opt.value,
                       "bg-surface-2 text-fg-2 hover:text-fg":
-                        props.colorScheme !== opt.value,
+                        colorScheme() !== opt.value,
                     }}
-                    onClick={() => props.onColorSchemeChange(opt.value)}
+                    onClick={() => setColorScheme(opt.value)}
                   >
                     {opt.label}
                   </button>
@@ -117,8 +109,8 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Random theme</span>
             <Toggle
               testId="random-theme-toggle"
-              enabled={props.randomTheme}
-              onChange={props.onRandomThemeChange}
+              enabled={preferences().randomTheme}
+              onChange={(on) => updatePreferences({ randomTheme: on })}
             />
           </label>
           {/* Scroll lock */}
@@ -126,8 +118,8 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Scroll lock</span>
             <Toggle
               testId="scroll-lock-toggle"
-              enabled={props.scrollLock}
-              onChange={props.onScrollLockChange}
+              enabled={preferences().scrollLock}
+              onChange={(on) => updatePreferences({ scrollLock: on })}
             />
           </label>
           {/* Activity alerts */}
@@ -135,8 +127,8 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Activity alerts</span>
             <Toggle
               testId="activity-alerts-toggle"
-              enabled={props.activityAlerts}
-              onChange={props.onActivityAlertsChange}
+              enabled={preferences().activityAlerts}
+              onChange={(on) => updatePreferences({ activityAlerts: on })}
             />
           </label>
           {/* Sidebar agent previews — 4-way segmented control */}
@@ -153,12 +145,12 @@ const SettingsPopover: Component<{
                     class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
                     classList={{
                       "bg-accent text-surface-0":
-                        props.sidebarAgentPreviews === opt.value,
+                        preferences().sidebarAgentPreviews === opt.value,
                       "bg-surface-2 text-fg-2 hover:text-fg":
-                        props.sidebarAgentPreviews !== opt.value,
+                        preferences().sidebarAgentPreviews !== opt.value,
                     }}
                     onClick={() =>
-                      props.onSidebarAgentPreviewsChange(opt.value)
+                      updatePreferences({ sidebarAgentPreviews: opt.value })
                     }
                   >
                     {opt.label}
@@ -172,8 +164,8 @@ const SettingsPopover: Component<{
             <span class="text-fg-2">Startup tips</span>
             <Toggle
               testId="startup-tips-toggle"
-              enabled={props.startupTips}
-              onChange={props.onStartupTipsChange}
+              enabled={preferences().startupTips}
+              onChange={(on) => updatePreferences({ startupTips: on })}
             />
           </label>
         </div>

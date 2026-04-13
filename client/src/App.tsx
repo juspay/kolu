@@ -352,22 +352,6 @@ const App: Component = () => {
         onAgentClick={() => rightPanel.expandPanel()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
-        randomTheme={randomTheme()}
-        onRandomThemeChange={(on) => updatePreferences({ randomTheme: on })}
-        scrollLock={scrollLock()}
-        onScrollLockChange={(on) => updatePreferences({ scrollLock: on })}
-        colorScheme={colorScheme()}
-        onColorSchemeChange={setColorScheme}
-        activityAlerts={activityAlerts()}
-        onActivityAlertsChange={(on) =>
-          updatePreferences({ activityAlerts: on })
-        }
-        sidebarAgentPreviews={sidebarAgentPreviews()}
-        onSidebarAgentPreviewsChange={(mode) =>
-          updatePreferences({ sidebarAgentPreviews: mode })
-        }
-        startupTips={startupTips()}
-        onStartupTipsChange={setStartupTips}
         themeName={activeThemeName()}
         onThemeClick={() => openPaletteGroup("Theme")}
         sidebarOpen={sidebarOpen()}
