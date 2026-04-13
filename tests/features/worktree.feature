@@ -4,6 +4,8 @@ Feature: Git worktree management
 
   Background:
     Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
 
   Scenario: Create terminal in a new worktree via command palette
     When I set up a git repo at "/tmp/kolu-wt-test"

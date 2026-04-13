@@ -257,6 +257,8 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+  rightPanelCollapsed: z.boolean(),
+  rightPanelSize: z.number(),
 });
 
 // --- Server state ---

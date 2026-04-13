@@ -33,6 +33,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
+  rightPanelCollapsed: true,
+  rightPanelSize: 0.25,
 };
 
 // Singleton store — all callers share one reactive source of truth for preferences.
