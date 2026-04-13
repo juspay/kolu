@@ -71,7 +71,12 @@ export class KoluWorld extends World {
     const createBtn = this.page.locator('[data-testid="create-terminal"]');
     const box = await createBtn.boundingBox();
     if (!box || box.x < 0) {
-      await this.page.locator('[data-testid="sidebar-toggle"]').click();
+      // Mobile: header burger, desktop: status bar button
+      const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
+      const toggle = (await mobile.isVisible())
+        ? mobile
+        : this.page.locator('[data-testid="statusbar-sidebar-toggle"]');
+      await toggle.click();
       await this.page.waitForFunction(
         () => {
           const btn = document.querySelector('[data-testid="create-terminal"]');

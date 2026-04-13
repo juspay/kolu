@@ -64,7 +64,7 @@ const StatusBar: Component<{
             label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
           >
             <button
-              data-testid="sidebar-toggle"
+              data-testid="statusbar-sidebar-toggle"
               class="flex items-center justify-center w-6 h-5 rounded hover:bg-surface-2 hover:text-fg transition-colors cursor-pointer"
               classList={{ "text-fg-2": props.sidebarOpen }}
               onClick={props.onToggleSidebar}
