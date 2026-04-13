@@ -257,6 +257,8 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+  rightPanelCollapsed: z.boolean(),
+  rightPanelSize: z.number(),
 });
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -267,6 +269,8 @@ export const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
+  rightPanelCollapsed: true,
+  rightPanelSize: 0.25,
 };
 
 // --- Server state ---
