@@ -239,6 +239,15 @@ export const SidebarAgentPreviewsSchema = z.enum([
 ]);
 export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
 
+export const RightPanelTabSchema = z.enum(["inspector", "files", "git"]);
+export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
+
+export const RightPanelPrefsSchema = z.object({
+  collapsed: z.boolean(),
+  size: z.number(),
+  tab: RightPanelTabSchema,
+});
+
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
@@ -247,8 +256,7 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
-  rightPanelCollapsed: z.boolean(),
-  rightPanelSize: z.number(),
+  rightPanel: RightPanelPrefsSchema,
 });
 
 // --- Server state ---
@@ -265,12 +273,17 @@ export const PersistedStateSchema = z.object({
  *  #333 will extend with runtime fields (terminals, terminalMeta). */
 export const ServerStateSchema = PersistedStateSchema.extend({});
 
+/** Preference patch — top-level fields are optional; nested objects are deep-partial. */
+const PreferencesPatchSchema = PreferencesSchema.omit({ rightPanel: true })
+  .partial()
+  .extend({ rightPanel: RightPanelPrefsSchema.partial().optional() });
+
 /** Partial patch for state updates — all fields optional, preferences partially mergeable. */
 export const ServerStatePatchSchema = z.object({
   recentRepos: z.array(RecentRepoSchema).optional(),
   recentAgents: z.array(RecentAgentSchema).optional(),
   session: SavedSessionSchema.nullable().optional(),
-  preferences: PreferencesSchema.partial().optional(),
+  preferences: PreferencesPatchSchema.optional(),
 });
 
 // --- Derived types ---
@@ -296,3 +309,4 @@ export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PersistedState = z.infer<typeof PersistedStateSchema>;
 export type ServerState = z.infer<typeof ServerStateSchema>;
 export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;
+export type PreferencesPatch = NonNullable<ServerStatePatch["preferences"]>;

@@ -38,6 +38,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
-  rightPanelCollapsed: true,
-  rightPanelSize: 0.25,
+  rightPanel: {
+    collapsed: true,
+    size: 0.25,
+    tab: "inspector",
+  },
 };

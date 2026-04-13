@@ -1,6 +1,8 @@
-/** Right panel state — singleton module. Tracks collapsed and size, persisted via server preferences.
- *  Defaults to collapsed. User's explicit choice sticks regardless of viewport. */
+/** Right panel state — singleton module. Tracks collapsed, size, and active tab,
+ *  persisted via server preferences under `preferences.rightPanel`.
+ *  Defaults to collapsed with the Inspector tab active. */
 
+import type { RightPanelTab } from "kolu-common";
 import { useServerState } from "../settings/useServerState";
 
 const MIN_PANEL_SIZE = 0.05;
@@ -8,17 +10,20 @@ const MIN_PANEL_SIZE = 0.05;
 export function useRightPanel() {
   const { preferences, updatePreferences } = useServerState();
 
+  const rp = () => preferences().rightPanel;
+
   return {
-    collapsed: () => preferences().rightPanelCollapsed,
-    panelSize: () => preferences().rightPanelSize,
+    collapsed: () => rp().collapsed,
+    panelSize: () => rp().size,
+    activeTab: () => rp().tab,
+    setActiveTab: (tab: RightPanelTab) =>
+      updatePreferences({ rightPanel: { tab } }),
     togglePanel: () =>
-      updatePreferences({
-        rightPanelCollapsed: !preferences().rightPanelCollapsed,
-      }),
-    collapsePanel: () => updatePreferences({ rightPanelCollapsed: true }),
-    expandPanel: () => updatePreferences({ rightPanelCollapsed: false }),
+      updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
+    collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
+    expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
-      if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanelSize: size });
+      if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } });
     },
   } as const;
 }

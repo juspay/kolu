@@ -25,7 +25,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.6.0";
+const SCHEMA_VERSION = "1.7.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -99,6 +99,36 @@ export const store = new Conf<PersistedState>({
         ...DEFAULT_PREFERENCES,
         ...current,
       });
+    },
+    // rightPanel nested object — migrates flat rightPanelCollapsed/rightPanelSize to nested + adds tab.
+    "1.7.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as
+        | (Record<string, unknown> & {
+            rightPanelCollapsed?: boolean;
+            rightPanelSize?: number;
+          })
+        | undefined;
+      // Extract flat fields from pre-1.7.0 layout
+      const collapsed =
+        current?.rightPanelCollapsed ??
+        DEFAULT_PREFERENCES.rightPanel.collapsed;
+      const size =
+        current?.rightPanelSize ?? DEFAULT_PREFERENCES.rightPanel.size;
+      // Remove flat fields, add nested object
+      const {
+        rightPanelCollapsed: _,
+        rightPanelSize: __,
+        ...rest
+      } = current ?? {};
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...rest,
+        rightPanel: {
+          collapsed,
+          size,
+          tab: DEFAULT_PREFERENCES.rightPanel.tab,
+        },
+      } as unknown as Preferences);
     },
   },
 });
@@ -204,9 +234,14 @@ export function updateServerState(patch: ServerStatePatch): void {
     store.set("session", patch.session);
   }
   if (patch.preferences !== undefined) {
+    const current = store.get("preferences");
+    const { rightPanel: rpPatch, ...rest } = patch.preferences;
     store.set("preferences", {
-      ...store.get("preferences"),
-      ...patch.preferences,
+      ...current,
+      ...rest,
+      ...(rpPatch !== undefined && {
+        rightPanel: { ...current.rightPanel, ...rpPatch },
+      }),
     });
   }
   // Notify live query subscribers

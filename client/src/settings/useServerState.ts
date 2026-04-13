@@ -21,6 +21,7 @@ import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
   ServerState,
   Preferences,
+  PreferencesPatch,
   RecentRepo,
   RecentAgent,
   SavedSession,
@@ -46,10 +47,14 @@ export function useServerState() {
     );
   }
 
-  /** Update one or more preferences. Instant local update + async server persist. */
-  function updatePreferences(patch: Partial<Preferences>) {
-    // Synchronous local update — UI reacts immediately (singleton store)
-    setPrefs(patch);
+  /** Update one or more preferences. Instant local update + async server persist.
+   *  Nested objects (rightPanel) are deep-merged both locally and on the server. */
+  function updatePreferences(patch: PreferencesPatch) {
+    // Synchronous local update — UI reacts immediately (singleton store).
+    // SolidJS store setter supports path-based deep updates.
+    const { rightPanel: rpPatch, ...rest } = patch;
+    if (Object.keys(rest).length > 0) setPrefs(rest);
+    if (rpPatch) setPrefs("rightPanel", rpPatch);
     // Server persist — live stream will push authoritative state back via reconcile
     void client.state
       .update({ preferences: patch })

@@ -7,23 +7,7 @@ import type { TerminalMetadata } from "kolu-common";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import ChecksIndicator from "../sidebar/ChecksIndicator";
 import { agentIcons, agentNames, stateLabels } from "./agentDisplay";
-
-/** Labeled section with tight spacing. */
-const Section: Component<{
-  title: string;
-  "data-testid"?: string;
-  children: JSX.Element;
-}> = (props) => (
-  <div
-    class="py-3 px-3 border-b border-edge"
-    data-testid={props["data-testid"]}
-  >
-    <div class="text-[9px] font-bold uppercase tracking-[0.15em] text-fg-3/60 mb-2">
-      {props.title}
-    </div>
-    {props.children}
-  </div>
-);
+import Section from "./Section";
 
 /** Label–value pair with dim label and bright value. */
 const Row: Component<{ label: string; children: JSX.Element }> = (props) => (
