@@ -6,7 +6,7 @@ import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata } from "kolu-common";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import ChecksIndicator from "../sidebar/ChecksIndicator";
-import { agentIcons, agentNames, stateLabels } from "./agentDisplay";
+import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
 import Section from "./Section";
 
 /** Label–value pair with dim label and bright value. */
