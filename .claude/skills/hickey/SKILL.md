@@ -135,7 +135,9 @@ After completing all layers, **invoke `/fact-check` on your own output**. The fa
 - Bogus "essential complexity" labels without a concrete simplified alternative
 - Claims about code behavior that you didn't verify by reading the code
 
-**Also flag scope-based dismissals.** "Out of scope for this PR", "pre-existing issue", "appropriate scope for a bug fix", and "follow-up refactor" are not simplicity judgments — they are process judgments that let findings evaporate between hickey and implementation. If you find yourself writing one, either fix the finding in this PR or create an issue and defer it. The Actions section enforces this — if you can't fill it in, you're dismissing the finding.
+**Also flag scope-based dismissals.** "Out of scope for this PR", "pre-existing issue", "appropriate scope for a bug fix", "orthogonal", and "follow-up refactor" are not simplicity judgments — they are process judgments that let findings evaporate between hickey and implementation. If you find yourself writing one, either fix the finding in this PR or create an issue and defer it. The Actions section enforces this — if you can't fill it in, you're dismissing the finding.
+
+**Flag orphaned pre-existing/orthogonal findings.** Any finding described as "pre-existing" or "orthogonal" during analysis that does not appear in the Actions section with a **Defer `#<issue-number>`** disposition is a dismissal, not a deferral. The fact-check pass must catch these: scan the full evaluation for the words "pre-existing", "orthogonal", "already existed", or "not introduced by this PR" — each occurrence must have a corresponding Actions entry with an issue link. No exceptions.
 
 **Also flag your own output for phrase shapes that mean you stopped reasoning one step early.** These aren't findings you talked yourself out of — they're findings you never let form. If any of these phrase shapes appear in your evaluation, re-open the question they're dismissing:
 
@@ -160,9 +162,9 @@ If fact-check finds issues with your evaluation, revise before presenting to the
 5. **Severity** — For each finding: blast radius, change friction, reasoning load.
 6. **Simplifications** — Concrete alternative for every finding.
 7. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
-8. **Actions** — One entry per finding. Each must be dispositioned as exactly one of:
+8. **Actions** — One entry per finding. **Every finding from every layer must appear here** — including findings labeled "pre-existing", "orthogonal", or "not introduced by this PR". A finding that never reaches this section has been dismissed, not deferred. Each must be dispositioned as exactly one of:
    - **Fix in this PR**: one-line description of what the implementation step must do. This is the default — prefer it.
-   - **Defer `#<issue-number>`**: create a GitHub/forge issue for the finding first, then reference it here. "Out of scope" without an issue link is a dismissal, not a deferral. If you can't be bothered to create the issue, the finding belongs in this PR.
+   - **Defer `#<issue-number>`**: create a GitHub/forge issue for the finding first, then reference it here. "Out of scope" without an issue link is a dismissal, not a deferral. If you can't be bothered to create the issue, the finding belongs in this PR. **When running autonomously (via `/do`)**, you MUST actually create the issue (`gh issue create` or equivalent) before writing the Defer entry — do not leave it for the user. When running interactively, you may prompt the user to create the issue.
 
    "No findings" → "No actions." But if findings exist and the actions list is empty, the evaluation is incomplete.
 

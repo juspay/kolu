@@ -51,6 +51,13 @@ Integration code (under `integrations/`) runs in a long-lived Node process — p
 - **Directory watchers must be shared.** Multiple callers watching the same directory (e.g. `SESSIONS_DIR`) must go through a refcounted singleton, not each install their own `fs.watch`. N watchers = N duplicate callbacks = N-fold cost per event.
 - **Debug-only collections must be bounded.** Arrays that accumulate diagnostic state (e.g. `stateChanges`) need a cap with `shift()`-before-`push()` eviction (see `MAX_STATE_CHANGES`).
 
+### no-preference-prop-drilling
+
+Components must read preferences from `useServerState()` directly, not receive them as props from a parent. The singleton store guarantees shared reactivity — all callers share one `createStore` instance.
+Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` in child
+Good: `const { preferences } = useServerState();` inside the child component
+_Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.
+
 ### errors-must-log-at-error
 
 Actual errors (failed I/O, failed queries, unexpected exceptions, callback throws) must log at `error` level, not `warn` or `debug`. Reserve `warn` for degraded-but-recoverable states (e.g. a non-critical fallback path). Reserve `debug` for expected-absent conditions (e.g. file not found on a machine that doesn't have the tool installed).

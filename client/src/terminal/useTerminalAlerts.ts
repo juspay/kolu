@@ -3,13 +3,13 @@
 
 import { type Accessor, createEffect, on } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { useServerState } from "../settings/useServerState";
 import {
   fireActivityAlert,
   requestNotificationPermission,
 } from "./useActivityAlerts";
 
 export function useTerminalAlerts(deps: {
-  activityAlerts: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   isUnread: (id: TerminalId) => boolean;
@@ -17,8 +17,11 @@ export function useTerminalAlerts(deps: {
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
+  const { preferences } = useServerState();
+  const activityAlerts = () => preferences().activityAlerts;
+
   // Request browser notification permission eagerly when alerts are enabled
-  if (deps.activityAlerts()) requestNotificationPermission();
+  if (activityAlerts()) requestNotificationPermission();
 
   // Badge the PWA dock icon with the unread agent count (Badging API).
   // Clears automatically when the user visits all unread terminals.
@@ -53,8 +56,7 @@ export function useTerminalAlerts(deps: {
     prev: string | undefined,
     next: string | undefined,
   ) {
-    if (!deps.activityAlerts() || next !== "waiting" || prev === "waiting")
-      return;
+    if (!activityAlerts() || next !== "waiting" || prev === "waiting") return;
     const isBackground = id !== deps.activeId();
     if (isBackground) deps.markUnread(id);
     if (isBackground || document.hidden)
@@ -62,7 +64,7 @@ export function useTerminalAlerts(deps: {
   }
 
   function simulateAlert() {
-    if (!deps.activityAlerts()) return;
+    if (!activityAlerts()) return;
     const inactive = deps.terminalIds().filter((id) => id !== deps.activeId());
     if (inactive.length === 0) return;
     const id = inactive[Math.floor(Math.random() * inactive.length)]!;
