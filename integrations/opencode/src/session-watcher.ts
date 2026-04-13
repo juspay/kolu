@@ -158,7 +158,7 @@ export function createOpenCodeWatcher(
 
   const unsubscribe = subscribeOpenCodeDb(
     scheduleRefresh,
-    (err) => log?.warn({ err, session: session.id }, "wal listener threw"),
+    (err) => log?.error({ err, session: session.id }, "wal listener threw"),
     log,
   );
   refresh();

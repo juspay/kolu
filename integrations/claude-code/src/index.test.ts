@@ -259,7 +259,7 @@ describe("findTranscriptPath", () => {
 });
 
 describe("extractTasks", () => {
-  const mockLog = { warn: vi.fn() };
+  const mockLog = { error: vi.fn() };
 
   function taskCreateResult(id: string, subject: string): string {
     return JSON.stringify({
@@ -332,7 +332,7 @@ describe("extractTasks", () => {
   });
 
   it("warns on unexpected TaskUpdate input shape", () => {
-    mockLog.warn.mockClear();
+    mockLog.error.mockClear();
     const tasks = new Map<string, "pending" | "in_progress" | "completed">();
     const line = JSON.stringify({
       type: "assistant",
@@ -343,7 +343,7 @@ describe("extractTasks", () => {
       },
     });
     extractTasks([line], tasks, mockLog);
-    expect(mockLog.warn).toHaveBeenCalled();
+    expect(mockLog.error).toHaveBeenCalled();
   });
 
   it("ignores non-task tool calls", () => {

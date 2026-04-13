@@ -111,11 +111,8 @@ type TranscriptWatching =
 
 // --- Logger interface ---
 
-export interface WatcherLog {
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-}
+import type { Logger } from "kolu-integration-common";
+export type { Logger as WatcherLog } from "kolu-integration-common";
 
 // --- Diagnostics counter ---
 
@@ -153,7 +150,7 @@ export interface SessionWatcher {
 export function createSessionWatcher(
   session: SessionFile,
   onUpdate: (info: ClaudeCodeInfo) => void,
-  plog: WatcherLog,
+  plog: Logger,
 ): SessionWatcher {
   let transcriptWatching: TranscriptWatching = { kind: "none" };
   let lastInfo: ClaudeCodeInfo | null = null;
@@ -207,7 +204,7 @@ export function createSessionWatcher(
       debugStartOffset = fs.statSync(tp).size;
       debugStartedAt = Date.now();
     } catch (err) {
-      plog.warn({ err, path: tp }, "failed to watch transcript");
+      plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
     }
   }
@@ -338,7 +335,7 @@ export function createSessionWatcher(
         );
       }
     } catch (err) {
-      plog.warn({ err, filePath, taskScanOffset }, "task scan failed");
+      plog.error({ err, filePath, taskScanOffset }, "task scan failed");
     }
   }
 

@@ -105,7 +105,7 @@ export function findSessionByDirectory(
       directory: row.directory,
     };
   } catch (err) {
-    log?.warn({ err, directory }, "opencode session query failed");
+    log?.error({ err, directory }, "opencode session query failed");
     return null;
   } finally {
     db.close();
@@ -165,7 +165,7 @@ export function getSessionTaskProgress(
     if (!row || row.total === 0) return null;
     return { total: row.total, completed: row.completed ?? 0 };
   } catch (err) {
-    log?.warn({ err, sessionId }, "opencode todo query failed");
+    log?.error({ err, sessionId }, "opencode todo query failed");
     return null;
   } finally {
     if (ownsDb) conn.close();
@@ -200,7 +200,7 @@ export function hasRunningTools(
       .get(messageId) as { n: number } | undefined;
     return (row?.n ?? 0) > 0;
   } catch (err) {
-    log?.debug({ err, messageId }, "opencode running-tools query failed");
+    log?.error({ err, messageId }, "opencode running-tools query failed");
     return false;
   } finally {
     if (ownsDb) conn.close();
@@ -257,7 +257,7 @@ export function deriveSessionState(
     if (!parsed) return null;
     return { ...parsed, messageId: row.id };
   } catch (err) {
-    log?.warn({ err, sessionId }, "opencode message query failed");
+    log?.error({ err, sessionId }, "opencode message query failed");
     return null;
   } finally {
     if (ownsDb) conn.close();
