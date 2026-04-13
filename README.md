@@ -211,12 +211,11 @@ just test       # e2e tests (full nix build)
 
 ## CI
 
-`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
+CI runs via **GitHub Actions** on self-hosted runners (`.github/workflows/ci.yaml`). Each runner is labeled with its Nix system name (`x86_64-linux`, `aarch64-darwin`). See [`ci/`](ci/) for the local recipes that GHA jobs invoke.
 
 ```sh
-just ci              # full CI run
-just ci::protect     # set branch protection
-just ci::_summary    # check current status
+just ci              # run all CI steps locally (current system)
+just ci::typecheck   # run a single step
 ```
 
 ## Deployment (NixOS + home-manager)

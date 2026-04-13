@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  local-checks:
+    runs-on: x86_64-linux
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::fmt ci::typecheck ci::unit ci::apm-sync
+
+  nix-linux:
+    runs-on: x86_64-linux
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::nix
+
+  nix-darwin:
+    runs-on: aarch64-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::nix
+
+  hm-linux:
+    needs: nix-linux
+    runs-on: x86_64-linux
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::home-manager
+
+  e2e-linux:
+    needs: nix-linux
+    runs-on: x86_64-linux
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::e2e
+
+  e2e-darwin:
+    needs: nix-darwin
+    runs-on: aarch64-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - run: just ci::e2e

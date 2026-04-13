@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-13T17:31:15.766641+00:00'
+generated_at: '2026-04-13T18:13:40.278107+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -19,6 +19,20 @@ dependencies:
   - .claude/rules/workflow.md
   - .claude/skills/ci
   - .claude/skills/test
+  - .github/instructions/apm-workflow.instructions.md
+  - .github/instructions/architecture.instructions.md
+  - .github/instructions/code-police-rules.instructions.md
+  - .github/instructions/e2e-testing.instructions.md
+  - .github/instructions/hickey-catalog.instructions.md
+  - .github/instructions/nix.instructions.md
+  - .github/instructions/solidjs.instructions.md
+  - .github/instructions/state.instructions.md
+  - .github/instructions/streaming.instructions.md
+  - .github/instructions/toast-conventions.instructions.md
+  - .github/instructions/workflow.instructions.md
+  - .github/prompts/whatchanged.prompt.md
+  - .github/skills/ci
+  - .github/skills/test
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -29,6 +43,7 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .claude/skills/frontend-design
+  - .github/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/skills
   host: github.com
@@ -38,6 +53,7 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .claude/skills/nix-justfile
+  - .github/skills/nix-justfile
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
@@ -47,6 +63,7 @@ dependencies:
   package_type: claude_skill
   deployed_files:
   - .claude/skills/nix-typescript
+  - .github/skills/nix-typescript
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
@@ -61,4 +78,12 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
+  - .github/hooks/agency-do-stop-guard.json
+  - .github/hooks/scripts/agency/scripts/do-stop-guard.sh
+  - .github/instructions/apm-sources.instructions.md
+  - .github/prompts/do.prompt.md
+  - .github/prompts/talk.prompt.md
+  - .github/skills/code-police
+  - .github/skills/forge-pr
+  - .github/skills/hickey
   content_hash: sha256:5e469f1b205bd9eaef6a1977e783ab9fbeddba80384f9d5a9b1e54e91e2dcf4f
