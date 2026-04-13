@@ -145,6 +145,13 @@ const MetadataInspector: Component<{
                       {stateLabels[agent().state] ?? agent().state}
                     </span>
                   </Row>
+                  <Show when={agent().summary}>
+                    {(summary) => (
+                      <Row label="Task">
+                        <span class="text-fg">{summary()}</span>
+                      </Row>
+                    )}
+                  </Show>
                   <Show when={agent().model}>
                     {(model) => (
                       <Row label="Model">
