@@ -91,21 +91,28 @@ export function useTerminalCrud(deps: {
   }
 
   /** Create a new terminal on the server and make it active.
-   *  Returns the new terminal ID (for session restore mapping). */
-  async function handleCreate(cwd?: string): Promise<TerminalId> {
+   *  Returns the new terminal ID (for session restore mapping).
+   *  When `themeName` is provided (e.g. session restore), it overrides
+   *  the random-theme preference so only one setTheme RPC fires. */
+  async function handleCreate(
+    cwd?: string,
+    themeName?: string,
+  ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     const info = await client.terminal.create({ cwd }).catch((err: Error) => {
       toast.error(`Failed to create terminal: ${err.message}`);
       throw err;
     });
-    const themeName = preferences().randomTheme
-      ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
-          .name
-      : undefined;
+    const theme =
+      themeName ??
+      (preferences().randomTheme
+        ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+            .name
+        : undefined);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
-    if (themeName) setThemeName(info.id, themeName);
+    if (theme) setThemeName(info.id, theme);
     return info.id;
   }
 
