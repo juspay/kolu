@@ -1,11 +1,12 @@
 lockfile_version: '1'
-generated_at: '2026-04-12T14:02:02.429862+00:00'
+generated_at: '2026-04-13T16:57:09.155860+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
   package_type: apm_package
   deployed_files:
   - .claude/commands/whatchanged.md
+  - .claude/rules/apm-workflow.md
   - .claude/rules/architecture.md
   - .claude/rules/code-police-rules.md
   - .claude/rules/e2e-testing.md
@@ -49,7 +50,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: f5ba1012c06f3e81044a1c9915d26525620af48f
+  resolved_commit: 896a56c538c2f084dee28609cfcfb0a6eecc34e6
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -60,4 +61,4 @@ dependencies:
   - .claude/skills/code-police
   - .claude/skills/forge-pr
   - .claude/skills/hickey
-  content_hash: sha256:14e2152c74582ae0ce99b9f7564d42e67297e0685442a82426c84935297c4220
+  content_hash: sha256:4c6d61ed129f2943797b04e4ace10716cae9c531672ad18229094e2007d6e0c1
