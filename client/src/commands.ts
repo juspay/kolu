@@ -56,6 +56,8 @@ export interface CommandDeps {
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  // Right panel
+  toggleRightPanel: () => void;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -157,6 +159,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+    {
+      name: "Toggle inspector panel",
+      keybind: SHORTCUTS.toggleRightPanel.keybind,
+      onSelect: () => deps.toggleRightPanel(),
+    },
     ...(deps.terminalIds().length > 0
       ? [
           {

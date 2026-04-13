@@ -24,6 +24,7 @@ interface ShortcutDeps {
   handleRandomizeTheme: () => void;
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
+  toggleRightPanel: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -181,6 +182,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.exportSessionAsPdf.keybind)) {
     deps.handleExportSessionAsPdf();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
+    deps.toggleRightPanel();
     return true;
   }
 
