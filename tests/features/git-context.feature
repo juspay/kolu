@@ -4,6 +4,8 @@ Feature: Git context in header and sidebar
 
   Background:
     Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
 
   Scenario: Header and sidebar show branch in a git repo
     When I run "git init /tmp/kolu-git-test"

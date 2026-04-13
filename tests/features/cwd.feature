@@ -4,6 +4,8 @@ Feature: Header CWD display
 
   Background:
     Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
 
   Scenario: Header shows CWD after cd
     When I run "cd /tmp"
