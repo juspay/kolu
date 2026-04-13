@@ -29,6 +29,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.createSubTerminal,
   SHORTCUTS.nextSubTab,
   SHORTCUTS.prevSubTab,
+  SHORTCUTS.toggleRightPanel,
   SHORTCUTS.shortcutsHelp,
 ];
 

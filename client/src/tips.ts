@@ -54,4 +54,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-export-pdf",
     text: `${formatKeybind(SHORTCUTS.exportSessionAsPdf.keybind)} exports the current session as a PDF`,
   },
+  {
+    id: "amb-inspector",
+    text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
+  },
 ];

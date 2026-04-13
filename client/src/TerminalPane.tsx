@@ -5,7 +5,6 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
-import SplitStrip from "./SplitStrip";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -77,25 +76,17 @@ const TerminalPane: Component<{
           />
         </Resizable.Panel>
 
-        {/* Resize handle — only visible when expanded */}
+        {/* Resize handle — invisible hit zone, visible on hover */}
         <Show when={hasSubs()}>
           <Resizable.Handle
             data-testid="resize-handle"
             class="shrink-0 transition-all"
             classList={{
-              "h-1 bg-edge hover:bg-accent-bright": isExpanded(),
+              "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+                isExpanded(),
               "h-0": !isExpanded(),
             }}
             aria-label="Resize terminal split"
-          />
-        </Show>
-
-        {/* Collapsed strip — plain button, no Corvu resize interference */}
-        <Show when={hasSubs() && !isExpanded()}>
-          <SplitStrip
-            variant="collapsed"
-            count={props.subTerminalIds.length}
-            onClick={() => subPanel.expandPanel(props.terminalId)}
           />
         </Show>
 
@@ -147,16 +138,6 @@ const TerminalPane: Component<{
           </div>
         </Resizable.Panel>
       </Resizable>
-
-      {/* Prompt strip — only when no splits exist */}
-      <Show when={!hasSubs()}>
-        <SplitStrip
-          variant="prompt"
-          onClick={() =>
-            props.onCreateSubTerminal(props.terminalId, props.activeMeta?.cwd)
-          }
-        />
-      </Show>
     </div>
   );
 };

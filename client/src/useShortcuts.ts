@@ -18,12 +18,13 @@ interface ShortcutDeps {
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
+  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
+  toggleRightPanel: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -146,14 +147,7 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
     const id = deps.activeId();
-    if (id) {
-      // If no sub-terminals exist yet, create one
-      if (deps.getSubTerminalIds(id).length === 0) {
-        deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
-      } else {
-        deps.toggleSubPanel(id);
-      }
-    }
+    if (id) deps.toggleSubPanel(id);
     return true;
   }
 
@@ -181,6 +175,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.exportSessionAsPdf.keybind)) {
     deps.handleExportSessionAsPdf();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
+    deps.toggleRightPanel();
     return true;
   }
 

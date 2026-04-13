@@ -1,52 +1,87 @@
+/** Header — unified app bar with identity, agent status, panel toggles, and controls.
+ *  Burger is mobile-only; panel toggles are desktop-only. */
+
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
-import { shortenCwd } from "./path";
-import {
-  MenuIcon,
-  PrStateIcon,
-  SearchIcon,
-  SettingsIcon,
-  WorktreeIcon,
-} from "./Icons";
+import { MenuIcon, SearchIcon, SettingsIcon } from "./Icons";
 import { formatKeybind, SHORTCUTS } from "./keyboard";
 import Kbd from "./Kbd";
 import Tip from "./Tip";
-import ChecksIndicator from "./ChecksIndicator";
 import AgentIndicator from "./AgentIndicator";
 import SettingsPopover from "./SettingsPopover";
 import { useTips } from "./useTips";
 import { CONTEXTUAL_TIPS } from "./tips";
 import type { WsStatus } from "./rpc";
-import type { SidebarAgentPreviews, TerminalMetadata } from "kolu-common";
-import type { ColorScheme } from "./useColorScheme";
+import type { TerminalMetadata } from "kolu-common";
 
-/** WS connection status indicator colors and animations. */
+/** WS connection status indicator colors. */
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",
   open: "bg-ok",
   closed: "bg-danger",
 };
 
+/** Panel toggle icon positions — maps orientation to SVG line coordinates. */
+type PanelOrientation = "left" | "bottom" | "right";
+const panelLineCoords: Record<
+  PanelOrientation,
+  [number, number, number, number]
+> = {
+  left: [9, 3, 9, 21],
+  bottom: [3, 15, 21, 15],
+  right: [15, 3, 15, 21],
+};
+
+/** Compact panel toggle icon — rect with a divider line. */
+const PanelToggleIcon: Component<{
+  orientation: PanelOrientation;
+  active?: boolean;
+  label: string;
+  onClick?: () => void;
+  "data-testid"?: string;
+}> = (props) => {
+  const [x1, y1, x2, y2] = panelLineCoords[props.orientation];
+  return (
+    <Tip label={props.label}>
+      <button
+        data-testid={props["data-testid"]}
+        class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+        classList={{ "text-fg-2": props.active }}
+        onClick={props.onClick}
+        aria-label={props.label}
+      >
+        <svg
+          class="w-3.5 h-3.5"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          stroke-width="2"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <line x1={x1} y1={y1} x2={x2} y2={y2} />
+        </svg>
+      </button>
+    </Tip>
+  );
+};
+
 const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
-  onThemeClick?: () => void;
-  themeName?: string;
   meta?: TerminalMetadata | null;
   onToggleSidebar?: () => void;
+  onAgentClick?: () => void;
   onSearch?: () => void;
   appTitle?: string;
-  randomTheme?: boolean;
-  onRandomThemeChange?: (on: boolean) => void;
-  scrollLock?: boolean;
-  onScrollLockChange?: (on: boolean) => void;
-  colorScheme?: ColorScheme;
-  onColorSchemeChange?: (scheme: ColorScheme) => void;
-  startupTips?: boolean;
-  onStartupTipsChange?: (on: boolean) => void;
-  activityAlerts?: boolean;
-  onActivityAlertsChange?: (on: boolean) => void;
-  sidebarAgentPreviews?: SidebarAgentPreviews;
-  onSidebarAgentPreviewsChange?: (mode: SidebarAgentPreviews) => void;
+  // Theme
+  themeName?: string;
+  onThemeClick?: () => void;
+  // Panel toggles
+  sidebarOpen?: boolean;
+  hasSubPanel?: boolean;
+  subPanelExpanded?: boolean;
+  onToggleSubPanel?: () => void;
+  rightPanelCollapsed?: boolean;
+  onToggleRightPanel?: () => void;
 }> = (rawProps) => {
   const props = mergeProps({ status: "connecting" as const }, rawProps);
   const { showTipOnce } = useTips();
@@ -55,12 +90,12 @@ const Header: Component<{
 
   return (
     <header class="flex items-center h-10 shrink-0 bg-surface-1 border-b border-edge">
-      {/* Zone A: Identity — rigid, never compresses */}
+      {/* Zone A: Identity — burger is mobile-only */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         <Tip label="Toggle sidebar">
           <button
             data-testid="sidebar-toggle"
-            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onToggleSidebar?.()}
           >
             <MenuIcon />
@@ -71,61 +106,45 @@ const Header: Component<{
           {props.appTitle ?? "kolu"}
         </span>
       </div>
-      {/* Zone B: Context — elastic shock absorber, truncates under pressure */}
-      <Show when={props.meta} fallback={<div class="flex-1" />}>
-        {(meta) => (
-          <div
-            class="flex-1 min-w-0 flex items-center gap-1 text-xs overflow-hidden"
-            data-testid="header-cwd"
-          >
-            <span class="text-fg-2 truncate" title={meta().cwd}>
-              {shortenCwd(meta().cwd)}
-            </span>
-            <Show when={meta().git}>
-              {(git) => (
-                <span
-                  class="text-fg-3 min-w-0 truncate"
-                  data-testid="header-branch"
-                  title={git().branch}
-                >
-                  &middot; {git().branch}
-                  <Show when={git().isWorktree}>
-                    <WorktreeIcon class="inline w-3 h-3 ml-0.5" />
-                  </Show>
-                </span>
-              )}
-            </Show>
-            <Show when={meta().pr}>
-              {(pr) => (
-                <a
-                  href={pr().url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1 text-fg-3 hover:text-accent min-w-0 transition-colors"
-                  data-testid="header-pr"
-                >
-                  &middot;
-                  <PrStateIcon state={pr().state} class="w-3 h-3" />
-                  <Show when={pr().checks}>
-                    {(checks) => <ChecksIndicator status={checks()} />}
-                  </Show>
-                  #{pr().number}
-                  <span class="truncate hidden sm:inline">{pr().title}</span>
-                </a>
-              )}
-            </Show>
-            <Show when={meta().agent}>
-              {(agent) => (
-                <span class="shrink-0">
-                  &middot; <AgentIndicator agent={agent()} />
-                </span>
-              )}
-            </Show>
-          </div>
-        )}
-      </Show>
-      {/* Zone C: Controls — rigid, never clips */}
+
+      {/* Zone B: Agent status — click opens inspector panel */}
+      <div class="flex-1 min-w-0 flex items-center gap-1 px-2">
+        <Show when={props.meta?.agent}>
+          {(agent) => (
+            <button
+              class="cursor-pointer hover:opacity-80 transition-opacity"
+              onClick={() => props.onAgentClick?.()}
+            >
+              <AgentIndicator agent={agent()} />
+            </button>
+          )}
+        </Show>
+      </div>
+
+      {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
+        {/* Panel toggle icons — desktop only */}
+        <div class="hidden sm:flex items-center gap-0.5">
+          <PanelToggleIcon
+            orientation="left"
+            active={props.sidebarOpen}
+            label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
+            onClick={() => props.onToggleSidebar?.()}
+            data-testid="sidebar-toggle-desktop"
+          />
+          <PanelToggleIcon
+            orientation="bottom"
+            active={props.hasSubPanel && props.subPanelExpanded}
+            label={`Toggle split (${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)})`}
+            onClick={() => props.onToggleSubPanel?.()}
+          />
+          <PanelToggleIcon
+            orientation="right"
+            active={!props.rightPanelCollapsed}
+            label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
+            onClick={() => props.onToggleRightPanel?.()}
+          />
+        </div>
         {props.themeName && (
           <Tip label={`Theme: ${props.themeName}`}>
             <button
@@ -168,20 +187,6 @@ const Header: Component<{
             open={settingsOpen()}
             onOpenChange={setSettingsOpen}
             triggerRef={settingsTriggerRef}
-            randomTheme={props.randomTheme ?? true}
-            onRandomThemeChange={(on) => props.onRandomThemeChange?.(on)}
-            scrollLock={props.scrollLock ?? true}
-            onScrollLockChange={(on) => props.onScrollLockChange?.(on)}
-            colorScheme={props.colorScheme ?? "dark"}
-            onColorSchemeChange={(s) => props.onColorSchemeChange?.(s)}
-            activityAlerts={props.activityAlerts ?? true}
-            onActivityAlertsChange={(on) => props.onActivityAlertsChange?.(on)}
-            sidebarAgentPreviews={props.sidebarAgentPreviews ?? "attention"}
-            onSidebarAgentPreviewsChange={(mode) =>
-              props.onSidebarAgentPreviewsChange?.(mode)
-            }
-            startupTips={props.startupTips ?? true}
-            onStartupTipsChange={(on) => props.onStartupTipsChange?.(on)}
           />
         </div>
         <Tip label="Command palette">

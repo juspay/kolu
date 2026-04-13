@@ -46,7 +46,7 @@ export interface CommandDeps {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportSessionAsPdf: () => void;
-  getSubTerminalIds: (parentId: TerminalId) => TerminalId[];
+  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
   committedThemeName: Accessor<string>;
@@ -56,6 +56,8 @@ export interface CommandDeps {
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  // Right panel
+  toggleRightPanel: () => void;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -127,14 +129,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           {
             name: "Toggle terminal split",
             keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => {
-              const id = deps.activeId()!;
-              if (deps.getSubTerminalIds(id).length === 0) {
-                deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd);
-              } else {
-                deps.toggleSubPanel(id);
-              }
-            },
+            onSelect: () => deps.toggleSubPanel(deps.activeId()!),
           },
           {
             name: "Split terminal",
@@ -157,6 +152,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
+    {
+      name: "Toggle inspector panel",
+      keybind: SHORTCUTS.toggleRightPanel.keybind,
+      onSelect: () => deps.toggleRightPanel(),
+    },
     ...(deps.terminalIds().length > 0
       ? [
           {

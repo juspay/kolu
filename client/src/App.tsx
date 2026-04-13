@@ -20,7 +20,9 @@ import ShortcutsHelp from "./ShortcutsHelp";
 import ClaudeTranscriptDialog from "./ClaudeTranscriptDialog";
 import ModalDialog, { refocusTerminal } from "./ModalDialog";
 import Dialog from "@corvu/dialog";
+import Resizable from "@corvu/resizable";
 import EmptyState from "./EmptyState";
+import RightPanel from "./RightPanel";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
@@ -34,6 +36,7 @@ import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./useSidebar";
 import { useShortcuts } from "./useShortcuts";
 import { useSubPanel } from "./useSubPanel";
+import { useRightPanel } from "./useRightPanel";
 import { useColorScheme } from "./useColorScheme";
 import { useTips } from "./useTips";
 
@@ -69,6 +72,7 @@ const App: Component = () => {
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
+  const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
 
   // Fetch hostname from server; used in document title and header
@@ -111,6 +115,18 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
+  function handleToggleSubPanel(parentId: TerminalId) {
+    if (store.getSubTerminalIds(parentId).length === 0) {
+      void crud.handleCreateSubTerminal(
+        parentId,
+        store.activeMeta()?.cwd ?? undefined,
+      );
+    } else {
+      subPanel.togglePanel(parentId);
+    }
+  }
+
   function handleExportSessionAsPdf() {
     const id = store.activeId();
     if (id === null) return;
@@ -130,8 +146,7 @@ const App: Component = () => {
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
-    getSubTerminalIds: store.getSubTerminalIds,
+    toggleSubPanel: handleToggleSubPanel,
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(
         parentId,
@@ -141,6 +156,7 @@ const App: Component = () => {
     handleRandomizeTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
+    toggleRightPanel: rightPanel.togglePanel,
   });
 
   function openPalette() {
@@ -187,8 +203,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
-    getSubTerminalIds: store.getSubTerminalIds,
-    toggleSubPanel: (parentId) => subPanel.togglePanel(parentId),
+    toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
@@ -204,6 +219,7 @@ const App: Component = () => {
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
     setClaudeTranscriptOpen,
+    toggleRightPanel: rightPanel.togglePanel,
   });
 
   // Reset state on close and return focus to terminal
@@ -331,28 +347,29 @@ const App: Component = () => {
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
-        onThemeClick={() => openPaletteGroup("Theme")}
-        themeName={activeThemeName()}
         meta={store.activeMeta()}
         onToggleSidebar={toggleSidebar}
+        onAgentClick={() => rightPanel.expandPanel()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
-        randomTheme={randomTheme()}
-        onRandomThemeChange={(on) => updatePreferences({ randomTheme: on })}
-        scrollLock={scrollLock()}
-        onScrollLockChange={(on) => updatePreferences({ scrollLock: on })}
-        colorScheme={colorScheme()}
-        onColorSchemeChange={setColorScheme}
-        activityAlerts={activityAlerts()}
-        onActivityAlertsChange={(on) =>
-          updatePreferences({ activityAlerts: on })
+        themeName={activeThemeName()}
+        onThemeClick={() => openPaletteGroup("Theme")}
+        sidebarOpen={sidebarOpen()}
+        hasSubPanel={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0
         }
-        sidebarAgentPreviews={sidebarAgentPreviews()}
-        onSidebarAgentPreviewsChange={(mode) =>
-          updatePreferences({ sidebarAgentPreviews: mode })
+        subPanelExpanded={
+          store.activeId() !== null &&
+          store.getSubTerminalIds(store.activeId()!).length > 0 &&
+          !subPanel.getSubPanel(store.activeId()!).collapsed
         }
-        startupTips={startupTips()}
-        onStartupTipsChange={setStartupTips}
+        onToggleSubPanel={() => {
+          const id = store.activeId();
+          if (id) handleToggleSubPanel(id);
+        }}
+        rightPanelCollapsed={rightPanel.collapsed()}
+        onToggleRightPanel={rightPanel.togglePanel}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile.
        *  --active-terminal-{bg,fg} published here so child components
@@ -383,49 +400,96 @@ const App: Component = () => {
           open={sidebarOpen()}
           onClose={closeSidebar}
         />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size */}
-        <div class="flex-1 min-h-0 min-w-0 flex flex-col">
-          <div
+        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size.
+         *  overflow-hidden: prevent scrollbar when collapsed edge strip + Resizable exceed container width. */}
+        <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
+          <Resizable
+            orientation="horizontal"
+            sizes={
+              rightPanel.collapsed()
+                ? [1, 0]
+                : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
+            }
+            onSizesChange={(sizes) => {
+              if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+            }}
             class="flex-1 min-h-0 overflow-hidden"
-            style={{ "background-color": activeTheme().background }}
-            data-testid="terminal-viewport"
           >
-            <Show
-              when={!session.isLoading()}
-              fallback={
-                <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                  Connecting...
-                </div>
-              }
+            <Resizable.Panel
+              as="div"
+              class="min-w-0 min-h-0 flex flex-col"
+              minSize={0.3}
             >
-              <Show when={store.terminalIds().length === 0}>
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
+              <div
+                class="flex-1 min-h-0 overflow-hidden"
+                style={{ "background-color": activeTheme().background }}
+                data-testid="terminal-viewport"
+              >
+                <Show
+                  when={!session.isLoading()}
+                  fallback={
+                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                      Connecting...
+                    </div>
+                  }
+                >
+                  <Show when={store.terminalIds().length === 0}>
+                    <EmptyState
+                      savedSession={session.savedSession() ?? undefined}
+                      onRestore={() => void session.handleRestoreSession()}
+                    />
+                  </Show>
+                  <For each={store.terminalIds()}>
+                    {(id) => (
+                      <TerminalPane
+                        terminalId={id}
+                        visible={store.activeId() === id}
+                        theme={getTerminalTheme(id)}
+                        searchOpen={searchOpen()}
+                        onSearchOpenChange={setSearchOpen}
+                        subTerminalIds={store.getSubTerminalIds(id)}
+                        getMetadata={store.getMetadata}
+                        onCreateSubTerminal={(parentId, cwd) =>
+                          void crud.handleCreateSubTerminal(parentId, cwd)
+                        }
+                        onCloseTerminal={closeTerminal}
+                        activeMeta={store.activeMeta()}
+                        scrollLockEnabled={scrollLock()}
+                      />
+                    )}
+                  </For>
+                </Show>
+              </div>
+              <MobileKeyBar activeId={store.activeId} />
+            </Resizable.Panel>
+
+            <Show when={!rightPanel.collapsed()}>
+              <Resizable.Handle
+                data-testid="right-panel-handle"
+                class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                aria-label="Resize inspector panel"
+              />
+            </Show>
+
+            <Resizable.Panel
+              as="div"
+              class="min-w-0 min-h-0 overflow-hidden"
+              minSize={0}
+              collapsible
+              collapsedSize={0}
+              onCollapse={() => rightPanel.collapsePanel()}
+              onExpand={() => rightPanel.expandPanel()}
+            >
+              <Show when={!rightPanel.collapsed()}>
+                <RightPanel
+                  meta={store.activeMeta()}
+                  onToggle={rightPanel.togglePanel}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => openPaletteGroup("Theme")}
                 />
               </Show>
-              <For each={store.terminalIds()}>
-                {(id) => (
-                  <TerminalPane
-                    terminalId={id}
-                    visible={store.activeId() === id}
-                    theme={getTerminalTheme(id)}
-                    searchOpen={searchOpen()}
-                    onSearchOpenChange={setSearchOpen}
-                    subTerminalIds={store.getSubTerminalIds(id)}
-                    getMetadata={store.getMetadata}
-                    onCreateSubTerminal={(parentId, cwd) =>
-                      void crud.handleCreateSubTerminal(parentId, cwd)
-                    }
-                    onCloseTerminal={closeTerminal}
-                    activeMeta={store.activeMeta()}
-                    scrollLockEnabled={scrollLock()}
-                  />
-                )}
-              </For>
-            </Show>
-          </div>
-          <MobileKeyBar activeId={store.activeId} />
+            </Resizable.Panel>
+          </Resizable>
         </div>
       </div>
     </div>
