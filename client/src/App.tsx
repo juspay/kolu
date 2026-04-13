@@ -358,8 +358,6 @@ const App: Component = () => {
           const id = store.activeId();
           if (id) handleToggleSubPanel(id);
         }}
-        rightPanelCollapsed={rightPanel.collapsed()}
-        onToggleRightPanel={rightPanel.togglePanel}
       />
       {/* relative: anchor for sidebar's absolute overlay on mobile.
        *  --active-terminal-{bg,fg} published here so child components
