@@ -11,3 +11,21 @@ Feature: Session restore
     When I click the restore button
     Then there should be 2 sidebar entries
     And there should be no page errors
+
+  Scenario: Restored terminals preserve their original sidebar order
+    Given a saved session with reversed sort order
+    When I open the app
+    Then the session restore card should be visible
+    When I click the restore button
+    Then there should be 3 sidebar entries
+    And the sidebar entries should be in sort order
+    And there should be no page errors
+
+  Scenario: Restored terminals preserve their theme
+    Given a saved session with theme "Dracula"
+    When I open the app
+    Then the session restore card should be visible
+    When I click the restore button
+    Then there should be 1 sidebar entries
+    And the header should show theme "Dracula"
+    And there should be no page errors
