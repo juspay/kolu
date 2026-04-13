@@ -79,6 +79,12 @@ Flag:
 
 For each finding: file, line, one-line risk, concrete fix. If no issues, say so — don't invent problems.
 
+**Principles:**
+
+- **Fail loud over fail silent**: Code should scream when something is wrong, not quietly do the wrong thing.
+- **Fallbacks must be justified**: Every default/fallback needs a reason why that value is correct for the failure case, not just convenient.
+- **Precision over coverage**: Better to catch 3 real issues than flag 20 maybes.
+
 **Anti-patterns in YOUR review (strictly banned):**
 
 - NEVER talk yourself out of a finding. If you identified a problem, it IS a problem. No "However..." or "acceptable tradeoff."
@@ -101,6 +107,7 @@ Principles:
 - **Simple over clever**: Elegant code is simple code.
 - **Readable over terse**: Brevity is good, but not at the cost of clarity.
 - **Idiomatic over generic**: Use the language's strengths.
+- **Each iteration builds on the last**: Don't undo previous improvements. Deepen them.
 
 ## Output
 
