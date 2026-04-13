@@ -41,6 +41,17 @@ Aggressively remove unused code. No commented-out blocks, no "just in case" left
 Never silently swallow errors. Empty `catch {}` blocks, bare `catch: pass`, and `|| true` hide failures. At minimum, log the error. If the catch is intentional (best-effort operation), add a comment explaining _why_ the error is safe to ignore.
 _Rationale_: Silent swallowing masks bugs — failures disappear without a trace, making debugging impossible.
 
+### no-unbounded-growth
+
+Collections, buffers, and listeners that grow with usage must have a bound or a cleanup path. Common violations:
+
+- **Unbounded arrays/lists** — pushed in a callback or event handler with no cap or eviction. Ask: _can this grow forever during a long-running session?_
+- **Missing debounce on high-frequency sources** — `fs.watch`, `resize`, `scroll`, `mousemove`, WebSocket `onmessage`, or any event that can fire many times per second. Each invocation that does non-trivial work (I/O, parsing, DOM mutation, allocation) needs a debounce or throttle. A bare handler is only acceptable if the work is O(1) and allocation-free.
+- **Large allocations in hot paths** — reading an entire file/stream into a single buffer when the consumer processes it incrementally. Prefer streaming/chunked reads when the data source can grow without bound.
+- **Duplicated watchers/listeners** — N callers each installing their own watcher on the same resource instead of sharing one. Each duplicate multiplies callback cost and file-descriptor usage.
+
+_Rationale_: LLM-generated code defaults to the simplest correct implementation, which is often O(n) in session lifetime. These patterns silently degrade performance over hours/days and surface as "the app got slow" with no obvious cause. The fix is almost always straightforward (cap, debounce, stream, share) but must be applied at write time — it's rarely caught in review because the code is functionally correct.
+
 ### comments-why-not-what
 
 Add comments where the _why_ isn't obvious from the code. Don't comment the _what_. Also comment where the _what_ isn't obvious — non-obvious guards, CSS workarounds, platform-specific behavior. Non-obvious workarounds (temp files, wrapper scripts, env var shims) must have a comment explaining why they exist.
@@ -64,6 +75,7 @@ Flag:
 - **Inaccurate fallbacks** — defaults masking misconfiguration, "sensible defaults" that aren't sensible for the failure case, fallback paths that silently degrade correctness.
 - **Wishful thinking** — assumptions about input shape without validation at boundaries, code that "can't fail" but actually can, race conditions papered over with comments.
 - **Logic errors** — always-true/false conditions, off-by-one, wrong operators, shadowed variables.
+- **Slow leaks** — collections that grow without bound, event handlers doing heavy work on every fire without debounce, watchers/listeners registered per-caller instead of shared, buffers sized to the full input when streaming would work.
 
 For each finding: file, line, one-line risk, concrete fix. If no issues, say so — don't invent problems.
 
