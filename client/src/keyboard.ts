@@ -142,6 +142,10 @@ export const SHORTCUTS = {
     keybind: { key: "p", code: "KeyP", mod: true },
     label: "Export session as PDF",
   },
+  toggleRightPanel: {
+    keybind: { key: "b", code: "KeyB", mod: true },
+    label: "Toggle inspector panel",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**
