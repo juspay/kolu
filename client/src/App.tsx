@@ -401,7 +401,7 @@ const App: Component = () => {
             onSizesChange={(sizes) => {
               if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
             }}
-            class="flex-1 min-h-0"
+            class="flex-1 min-h-0 overflow-hidden"
           >
             <Resizable.Panel
               as="div"
