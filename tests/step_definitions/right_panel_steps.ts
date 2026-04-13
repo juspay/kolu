@@ -6,13 +6,10 @@ const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 
 // ── Actions ──
 
-When(
-  "I press the toggle inspector shortcut",
-  async function (this: KoluWorld) {
-    await this.page.keyboard.press(`${MOD_KEY}+b`);
-    await this.waitForFrame();
-  },
-);
+When("I press the toggle inspector shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+b`);
+  await this.waitForFrame();
+});
 
 When("I click the edge strip", async function (this: KoluWorld) {
   const strip = this.page.locator('[data-testid="right-panel-strip"]');
