@@ -5,6 +5,13 @@ on:
     branches: [master]
   pull_request:
 
+env:
+  # Git identity for tests that create commits (git.test.ts worktree tests)
+  GIT_AUTHOR_NAME: CI
+  GIT_AUTHOR_EMAIL: ci@localhost
+  GIT_COMMITTER_NAME: CI
+  GIT_COMMITTER_EMAIL: ci@localhost
+
 jobs:
   local-checks:
     runs-on: x86_64-linux

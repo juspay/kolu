@@ -21,6 +21,7 @@ pkgs.mkShell {
 
   packages = with pkgs; [
     just
+    inetutils # hostname — needed by shell.test.ts (OSC7 tests)
     nixd
     nodejs
     pnpm
