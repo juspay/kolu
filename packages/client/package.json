@@ -39,7 +39,12 @@
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
+    "@solidjs/testing-library": "^0.8.10",
     "@tailwindcss/vite": "^4.1.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/user-event": "^14.6.1",
+    "jsdom": "^29.0.2",
     "kolu-common": "workspace:*",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.0",

@@ -14,7 +14,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "kolu-integration-common": "workspace:*"
+    "kolu-integration-common": "workspace:*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
