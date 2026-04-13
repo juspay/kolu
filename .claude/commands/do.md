@@ -199,6 +199,8 @@ When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
 **Cross-reference hickey actions**: After code-police completes, check every hickey finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey (which finds structural issues before implementation) and police (which verifies the implementation after).
 
+**For followup entry points**: Run hickey on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey step (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
+
 **Verify**: All 3 passes clean ("All clear") AND all hickey "Fix in this PR" actions addressed in the diff.
 **If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
 
@@ -332,13 +334,13 @@ COMMENT
 
 ## Entry Points
 
-| ID               | Starts at     | Use case                                |
-| ---------------- | ------------- | --------------------------------------- |
-| `default`        | **sync**      | Full workflow from scratch              |
-| `followup`       | **implement** | Additional changes on existing PR       |
-| `post-implement` | **fmt**       | Skip research/impl, start at formatting |
-| `polish`         | **police**    | Just the quality gate                   |
-| `ci-only`        | **ci**        | Just run CI                             |
+| ID               | Starts at             | Use case                                |
+| ---------------- | --------------------- | --------------------------------------- |
+| `default`        | **sync**              | Full workflow from scratch              |
+| `followup`       | **implement**         | Additional changes on existing PR       |
+| `post-implement` | **fmt**               | Skip research/impl, start at formatting |
+| `polish`         | **police**            | Just the quality gate                   |
+| `ci-only`        | **ci**                | Just run CI                             |
 
 ## Rules
 
