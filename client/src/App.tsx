@@ -461,10 +461,6 @@ const App: Component = () => {
               as="div"
               class="min-w-0 min-h-0 overflow-hidden"
               minSize={0}
-              collapsible
-              collapsedSize={0}
-              onCollapse={() => rightPanel.collapsePanel()}
-              onExpand={() => rightPanel.expandPanel()}
             >
               <Show when={!rightPanel.collapsed()}>
                 <RightPanel
