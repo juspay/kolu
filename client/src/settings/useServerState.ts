@@ -17,6 +17,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
+import { DEFAULT_PREFERENCES } from "kolu-common";
 import type {
   ServerState,
   Preferences,
@@ -24,16 +25,6 @@ import type {
   RecentAgent,
   SavedSession,
 } from "kolu-common";
-
-const DEFAULT_PREFERENCES: Preferences = {
-  seenTips: [],
-  startupTips: true,
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  colorScheme: "dark",
-  sidebarAgentPreviews: "attention",
-};
 
 // Singleton store — all callers share one reactive source of truth for preferences.
 const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);

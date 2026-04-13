@@ -259,6 +259,16 @@ export const PreferencesSchema = z.object({
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
 });
 
+export const DEFAULT_PREFERENCES: Preferences = {
+  seenTips: [],
+  startupTips: true,
+  randomTheme: true,
+  scrollLock: true,
+  activityAlerts: true,
+  colorScheme: "dark",
+  sidebarAgentPreviews: "attention",
+};
+
 // --- Server state ---
 
 /** What conf stores to disk — survives server restart. */
