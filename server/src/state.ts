@@ -8,10 +8,11 @@
 
 import fs from "node:fs";
 import Conf from "conf";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
+  Preferences,
   RecentRepo,
   RecentAgent,
-  Preferences,
   PersistedState,
   ServerState,
   ServerStatePatch,
@@ -25,18 +26,6 @@ import { log } from "./log.ts";
  * whose keys are > the last-seen version and ≤ this value.
  */
 const SCHEMA_VERSION = "1.6.0";
-
-const DEFAULT_PREFERENCES: Preferences = {
-  seenTips: [],
-  startupTips: true,
-  randomTheme: true,
-  scrollLock: true,
-  activityAlerts: true,
-  colorScheme: "dark",
-  sidebarAgentPreviews: "attention",
-  rightPanelCollapsed: true,
-  rightPanelSize: 0.25,
-};
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
