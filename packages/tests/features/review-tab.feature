@@ -1,6 +1,8 @@
-Feature: Review tab (local diff)
-  The Review tab lists files changed vs HEAD in the terminal's repo and
-  renders the unified diff for a selected file. Phase 1 of #514.
+Feature: Review tab (diff review)
+  The Review tab lists files changed for the terminal's repo and renders
+  the unified diff for a selected file. Phase 1 (#514) shipped "local"
+  mode (working tree vs HEAD); phase 2 adds a "branch" toggle (working
+  tree vs merge-base with origin/<defaultBranch>).
 
   Background:
     Given the terminal is ready
@@ -21,6 +23,17 @@ Feature: Review tab (local diff)
     And I run "git commit --allow-empty -m init"
     And I click the Review tab
     Then the Review tab should show the empty-changes message
+
+  Scenario: Mode toggle defaults to Local
+    When I click the Review tab
+    Then the Review tab mode should be "local"
+
+  Scenario: Branch mode surfaces an actionable error when origin is missing
+    When I run "git init /tmp/kolu-review-no-origin && cd /tmp/kolu-review-no-origin"
+    And I run "git commit --allow-empty -m init"
+    And I click the Review tab
+    And I click the Review tab mode "branch"
+    Then the Review tab should show a missing-origin error
 
   Scenario: Lists changed files and opens a diff on click
     When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"

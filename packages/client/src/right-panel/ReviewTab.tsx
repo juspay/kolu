@@ -1,10 +1,17 @@
-/** ReviewTab — local diff review for the terminal's current repo.
+/** ReviewTab — diff review for the terminal's current repo.
  *
- * Phase 1 of issue #514: lists files changed vs HEAD and renders the
- * unified diff of the selected file using `@git-diff-view/solid`.
+ * Issue #514:
+ *   - Phase 1: lists files changed vs HEAD and renders the unified diff
+ *     of the selected file using `@git-diff-view/solid`.
+ *   - Phase 2: toggle between "Local" (working tree vs HEAD — what the
+ *     agent just touched that isn't committed yet) and "Branch" (working
+ *     tree vs merge-base with `origin/<defaultBranch>` — what this
+ *     branch will ship, same answer GitHub's "Files changed" tab gives).
+ *     Branch mode is forge-agnostic; it runs the same git commands
+ *     locally and never calls out to a forge API.
  *
- * Stays narrow by design — no PR diff, no inline comments, no agent
- * handoff. Those land in later phases. */
+ * Stays narrow by design — no inline comments, no agent handoff. Those
+ * land in later phases. */
 
 import {
   type Component,
@@ -21,33 +28,50 @@ import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
 import "./review-tab.css";
-import type { TerminalMetadata } from "kolu-common";
+import type { GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
+
+const MODES: Record<GitDiffMode, string> = {
+  local: "Local",
+  branch: "Branch",
+};
+
+const EMPTY_STATE: Record<GitDiffMode, string> = {
+  local: "No local changes",
+  branch: "No changes vs base",
+};
 
 const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  const [mode, setMode] = createSignal<GitDiffMode>("local");
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 
   const [status, { refetch: refetchStatus }] = createResource(
-    repoPath,
-    (path) => client.git.status({ repoPath: path }),
+    () => {
+      const p = repoPath();
+      return p ? { repoPath: p, mode: mode() } : null;
+    },
+    (input) => client.git.status(input),
   );
 
   const [diff, { refetch: refetchDiff }] = createResource(
     () => {
       const p = repoPath();
       const s = selectedPath();
-      return p && s ? { repoPath: p, filePath: s } : null;
+      return p && s ? { repoPath: p, filePath: s, mode: mode() } : null;
     },
     (input) => client.git.diff(input),
   );
 
-  // Reset selection when switching to a different repo — otherwise
-  // the previous terminal's selected path bleeds into the new one.
-  createEffect(on(repoPath, () => setSelectedPath(null), { defer: true }));
+  // Reset selection when the repo or mode changes — the previous file's
+  // path may not exist in the new context (different repo, different diff
+  // base), and stale selection would surface as a spurious error row.
+  createEffect(
+    on([repoPath, mode], () => setSelectedPath(null), { defer: true }),
+  );
 
   const handleRefresh = () => {
     void refetchStatus();
@@ -56,6 +80,11 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   const diffTheme = () =>
     preferences().colorScheme === "light" ? "light" : "dark";
+
+  const headerLabel = () => {
+    const baseRef = status()?.base?.ref;
+    return baseRef ? `Changes vs ${baseRef}` : "Changes";
+  };
 
   return (
     <Show
@@ -73,14 +102,36 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="review-tab"
       >
-        <div class="flex items-center justify-between h-6 px-2 bg-surface-1/30 border-b border-edge shrink-0">
-          <span class="text-fg-3/70 uppercase tracking-[0.15em] text-[9px] font-bold">
-            Changes
+        <div class="flex items-center justify-between h-6 px-2 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <div
+            class="flex items-center gap-0 text-[9px] font-bold tracking-[0.1em] uppercase"
+            data-testid="review-mode-toggle"
+          >
+            <For each={Object.entries(MODES) as [GitDiffMode, string][]}>
+              {([m, label]) => (
+                <button
+                  type="button"
+                  onClick={() => setMode(m)}
+                  class="px-1.5 py-0.5 text-fg-3/50 hover:text-fg-2 cursor-pointer data-[active=true]:text-fg data-[active=true]:bg-surface-2/60 rounded-sm"
+                  data-testid={`review-mode-${m}`}
+                  data-active={mode() === m}
+                  aria-pressed={mode() === m}
+                >
+                  {label}
+                </button>
+              )}
+            </For>
+          </div>
+          <span
+            class="text-fg-3/70 uppercase tracking-[0.15em] text-[9px] font-bold truncate min-w-0"
+            data-testid="review-header-label"
+          >
+            {headerLabel()}
           </span>
           <button
             type="button"
             onClick={handleRefresh}
-            class="text-fg-3/50 hover:text-fg-2 cursor-pointer px-1"
+            class="text-fg-3/50 hover:text-fg-2 cursor-pointer px-1 shrink-0"
             aria-label="Refresh changed files"
             data-testid="review-refresh"
           >
@@ -99,19 +150,19 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               </div>
             </Match>
             <Match when={status()}>
-              {(files) => (
+              {(s) => (
                 <Show
-                  when={files().length > 0}
+                  when={s().files.length > 0}
                   fallback={
                     <div
                       class="px-2 py-4 text-fg-3/50 text-center"
                       data-testid="review-empty"
                     >
-                      No changes
+                      {EMPTY_STATE[mode()]}
                     </div>
                   }
                 >
-                  <For each={files()}>
+                  <For each={s().files}>
                     {(f) => (
                       <button
                         type="button"

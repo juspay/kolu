@@ -32,6 +32,16 @@ When(
   },
 );
 
+When(
+  "I click the Review tab mode {string}",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(`[data-testid="review-mode-${mode}"]`);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.click();
+    await this.waitForFrame();
+  },
+);
+
 // ── Assertions ──
 
 Then("the Review tab should be active", async function (this: KoluWorld) {
@@ -91,5 +101,37 @@ Then(
       .locator('[data-testid="review-diff"] .diff-line[data-state="diff"]')
       .first();
     await row.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Review tab mode should be {string}",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(
+      `[data-testid="review-mode-${mode}"][data-active="true"]`,
+    );
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Review tab should show a missing-origin error",
+  async function (this: KoluWorld) {
+    const err = this.page.locator('[data-testid="review-error"]');
+    await err.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // The error message must be actionable — if this regex breaks, the
+    // user-facing suggestion broke too. See resolveBase() in git-review.ts.
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector('[data-testid="review-error"]');
+        const text = el?.textContent ?? "";
+        return (
+          text.includes("No base branch found") &&
+          text.includes("git remote set-head")
+        );
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );

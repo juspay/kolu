@@ -65,19 +65,46 @@ export const GitChangedFileSchema = z.object({
 });
 export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
 
+/** Which base the Review tab is diffing against.
+ *  - `local`: working tree vs `HEAD` — "what hasn't been committed yet".
+ *  - `branch`: working tree vs `merge-base(HEAD, origin/<defaultBranch>)` —
+ *    "what this branch will ship". Same computation as a PR "Files changed"
+ *    tab; done locally, forge-agnostic. */
+export const GitDiffModeSchema = z.enum(["local", "branch"]);
+export type GitDiffMode = z.infer<typeof GitDiffModeSchema>;
+
+/** Resolved base ref for branch mode — echoed back so the UI can label
+ *  the panel ("Changes vs origin/master") without re-resolving. */
+export const GitBaseRefSchema = z.object({
+  /** Human-readable ref name, e.g. `origin/master`. */
+  ref: z.string(),
+  /** Actual merge-base commit SHA (what `git diff` was run against). */
+  sha: z.string(),
+});
+export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
+
 export const GitStatusInputSchema = z.object({
   repoPath: z.string(),
+  mode: GitDiffModeSchema,
 });
 
-export const GitStatusOutputSchema = z.array(GitChangedFileSchema);
+export const GitStatusOutputSchema = z.object({
+  files: z.array(GitChangedFileSchema),
+  /** Null in local mode; resolved base ref in branch mode. */
+  base: GitBaseRefSchema.nullable(),
+});
+export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
 
 export const GitDiffInputSchema = z.object({
   repoPath: z.string(),
   /** Path relative to the repo root. */
   filePath: z.string(),
+  mode: GitDiffModeSchema,
 });
 
-/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop. */
+/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop.
+ *  The same shape serves both modes — only the `git diff` base changes
+ *  (HEAD in local mode, merge-base with origin/<default> in branch mode). */
 export const GitDiffOutputSchema = z.object({
   oldFileName: z.string().nullable(),
   newFileName: z.string().nullable(),
