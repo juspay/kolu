@@ -98,20 +98,17 @@ describe("pickVariegatedTheme", () => {
     expect(pickVariegatedTheme(candidates, peers, () => 0)).toBe("GreenTint");
   });
 
-  it("prefers a saturated hue swing over a pure luminance swing", () => {
-    // Peer at pure black. Choice between:
-    //   - a medium grey (pure luminance delta, ~ΔL=0.51)
-    //   - a saturated red (smaller luminance delta + hue delta)
-    // Because luminance is down-weighted, the saturated-red wins even
-    // though its raw |ΔL| is smaller. This is the concrete consequence
-    // of `L_DOWNWEIGHT > 1` that keeps a mostly-dark palette mostly-dark
-    // when a clearly hue-distant candidate is available.
+  it("rejects candidates whose bg chroma exceeds the garish cap", () => {
+    // The picker maximises distance, which without a chroma cap would
+    // gleefully pick neon-bright bgs over tasteful ones (they're the
+    // farthest points in colour space). With the cap, an over-saturated
+    // candidate falls to score = -Infinity and only wins when nothing
+    // else is available.
     const candidates = [
-      mk("MediumGrey", "#666666"),
-      mk("SaturatedRed", "#cc0000"),
+      mk("Tasteful", "#1d1f21"), // low chroma, dark
+      mk("BrightYellow", "#ffff00"), // chroma well above the cap
     ];
-    const peer = ["#000000"];
-    expect(pickVariegatedTheme(candidates, peer, () => 0)).toBe("SaturatedRed");
+    expect(pickVariegatedTheme(candidates, ["#000000"])).toBe("Tasteful");
   });
 
   it("skips candidates without a parseable bg", () => {
@@ -130,10 +127,12 @@ describe("pickVariegatedTheme", () => {
 
   it("tiebreaker uses rand across every maximally-distant candidate", () => {
     // Two candidates at exactly the same max distance from the peer.
+    // Using neutral greys keeps both well under MAX_CANDIDATE_CHROMA so the
+    // cap doesn't interfere with the tie test.
     const candidates = [
-      mk("Left", "#ff0000"),
-      mk("Right", "#ff0000"), // identical bg → identical score
-      mk("Closer", "#100000"),
+      mk("Left", "#888888"),
+      mk("Right", "#888888"), // identical bg → identical score
+      mk("Closer", "#101010"),
     ];
     const peer = ["#000000"];
     // rand()=0 → index 0 of tie group ("Left")

@@ -72,6 +72,19 @@ function getLab(hex: string): OkLab | undefined {
  *  win when hue space is saturated. */
 const L_DOWNWEIGHT = 3;
 
+/** Reject candidates whose background chroma (saturation in the a,b plane)
+ *  exceeds this threshold. The picker maximises distance, so without a cap
+ *  it gleefully picks the most extreme bg in colour space — which in the
+ *  ghostty catalog means bright yellow / neon green / acid pink. The
+ *  threshold (~20 themes excluded out of 485) keeps moderately-saturated
+ *  picks like deep blue or rich purple, which read as "interesting" not
+ *  "garish". */
+const MAX_CANDIDATE_CHROMA = 0.08;
+
+function chroma(lab: OkLab): number {
+  return Math.sqrt(lab.a * lab.a + lab.b * lab.b);
+}
+
 /** Anisotropic OkLab distance — luminance is scaled down so the picker
  *  prefers hue spread over luminance swaps. Exported for the test suite. */
 export function okLabDistance(x: OkLab, y: OkLab): number {
@@ -90,10 +103,11 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
  * (default `Math.random`).
  *
  * - Empty `candidates` → throws; callers always have the full theme list.
- * - Empty `usedBgs` (or only unparseable hex) → every parseable candidate
+ * - Empty `usedBgs` (or only unparseable hex) → every in-gamut candidate
  *   ties at `+Infinity`; `rand()` picks one.
- * - Candidates without a parseable bg score `-Infinity` so they only win
- *   when nothing else is available.
+ * - Candidates without a parseable bg, or with a chroma above
+ *   {@link MAX_CANDIDATE_CHROMA}, score `-Infinity` so they only win when
+ *   nothing else is available.
  */
 export function pickVariegatedTheme(
   candidates: NamedTheme[],
@@ -114,7 +128,7 @@ export function pickVariegatedTheme(
     const bg = candidates[i]!.theme.background;
     const lab = bg ? getLab(bg) : undefined;
     let score: number;
-    if (!lab) {
+    if (!lab || chroma(lab) > MAX_CANDIDATE_CHROMA) {
       score = Number.NEGATIVE_INFINITY;
     } else if (usedLabs.length === 0) {
       score = Number.POSITIVE_INFINITY;
