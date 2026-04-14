@@ -45,7 +45,7 @@ let
     hash =
       if pkgs.stdenv.isDarwin
       then "sha256-uDUcuuFr9K01/SbJjlBnQ8xv5HWf/4oaUXEo2Ts1248="
-      else "sha256-+0F68vGWwafQiKRThCuaCGYYDinYE0qwMhNd27UrPOI=";
+      else "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o=";
     fetcherVersion = 3;
   };
 
