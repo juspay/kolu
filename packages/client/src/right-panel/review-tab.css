@@ -17,6 +17,17 @@
  * fullscreen diff renderer would render at the library's defaults.
  */
 
+/*
+ * The lib's table uses `table-layout: fixed`, which locks each column's
+ * width to whatever inline `width` is set on its first-row cell. Under
+ * fixed layout, `width: auto` on the cell is a no-op — the column stays
+ * at its declared 90px regardless. Force the table back to `auto` so
+ * columns size to their content.
+ */
+[data-testid="review-diff"] .diff-tailwindcss-wrapper table {
+  table-layout: auto !important;
+}
+
 [data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num,
 [data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-hunk-action {
   width: auto !important;
