@@ -22,6 +22,11 @@ export function refocusTerminal() {
     ?.click();
 }
 
+// Width cap for the dialog. Applied to the flex-item wrapper (not Dialog.Content)
+// so the child's `w-full` resolves against a definite parent width — otherwise
+// `w-full` on a content-auto flex item collapses to min-content on desktop.
+const SIZE_CLASS = { sm: "max-w-sm", md: "max-w-md" } as const;
+
 const ModalDialog: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -31,6 +36,8 @@ const ModalDialog: Component<{
   initialFocusEl?: HTMLElement;
   /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
   trapFocus?: boolean;
+  /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for command palette. Defaults to "md". */
+  size?: "sm" | "md";
   children: JSX.Element;
 }> = (props) => (
   <Dialog
@@ -54,10 +61,14 @@ const ModalDialog: Component<{
         }}
       />
       <div
-        class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none"
+        class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh] pointer-events-none"
         classList={{ hidden: !props.open }}
       >
-        <div class="pointer-events-auto">{props.children}</div>
+        <div
+          class={`pointer-events-auto w-full ${SIZE_CLASS[props.size ?? "md"]}`}
+        >
+          {props.children}
+        </div>
       </div>
     </Dialog.Portal>
   </Dialog>
