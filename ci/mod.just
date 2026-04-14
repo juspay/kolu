@@ -36,20 +36,20 @@ _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
 
 # Verify the declared pnpmDeps hash in default.nix matches what
-# fetchPnpmDeps actually produces from the current pnpm-lock.yaml. The
-# first `nix build` realizes the output path (from substituter or fresh);
-# `--rebuild` then forces re-execution and compares, so a stale declared
-# hash cannot be silently satisfied by a cached artifact at that hash in
-# the binary cache (cache.nixos.asia). Runs on one system — the hash is
-# platform-independent (pnpm install --force bypasses os/cpu/libc gating).
+# fetchPnpmDeps actually produces from the current pnpm-lock.yaml.
+#
+# Two builds are required, not one: `nix build --rebuild` errors with
+# "outputs ... are not valid, so checking is not possible" when the store
+# path doesn't exist yet. The first `nix build` realizes the path (from
+# substituter or fresh fetch); --rebuild then forces re-execution and
+# compares, so a stale cached artifact at the declared hash (local store
+# or cache.nixos.asia) can't silently satisfy a hash that no longer
+# matches the lockfile.
+#
+# Runs on one system — hash is platform-independent (pnpm install --force
+# bypasses os/cpu/libc gating, see default.nix pnpmDeps comment).
 pnpm-hash-fresh:
-    just ci::_run pnpm-hash-fresh just ci::_pnpm-hash-fresh-do
-
-_pnpm-hash-fresh-do:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    nix build .#pnpmDeps --no-link
-    nix build --rebuild .#pnpmDeps --no-link
+    just ci::_run pnpm-hash-fresh "sh -c 'nix build .#pnpmDeps --no-link && nix build --rebuild .#pnpmDeps --no-link'"
 
 nix:
     just ci::_devour-flake nix --override-input flake .
