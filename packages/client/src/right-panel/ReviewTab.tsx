@@ -32,14 +32,30 @@ import type { GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
 
-const MODES: Record<GitDiffMode, string> = {
-  local: "Local",
-  branch: "Branch",
-};
-
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
   branch: "No changes vs base",
+};
+
+/** What the cycle-on-click header label shows for each mode. The label
+ *  *is* the mode switch — clicking it flips to the other mode. */
+const MODE_REF: Record<GitDiffMode, string> = {
+  local: "HEAD",
+  branch: "branch base",
+};
+
+/** Tooltip shown in the current mode, describing the click action. */
+const MODE_SWITCH_TOOLTIP: Record<GitDiffMode, string> = {
+  local: "Switch to branch diff (vs origin/<default>)",
+  branch: "Switch to local changes (vs HEAD)",
+};
+
+/** Plain-English annotation shown after the ref — disambiguates `HEAD`
+ *  and `origin/master` for users who don't immediately parse them, and
+ *  surfaces what each mode actually answers. */
+const MODE_HINT: Record<GitDiffMode, string> = {
+  local: "uncommitted only",
+  branch: "this branch's diff",
 };
 
 const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
@@ -81,10 +97,13 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const diffTheme = () =>
     preferences().colorScheme === "light" ? "light" : "dark";
 
-  const headerLabel = () => {
-    const baseRef = status()?.base?.ref;
-    return baseRef ? `Changes vs ${baseRef}` : "Changes";
-  };
+  /** The ref name to show in the header: real `base.ref` once status
+   *  returns; a short placeholder before that (or if branch mode errored
+   *  before resolving). Local mode is always `HEAD` — no server trip. */
+  const headerRef = () =>
+    mode() === "local" ? "HEAD" : (status()?.base?.ref ?? MODE_REF.branch);
+
+  const cycleMode = () => setMode((m) => (m === "local" ? "branch" : "local"));
 
   return (
     <Show
@@ -103,31 +122,22 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         data-testid="review-tab"
       >
         <div class="flex items-center justify-between h-6 px-2 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
-          <div
-            class="flex items-center gap-0 text-[9px] font-bold tracking-[0.1em] uppercase"
-            data-testid="review-mode-toggle"
+          <button
+            type="button"
+            onClick={cycleMode}
+            title={MODE_SWITCH_TOOLTIP[mode()]}
+            class="group flex-1 min-w-0 text-left text-fg-3/70 hover:text-fg-2 cursor-pointer truncate"
+            data-testid="review-mode-label"
+            data-mode={mode()}
           >
-            <For each={Object.entries(MODES) as [GitDiffMode, string][]}>
-              {([m, label]) => (
-                <button
-                  type="button"
-                  onClick={() => setMode(m)}
-                  class="px-1.5 py-0.5 text-fg-3/50 hover:text-fg-2 cursor-pointer data-[active=true]:text-fg data-[active=true]:bg-surface-2/60 rounded-sm"
-                  data-testid={`review-mode-${m}`}
-                  data-active={mode() === m}
-                  aria-pressed={mode() === m}
-                >
-                  {label}
-                </button>
-              )}
-            </For>
-          </div>
-          <span
-            class="text-fg-3/70 uppercase tracking-[0.15em] text-[9px] font-bold truncate min-w-0"
-            data-testid="review-header-label"
-          >
-            {headerLabel()}
-          </span>
+            <span>Changes vs </span>
+            <span class="underline-offset-2 decoration-dotted group-hover:underline font-mono text-fg-2/90">
+              {headerRef()}
+            </span>
+            <span class="ml-1.5 text-fg-3/50 italic">
+              · {MODE_HINT[mode()]}
+            </span>
+          </button>
           <button
             type="button"
             onClick={handleRefresh}

@@ -32,15 +32,12 @@ When(
   },
 );
 
-When(
-  "I click the Review tab mode {string}",
-  async function (this: KoluWorld, mode: string) {
-    const btn = this.page.locator(`[data-testid="review-mode-${mode}"]`);
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await btn.click();
-    await this.waitForFrame();
-  },
-);
+When("I click the Review tab mode label", async function (this: KoluWorld) {
+  const btn = this.page.locator('[data-testid="review-mode-label"]');
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await btn.click();
+  await this.waitForFrame();
+});
 
 // ── Assertions ──
 
@@ -107,10 +104,10 @@ Then(
 Then(
   "the Review tab mode should be {string}",
   async function (this: KoluWorld, mode: string) {
-    const btn = this.page.locator(
-      `[data-testid="review-mode-${mode}"][data-active="true"]`,
+    const label = this.page.locator(
+      `[data-testid="review-mode-label"][data-mode="${mode}"]`,
     );
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await label.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

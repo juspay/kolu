@@ -34,8 +34,9 @@ Feature: Review tab (diff review)
     When I run "git init /tmp/kolu-review-no-origin && cd /tmp/kolu-review-no-origin"
     And I run "git commit --allow-empty -m init"
     And I click the Review tab
-    And I click the Review tab mode "branch"
-    Then the Review tab should show a missing-origin error
+    And I click the Review tab mode label
+    Then the Review tab mode should be "branch"
+    And the Review tab should show a missing-origin error
 
   Scenario: Lists changed files and opens a diff on click
     When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
