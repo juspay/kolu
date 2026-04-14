@@ -24,14 +24,14 @@ _local:
 _linux:
     CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
 
-# Runs home-manager and e2e in parallel after nix has completed.
+# Runs home-manager, e2e, and smoke in parallel after nix has completed.
 # Within the same just process, their `: nix` deps are already satisfied,
 # so nix is not rebuilt.
 [parallel]
-_linux-fanout: home-manager e2e
+_linux-fanout: home-manager e2e smoke
 
 _darwin:
-    CI_SYSTEM=aarch64-darwin just ci::nix ci::e2e || true
+    CI_SYSTEM=aarch64-darwin just ci::nix ci::smoke ci::e2e || true
 
 nix:
     just ci::_devour-flake nix --override-input flake .
@@ -44,6 +44,13 @@ typecheck:
 
 e2e: nix
     just ci::_run e2e just test
+
+# Smoke-run the built binary with --help to catch cross-platform
+# derivation mix-ups: if fetchPnpmDeps shares a content hash across
+# platforms, Nix can serve the wrong-platform build from cache and
+# `nix` alone won't notice. Running the binary will.
+smoke: nix
+    just ci::_run smoke nix run . -- --help
 
 # Run vitest unit tests (server + client)
 unit:
