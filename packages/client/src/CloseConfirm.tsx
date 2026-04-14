@@ -35,7 +35,7 @@ const CloseConfirm: Component<{
       initialFocusEl={cancelRef}
     >
       <Dialog.Content
-        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 max-w-sm text-sm space-y-4"
+        class="w-full bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 max-w-sm text-sm space-y-4"
         data-testid="close-confirm"
         style={{ "background-color": "var(--color-surface-1)" }}
       >

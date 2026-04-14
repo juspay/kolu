@@ -54,7 +54,7 @@ const ModalDialog: Component<{
         }}
       />
       <div
-        class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] pointer-events-none"
+        class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh] pointer-events-none"
         classList={{ hidden: !props.open }}
       >
         <div class="pointer-events-auto">{props.children}</div>
