@@ -72,12 +72,14 @@ Then(
 Then(
   "the Review tab should render a diff view",
   async function (this: KoluWorld) {
-    // @git-diff-view/solid marks its root container with data-component="git-diff-view".
-    // Check for attachment rather than visibility — the library may lay
-    // out content asynchronously via a ResizeObserver.
-    const diff = this.page.locator(
-      '[data-testid="review-diff"] [data-component="git-diff-view"]',
-    );
-    await diff.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    // Assert an actual rendered diff row, not just the wrapper div —
+    // @git-diff-view's wrapper mounts even when it receives zero parseable
+    // hunks (it just logs a warning). `.diff-line[data-state="diff"]` is
+    // the library's per-row marker inside DiffUnifiedContentLine; at least
+    // one must appear when a real diff is parsed.
+    const row = this.page
+      .locator('[data-testid="review-diff"] .diff-line[data-state="diff"]')
+      .first();
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
