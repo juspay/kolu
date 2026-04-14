@@ -39,7 +39,7 @@ let
     inherit src;
     hash =
       if pkgs.stdenv.isDarwin
-      then ""
+      then "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o="
       else "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o=";
     fetcherVersion = 3;
   };
