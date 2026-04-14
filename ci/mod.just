@@ -22,7 +22,7 @@ _local:
     just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
 
 _linux:
-    CI_SYSTEM=x86_64-linux just ci::nix ci::_linux-fanout || true
+    CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
 
 # Runs post-nix steps in parallel. Within the same just process, their
 # `: nix` deps are already satisfied, so nix is not rebuilt.
@@ -34,6 +34,22 @@ _darwin-fanout: e2e run
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
+
+# Verify the declared pnpmDeps hash in default.nix matches what
+# fetchPnpmDeps actually produces from the current pnpm-lock.yaml. The
+# first `nix build` realizes the output path (from substituter or fresh);
+# `--rebuild` then forces re-execution and compares, so a stale declared
+# hash cannot be silently satisfied by a cached artifact at that hash in
+# the binary cache (cache.nixos.asia). Runs on one system — the hash is
+# platform-independent (pnpm install --force bypasses os/cpu/libc gating).
+pnpm-hash-fresh:
+    just ci::_run pnpm-hash-fresh just ci::_pnpm-hash-fresh-do
+
+_pnpm-hash-fresh-do:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix build .#pnpmDeps --no-link
+    nix build --rebuild .#pnpmDeps --no-link
 
 nix:
     just ci::_devour-flake nix --override-input flake .
