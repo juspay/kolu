@@ -129,10 +129,16 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleKill(id: TerminalId) {
-    // Unmount the `<Terminal>` synchronously so xterm disposes before any
-    // reactive effect can fire another `client.terminal.resize` for this id.
-    // Without this, the closing terminal's resize listener (Terminal.tsx)
-    // races the kill RPC and the server logs `TerminalNotFoundError`.
+    // Auto-switch BEFORE masking: removeAndAutoSwitch reads store.terminalIds()
+    // to pick the next active by index, which needs to still include the
+    // dying id. If we masked first, the lookup would miss and activeId
+    // would flip to null — leaving no terminal visible during the kill RPC.
+    removeAndAutoSwitch(id);
+    // Now mask: `<Terminal>` unmounts synchronously, xterm disposes before
+    // any reactive effect can fire another `client.terminal.resize` for
+    // this id. Without this, the closing terminal's resize listener
+    // (Terminal.tsx) races the kill RPC and the server logs
+    // `TerminalNotFoundError`.
     store.markClosing(id);
     try {
       await client.terminal.kill({ id });
@@ -140,7 +146,6 @@ export function useTerminalCrud(deps: {
       // Terminal may already be gone — the mask auto-expires when the
       // server's list subscription stops including the id.
     }
-    removeAndAutoSwitch(id);
   }
 
   /** Kill a terminal and all its sub-terminals (instead of promoting them). */
