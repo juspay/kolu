@@ -37,7 +37,10 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-uDUcuuFr9K01/SbJjlBnQ8xv5HWf/4oaUXEo2Ts1248=";
+    hash =
+      if pkgs.stdenv.isDarwin
+      then "sha256-uDUcuuFr9K01/SbJjlBnQ8xv5HWf/4oaUXEo2Ts1248="
+      else "sha256-+0F68vGWwafQiKRThCuaCGYYDinYE0qwMhNd27UrPOI=";
     fetcherVersion = 3;
   };
 
