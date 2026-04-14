@@ -61,3 +61,18 @@ apm-sync: apm-audit
 agent *args: apm
     just prepare
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
+
+# Launch chrome-devtools-mcp server over stdio — wired up via the root
+# `.mcp.json`, which shells out via `nix develop --command just
+# ai::mcp-chrome-devtools` (Claude Code starts outside the nix devshell).
+# Chrome binary resolved from Playwright's nix-provided Chrome-for-Testing
+# across platforms: `chrome-linux64/chrome` on Linux and
+# `chrome-mac-*/Google Chrome for Testing.app/.../Google Chrome for Testing`
+# on macOS. `find` picks either layout; a miss fails loud downstream
+# (empty --executable-path → MCP server errors out visibly).
+#
+# TODO: fold .mcp.json's entry into `dependencies.mcp` above once
+# microsoft/apm#655 (Claude Code MCP adapter) merges and lands in juspay's
+# fork — `.mcp.json` then becomes a generated artifact of `just ai::apm`.
+mcp-chrome-devtools:
+    sh -c 'chrome="$(find "$PLAYWRIGHT_BROWSERS_PATH"/chromium-* \( -name chrome -o -name "Google Chrome for Testing" \) -type f -perm -u+x 2>/dev/null | head -1)"; exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$chrome"'
