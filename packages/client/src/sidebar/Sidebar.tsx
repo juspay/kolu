@@ -246,22 +246,6 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
-          {/* Repo-identity accent stripe on inactive cards — a thin bar
-           *  along the left edge whose colour hashes from the terminal's
-           *  repo (via displayInfo.repoColor). Two terminals in the same
-           *  worktree share a stripe colour; different worktrees get
-           *  different stripes. Active cards skip the stripe because
-           *  repo identity is already signalled there via the animated
-           *  border (--card-color) and the terminal bg. */}
-          <Show when={!props.isActive && props.displayInfo?.repoColor}>
-            {(color) => (
-              <span
-                aria-hidden="true"
-                class="absolute left-0 inset-y-0 w-[3px] rounded-l-[14px]"
-                style={{ "background-color": color() }}
-              />
-            )}
-          </Show>
           <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>

@@ -9,6 +9,12 @@ import type { TerminalId } from "kolu-common";
 
 export interface ThemeManagerDeps {
   activeId: Accessor<TerminalId | null>;
+  /** Live terminal IDs — used by `handleVariegateTheme` to collect peer
+   *  backgrounds (every terminal other than the active one) so the
+   *  shortcut/palette path matches new-terminal creation semantics:
+   *  pick something distinct from every sibling, not just from the
+   *  current terminal's own bg. */
+  terminalIds: Accessor<TerminalId[]>;
   getThemeName: (id: TerminalId) => string | undefined;
   setThemeName: (id: TerminalId, name: string) => void;
 }
@@ -54,20 +60,27 @@ function init(deps: ThemeManagerDeps) {
   }
 
   /** Shuffle the active terminal to a theme whose background is perceptually
-   *  far from the current one (and, if desired, from other terminals). Uses
-   *  the same variegated picker as new-terminal creation so repeated
-   *  invocations walk the palette instead of hovering near the current
-   *  colour. Filtering the current theme out of `candidates` guarantees a
-   *  distinct name even when tie-breaking doesn't favour us. */
+   *  far from EVERY OTHER live terminal — same semantics as new-terminal
+   *  creation, just applied retroactively. Filtering the current theme out
+   *  of `candidates` guarantees a distinct name even when tie-breaking
+   *  doesn't favour us. */
   function handleVariegateTheme() {
     const id = deps.activeId();
     if (id === null) return;
     const current = deps.getThemeName(id);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
+    const peerBgs: string[] = [];
+    for (const tid of deps.terminalIds()) {
+      if (tid === id) continue;
+      const bg = getThemeByName(deps.getThemeName(tid)).background;
+      if (bg) peerBgs.push(bg);
+    }
+    // Always include the current bg so we don't shuffle to something
+    // visually identical to where we already are.
     const currentBg = getThemeByName(current).background;
-    const usedBgs = currentBg ? [currentBg] : [];
-    handleSetTheme(pickVariegatedTheme(candidates, usedBgs));
+    if (currentBg) peerBgs.push(currentBg);
+    handleSetTheme(pickVariegatedTheme(candidates, peerBgs));
   }
 
   return {

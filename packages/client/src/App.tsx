@@ -56,6 +56,7 @@ const App: Component = () => {
     handleVariegateTheme,
   } = useThemeManager({
     activeId: store.activeId,
+    terminalIds: store.terminalIds,
     getThemeName: (id) => store.getMetadata(id)?.themeName,
     setThemeName: crud.setThemeName,
   });
