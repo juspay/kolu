@@ -22,6 +22,14 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 `just fmt`
 
+### Test command
+
+Invoke the `/test` skill. It selects relevant `.feature` files from the git diff and runs `just test-quick`.
+
+### CI command
+
+Invoke the `/ci` skill. It runs `just ci` via the Monitor tool and cross-checks posted GitHub commit statuses against `just ci::_contexts` so missing steps can't silently pass.
+
 ## Feature Discoverability (Tips)
 
 When adding a new user-facing feature or shortcut, consider adding a tip so users discover it. See `settings/tips.ts` and `settings/useTips.ts` for the registry and API.

@@ -37,10 +37,10 @@ const ShortcutsHelp: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }> = (props) => (
-  <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+  <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="sm">
     <Dialog.Content
       data-testid="shortcuts-help"
-      class="w-full max-w-sm bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
+      class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
       style={{ "background-color": "var(--color-surface-1)" }}
     >
       <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">

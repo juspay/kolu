@@ -1,26 +1,16 @@
 # Run recipes from project root, not agents/
 set working-directory := '..'
 
-apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
+# Pinned to juspay's fork while the hook-idempotency fix (microsoft/apm#708)
+# is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
+apm_cmd := 'uvx --from git+https://github.com/juspay/apm@fix/hook-idempotent-install apm'
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
-    # APM install cleans up stale files from upgraded *local* packages
-    # (see install.py's _local_deployed path) but not from upgraded
-    # *remote* packages — upstream `apm prune` only removes orphan
-    # packages, not orphan files from still-declared packages whose
-    # contents shrank. Wipe the APM-owned tree before reinstalling so
-    # remote-package orphans don't linger; keep-list preserves the
-    # user-owned launch.json. Destructive by design — this is an
-    # explicit developer action. CI uses `apm-sync` below, which
-    # verifies without mutating. See #468.
-    find .claude -mindepth 1 -maxdepth 1 ! -name launch.json -exec rm -rf {} +
     {{ apm_cmd }} install
 
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
-    # Same hook-dup workaround as `apm` recipe — see apm#561.
-    rm -f .claude/settings.json
     {{ apm_cmd }} deps update {{ packages }}
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
