@@ -287,20 +287,36 @@ Before(async function (this: KoluWorld, scenario) {
 });
 
 After(async function (this: KoluWorld, scenario) {
-  // Screenshot on failure
-  if (scenario.result?.status === Status.FAILED) {
-    const dir = path.resolve(
-      import.meta.dirname,
-      "..",
-      "reports",
-      "screenshots",
-    );
-    fs.mkdirSync(dir, { recursive: true });
-    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
-    await this.page.screenshot({
-      path: path.join(dir, `${name}.png`),
-      fullPage: true,
-    });
+  // Screenshot on failure — guarded so a dead page (e.g. ECONNRESET during
+  // the scenario) doesn't cascade into a TypeError in the After hook, which
+  // would otherwise turn one flake into two. Same rationale applies to the
+  // context.close() below: if the browser context is already torn down, the
+  // close() call can reject and mask the original scenario failure in
+  // reports. See juspay/kolu#320 (commit bec1500) for the cascade trace.
+  if (scenario.result?.status === Status.FAILED && this.page) {
+    try {
+      const dir = path.resolve(
+        import.meta.dirname,
+        "..",
+        "reports",
+        "screenshots",
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+      await this.page.screenshot({
+        path: path.join(dir, `${name}.png`),
+        fullPage: true,
+      });
+    } catch {
+      // Page/context may already be dead (ECONNRESET, browser crash).
+      // Swallow — the original scenario failure is what matters.
+    }
   }
-  if (this.context) await this.context.close();
+  if (this.context) {
+    try {
+      await this.context.close();
+    } catch {
+      // Context may already be closed by a prior crash.
+    }
+  }
 });
