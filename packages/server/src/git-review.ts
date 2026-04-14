@@ -23,6 +23,7 @@ import {
   type GitChangeStatus,
   type GitDiffOutput,
 } from "kolu-common";
+import { log } from "./log.ts";
 
 const execFileP = promisify(execFile);
 
@@ -63,42 +64,54 @@ export async function getStatus(repoPath: string): Promise<GitChangedFile[]> {
  * Normalize a caller-supplied file path and reject anything that escapes
  * the repo root. `filePath` arrives over RPC, so the server must not
  * trust it — without this guard a crafted `../../etc/passwd` would be
- * happily read by `fs.readFile`.
+ * read by the working-tree read *or* handed to `git diff --no-index`
+ * (which reads arbitrary filesystem paths). Returns both an absolute
+ * path (for `fs.readFile`) and a normalized relative path (canonical
+ * form for every subsequent git invocation — so no code path is
+ * reading the raw untrusted string).
  */
-function resolveInRepo(repoPath: string, filePath: string): string {
+function resolveInRepo(
+  repoPath: string,
+  filePath: string,
+): { abs: string; rel: string } {
   const repoAbs = path.resolve(repoPath);
   const fileAbs = path.resolve(repoAbs, filePath);
   if (fileAbs !== repoAbs && !fileAbs.startsWith(repoAbs + path.sep)) {
+    log.error({ repoPath, filePath }, "git-review: filePath escapes repoPath");
     throw new Error(`filePath escapes repoPath: ${filePath}`);
   }
-  return fileAbs;
+  return { abs: fileAbs, rel: path.relative(repoAbs, fileAbs) };
 }
 
 /**
- * Read the HEAD version of `filePath`. Returns empty string when the
- * path is absent from HEAD (newly added / untracked) — any other git
- * error (missing HEAD in an empty repo aside) propagates so the caller
- * can surface it.
+ * Read the HEAD version of `relPath`. Returns empty string when the path
+ * is absent from HEAD (newly added / untracked); any other git failure
+ * (missing HEAD in an empty repo, permission denied, corrupted object)
+ * propagates.
  */
 async function readHeadContent(
   repoPath: string,
-  filePath: string,
+  relPath: string,
 ): Promise<string> {
   const git = simpleGit(repoPath);
-  // `cat-file -e` exits non-zero iff the object doesn't exist — a cheap,
-  // specific existence probe. Only this failure is swallowed.
   try {
-    await git.raw(["cat-file", "-e", `HEAD:${filePath}`]);
-  } catch {
-    return "";
+    return await git.show([`HEAD:${relPath}`]);
+  } catch (err) {
+    // Narrow to the one expected failure: simple-git wraps the fatal
+    // line, which for a missing path reads either
+    //   "fatal: path '<p>' does not exist in 'HEAD'"
+    // or
+    //   "fatal: Path '<p>' exists on disk, but not in 'HEAD'"
+    const msg = err instanceof Error ? err.message : "";
+    if (/does not exist in |exists on disk, but not in /.test(msg)) return "";
+    throw err;
   }
-  return git.show([`HEAD:${filePath}`]);
 }
 
 /**
- * Read the working-tree version of `filePath` at a pre-resolved absolute
- * path. Returns empty string only for ENOENT ("the file was deleted"); all
- * other errors (permissions, EISDIR, etc.) propagate.
+ * Read the working-tree version of a pre-resolved absolute path. Returns
+ * empty string only for ENOENT ("the file was deleted"); all other
+ * errors (permissions, EISDIR, etc.) propagate.
  */
 async function readWorkingContent(fileAbs: string): Promise<string> {
   try {
@@ -147,12 +160,12 @@ export async function getDiff(
   repoPath: string,
   filePath: string,
 ): Promise<GitDiffOutput> {
-  const fileAbs = resolveInRepo(repoPath, filePath);
+  const { abs, rel } = resolveInRepo(repoPath, filePath);
 
   const [oldContent, newContent, tracked] = await Promise.all([
-    readHeadContent(repoPath, filePath),
-    readWorkingContent(fileAbs),
-    gitOutput(repoPath, ["diff", "HEAD", "--", filePath]),
+    readHeadContent(repoPath, rel),
+    readWorkingContent(abs),
+    gitOutput(repoPath, ["diff", "HEAD", "--", rel]),
   ]);
 
   const rawDiff =
@@ -163,12 +176,20 @@ export async function getDiff(
           "--no-index",
           "--",
           "/dev/null",
-          filePath,
+          rel,
         ]);
 
+  if (!rawDiff.trim().length) {
+    // Both `git diff HEAD --` and `--no-index` produced nothing for a
+    // file the client asked about. Legitimate cases (mode-only change
+    // that's already been reset, race with an external `git reset`) are
+    // possible but rare — log so operators can spot a pattern.
+    log.warn({ filePath: rel }, "git-review: empty diff for requested file");
+  }
+
   return {
-    oldFileName: oldContent ? filePath : null,
-    newFileName: newContent ? filePath : null,
+    oldFileName: oldContent ? rel : null,
+    newFileName: newContent ? rel : null,
     oldContent,
     newContent,
     hunks: rawDiff ? [rawDiff] : [],
