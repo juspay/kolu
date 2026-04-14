@@ -290,7 +290,7 @@ const CommandPalette: Component<{
       <Dialog.Content
         forceMount
         data-testid="command-palette"
-        class="w-full max-w-md bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
+        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
         style={{
           height: "24rem",
           // Firefox workaround: bg-surface-1 utility intermittently fails

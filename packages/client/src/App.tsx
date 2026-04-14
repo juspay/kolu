@@ -263,8 +263,12 @@ const App: Component = () => {
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
       />
-      <ModalDialog open={aboutOpen()} onOpenChange={withRefocus(setAboutOpen)}>
-        <Dialog.Content class="w-full bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm">
+      <ModalDialog
+        open={aboutOpen()}
+        onOpenChange={withRefocus(setAboutOpen)}
+        size="sm"
+      >
+        <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 text-sm">
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
