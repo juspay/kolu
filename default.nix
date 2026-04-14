@@ -37,6 +37,11 @@ let
     pname = "kolu";
     version = "0.1.0";
     inherit src;
+    # Hashes differ by platform by design: pnpm-lock.yaml contains platform-gated
+    # optionalDependencies (@esbuild/*, @img/sharp-*, @rollup/*, etc.) that
+    # fetchPnpmDeps resolves against the current stdenv. Darwin pulls the
+    # darwin-* tarballs; Linux pulls linux-*. Different tarball set → different
+    # content hash. Do not try to unify these. See juspay/kolu#507.
     hash =
       if pkgs.stdenv.isDarwin
       then "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o="
