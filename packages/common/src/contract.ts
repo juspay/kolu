@@ -84,7 +84,8 @@ export const contract = oc.router({
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
     /** List files modified vs HEAD (working-tree + staged + untracked). */
     status: oc.input(GitStatusInputSchema).output(GitStatusOutputSchema),
-    /** Unified diff of one file vs HEAD, pre-split into hunks for rendering. */
+    /** Raw `git diff HEAD -- <file>` output (or `--no-index` for untracked)
+     *  plus the old/new file contents, shaped for `@git-diff-view`. */
     diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
   },
   state: {

@@ -83,7 +83,10 @@ export const GitDiffOutputSchema = z.object({
   newFileName: z.string().nullable(),
   oldContent: z.string(),
   newContent: z.string(),
-  /** Each element is one hunk string starting with `@@`. */
+  /** Raw unified-diff strings, shaped for `@git-diff-view/core`'s parser:
+   *  each entry carries its own `--- / +++ / @@` header block (i.e.
+   *  passthrough of `git diff` output), not a bare hunk body. Currently
+   *  always zero or one element — a single per-file patch. */
   hunks: z.array(z.string()),
 });
 export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
