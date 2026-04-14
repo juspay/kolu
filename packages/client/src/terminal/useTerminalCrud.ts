@@ -129,10 +129,16 @@ export function useTerminalCrud(deps: {
   }
 
   async function handleKill(id: TerminalId) {
+    // Unmount the `<Terminal>` synchronously so xterm disposes before any
+    // reactive effect can fire another `client.terminal.resize` for this id.
+    // Without this, the closing terminal's resize listener (Terminal.tsx)
+    // races the kill RPC and the server logs `TerminalNotFoundError`.
+    store.markClosing(id);
     try {
       await client.terminal.kill({ id });
     } catch {
-      // Terminal may already be gone
+      // Terminal may already be gone — the mask auto-expires when the
+      // server's list subscription stops including the id.
     }
     removeAndAutoSwitch(id);
   }

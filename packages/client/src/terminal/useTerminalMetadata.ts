@@ -14,7 +14,7 @@
  *  a reactive owner per item and disposes it when the item leaves the list.
  *  No manual Map, AbortController, or version signals needed. */
 
-import { type Accessor, createMemo, mapArray } from "solid-js";
+import { type Accessor, createMemo, createSignal, mapArray } from "solid-js";
 import { match } from "ts-pattern";
 import {
   createSubscription,
@@ -50,10 +50,42 @@ export function useTerminalMetadata(deps: {
   listSub: Subscription<TerminalInfo[]>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  /** Terminal IDs derived from the live list subscription. */
-  const terminalIdList = createMemo(
-    () => deps.listSub()?.map((t) => t.id) ?? [],
+  // Optimistic "closing" mask. `handleKill` marks a terminal synchronously
+  // before the kill RPC resolves; the terminal is filtered from
+  // `terminalIdList` immediately so `mapArray`/`<For>` dispose the
+  // `<Terminal>` component, and its `onCleanup` disposes xterm. This stops
+  // any further `term.onResize` → `client.terminal.resize` RPCs from racing
+  // the in-flight kill — the server would otherwise log
+  // `TerminalNotFoundError` on a resize for a just-killed id.
+  //
+  // The mask is a memo intersected with the live list, so entries
+  // auto-expire the moment the server's list subscription drops the id.
+  // No explicit unmask is needed for the expected paths (kill succeeds, or
+  // fails with TerminalNotFoundError because the terminal already exited).
+  const [pendingClose, setPendingClose] = createSignal<Set<TerminalId>>(
+    new Set(),
   );
+
+  /** Terminal IDs derived from the live list subscription,
+   *  excluding those marked for optimistic close. */
+  const terminalIdList = createMemo(() => {
+    const ids = deps.listSub()?.map((t) => t.id) ?? [];
+    const pending = pendingClose();
+    return pending.size === 0 ? ids : ids.filter((id) => !pending.has(id));
+  });
+
+  /** Hide a terminal from the UI synchronously, before the kill RPC resolves. */
+  function markClosing(id: TerminalId): void {
+    setPendingClose((prev) => {
+      if (prev.has(id)) return prev;
+      // Drop entries the server has already removed — a cheap pruning step
+      // at write time keeps the set bounded without a separate effect.
+      const live = new Set(deps.listSub()?.map((t) => t.id) ?? []);
+      const next = new Set([...prev].filter((x) => live.has(x)));
+      next.add(id);
+      return next;
+    });
+  }
 
   // mapArray creates a reactive owner per terminal ID.
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
@@ -157,5 +189,6 @@ export function useTerminalMetadata(deps: {
     activeMeta,
     getDisplayInfo,
     terminalLabel,
+    markClosing,
   };
 }
