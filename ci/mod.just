@@ -49,7 +49,7 @@ e2e: nix
 
 # Smoke-test `nix run .` works
 run: nix
-    just ci::_run run nix run . --help
+    just ci::_run run nix run . -- --help
 
 # Run vitest unit tests (server + client)
 unit:
