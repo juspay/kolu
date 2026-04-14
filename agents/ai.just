@@ -50,16 +50,24 @@ apm-sync: apm-audit
     mkdir "$scratch/.claude" "$scratch/.opencode"
     (cd "$scratch" && {{ apm_cmd }} install -t claude >/dev/null)
     (cd "$scratch" && {{ apm_cmd }} install -t opencode >/dev/null)
-    # Exclude files that apm doesn't manage: launch.json is user-owned,
-    # and `.claude/*` entries in .gitignore are runtime state written by
+    # Exclude files that apm doesn't manage: launch.json is user-owned;
+    # `.claude/*` entries in .gitignore are runtime state written by
     # Claude Code itself (worktree bookkeeping, local settings, session
-    # lockfiles). Keep this list in sync with .gitignore — if a new
-    # runtime file appears, add it to .gitignore and here.
+    # lockfiles); and `.opencode/` accumulates plugin-install artifacts
+    # (package.json, node_modules, etc.) gitignored by the .opencode/
+    # .gitignore that apm emits. Keep this list in sync with the
+    # project-level .gitignore and .opencode/.gitignore — if a new
+    # runtime file appears in either, add it here too.
     diff_args=(
         -x launch.json
         -x worktrees
         -x settings.local.json
         -x scheduled_tasks.lock
+        -x .gitignore
+        -x node_modules
+        -x package.json
+        -x package-lock.json
+        -x bun.lock
     )
     if ! diff -r "${diff_args[@]}" .claude "$scratch/.claude"; then
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
