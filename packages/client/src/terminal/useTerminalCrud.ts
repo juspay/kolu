@@ -5,7 +5,7 @@
 
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { availableThemes, getThemeByName } from "../theme";
+import { availableThemes, resolveThemeBgs } from "../theme";
 import { pickVariegatedTheme } from "../themePicker";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
@@ -93,20 +93,6 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Backgrounds of every live terminal, for variegated picking. Resolves
-   *  each terminal's themeName via the shared theme map — an unknown or
-   *  missing name falls back to the default theme's bg, which is the same
-   *  bg that gets rendered, so the picker naturally avoids collisions with
-   *  "unnamed" terminals too. */
-  function liveTerminalBgs(): string[] {
-    const bgs: string[] = [];
-    for (const id of store.terminalIds()) {
-      const bg = getThemeByName(store.getMetadata(id)?.themeName).background;
-      if (bg) bgs.push(bg);
-    }
-    return bgs;
-  }
-
   /** Create a new terminal on the server and make it active.
    *  Returns the new terminal ID (for session restore mapping).
    *  When `themeName` is provided (e.g. session restore), it overrides
@@ -122,7 +108,13 @@ export function useTerminalCrud(deps: {
     // against itself. Only computed for the "variegated" branch; skipped for
     // other modes to avoid walking the terminal list for no reason.
     const mode = preferences().themeMode;
-    const peerBgs = mode === "variegated" ? liveTerminalBgs() : [];
+    const peerBgs =
+      mode === "variegated"
+        ? resolveThemeBgs(
+            store.terminalIds(),
+            (id) => store.getMetadata(id)?.themeName,
+          )
+        : [];
     const info = await client.terminal.create({ cwd }).catch((err: Error) => {
       toast.error(`Failed to create terminal: ${err.message}`);
       throw err;

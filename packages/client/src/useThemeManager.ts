@@ -2,7 +2,12 @@
 
 import { createSignal, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
-import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import {
+  DEFAULT_THEME_NAME,
+  availableThemes,
+  getThemeByName,
+  resolveThemeBgs,
+} from "./theme";
 import { pickVariegatedTheme } from "./themePicker";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
@@ -60,7 +65,8 @@ function init(deps: ThemeManagerDeps) {
   }
 
   /** Shuffle the active terminal to a theme whose background is perceptually
-   *  far from EVERY OTHER live terminal — same semantics as new-terminal
+   *  far from EVERY live terminal (the active one included — keeps us from
+   *  shuffling to a near-identical bg). Same semantics as new-terminal
    *  creation, just applied retroactively. Filtering the current theme out
    *  of `candidates` guarantees a distinct name even when tie-breaking
    *  doesn't favour us. */
@@ -70,16 +76,7 @@ function init(deps: ThemeManagerDeps) {
     const current = deps.getThemeName(id);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const peerBgs: string[] = [];
-    for (const tid of deps.terminalIds()) {
-      if (tid === id) continue;
-      const bg = getThemeByName(deps.getThemeName(tid)).background;
-      if (bg) peerBgs.push(bg);
-    }
-    // Always include the current bg so we don't shuffle to something
-    // visually identical to where we already are.
-    const currentBg = getThemeByName(current).background;
-    if (currentBg) peerBgs.push(currentBg);
+    const peerBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
     handleSetTheme(pickVariegatedTheme(candidates, peerBgs));
   }
 
