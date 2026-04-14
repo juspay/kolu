@@ -1,37 +1,47 @@
 /*
  * Overrides for `@git-diff-view/solid` to make it fit a narrow side panel.
  *
- * The library hardcodes `min-w-[100px]` + `pl-[10px] pr-[10px]` on the
- * line-number gutter cell, then nests two `inline-block w-[50%]` spans
- * with a `w-[10px]` gap inside it (DiffUnifiedContentLine.tsx). All five
- * choices are reasonable for a fullscreen diff viewer and wasted real
- * estate in a side panel.
+ * The library hardcodes a 40px-floor `--diff-aside-width--` CSS variable
+ * (DiffUnifiedView.tsx: `Math.max(40, width() + 10)`) and uses it to set
+ * inline `width`, `max-width`, AND `min-width` on every line-number gutter
+ * cell. Result: each cell is `(40 + 5) * 2 = 90px` minimum, regardless of
+ * actual digit count. In a side panel that's wasted real estate.
  *
- * Doing this via Tailwind arbitrary descendant variants (`[&_.foo]:`)
- * would need ~5 selectors, each with `!` and tied specificity against
- * the library's `.diff-tailwindcss-wrapper .foo` namespacing. A short
- * vendor override is clearer than that.
+ * Overriding only `min-width` doesn't work — the inline `width` and
+ * `max-width` still cap the cell at 90px. We need to defeat all three
+ * inline declarations with `!important`. Targeting `[data-testid=...]
+ * .diff-tailwindcss-wrapper .diff-line-num` keeps the override scoped to
+ * the Review tab so a future fullscreen diff viewer in kolu would render
+ * at the library's default size.
  */
 
 [data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num {
-  /* Tighten the gutter to comfortably hold a 4-digit line number. */
+  /* Defeat the inline 90px clamp; let the cell shrink to its content. */
+  width: auto !important;
   min-width: 0 !important;
+  max-width: none !important;
   padding-left: 4px !important;
   padding-right: 4px !important;
 }
 
 /*
- * Each cell holds two line-number columns (old + new) as inline-block
- * spans hard-coded to `w-[50%]` with a `w-[10px]` gap. Letting them
- * shrink to content lets the cell collapse to its actual digits.
+ * The cell's inner layout (DiffUnifiedContentLine.tsx) is:
+ *   <div class="flex">
+ *     <span class="inline-block w-[50%]">{lineNumber}</span>
+ *     <span class="w-[10px] shrink-0" />
+ *     <span class="inline-block w-[50%]">{lineNumber}</span>
+ *   </div>
+ * The 50% spans assume a fixed-width parent — once we let the parent
+ * shrink, they collapse to nothing. Force them back to content-sized.
  */
-[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num > span {
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num .flex > span {
   width: auto !important;
-  min-width: 1.5em;
+  min-width: 1.25em;
 }
 [data-testid="review-diff"]
   .diff-tailwindcss-wrapper
   .diff-line-num
+  .flex
   > span:empty {
   /* The middle "gap" span is empty — keep it tiny instead of 10px. */
   min-width: 0;
