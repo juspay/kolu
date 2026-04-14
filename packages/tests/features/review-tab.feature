@@ -31,3 +31,5 @@ Feature: Review tab (local diff)
     Then the Review tab should list a changed file "note.txt"
     When I click the changed file "note.txt" in the Review tab
     Then the Review tab should render a diff view
+    When I click the changed file "note.txt" in the Review tab
+    Then the Review tab should not render a diff view

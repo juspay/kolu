@@ -115,7 +115,10 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     {(f) => (
                       <button
                         type="button"
-                        onClick={() => setSelectedPath(f.path)}
+                        onClick={() =>
+                          // Re-click on the active row collapses the diff.
+                          setSelectedPath((p) => (p === f.path ? null : f.path))
+                        }
                         class="flex w-full items-center gap-2 px-2 py-0.5 text-left font-mono text-fg hover:bg-surface-1 cursor-pointer"
                         classList={{
                           "bg-surface-1": selectedPath() === f.path,

@@ -83,3 +83,13 @@ Then(
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
+
+Then(
+  "the Review tab should not render a diff view",
+  async function (this: KoluWorld) {
+    const row = this.page
+      .locator('[data-testid="review-diff"] .diff-line[data-state="diff"]')
+      .first();
+    await row.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
