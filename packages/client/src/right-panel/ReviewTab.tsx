@@ -137,14 +137,15 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
         {/*
           Tighten @git-diff-view's line-number gutter. The library hardcodes
-          `min-w-[100px]` + `px-[10px]` on `.diff-line-num`
-          (DiffUnifiedContentLine.tsx) — 120px per gutter cell, designed for
-          a fullscreen diff viewer, not a side panel. The descendant
-          selectors below outrank the library's single-class utilities by
-          specificity, so no `!important` is needed.
+          `min-w-[100px]` + `px-[10px]` on `.diff-line-num` for a
+          fullscreen diff viewer; in a side panel that's wasted real
+          estate. The library's CSS namespaces every utility under
+          `.diff-tailwindcss-wrapper`, which ties specificity with our
+          descendant override — so we need `!important` (Tailwind 4
+          suffix `!`) to win.
         */}
         <div
-          class="flex-1 min-h-0 overflow-auto [&_.diff-line-num]:min-w-[44px] [&_.diff-line-num]:px-1"
+          class="flex-1 min-h-0 overflow-auto [&_.diff-line-num]:min-w-[44px]! [&_.diff-line-num]:px-1!"
           data-testid="review-diff"
         >
           <Show
