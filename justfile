@@ -99,6 +99,11 @@ fmt-check:
 # Drives Playwright's nix-provided Chrome-for-Testing (headless, isolated
 # profile). Claude Code starts outside the devshell, so .mcp.json wraps
 # this with `nix develop --command just mcp-chrome-devtools`.
+#
+# TODO: fold this + .mcp.json into agents/apm.yml's `dependencies.mcp` once
+# microsoft/apm#655 (Claude Code MCP adapter) merges and lands in juspay's
+# fork — then the recipe moves into agents/ai.just and .mcp.json becomes a
+# generated artifact.
 mcp-chrome-devtools:
     {{ nix_shell }} sh -c 'exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$KOLU_CHROME_EXECUTABLE"'
 
