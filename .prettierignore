@@ -6,3 +6,5 @@ apm.lock.yaml
 .claude/skills/
 .claude/hooks/
 .claude/settings.json
+.opencode/commands/
+.opencode/skills/

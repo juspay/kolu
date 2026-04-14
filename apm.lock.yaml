@@ -1,24 +1,13 @@
 lockfile_version: '1'
-generated_at: '2026-04-13T18:28:30.591593+00:00'
+generated_at: '2026-04-14T14:05:54.413188+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
   package_type: apm_package
   deployed_files:
-  - .claude/commands/whatchanged.md
-  - .claude/rules/apm-workflow.md
-  - .claude/rules/architecture.md
-  - .claude/rules/code-police-rules.md
-  - .claude/rules/e2e-testing.md
-  - .claude/rules/hickey-catalog.md
-  - .claude/rules/nix.md
-  - .claude/rules/solidjs.md
-  - .claude/rules/state.md
-  - .claude/rules/streaming.md
-  - .claude/rules/toast-conventions.md
-  - .claude/rules/workflow.md
-  - .claude/skills/ci
-  - .claude/skills/test
+  - .opencode/commands/whatchanged.md
+  - .opencode/skills/ci
+  - .opencode/skills/test
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -28,7 +17,7 @@ dependencies:
   is_virtual: true
   package_type: claude_skill
   deployed_files:
-  - .claude/skills/frontend-design
+  - .opencode/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/skills
   host: github.com
@@ -37,7 +26,7 @@ dependencies:
   is_virtual: true
   package_type: claude_skill
   deployed_files:
-  - .claude/skills/nix-justfile
+  - .opencode/skills/nix-justfile
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
@@ -46,7 +35,7 @@ dependencies:
   is_virtual: true
   package_type: claude_skill
   deployed_files:
-  - .claude/skills/nix-typescript
+  - .opencode/skills/nix-typescript
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
@@ -54,13 +43,10 @@ dependencies:
   resolved_ref: master
   package_type: apm_package
   deployed_files:
-  - .claude/commands/talk.md
-  - .claude/hooks/agency/scripts/do-stop-guard.sh
-  - .claude/rules/apm-sources.md
-  - .claude/skills/code-police
-  - .claude/skills/do
-  - .claude/skills/elegance
-  - .claude/skills/fact-check
-  - .claude/skills/forge-pr
-  - .claude/skills/hickey
+  - .opencode/skills/code-police
+  - .opencode/skills/do
+  - .opencode/skills/elegance
+  - .opencode/skills/fact-check
+  - .opencode/skills/forge-pr
+  - .opencode/skills/hickey
   content_hash: sha256:7610b1d5a3dfd2e3864be66614accbce7e7132a36b5b74f62eb2de2a1342eb79
