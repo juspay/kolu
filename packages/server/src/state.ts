@@ -9,13 +9,14 @@
 import fs from "node:fs";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
-import type {
-  Preferences,
-  RecentRepo,
-  RecentAgent,
-  PersistedState,
-  ServerState,
-  ServerStatePatch,
+import {
+  PreferencesSchema,
+  type Preferences,
+  type RecentRepo,
+  type RecentAgent,
+  type PersistedState,
+  type ServerState,
+  type ServerStatePatch,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
@@ -25,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.8.0";
+const SCHEMA_VERSION = "1.7.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -111,20 +112,6 @@ export const store = new Conf<PersistedState>({
         ...rest,
         rightPanel: DEFAULT_PREFERENCES.rightPanel,
       });
-    },
-    // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
-    // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    "1.8.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const staleTab =
-        current.rightPanel.tab !== "inspector" &&
-        current.rightPanel.tab !== "review";
-      if (staleTab) {
-        store.set("preferences", {
-          ...current,
-          rightPanel: { ...current.rightPanel, tab: "inspector" },
-        });
-      }
     },
   },
 });
@@ -213,13 +200,35 @@ function getRecentAgents(): RecentAgent[] {
 
 // --- Server state ---
 
+/**
+ * Read preferences from disk, validating against the current schema.
+ *
+ * Preferences are *recoverable* state — every field can be re-toggled by
+ * the user — so a schema mismatch resets to defaults rather than failing
+ * the read. This avoids needing a migration entry every time a preference
+ * field is added, removed, or its enum tightened. (User data —
+ * `recentRepos`, `recentAgents`, `session` — is not reset; those go
+ * through the versioned `migrations` block.)
+ */
+function readPreferences(): Preferences {
+  const raw = store.get("preferences");
+  const parsed = PreferencesSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  log.warn(
+    { issues: parsed.error.issues },
+    "preferences failed schema validation; resetting to defaults",
+  );
+  store.set("preferences", DEFAULT_PREFERENCES);
+  return DEFAULT_PREFERENCES;
+}
+
 /** Get the full server state. */
 export function getServerState(): ServerState {
   return {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
     session: store.get("session"),
-    preferences: store.get("preferences"),
+    preferences: readPreferences(),
   };
 }
 
