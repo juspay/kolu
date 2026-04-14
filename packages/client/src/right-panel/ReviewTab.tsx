@@ -169,6 +169,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     diffViewMode={DiffModeEnum.Unified}
                     diffViewHighlight
                     diffViewTheme={diffTheme()}
+                    diffViewFontSize={11}
                   />
                 )}
               </Match>
