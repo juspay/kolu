@@ -15,8 +15,11 @@
  * at the library's default size.
  */
 
-[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num {
-  /* Defeat the inline 90px clamp; let the cell shrink to its content. */
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num,
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-hunk-action {
+  /* Defeat the inline 90px clamp; let the cell shrink to its content.
+   * Both gutter cells (line-numbers + hunk-action arrows) share the
+   * same `--diff-aside-width--`-derived inline sizing. */
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
