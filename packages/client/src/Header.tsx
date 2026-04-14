@@ -45,8 +45,12 @@ const PanelToggleIcon: Component<{
     <Tip label={props.label}>
       <button
         data-testid={props["data-testid"]}
-        class="flex items-center justify-center w-6 h-6 rounded hover:bg-surface-2 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-        classList={{ "text-fg-2": props.active }}
+        class="flex items-center justify-center w-6 h-6 rounded transition-colors cursor-pointer"
+        classList={{
+          "bg-surface-2 text-fg": props.active,
+          "text-fg-3 hover:bg-surface-2 hover:text-fg": !props.active,
+        }}
+        data-active={props.active ? "" : undefined}
         onClick={props.onClick}
         aria-label={props.label}
       >
