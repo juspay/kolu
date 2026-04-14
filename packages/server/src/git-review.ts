@@ -14,7 +14,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { simpleGit } from "simple-git";
-import { parsePatch, type StructuredPatchHunk } from "diff";
+import { parsePatch, createPatch, type StructuredPatchHunk } from "diff";
 import type { GitChangedFile, GitDiffOutput } from "kolu-common";
 
 /**
@@ -98,42 +98,18 @@ export async function getDiff(
   repoPath: string,
   filePath: string,
 ): Promise<GitDiffOutput> {
-  const git = simpleGit(repoPath);
-
   const [oldContent, newContent] = await Promise.all([
     readHeadContent(repoPath, filePath),
     readWorkingContent(repoPath, filePath),
   ]);
 
-  // `git diff HEAD -- <file>` handles tracked files (modified/deleted).
-  // For untracked files, `-- <file>` emits nothing, so we fall back to
-  // `git diff --no-index /dev/null <file>` which diffs against an empty
-  // base and returns a non-zero exit code (by design) that simple-git
-  // surfaces as an error — hence the try/catch.
-  let rawDiff = "";
-  try {
-    rawDiff = await git.raw(["diff", "HEAD", "--", filePath]);
-  } catch {
-    // `git diff HEAD --` can fail in repos with no commits yet; fall through to --no-index.
-    rawDiff = "";
-  }
-  if (!rawDiff) {
-    try {
-      rawDiff = await git.raw([
-        "diff",
-        "--no-index",
-        "--",
-        "/dev/null",
-        filePath,
-      ]);
-    } catch (err) {
-      // `--no-index` exits 1 when files differ — simple-git treats that
-      // as an error but the stdout we want is attached to the error.
-      const maybeStdout = (err as { stdout?: string } | null)?.stdout;
-      if (typeof maybeStdout === "string") rawDiff = maybeStdout;
-    }
-  }
-
+  // Use `diff.createPatch` directly on the two contents rather than
+  // shelling out to `git diff HEAD`. This sidesteps the untracked-file
+  // quirk (`git diff HEAD -- <untracked>` emits nothing) and the
+  // `--no-index` exit-1-by-design trap, and produces a unified diff the
+  // same Myers algorithm git uses. `parsePatch` then normalizes it into
+  // hunks for the client renderer.
+  const rawDiff = createPatch(filePath, oldContent, newContent);
   const parsed = parsePatch(rawDiff);
   const file = parsed[0];
   const hunks = file ? file.hunks.map(reserializeHunk) : [];

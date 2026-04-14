@@ -3,11 +3,7 @@
 
 import { type Component, For } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import {
-  type TerminalMetadata,
-  type RightPanelTab,
-  RightPanelTabSchema,
-} from "kolu-common";
+import type { TerminalMetadata, RightPanelTab } from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
 import ReviewTab from "./ReviewTab";
 import { useRightPanel } from "./useRightPanel";
@@ -25,8 +21,12 @@ type TabDef = {
 
 // Record over the tab enum — TypeScript enforces that every RightPanelTab
 // value has an entry, so adding a new tab without a handler fails to
-// compile. Iteration order follows `RightPanelTabSchema.options` — the
-// declaration order preserved by zod.
+// compile. Iteration order follows object property declaration order.
+//
+// Intentionally `type`-only import from kolu-common: the sibling value
+// `RightPanelTabSchema` would pull `AgentInfoSchema` → `kolu-claude-code`
+// → `@anthropic-ai/claude-agent-sdk` into the client bundle, defeating
+// tree-shaking.
 const TABS: Record<RightPanelTab, TabDef> = {
   inspector: { label: "Inspector", component: MetadataInspector },
   review: {
@@ -34,6 +34,8 @@ const TABS: Record<RightPanelTab, TabDef> = {
     component: (p) => <ReviewTab meta={p.meta} />,
   },
 };
+
+const TAB_IDS = Object.keys(TABS) as RightPanelTab[];
 
 const RightPanel: Component<{
   meta: TerminalMetadata | null;
@@ -50,10 +52,11 @@ const RightPanel: Component<{
     >
       {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1/50">
-        <For each={RightPanelTabSchema.options}>
+        <For each={TAB_IDS}>
           {(id) => (
             <button
               data-testid={`right-panel-tab-${id}`}
+              data-active={rightPanel.activeTab() === id}
               class={`h-full px-3 text-xs cursor-pointer transition-colors ${
                 rightPanel.activeTab() === id
                   ? "font-medium text-fg-2 border-b border-accent"

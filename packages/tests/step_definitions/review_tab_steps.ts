@@ -35,8 +35,12 @@ When(
 // ── Assertions ──
 
 Then("the Review tab should be active", async function (this: KoluWorld) {
-  const tab = this.page.locator('[data-testid="review-tab"]');
-  await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // The Review tab button exposes data-active reflecting the active tab,
+  // which is independent of in-repo vs no-repo content.
+  const btn = this.page.locator(
+    '[data-testid="right-panel-tab-review"][data-active="true"]',
+  );
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(
@@ -69,9 +73,11 @@ Then(
   "the Review tab should render a diff view",
   async function (this: KoluWorld) {
     // @git-diff-view/solid marks its root container with data-component="git-diff-view".
+    // Check for attachment rather than visibility — the library may lay
+    // out content asynchronously via a ResizeObserver.
     const diff = this.page.locator(
       '[data-testid="review-diff"] [data-component="git-diff-view"]',
     );
-    await diff.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await diff.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
