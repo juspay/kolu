@@ -7,6 +7,7 @@ import { toast } from "solid-sonner";
 import { availableThemes } from "../theme";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
+import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { useServerState } from "../settings/useServerState";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -149,24 +150,7 @@ export function useTerminalCrud(deps: {
     if (id === null) return;
     try {
       const text = await client.terminal.screenText({ id });
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        // Fallback for non-secure contexts (HTTP on non-localhost)
-        // where navigator.clipboard is undefined.
-        const textarea = document.createElement("textarea");
-        textarea.value = text;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        try {
-          textarea.select();
-          const ok = document.execCommand("copy");
-          if (!ok) throw new Error("clipboard access blocked");
-        } finally {
-          document.body.removeChild(textarea);
-        }
-      }
+      await writeTextToClipboard(text);
       toast.success("Copied terminal text to clipboard");
     } catch (err) {
       console.error("Failed to copy terminal text:", err);
