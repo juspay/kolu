@@ -1,25 +1,24 @@
 /*
  * Overrides for `@git-diff-view/solid` to make it fit a narrow side panel.
  *
- * The library hardcodes a 40px-floor `--diff-aside-width--` CSS variable
- * (DiffUnifiedView.tsx: `Math.max(40, width() + 10)`) and uses it to set
- * inline `width`, `max-width`, AND `min-width` on every line-number gutter
- * cell. Result: each cell is `(40 + 5) * 2 = 90px` minimum, regardless of
- * actual digit count. In a side panel that's wasted real estate.
+ * Two layered defaults to defeat:
+ *   1. The cell has Tailwind `min-w-[100px]` AND inline `width/min-width
+ *      /max-width: calc((var(--diff-aside-width--) + 5px) * 2)` where
+ *      `--diff-aside-width--` is computed via `Math.max(40, …)` in
+ *      DiffUnifiedView.tsx — so the floor is `(40 + 5) * 2 = 90px`.
+ *   2. Inside the cell, two `inline-block w-[50%]` spans plus a `w-[10px]`
+ *      gap — so even after we collapse the cell, the inner spans still
+ *      reserve 50% slots that don't shrink to digit width.
  *
- * Overriding only `min-width` doesn't work — the inline `width` and
- * `max-width` still cap the cell at 90px. We need to defeat all three
- * inline declarations with `!important`. Targeting `[data-testid=...]
- * .diff-tailwindcss-wrapper .diff-line-num` keeps the override scoped to
- * the Review tab so a future fullscreen diff viewer in kolu would render
- * at the library's default size.
+ * Strategy: force `width: auto` + `inline-flex` on the inner row so the
+ * cell sizes to the actual digits, drop the empty gap span, and apply the
+ * same fix to the hunk-action gutter (which shares the same sizing
+ * pattern). Scoped to `[data-testid="review-diff"]` so a future
+ * fullscreen diff renderer would render at the library's defaults.
  */
 
 [data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num,
 [data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-hunk-action {
-  /* Defeat the inline 90px clamp; let the cell shrink to its content.
-   * Both gutter cells (line-numbers + hunk-action arrows) share the
-   * same `--diff-aside-width--`-derived inline sizing. */
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
@@ -27,28 +26,46 @@
   padding-right: 4px !important;
 }
 
-/*
- * The cell's inner layout (DiffUnifiedContentLine.tsx) is:
- *   <div class="flex">
- *     <span class="inline-block w-[50%]">{lineNumber}</span>
- *     <span class="w-[10px] shrink-0" />
- *     <span class="inline-block w-[50%]">{lineNumber}</span>
- *   </div>
- * The 50% spans assume a fixed-width parent — once we let the parent
- * shrink, they collapse to nothing. Force them back to content-sized.
- */
-[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num .flex > span {
-  width: auto !important;
-  min-width: 1.25em;
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num .flex {
+  display: inline-flex !important;
+  gap: 6px !important;
 }
+
+[data-testid="review-diff"]
+  .diff-tailwindcss-wrapper
+  .diff-line-num
+  .flex
+  > span {
+  width: auto !important;
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+}
+
 [data-testid="review-diff"]
   .diff-tailwindcss-wrapper
   .diff-line-num
   .flex
   > span:empty {
-  /* The middle "gap" span is empty — keep it tiny instead of 10px. */
-  min-width: 0;
-  width: 4px !important;
+  /* Empty spans are the "gap" placeholder + the absent old/new number on
+   * single-side rows. We use flex `gap` instead, so drop these. */
+  display: none !important;
+}
+
+/*
+ * Trim the diff content's `pl-[2.0em]` indent — that 2em (~22px at our
+ * 11px font) is reserved for the +/- operator that overlays via
+ * `ml-[-1.5em]`. We only need ~1em of room.
+ */
+[data-testid="review-diff"]
+  .diff-tailwindcss-wrapper
+  .diff-line-content-item {
+  padding-left: 1em !important;
+}
+[data-testid="review-diff"]
+  .diff-tailwindcss-wrapper
+  .diff-line-content-operator {
+  width: 0.9em !important;
+  margin-left: -0.9em !important;
 }
 
 /*
@@ -63,4 +80,3 @@
   word-break: normal !important;
   overflow-wrap: anywhere;
 }
-
