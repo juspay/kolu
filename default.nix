@@ -44,7 +44,7 @@ let
     # content hash. Do not try to unify these. See juspay/kolu#507.
     hash =
       if pkgs.stdenv.isDarwin
-      then ""
+      then "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o="
       else "sha256-xcT+qRNmGjF7FmvPv4X25RlntZN8SAiVdWqH4lreS5o=";
     fetcherVersion = 3;
   };
