@@ -21,6 +21,7 @@
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ORPCError } from "@orpc/server";
 import { simpleGit } from "simple-git";
 import {
   GitChangeStatusSchema,
@@ -61,10 +62,15 @@ async function resolveBase(repoPath: string): Promise<GitBaseRef> {
     // failure mode is "ref doesn't exist". Translate that to an actionable
     // error rather than surfacing simple-git's `fatal: Needed a single
     // revision` string to the reviewer.
-    throw new Error(
-      `No base branch found — ${ref} doesn't exist. ` +
+    //
+    // Uses `ORPCError` (not plain `Error`) so the message survives to the
+    // client — oRPC sanitizes unknown `Error` throws to "Internal Server
+    // Error" by default, which would hide the actionable suggestion below.
+    throw new ORPCError("PRECONDITION_FAILED", {
+      message:
+        `No base branch found — ${ref} doesn't exist. ` +
         `Run: git fetch origin && git remote set-head origin --auto`,
-    );
+    });
   }
   const sha = (await git.raw(["merge-base", "HEAD", ref])).trim();
   return { ref, sha };

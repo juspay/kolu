@@ -25,7 +25,9 @@ Feature: Review tab (diff review)
     Then the Review tab should show the empty-changes message
 
   Scenario: Mode toggle defaults to Local
-    When I click the Review tab
+    When I run "git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
+    And I run "git commit --allow-empty -m init"
+    And I click the Review tab
     Then the Review tab mode should be "local"
 
   Scenario: Branch mode surfaces an actionable error when origin is missing
