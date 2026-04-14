@@ -19,6 +19,8 @@ import {
 } from "solid-js";
 import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
+// Order matters: this overrides the library CSS imported just above.
+import "./review-tab.css";
 import type { TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
@@ -135,17 +137,9 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           </Switch>
         </div>
 
-        {/*
-          Tighten @git-diff-view's line-number gutter. The library hardcodes
-          `min-w-[100px]` + `px-[10px]` on `.diff-line-num` for a
-          fullscreen diff viewer; in a side panel that's wasted real
-          estate. The library's CSS namespaces every utility under
-          `.diff-tailwindcss-wrapper`, which ties specificity with our
-          descendant override — so we need `!important` (Tailwind 4
-          suffix `!`) to win.
-        */}
+        {/* Gutter tightening lives in review-tab.css — see comment there. */}
         <div
-          class="flex-1 min-h-0 overflow-auto [&_.diff-line-num]:min-w-[44px]! [&_.diff-line-num]:px-1!"
+          class="flex-1 min-h-0 overflow-auto"
           data-testid="review-diff"
         >
           <Show

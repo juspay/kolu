@@ -1,0 +1,39 @@
+/*
+ * Overrides for `@git-diff-view/solid` to make it fit a narrow side panel.
+ *
+ * The library hardcodes `min-w-[100px]` + `pl-[10px] pr-[10px]` on the
+ * line-number gutter cell, then nests two `inline-block w-[50%]` spans
+ * with a `w-[10px]` gap inside it (DiffUnifiedContentLine.tsx). All five
+ * choices are reasonable for a fullscreen diff viewer and wasted real
+ * estate in a side panel.
+ *
+ * Doing this via Tailwind arbitrary descendant variants (`[&_.foo]:`)
+ * would need ~5 selectors, each with `!` and tied specificity against
+ * the library's `.diff-tailwindcss-wrapper .foo` namespacing. A short
+ * vendor override is clearer than that.
+ */
+
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num {
+  /* Tighten the gutter to comfortably hold a 4-digit line number. */
+  min-width: 0 !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+}
+
+/*
+ * Each cell holds two line-number columns (old + new) as inline-block
+ * spans hard-coded to `w-[50%]` with a `w-[10px]` gap. Letting them
+ * shrink to content lets the cell collapse to its actual digits.
+ */
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-num > span {
+  width: auto !important;
+  min-width: 1.5em;
+}
+[data-testid="review-diff"]
+  .diff-tailwindcss-wrapper
+  .diff-line-num
+  > span:empty {
+  /* The middle "gap" span is empty — keep it tiny instead of 10px. */
+  min-width: 0;
+  width: 4px !important;
+}
