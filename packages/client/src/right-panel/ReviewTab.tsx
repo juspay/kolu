@@ -138,10 +138,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         </div>
 
         {/* Gutter tightening lives in review-tab.css — see comment there. */}
-        <div
-          class="flex-1 min-h-0 overflow-auto"
-          data-testid="review-diff"
-        >
+        <div class="flex-1 min-h-0 overflow-auto" data-testid="review-diff">
           <Show
             when={selectedPath()}
             fallback={

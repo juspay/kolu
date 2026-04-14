@@ -43,12 +43,25 @@ export const WorktreeRemoveInputSchema = z.object({
 
 // --- Local diff review (issue #514 phase 1) ---
 
-/** Single-letter git status codes (porcelain-ish). "?" marks untracked. */
+/** Single-letter git porcelain status code, narrowed to what `git.status`
+ *  actually surfaces to the Review tab. Excludes " " (unmodified) and
+ *  "!" (ignored) — neither is included in the changed-files list. */
+export const GitChangeStatusSchema = z.enum([
+  "M", // modified
+  "A", // added
+  "D", // deleted
+  "R", // renamed
+  "C", // copied
+  "U", // unmerged (conflict)
+  "T", // type changed (e.g. file → symlink)
+  "?", // untracked
+]);
+export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>;
+
 export const GitChangedFileSchema = z.object({
   /** Path relative to repo root. */
   path: z.string(),
-  /** Working-tree status letter: M (modified), D (deleted), A (added), R (renamed), ? (untracked). */
-  status: z.string(),
+  status: GitChangeStatusSchema,
 });
 export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
 

@@ -67,9 +67,7 @@
  * 11px font) is reserved for the +/- operator that overlays via
  * `ml-[-1.5em]`. We only need ~1em of room.
  */
-[data-testid="review-diff"]
-  .diff-tailwindcss-wrapper
-  .diff-line-content-item {
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-content-item {
   padding-left: 1em !important;
 }
 [data-testid="review-diff"]

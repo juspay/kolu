@@ -15,7 +15,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { simpleGit } from "simple-git";
 import { createPatch } from "diff";
-import type { GitChangedFile, GitDiffOutput } from "kolu-common";
+import {
+  GitChangeStatusSchema,
+  type GitChangedFile,
+  type GitChangeStatus,
+  type GitDiffOutput,
+} from "kolu-common";
 
 /**
  * Working-tree status vs HEAD.
@@ -25,6 +30,13 @@ import type { GitChangedFile, GitDiffOutput } from "kolu-common";
  * letter reflects the most significant change (working tree preferred
  * over index when both are set).
  */
+/** Coerce a raw porcelain letter into the typed enum, falling back to "?"
+ *  for anything unexpected (defensive against future simple-git additions). */
+function toChangeStatus(letter: string): GitChangeStatus {
+  const parsed = GitChangeStatusSchema.safeParse(letter);
+  return parsed.success ? parsed.data : "?";
+}
+
 export async function getStatus(repoPath: string): Promise<GitChangedFile[]> {
   const git = simpleGit(repoPath);
   const status = await git.status();
@@ -35,8 +47,8 @@ export async function getStatus(repoPath: string): Promise<GitChangedFile[]> {
   const seen = new Map<string, GitChangedFile>();
   for (const f of status.files) {
     // working_dir takes precedence; fall back to index.
-    const letter = (f.working_dir !== " " ? f.working_dir : f.index) || "?";
-    seen.set(f.path, { path: f.path, status: letter });
+    const letter = f.working_dir !== " " ? f.working_dir : f.index;
+    seen.set(f.path, { path: f.path, status: toChangeStatus(letter) });
   }
   for (const p of status.not_added) {
     if (!seen.has(p)) seen.set(p, { path: p, status: "?" });
