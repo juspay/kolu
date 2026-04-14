@@ -68,6 +68,17 @@ Feature: Theme switching
     Then the header theme should differ from "Tomorrow Night"
     And there should be no page errors
 
+  Scenario: Variegated theme via keyboard shortcut
+    When I press the variegated theme shortcut
+    Then the header theme should differ from "Tomorrow Night"
+    And there should be no page errors
+
+  Scenario: Variegated theme via command palette
+    When I open the command palette
+    And I select "Variegated theme" in the palette
+    Then the header theme should differ from "Tomorrow Night"
+    And there should be no page errors
+
   Scenario: Reopening theme palette refocuses search input
     When I click the theme name in the header
     Then the command palette should be visible

@@ -53,6 +53,7 @@ const App: Component = () => {
     isPreviewingTheme,
     handleSetTheme,
     handleRandomizeTheme,
+    handleVariegateTheme,
   } = useThemeManager({
     activeId: store.activeId,
     getThemeName: (id) => store.getMetadata(id)?.themeName,
@@ -140,6 +141,7 @@ const App: Component = () => {
         direction,
       ),
     handleRandomizeTheme,
+    handleVariegateTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     toggleRightPanel: rightPanel.togglePanel,
@@ -194,6 +196,7 @@ const App: Component = () => {
     setPreviewThemeName,
     handleSetTheme,
     handleRandomizeTheme,
+    handleVariegateTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>

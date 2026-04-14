@@ -134,6 +134,13 @@ export const SHORTCUTS = {
     keybind: { key: "j", mod: true },
     label: "Random theme",
   },
+  variegateTheme: {
+    // Shift+J reports key="J" but code="KeyJ"; match on code so casing
+    // doesn't matter. Sits next to `randomizeTheme` on Cmd+J as the
+    // "smart" sibling: same gesture, distinct-background picker.
+    keybind: { key: "J", code: "KeyJ", mod: true, shift: true },
+    label: "Variegated theme",
+  },
   copyTerminalText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     label: "Copy terminal text",

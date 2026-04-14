@@ -214,6 +214,13 @@ const SidebarEntry: Component<{
             /* Active card uses the actual xterm theme bg — same material as the terminal.
              * --active-terminal-bg is published by App.tsx on the layout root.
              *
+             * Inactive cards get a light mix of THIS terminal's theme bg into
+             * surface-1 so the sidebar at rest looks variegated — each card
+             * hints at its own terminal's colour instead of every card being
+             * the same surface-1 grey. Repo identity moves to the left
+             * accent stripe below so the two concerns stop time-sharing one
+             * channel.
+             *
              * Active card also scope-overrides the fg tier vars so every
              * `text-fg-*` descendant re-tunes to the terminal theme's own
              * foreground instead of the global one. color-mix against the
@@ -222,8 +229,8 @@ const SidebarEntry: Component<{
              * light or dark. Fixes #390. */
             "background-color": props.isActive
               ? "var(--active-terminal-bg)"
-              : props.displayInfo?.repoColor
-                ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
+              : props.terminalTheme.background
+                ? `color-mix(in oklch, ${props.terminalTheme.background} 20%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
             ...(props.isActive
               ? {
@@ -239,6 +246,22 @@ const SidebarEntry: Component<{
           onMouseDown={(e) => e.preventDefault()}
           title={props.metadata?.cwd ?? String(props.id)}
         >
+          {/* Repo-identity accent stripe on inactive cards — a thin bar
+           *  along the left edge whose colour hashes from the terminal's
+           *  repo (via displayInfo.repoColor). Two terminals in the same
+           *  worktree share a stripe colour; different worktrees get
+           *  different stripes. Active cards skip the stripe because
+           *  repo identity is already signalled there via the animated
+           *  border (--card-color) and the terminal bg. */}
+          <Show when={!props.isActive && props.displayInfo?.repoColor}>
+            {(color) => (
+              <span
+                aria-hidden="true"
+                class="absolute left-0 inset-y-0 w-[3px] rounded-l-[14px]"
+                style={{ "background-color": color() }}
+              />
+            )}
+          </Show>
           <div class="min-w-0 px-2.5 py-2 pr-6">
             <TerminalMeta info={props.displayInfo} />
           </div>

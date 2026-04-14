@@ -1,15 +1,18 @@
 /** Settings popover — reads and writes preferences via useServerState directly.
  *  Only needs open/close state and trigger ref from the parent. */
 
-import { type Component, Show, For, createSignal } from "solid-js";
+import { type Component, Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Toggle from "../ui/Toggle";
+import SegmentedControl, {
+  type SegmentedControlOption,
+} from "../ui/SegmentedControl";
 import { useServerState } from "./useServerState";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
-import type { SidebarAgentPreviews } from "kolu-common";
+import type { SidebarAgentPreviews, ThemeMode } from "kolu-common";
 
-const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
+const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "System" },
@@ -19,11 +22,22 @@ const SCHEME_OPTIONS: { value: ColorScheme; label: string }[] = [
  *  Order is intentional: narrowest ("none") to broadest ("all"), with
  *  the default ("attention") sitting next to "none" so users can quickly
  *  dial back from the default without overshooting into "all". */
-const PREVIEW_OPTIONS: { value: SidebarAgentPreviews; label: string }[] = [
-  { value: "none", label: "Off" },
-  { value: "attention", label: "Alert" },
-  { value: "agents", label: "Agents" },
-  { value: "all", label: "All" },
+const PREVIEW_OPTIONS: readonly SegmentedControlOption<SidebarAgentPreviews>[] =
+  [
+    { value: "none", label: "Off" },
+    { value: "attention", label: "Alert" },
+    { value: "agents", label: "Agents" },
+    { value: "all", label: "All" },
+  ];
+
+/** Theme-mode options — how new terminals choose their theme.
+ *  `variegated` is the default; `fixed` is the opt-out; `random` is the
+ *  pre-existing "just give me variety, I don't care if it's distinct"
+ *  behavior. */
+const THEME_MODE_OPTIONS: readonly SegmentedControlOption<ThemeMode>[] = [
+  { value: "fixed", label: "Fixed" },
+  { value: "random", label: "Random" },
+  { value: "variegated", label: "Variegated" },
 ];
 
 const SettingsPopover: Component<{
@@ -82,37 +96,27 @@ const SettingsPopover: Component<{
           {/* Color scheme */}
           <div class="flex items-center justify-between gap-3 text-sm">
             <span class="text-fg-2">Theme</span>
-            <div
-              data-testid="color-scheme-toggle"
-              class="flex rounded-lg overflow-hidden border border-edge"
-            >
-              <For each={SCHEME_OPTIONS}>
-                {(opt) => (
-                  <button
-                    data-testid={`color-scheme-${opt.value}`}
-                    class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
-                    classList={{
-                      "bg-accent text-surface-0": colorScheme() === opt.value,
-                      "bg-surface-2 text-fg-2 hover:text-fg":
-                        colorScheme() !== opt.value,
-                    }}
-                    onClick={() => setColorScheme(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
-          {/* Random terminal theme */}
-          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-            <span class="text-fg-2">Random theme</span>
-            <Toggle
-              testId="random-theme-toggle"
-              enabled={preferences().randomTheme}
-              onChange={(on) => updatePreferences({ randomTheme: on })}
+            <SegmentedControl
+              options={SCHEME_OPTIONS}
+              value={colorScheme()}
+              onChange={setColorScheme}
+              testIdPrefix="color-scheme"
             />
-          </label>
+          </div>
+          {/* Theme mode — how new terminals pick their initial theme.
+           *  "Variegated" (default) maximises perceptual distance so the
+           *  sidebar ends up with a recognisable colour-per-terminal
+           *  instead of a sea of look-alikes. "Random" keeps the old
+           *  uniform-random behavior. "Fixed" disables auto-pick. */}
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-fg-2">Theme mode</span>
+            <SegmentedControl
+              options={THEME_MODE_OPTIONS}
+              value={preferences().themeMode}
+              onChange={(v) => updatePreferences({ themeMode: v })}
+              testIdPrefix="theme-mode"
+            />
+          </div>
           {/* Scroll lock */}
           <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
             <span class="text-fg-2">Scroll lock</span>
@@ -134,30 +138,12 @@ const SettingsPopover: Component<{
           {/* Sidebar agent previews — 4-way segmented control */}
           <div class="flex items-center justify-between gap-3 text-sm">
             <span class="text-fg-2">Agent previews</span>
-            <div
-              data-testid="sidebar-agent-previews-toggle"
-              class="flex rounded-lg overflow-hidden border border-edge"
-            >
-              <For each={PREVIEW_OPTIONS}>
-                {(opt) => (
-                  <button
-                    data-testid={`sidebar-agent-previews-${opt.value}`}
-                    class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
-                    classList={{
-                      "bg-accent text-surface-0":
-                        preferences().sidebarAgentPreviews === opt.value,
-                      "bg-surface-2 text-fg-2 hover:text-fg":
-                        preferences().sidebarAgentPreviews !== opt.value,
-                    }}
-                    onClick={() =>
-                      updatePreferences({ sidebarAgentPreviews: opt.value })
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                )}
-              </For>
-            </div>
+            <SegmentedControl
+              options={PREVIEW_OPTIONS}
+              value={preferences().sidebarAgentPreviews}
+              onChange={(v) => updatePreferences({ sidebarAgentPreviews: v })}
+              testIdPrefix="sidebar-agent-previews"
+            />
           </div>
           {/* Startup tips */}
           <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">

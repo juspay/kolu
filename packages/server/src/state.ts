@@ -25,7 +25,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.8.0";
+const SCHEMA_VERSION = "1.9.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -125,6 +125,28 @@ export const store = new Conf<PersistedState>({
           rightPanel: { ...current.rightPanel, tab: "inspector" },
         });
       }
+    },
+    // `randomTheme` (boolean) replaced by `themeMode` ("fixed" | "random" |
+    // "variegated"). Users who had random-theme ON get promoted to the new
+    // "variegated" default (strictly better: no duplicate backgrounds);
+    // users who had it OFF get "fixed" (stay opted out). Anyone on the new
+    // default keeps "variegated".
+    "1.9.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as unknown as
+        | (Record<string, unknown> & { randomTheme?: unknown })
+        | undefined;
+      const { randomTheme, ...rest } = current ?? {};
+      const themeMode =
+        randomTheme === true
+          ? "variegated"
+          : randomTheme === false
+            ? "fixed"
+            : DEFAULT_PREFERENCES.themeMode;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...(rest as Partial<Preferences>),
+        themeMode,
+      });
     },
   },
 });

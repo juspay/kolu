@@ -22,6 +22,7 @@ interface ShortcutDeps {
   toggleSubPanel: (parentId: TerminalId) => void;
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleRandomizeTheme: () => void;
+  handleVariegateTheme: () => void;
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
   toggleRightPanel: () => void;
@@ -165,6 +166,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.randomizeTheme.keybind)) {
     deps.handleRandomizeTheme();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.variegateTheme.keybind)) {
+    deps.handleVariegateTheme();
     return true;
   }
 

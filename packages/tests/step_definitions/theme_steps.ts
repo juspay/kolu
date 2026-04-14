@@ -53,6 +53,11 @@ When("I press the random theme shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When("I press the variegated theme shortcut", async function (this: KoluWorld) {
+  await this.page.keyboard.press(`${MOD_KEY}+Shift+KeyJ`);
+  await this.waitForFrame();
+});
+
 Then(
   "the header theme should differ from {string}",
   async function (this: KoluWorld, notExpected: string) {

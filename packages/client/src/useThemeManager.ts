@@ -3,6 +3,7 @@
 import { createSignal, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
 import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import { pickVariegatedTheme } from "./themePicker";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
@@ -41,6 +42,7 @@ function init(deps: ThemeManagerDeps) {
     deps.setThemeName(id, themeName);
   }
 
+  /** Shuffle the active terminal to a uniformly-random different theme. */
   function handleRandomizeTheme() {
     const id = deps.activeId();
     if (id === null) return;
@@ -49,6 +51,23 @@ function init(deps: ThemeManagerDeps) {
     if (candidates.length === 0) return;
     const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
     handleSetTheme(pick.name);
+  }
+
+  /** Shuffle the active terminal to a theme whose background is perceptually
+   *  far from the current one (and, if desired, from other terminals). Uses
+   *  the same variegated picker as new-terminal creation so repeated
+   *  invocations walk the palette instead of hovering near the current
+   *  colour. Filtering the current theme out of `candidates` guarantees a
+   *  distinct name even when tie-breaking doesn't favour us. */
+  function handleVariegateTheme() {
+    const id = deps.activeId();
+    if (id === null) return;
+    const current = deps.getThemeName(id);
+    const candidates = availableThemes.filter((t) => t.name !== current);
+    if (candidates.length === 0) return;
+    const currentBg = getThemeByName(current).background;
+    const usedBgs = currentBg ? [currentBg] : [];
+    handleSetTheme(pickVariegatedTheme(candidates, usedBgs));
   }
 
   return {
@@ -60,6 +79,7 @@ function init(deps: ThemeManagerDeps) {
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleRandomizeTheme,
+    handleVariegateTheme,
   } as const;
 }
 

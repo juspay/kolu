@@ -23,32 +23,32 @@ Then(
   },
 );
 
-Then(
-  "the random theme toggle state should change",
-  async function (this: KoluWorld) {
-    // Get current state, click, verify it changed
-    const toggle = this.page.locator('[data-testid="random-theme-toggle"]');
-    const before = await toggle.getAttribute("data-enabled");
-    // The toggle was already clicked in the previous step, so just verify
-    // it differs from its initial state by clicking again and comparing
-    const after = await toggle.getAttribute("data-enabled");
-    // If before was null (off), after click it should have been set to "" (on), or vice versa
-    // Since we already clicked once, just verify the toggle responds
-    await this.page.click('[data-testid="random-theme-toggle"]');
+When(
+  "I click the {string} theme mode button",
+  async function (this: KoluWorld, mode: string) {
+    await this.page.click(`[data-testid="theme-mode-${mode}"]`);
     await this.waitForFrame();
-    const afterSecond = await toggle.getAttribute("data-enabled");
-    assert.notStrictEqual(
-      after,
-      afterSecond,
-      "Expected random theme toggle to change state on click",
-    );
   },
 );
 
-When("I click the random theme toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="random-theme-toggle"]');
-  await this.waitForFrame();
-});
+Then(
+  "the theme mode should be {string}",
+  async function (this: KoluWorld, mode: string) {
+    // The selected option gets `bg-accent`; siblings get `bg-surface-2`.
+    // We check by comparing the `class` attribute instead of a dedicated
+    // data attribute because the segmented control mirrors the existing
+    // `color-scheme-*` pattern in this same popover — keeping them
+    // uniform is more valuable than adding a new `data-selected` just here.
+    const button = this.page.locator(`[data-testid="theme-mode-${mode}"]`);
+    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const cls = await button.getAttribute("class");
+    assert.match(
+      cls ?? "",
+      /bg-accent/,
+      `Expected theme-mode-${mode} to be the selected option (bg-accent)`,
+    );
+  },
+);
 
 When(
   "I click the {string} color scheme button",

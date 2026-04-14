@@ -4,7 +4,9 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import { toast } from "solid-sonner";
-import { availableThemes } from "../theme";
+import { match } from "ts-pattern";
+import { availableThemes, getThemeByName } from "../theme";
+import { pickVariegatedTheme } from "../themePicker";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";
@@ -91,26 +93,51 @@ export function useTerminalCrud(deps: {
     }
   }
 
+  /** Backgrounds of every live terminal, for variegated picking. Resolves
+   *  each terminal's themeName via the shared theme map — an unknown or
+   *  missing name falls back to the default theme's bg, which is the same
+   *  bg that gets rendered, so the picker naturally avoids collisions with
+   *  "unnamed" terminals too. */
+  function liveTerminalBgs(): string[] {
+    const bgs: string[] = [];
+    for (const id of store.terminalIds()) {
+      const bg = getThemeByName(store.getMetadata(id)?.themeName).background;
+      if (bg) bgs.push(bg);
+    }
+    return bgs;
+  }
+
   /** Create a new terminal on the server and make it active.
    *  Returns the new terminal ID (for session restore mapping).
    *  When `themeName` is provided (e.g. session restore), it overrides
-   *  the random-theme preference so only one setTheme RPC fires. */
+   *  the theme-mode preference so only one setTheme RPC fires. */
   async function handleCreate(
     cwd?: string,
     themeName?: string,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
+    // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
+    // server's default theme for a frame, which we don't want scored as a peer
+    // against itself. Only computed for the "variegated" branch; skipped for
+    // other modes to avoid walking the terminal list for no reason.
+    const mode = preferences().themeMode;
+    const peerBgs = mode === "variegated" ? liveTerminalBgs() : [];
     const info = await client.terminal.create({ cwd }).catch((err: Error) => {
       toast.error(`Failed to create terminal: ${err.message}`);
       throw err;
     });
-    const theme =
-      themeName ??
-      (preferences().randomTheme
-        ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
-            .name
-        : undefined);
+    const autoPick = match(mode)
+      .with("fixed", () => undefined)
+      .with(
+        "random",
+        () =>
+          availableThemes[Math.floor(Math.random() * availableThemes.length)]!
+            .name,
+      )
+      .with("variegated", () => pickVariegatedTheme(availableThemes, peerBgs))
+      .exhaustive();
+    const theme = themeName ?? autoPick;
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (theme) setThemeName(info.id, theme);

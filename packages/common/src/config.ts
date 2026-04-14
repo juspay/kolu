@@ -33,7 +33,7 @@ export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 export const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
   startupTips: true,
-  randomTheme: true,
+  themeMode: "variegated",
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",

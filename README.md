@@ -96,7 +96,8 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
 - Live preview while browsing themes in the palette
-- Random theme per new terminal (toggleable)
+- New-terminal theme mode — **fixed** (no auto-pick), **random** (uniform random), or **variegated** (background perceptually distinct from every other open terminal; default)
+- Shuffle the active terminal's theme with <kbd>⌘J</kbd> (random) or <kbd>⌘⇧J</kbd> (variegated)
 - Dark / light / system UI theme
 
 ### Clipboard
