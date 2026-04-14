@@ -41,6 +41,40 @@ export const WorktreeRemoveInputSchema = z.object({
   worktreePath: z.string(),
 });
 
+// --- Local diff review (issue #514 phase 1) ---
+
+/** Single-letter git status codes (porcelain-ish). "?" marks untracked. */
+export const GitChangedFileSchema = z.object({
+  /** Path relative to repo root. */
+  path: z.string(),
+  /** Working-tree status letter: M (modified), D (deleted), A (added), R (renamed), ? (untracked). */
+  status: z.string(),
+});
+export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
+
+export const GitStatusInputSchema = z.object({
+  repoPath: z.string(),
+});
+
+export const GitStatusOutputSchema = z.array(GitChangedFileSchema);
+
+export const GitDiffInputSchema = z.object({
+  repoPath: z.string(),
+  /** Path relative to the repo root. */
+  filePath: z.string(),
+});
+
+/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop. */
+export const GitDiffOutputSchema = z.object({
+  oldFileName: z.string().nullable(),
+  newFileName: z.string().nullable(),
+  oldContent: z.string(),
+  newContent: z.string(),
+  /** Each element is one hunk string starting with `@@`. */
+  hunks: z.array(z.string()),
+});
+export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
+
 // --- GitHub PR context ---
 
 export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
@@ -241,7 +275,7 @@ export const SidebarAgentPreviewsSchema = z.enum([
 ]);
 export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
 
-export const RightPanelTabSchema = z.enum(["inspector", "files", "git"]);
+export const RightPanelTabSchema = z.enum(["inspector", "review"]);
 export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
 
 export const RightPanelPrefsSchema = z.object({

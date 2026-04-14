@@ -1,12 +1,15 @@
 /** RightPanel — right panel shell with tabbed navigation.
- *  Routes between Inspector, Files, and Git tabs. */
+ *  Routes between Inspector and Review tabs. */
 
 import { type Component, For } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { TerminalMetadata, RightPanelTab } from "kolu-common";
+import {
+  type TerminalMetadata,
+  type RightPanelTab,
+  RightPanelTabSchema,
+} from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
-import FilesTab from "./FilesTab";
-import GitTab from "./GitTab";
+import ReviewTab from "./ReviewTab";
 import { useRightPanel } from "./useRightPanel";
 
 type TabProps = {
@@ -15,15 +18,22 @@ type TabProps = {
   onThemeClick?: () => void;
 };
 
-const TABS: {
-  id: RightPanelTab;
+type TabDef = {
   label: string;
   component: Component<TabProps>;
-}[] = [
-  { id: "inspector", label: "Inspector", component: MetadataInspector },
-  { id: "files", label: "Files", component: (p) => <FilesTab meta={p.meta} /> },
-  { id: "git", label: "Git", component: (p) => <GitTab meta={p.meta} /> },
-];
+};
+
+// Record over the tab enum — TypeScript enforces that every RightPanelTab
+// value has an entry, so adding a new tab without a handler fails to
+// compile. Iteration order follows `RightPanelTabSchema.options` — the
+// declaration order preserved by zod.
+const TABS: Record<RightPanelTab, TabDef> = {
+  inspector: { label: "Inspector", component: MetadataInspector },
+  review: {
+    label: "Review",
+    component: (p) => <ReviewTab meta={p.meta} />,
+  },
+};
 
 const RightPanel: Component<{
   meta: TerminalMetadata | null;
@@ -40,18 +50,18 @@ const RightPanel: Component<{
     >
       {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1/50">
-        <For each={TABS}>
-          {(tab) => (
+        <For each={RightPanelTabSchema.options}>
+          {(id) => (
             <button
-              data-testid={`right-panel-tab-${tab.id}`}
+              data-testid={`right-panel-tab-${id}`}
               class={`h-full px-3 text-xs cursor-pointer transition-colors ${
-                rightPanel.activeTab() === tab.id
+                rightPanel.activeTab() === id
                   ? "font-medium text-fg-2 border-b border-accent"
                   : "text-fg-3/50 hover:text-fg-2"
               }`}
-              onClick={() => rightPanel.setActiveTab(tab.id)}
+              onClick={() => rightPanel.setActiveTab(id)}
             >
-              {tab.label}
+              {TABS[id].label}
             </button>
           )}
         </For>
@@ -66,10 +76,7 @@ const RightPanel: Component<{
       </div>
       <div class="flex-1 min-h-0 overflow-hidden">
         <Dynamic
-          component={
-            TABS.find((t) => t.id === rightPanel.activeTab())?.component ??
-            TABS[0]!.component
-          }
+          component={TABS[rightPanel.activeTab()].component}
           meta={props.meta}
           themeName={props.themeName}
           onThemeClick={props.onThemeClick}

@@ -25,7 +25,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.7.0";
+const SCHEMA_VERSION = "1.8.0";
 
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
@@ -111,6 +111,20 @@ export const store = new Conf<PersistedState>({
         ...rest,
         rightPanel: DEFAULT_PREFERENCES.rightPanel,
       });
+    },
+    // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
+    // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
+    "1.8.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      const staleTab =
+        current.rightPanel.tab !== "inspector" &&
+        current.rightPanel.tab !== "review";
+      if (staleTab) {
+        store.set("preferences", {
+          ...current,
+          rightPanel: { ...current.rightPanel, tab: "inspector" },
+        });
+      }
     },
   },
 });

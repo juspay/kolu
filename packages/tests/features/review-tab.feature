@@ -1,0 +1,33 @@
+Feature: Review tab (local diff)
+  The Review tab lists files changed vs HEAD in the terminal's repo and
+  renders the unified diff for a selected file. Phase 1 of #514.
+
+  Background:
+    Given the terminal is ready
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+
+  Scenario: Review tab is present and switchable
+    When I click the Review tab
+    Then the Review tab should be active
+
+  Scenario: Shows "not a git repo" message outside a repo
+    When I run "cd /tmp"
+    And I click the Review tab
+    Then the Review tab should indicate no git repository
+
+  Scenario: Shows "no changes" when the repo is clean
+    When I run "git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
+    And I run "git commit --allow-empty -m init"
+    And I click the Review tab
+    Then the Review tab should show the empty-changes message
+
+  Scenario: Lists changed files and opens a diff on click
+    When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'hello\n' > note.txt"
+    And I click the Review tab
+    And I click the refresh button in the Review tab
+    Then the Review tab should list a changed file "note.txt"
+    When I click the changed file "note.txt" in the Review tab
+    Then the Review tab should render a diff view
