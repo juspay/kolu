@@ -6,6 +6,7 @@
 #   do-results init <forge> <noGit>           — create initial skeleton
 #   do-results step <name> <status> <verif> <startedAt> <completedAt> [reason]
 #                                             — append a completed step
+#                                               pass "now" for startedAt/completedAt to auto-generate UTC timestamp
 #   do-results set <field> <value>            — update a top-level field (active, status)
 #   do-results patch-last <field> <value>     — patch a field on the last step
 
@@ -48,6 +49,10 @@ ENDJSON
     startedAt="${4:?startedAt required}"
     completedAt="${5:?completedAt required}"
     reason="${6:-}"
+
+    # Resolve "now" sentinel to current UTC timestamp
+    [[ "$startedAt" == "now" ]] && startedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    [[ "$completedAt" == "now" ]] && completedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     if [ -n "$reason" ]; then
       $JQ --arg n "$name" --arg s "$status" --arg v "$verif" \
