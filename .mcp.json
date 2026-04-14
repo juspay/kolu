@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "nix",
+      "args": ["develop", "--command", "just", "mcp-chrome-devtools"]
+    }
+  }
+}

@@ -2,6 +2,17 @@
 { pkgs ? import ./nix/nixpkgs.nix { } }:
 let
   packages = import ./default.nix { inherit pkgs; };
+
+  # Chrome-for-Testing path for chrome-devtools-mcp (see .mcp.json). Pulled
+  # from playwright-driver's browsers.json at eval time so the chromium-N
+  # revision tracks whatever nixpkgs pins — fails loud here if layout changes
+  # instead of silently at MCP startup. Idiom from https://wiki.nixos.org/wiki/Playwright.
+  playwrightBrowsers = (builtins.fromJSON
+    (builtins.readFile "${pkgs.playwright-driver}/browsers.json")).browsers;
+  chromiumRev = (builtins.head
+    (builtins.filter (b: b.name == "chromium") playwrightBrowsers)).revision;
+  koluChromeExecutable =
+    "${pkgs.playwright-driver.browsers}/chromium-${chromiumRev}/chrome-linux64/chrome";
 in
 pkgs.mkShell {
   name = "kolu-shell";
@@ -11,6 +22,7 @@ pkgs.mkShell {
     KOLU_COMMIT_HASH = "dev";
     PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+    KOLU_CHROME_EXECUTABLE = koluChromeExecutable;
   };
 
   shellHook = ''

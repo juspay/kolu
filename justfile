@@ -95,6 +95,13 @@ fmt:
 fmt-check:
     {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
+# Launch chrome-devtools-mcp server over stdio — wired up via .mcp.json.
+# Drives Playwright's nix-provided Chrome-for-Testing (headless, isolated
+# profile). Claude Code starts outside the devshell, so .mcp.json wraps
+# this with `nix develop --command just mcp-chrome-devtools`.
+mcp-chrome-devtools:
+    {{ nix_shell }} sh -c 'exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$KOLU_CHROME_EXECUTABLE"'
+
 # Nix build (server + client)
 build:
     nix build
