@@ -75,4 +75,9 @@ agent *args: apm
 # microsoft/apm#655 (Claude Code MCP adapter) merges and lands in juspay's
 # fork — `.mcp.json` then becomes a generated artifact of `just ai::apm`.
 mcp-chrome-devtools:
-    sh -c 'chrome="$(find "$PLAYWRIGHT_BROWSERS_PATH"/chromium-* \( -name chrome -o -name "Google Chrome for Testing" \) -type f -perm -u+x 2>/dev/null | head -1)"; exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$chrome"'
+    bash -c 'shopt -s nullglob; \
+      for c in "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
+               "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do \
+        [[ -x "$c" ]] && chrome="$c" && break; \
+      done; \
+      exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$chrome"'

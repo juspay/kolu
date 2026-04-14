@@ -1,12 +1,14 @@
 /*
  * Vendor overrides for `@git-diff-view/solid` to fit a narrow side panel.
  *
- * Key insight: the library's table carries `table-layout: fixed`, which
- * locks each column width to the inline `width: calc(…)` set on its
- * first-row cell (driven by `--diff-aside-width--`, `Math.max(40, …)`).
- * Forcing `table-layout: auto` lets cell constraints actually matter;
- * the rest defeats the library's inline `width`/`max-width`/`min-width`
- * and its `w-[50%]` inner spans so the gutter collapses to digit width.
+ * The library's table carries `table-layout: fixed` with inline
+ * `width: calc(--diff-aside-width-- …)` on gutter cells, floored at 40px
+ * → each cell is ≥90px regardless of digit count. Forcing
+ * `table-layout: auto` lets the cells shrink; the inline `width`/
+ * `max-width`/`min-width` triplet still needs explicit overrides.
+ *
+ * Every rule in this file was verified load-bearing via live-DOM probes
+ * (chrome-devtools-mcp) — see PR #515.
  */
 
 [data-testid="review-diff"] table {
@@ -22,25 +24,19 @@
   padding-right: 4px !important;
 }
 
+/* 6px breathing room between old + new line numbers (lib default is 0). */
 [data-testid="review-diff"] .diff-line-num .flex {
-  display: inline-flex !important;
   gap: 6px !important;
 }
 
-[data-testid="review-diff"] .diff-line-num .flex > span {
-  width: auto !important;
-  min-width: 0 !important;
-  flex: 0 0 auto !important;
-}
-
-/* Drop empty side-number spans on add/del rows (and the 10px gap span,
- * replaced by flex `gap` above). */
+/* Drop empty side-number spans on add/del rows so they don't reserve
+ * layout space (no `w-[50%]` placeholder slot). */
 [data-testid="review-diff"] .diff-line-num .flex > span:empty {
   display: none !important;
 }
 
-/* Tighten the content's `pl-[2em]` indent (reserved for the +/- operator
- * that overlays via `ml-[-1.5em]`). */
+/* Tighten the content's `pl-[2em]` indent reserved for the +/- operator
+ * (which overlays via `ml-[-1.5em]`) to roughly half. */
 [data-testid="review-diff"] .diff-line-content-item {
   padding-left: 1em !important;
 }
@@ -49,8 +45,8 @@
   margin-left: -0.9em !important;
 }
 
-/* `diffViewWrap` ships `word-break: break-all` inline, which wraps
- * mid-identifier and mid-string — useless for code review. */
+/* `diffViewWrap` ships inline `word-break: break-all`, which wraps
+ * mid-identifier / mid-string. Swap in normal word-boundary wrapping. */
 [data-testid="review-diff"] .diff-line-content,
 [data-testid="review-diff"] .diff-line-content * {
   word-break: normal !important;
