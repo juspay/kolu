@@ -182,6 +182,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     diffViewHighlight
                     diffViewTheme={diffTheme()}
                     diffViewFontSize={11}
+                    diffViewWrap
                   />
                 )}
               </Match>
