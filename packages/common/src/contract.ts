@@ -24,6 +24,10 @@ import {
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
   ServerStateSchema,
   ServerStatePatchSchema,
 } from "./index";
@@ -78,6 +82,11 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
+    /** List files modified vs HEAD (working-tree + staged + untracked). */
+    status: oc.input(GitStatusInputSchema).output(GitStatusOutputSchema),
+    /** Raw `git diff HEAD -- <file>` output (or `--no-index` for untracked)
+     *  plus the old/new file contents, shaped for `@git-diff-view`. */
+    diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
   },
   state: {
     // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
