@@ -64,7 +64,8 @@ Feature: Theme switching
 
   Scenario: Random theme via command palette
     When I open the command palette
-    And I select "Random theme" in the palette
+    And I select "Shuffle theme" in the palette
+    And I select "Random" in the palette
     Then the header theme should differ from "Tomorrow Night"
     And there should be no page errors
 
@@ -75,7 +76,8 @@ Feature: Theme switching
 
   Scenario: Variegated theme via command palette
     When I open the command palette
-    And I select "Variegated theme" in the palette
+    And I select "Shuffle theme" in the palette
+    And I select "Variegated" in the palette
     Then the header theme should differ from "Tomorrow Night"
     And there should be no page errors
 

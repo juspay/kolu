@@ -194,16 +194,23 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.activeId() !== null
       ? [
           {
-            name: "Random theme",
-            keybind: SHORTCUTS.randomizeTheme.keybind,
-            onSelect: () => deps.handleRandomizeTheme(),
-          },
-          {
-            name: "Variegated theme",
-            description:
-              "Pick a theme whose background is perceptually distinct from this terminal's current one",
-            keybind: SHORTCUTS.variegateTheme.keybind,
-            onSelect: () => deps.handleVariegateTheme(),
+            name: "Shuffle theme",
+            description: "Pick a different theme for this terminal",
+            children: [
+              {
+                name: "Variegated",
+                description:
+                  "Pick a theme whose background is perceptually distinct from this terminal's current one",
+                keybind: SHORTCUTS.variegateTheme.keybind,
+                onSelect: () => deps.handleVariegateTheme(),
+              },
+              {
+                name: "Random",
+                description: "Pick any other theme uniformly at random",
+                keybind: SHORTCUTS.randomizeTheme.keybind,
+                onSelect: () => deps.handleRandomizeTheme(),
+              },
+            ],
           },
         ]
       : []),
