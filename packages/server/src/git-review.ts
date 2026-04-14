@@ -24,6 +24,7 @@ import {
   type GitDiffOutput,
 } from "kolu-common";
 import { log } from "./log.ts";
+import { resolveUnder } from "./safe-path.ts";
 
 const execFileP = promisify(execFile);
 
@@ -58,29 +59,6 @@ export async function getStatus(repoPath: string): Promise<GitChangedFile[]> {
   }
 
   return [...seen.values()].sort((a, b) => a.path.localeCompare(b.path));
-}
-
-/**
- * Normalize a caller-supplied file path and reject anything that escapes
- * the repo root. `filePath` arrives over RPC, so the server must not
- * trust it — without this guard a crafted `../../etc/passwd` would be
- * read by the working-tree read *or* handed to `git diff --no-index`
- * (which reads arbitrary filesystem paths). Returns both an absolute
- * path (for `fs.readFile`) and a normalized relative path (canonical
- * form for every subsequent git invocation — so no code path is
- * reading the raw untrusted string).
- */
-function resolveInRepo(
-  repoPath: string,
-  filePath: string,
-): { abs: string; rel: string } {
-  const repoAbs = path.resolve(repoPath);
-  const fileAbs = path.resolve(repoAbs, filePath);
-  if (fileAbs !== repoAbs && !fileAbs.startsWith(repoAbs + path.sep)) {
-    log.error({ repoPath, filePath }, "git-review: filePath escapes repoPath");
-    throw new Error(`filePath escapes repoPath: ${filePath}`);
-  }
-  return { abs: fileAbs, rel: path.relative(repoAbs, fileAbs) };
 }
 
 /**
@@ -160,7 +138,7 @@ export async function getDiff(
   repoPath: string,
   filePath: string,
 ): Promise<GitDiffOutput> {
-  const { abs, rel } = resolveInRepo(repoPath, filePath);
+  const { abs, rel } = resolveUnder(repoPath, filePath);
 
   const [oldContent, newContent, tracked] = await Promise.all([
     readHeadContent(repoPath, rel),
@@ -176,7 +154,10 @@ export async function getDiff(
           "--no-index",
           "--",
           "/dev/null",
-          rel,
+          // Use the pre-validated absolute path — `--no-index`'s behavior
+          // w.r.t. cwd is less universally stable than `git diff HEAD --`,
+          // and `abs` already went through `resolveUnder`.
+          abs,
         ]);
 
   if (!rawDiff.trim().length) {
