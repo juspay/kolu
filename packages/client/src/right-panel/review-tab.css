@@ -50,3 +50,17 @@
   min-width: 0;
   width: 4px !important;
 }
+
+/*
+ * `diffViewWrap` makes the lib set inline `word-break: break-all` on
+ * the content cell, which wraps mid-identifier and mid-string ("say
+ * 'bee\np'") — useless for code review. Force normal word-boundary
+ * wrapping with `overflow-wrap: anywhere` as the escape hatch for
+ * truly unbreakable long tokens (URLs, base64, etc.).
+ */
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-content,
+[data-testid="review-diff"] .diff-tailwindcss-wrapper .diff-line-content * {
+  word-break: normal !important;
+  overflow-wrap: anywhere;
+}
+
