@@ -1,6 +1,9 @@
 ---
 name: fact-check
 description: Audit code for correctness and rigor — logic errors, silent error swallowing, wishful thinking, and unjustified fallbacks. This is not a style review; it's a logic review. Use when you want a focused correctness audit separate from the full code-police pass.
+argument-hint: "[branch|all]"
+context: fork
+agent: Explore
 ---
 
 # Fact-Check
@@ -9,8 +12,13 @@ Audit code for **correctness and rigor**. This is not a style review — it's a 
 
 ## 0. Determine Scope
 
-- Before starting, use the `AskUserQuestion` tool to ask: should this operate on the **whole codebase** or only on **changes in the current branch/PR**?
-- If scoped to current branch/PR, use `git diff main...HEAD` (or the appropriate base branch) to identify changed files and limit all subsequent steps to those files only.
+Scope comes from `$ARGUMENTS`:
+
+- `branch` (default when `$ARGUMENTS` is empty) — audit only changes in the current branch/PR. Use `git diff main...HEAD` (or the appropriate base branch) to identify changed files and limit all subsequent steps to those files.
+- `all` — audit the whole codebase.
+- Anything else — treat the argument as the target itself (a file path, a diff range like `origin/main...HEAD`, or inline text/output to audit, e.g. when invoked by `hickey` to audit its own evaluation). Limit the audit to that target.
+
+Do **not** use `AskUserQuestion`. This skill runs in a fork and is routinely invoked autonomously (e.g. from `/do` via `hickey`).
 
 ## What to flag
 
