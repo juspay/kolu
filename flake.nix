@@ -35,6 +35,17 @@
         let all = import ./default.nix { inherit pkgs commitHash; };
         in removeAttrs all [ "koluEnv" ]);
       devShells = eachSystem (pkgs:
-        { default = import ./shell.nix { inherit pkgs; }; });
+        let default = import ./shell.nix { inherit pkgs; };
+        in {
+          inherit default;
+          # Extended shell with Playwright browsers for e2e testing.
+          # Usage: nix develop .#e2e
+          e2e = default.overrideAttrs (prev: {
+            name = "kolu-shell-e2e";
+            env = (prev.env or { }) // {
+              PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
+            };
+          });
+        });
     };
 }

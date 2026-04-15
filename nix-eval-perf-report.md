@@ -38,4 +38,5 @@
 | 5 | 614323e | Defer drv path resolution in env.nix | 1970 | 197 | -51 | 0 |
 | 6 | — | Share npins import for ghostty-themes (arch cleanup, no perf change) | — | — | — | — |
 | 7 | — | Disable flake registry lookups (use-registries = false) | 1701 | 187 | -269 | -10 |
+| 8 | — | Move playwright-driver.browsers to devShells.e2e | 1046 | 131 | -655 | -56 |
 | 6 | — | Share npins import for ghostty-themes via overlay | 1976 | 199 | +6 | +2 |

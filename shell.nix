@@ -2,6 +2,9 @@
 #
 # Imports env.nix directly instead of going through default.nix, which also
 # defines pnpmDeps/kolu build derivations that are unnecessary for the shell.
+#
+# Playwright is NOT included here — it adds ~600ms to nix develop cold start.
+# flake.nix exposes devShells.e2e for e2e tests: `nix develop .#e2e`.
 { pkgs ? import ./nix/nixpkgs.nix { } }:
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
@@ -9,13 +12,8 @@ in
 pkgs.mkShell {
   name = "kolu-shell";
 
-  # Env vars shared with the nix build (defined once in nix/env.nix)
   env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
-    # Pass derivation directly instead of interpolating with "${...}" — avoids
-    # forcing the drv path during Nix evaluation (~330ms savings). nix develop
-    # resolves the store path during realization instead.
-    PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   };
 

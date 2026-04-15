@@ -1,6 +1,8 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
+# E2e shell includes Playwright browsers (not in default shell for perf).
+nix_shell_e2e := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + '#e2e -c' }
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
@@ -53,8 +55,8 @@ test: install
     set -euo pipefail
     KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --print-out-paths)/bin/kolu}"
     cd packages/tests
-    {{ nix_shell }} pnpm install
-    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
+    {{ nix_shell_e2e }} pnpm install
+    KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell_e2e }} pnpm test
 
 # Fast self-contained e2e tests (no nix build, no separate dev server).
 # Builds client via pnpm, spawns server from source on random ports.
@@ -65,7 +67,7 @@ test: install
 test-quick *args: install
     #!/usr/bin/env bash
     set -euo pipefail
-    {{ nix_shell }} pnpm --filter kolu-client build
+    {{ nix_shell_e2e }} pnpm --filter kolu-client build
     # hooks.ts spawn()s KOLU_SERVER as an executable with ["--port", N].
     # Without nix build there's no `kolu` binary, so we create a temp wrapper
     # that does what the nix-built binary does: set KOLU_CLIENT_DIST and exec tsx.
@@ -77,9 +79,9 @@ test-quick *args: install
     SCRIPT
     chmod +x "$wrapper"
     cd packages/tests
-    {{ nix_shell }} pnpm install
+    {{ nix_shell_e2e }} pnpm install
     KOLU_SERVER="$wrapper" CUCUMBER_PARALLEL={{ cucumber_parallel }} \
-        {{ nix_shell }} node --import tsx \
+        {{ nix_shell_e2e }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
