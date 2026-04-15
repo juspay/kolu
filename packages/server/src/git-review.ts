@@ -84,7 +84,7 @@ async function resolveBase(repoPath: string): Promise<GitBaseRef> {
  *   after the letter and carry two paths: `R100\told\tnew`, `C75\tsrc\tdst`.
  *   For those, the *new* path is the one under review.
  */
-function parseNameStatus(raw: string): GitChangedFile[] {
+export function parseNameStatus(raw: string): GitChangedFile[] {
   const files: GitChangedFile[] = [];
   for (const line of raw.split("\n")) {
     if (!line) continue;
