@@ -1,4 +1,4 @@
-/** DiffTab — diff review for the terminal's current repo.
+/** CodeTab — code review and browsing for the terminal's current repo.
  *
  * Issue #514:
  *   - Phase 1: lists files changed vs HEAD and renders the unified diff
@@ -28,7 +28,7 @@ import { Dynamic } from "solid-js/web";
 import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
-import "./diff-tab.css";
+import "./code-tab.css";
 import type { GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
@@ -62,7 +62,7 @@ const MODE_TABS: {
   },
 ];
 
-const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [mode, setMode] = createSignal<GitDiffMode>("local");
@@ -261,4 +261,4 @@ const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   );
 };
 
-export default DiffTab;
+export default CodeTab;

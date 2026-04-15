@@ -5,7 +5,7 @@ import { type Component, For } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata, RightPanelTab } from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
-import DiffTab from "./DiffTab";
+import CodeTab from "./CodeTab";
 import { useRightPanel } from "./useRightPanel";
 
 type TabProps = {
@@ -31,7 +31,7 @@ const TABS: Record<RightPanelTab, TabDef> = {
   inspector: { label: "Inspector", component: MetadataInspector },
   diff: {
     label: "Code",
-    component: (p) => <DiffTab meta={p.meta} />,
+    component: (p) => <CodeTab meta={p.meta} />,
   },
 };
 
