@@ -80,6 +80,9 @@ const Header: Component<{
   // Theme
   themeName?: string;
   onThemeClick?: () => void;
+  // Strip mode
+  stripMode?: boolean;
+  onToggleStripMode?: () => void;
   // Panel toggles
   sidebarOpen?: boolean;
   hasSubPanel?: boolean;
@@ -127,6 +130,20 @@ const Header: Component<{
 
       {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
+        {/* Strip mode toggle */}
+        <Tip label={props.stripMode ? "Classic view" : "Strip view"}>
+          <button
+            data-testid="strip-mode-toggle"
+            class="h-7 px-2 text-xs rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            classList={{
+              "bg-accent/20 text-accent": props.stripMode,
+              "text-fg-2 hover:text-fg hover:bg-surface-2": !props.stripMode,
+            }}
+            onClick={() => props.onToggleStripMode?.()}
+          >
+            {props.stripMode ? "⇔ Strip" : "⇔ Classic"}
+          </button>
+        </Tip>
         {/* Panel toggle icons — desktop only */}
         <div class="hidden sm:flex items-center gap-0.5">
           <PanelToggleIcon
