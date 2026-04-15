@@ -42,6 +42,8 @@ if (!stateDir) {
   );
 }
 
+log.info({ path: stateDir }, "state directory");
+
 export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
