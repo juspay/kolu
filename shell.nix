@@ -1,13 +1,16 @@
 # Dev shell — shared by `nix develop` (via flake.nix) and `nix-shell`.
+#
+# Imports env.nix directly instead of going through default.nix, which also
+# defines pnpmDeps/kolu build derivations that are unnecessary for the shell.
 { pkgs ? import ./nix/nixpkgs.nix { } }:
 let
-  packages = import ./default.nix { inherit pkgs; };
+  koluEnv = import ./nix/env.nix { inherit pkgs; };
 in
 pkgs.mkShell {
   name = "kolu-shell";
 
-  # Env vars shared with the nix build (defined once in default.nix)
-  env = packages.koluEnv // {
+  # Env vars shared with the nix build (defined once in nix/env.nix)
+  env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
     PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
