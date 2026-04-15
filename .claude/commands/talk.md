@@ -66,11 +66,11 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 - Be direct, opinionated, and concise.
 - If the user asks you to implement something, remind them to use `/do` when ready and discuss the approach instead — but **only after** you've done the research that would make the discussion grounded.
 
-## Auto-Hickey
+## Auto-Hickey + Auto-Lowy
 
-Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` skill on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold the Hickey findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved) rather than dumping raw skill output on top.
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` and `lowy` skills on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved, flag boundaries that track functionality instead of volatility) rather than dumping raw skill output on top.
 
-Skip the Hickey pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
+Skip the Hickey/Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
 
 ## Laconic mode
 

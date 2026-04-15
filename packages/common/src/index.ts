@@ -1,122 +1,58 @@
 // Shared types for kolu server↔client communication.
 // Zod schemas are the single source of truth; TS types are derived.
-// Integration packages define their own schemas (e.g. kolu-claude-code);
-// this module re-exports them and composes the AgentInfo union.
+// Integration packages define their own schemas (e.g. kolu-claude-code,
+// kolu-git); this module re-exports them and composes aggregate types.
 
 import { z } from "zod";
 import { TaskProgressSchema } from "kolu-integration-common";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { OpenCodeInfoSchema } from "kolu-opencode";
+import {
+  GitInfoSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
+  GitChangeStatusSchema,
+  GitChangedFileSchema,
+  GitDiffModeSchema,
+  GitBaseRefSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+} from "kolu-git";
 
 // Re-export integration schemas so consumers import from kolu-common only.
 export { TaskProgressSchema, ClaudeCodeInfoSchema, OpenCodeInfoSchema };
 
+// Re-export git schemas from kolu-git.
+export {
+  GitInfoSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
+  GitChangeStatusSchema,
+  GitChangedFileSchema,
+  GitDiffModeSchema,
+  GitBaseRefSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+};
+export type {
+  GitInfo,
+  GitChangeStatus,
+  GitChangedFile,
+  GitDiffMode,
+  GitBaseRef,
+  GitStatusOutput,
+  GitDiffOutput,
+} from "kolu-git";
+
 // --- Zod schemas ---
 
 const TerminalIdSchema = z.string().uuid();
-
-// --- Git context ---
-
-export const GitInfoSchema = z.object({
-  repoRoot: z.string(),
-  repoName: z.string(),
-  worktreePath: z.string(),
-  branch: z.string(),
-  isWorktree: z.boolean(),
-  mainRepoRoot: z.string(),
-});
-
-// --- Git worktree operations ---
-
-export const WorktreeCreateInputSchema = z.object({
-  repoPath: z.string(),
-});
-
-export const WorktreeCreateOutputSchema = z.object({
-  path: z.string(),
-  branch: z.string(),
-});
-
-export const WorktreeRemoveInputSchema = z.object({
-  worktreePath: z.string(),
-});
-
-// --- Local diff review (issue #514 phase 1) ---
-
-/** Single-letter git porcelain status code, narrowed to what `git.status`
- *  actually surfaces to the Code Diff tab. Excludes " " (unmodified) and
- *  "!" (ignored) — neither is included in the changed-files list. */
-export const GitChangeStatusSchema = z.enum([
-  "M", // modified
-  "A", // added
-  "D", // deleted
-  "R", // renamed
-  "C", // copied
-  "U", // unmerged (conflict)
-  "T", // type changed (e.g. file → symlink)
-  "?", // untracked
-]);
-export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>;
-
-export const GitChangedFileSchema = z.object({
-  /** Path relative to repo root. */
-  path: z.string(),
-  status: GitChangeStatusSchema,
-});
-export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
-
-/** Which base the Code Diff tab is diffing against.
- *  - `local`: working tree vs `HEAD` — "what hasn't been committed yet".
- *  - `branch`: working tree vs `merge-base(HEAD, origin/<defaultBranch>)` —
- *    "what this branch will ship". Same computation as a PR "Files changed"
- *    tab; done locally, forge-agnostic. */
-export const GitDiffModeSchema = z.enum(["local", "branch"]);
-export type GitDiffMode = z.infer<typeof GitDiffModeSchema>;
-
-/** Resolved base ref for branch mode — echoed back so the UI can label
- *  the panel ("Changes vs origin/master") without re-resolving. */
-export const GitBaseRefSchema = z.object({
-  /** Human-readable ref name, e.g. `origin/master`. */
-  ref: z.string(),
-  /** Actual merge-base commit SHA (what `git diff` was run against). */
-  sha: z.string(),
-});
-export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
-
-export const GitStatusInputSchema = z.object({
-  repoPath: z.string(),
-  mode: GitDiffModeSchema,
-});
-
-export const GitStatusOutputSchema = z.object({
-  files: z.array(GitChangedFileSchema),
-  /** Null in local mode; resolved base ref in branch mode. */
-  base: GitBaseRefSchema.nullable(),
-});
-export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
-
-export const GitDiffInputSchema = z.object({
-  repoPath: z.string(),
-  /** Path relative to the repo root. */
-  filePath: z.string(),
-  mode: GitDiffModeSchema,
-});
-
-/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop.
- *  The same shape serves both modes — only the `git diff` base changes
- *  (HEAD in local mode, merge-base with origin/<default> in branch mode). */
-export const GitDiffOutputSchema = z.object({
-  oldFileName: z.string().nullable(),
-  newFileName: z.string().nullable(),
-  oldContent: z.string(),
-  newContent: z.string(),
-  /** Raw unified-diff strings, shaped for `@git-diff-view/core`'s parser:
-   *  each entry carries its own `--- / +++ / @@` header block (i.e.
-   *  passthrough of `git diff` output), not a bare hunk body. Currently
-   *  always zero or one element — a single per-file patch. */
-  hunks: z.array(z.string()),
-});
-export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 
 // --- GitHub PR context ---
 
@@ -372,7 +308,6 @@ export const ServerStatePatchSchema = z.object({
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 
-export type GitInfo = z.infer<typeof GitInfoSchema>;
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;

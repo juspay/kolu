@@ -178,3 +178,4 @@ Do NOT include a "What's simple" section. Praise biases toward positive framing 
 - **Simple ≠ familiar.** Hickey: _"If you want everything to be familiar, you will never learn anything new because it can't be significantly different from what you already know."_
 - **Tests are necessary but not sufficient.** Hickey: _"I'm glad I've got these guardrails... do the guardrails help you get to where you want to go? No."_
 - **This is not a replacement for functional review.** Simplicity analysis complements correctness review. A perfectly simple program that does the wrong thing is useless.
+- **For volatility-based decomposition** (do boundaries encapsulate axes of change?), see `/lowy`.
