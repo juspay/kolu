@@ -39,6 +39,7 @@ Reduce `nix build .#default` wall-clock time (uncached, no eval cache).
 | 1 | `dontFixup = true` — skip fixupPhase (strip, patchShebangs, patchELF) | 32.29s | 15.87s | -16.42s (51%) | Yes |
 | 2 | Remove node-pty build artifacts from output (-62MB) | 15.87s | 15.76s | -0.11s (noise) | Yes |
 | 3 | Remove build-only packages from output (-125MB, 395→208MB) | 15.76s | 14.89s | -0.87s (6%) | Yes |
+| 4 | Delete dev packages before cp (not after) | 14.89s | 14.55s | -0.34s (noise) | Yes |
 
 ## Dead Ends
 - `dontPatchShebangs = true` (without dontFixup): Only 0.42s improvement — patchShebangs was 0.5s of the 6.4s fixupPhase; the rest was strip/patchELF tree traversal.
