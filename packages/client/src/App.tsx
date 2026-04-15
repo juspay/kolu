@@ -412,7 +412,9 @@ const App: Component = () => {
                         <Show when={store.terminalIds().length === 0}>
                           <EmptyState
                             savedSession={session.savedSession() ?? undefined}
-                            onRestore={() => void session.handleRestoreSession()}
+                            onRestore={() =>
+                              void session.handleRestoreSession()
+                            }
                           />
                         </Show>
                         <For each={store.terminalIds()}>
@@ -464,7 +466,8 @@ const App: Component = () => {
                     orientation="horizontal"
                     sizes={[1 - rightPanel.panelSize(), rightPanel.panelSize()]}
                     onSizesChange={(sizes) => {
-                      if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+                      if (sizes[1] !== undefined)
+                        rightPanel.setPanelSize(sizes[1]);
                     }}
                     class="flex-1 min-h-0 overflow-hidden"
                   >
@@ -489,7 +492,9 @@ const App: Component = () => {
                           <Show when={store.terminalIds().length === 0}>
                             <EmptyState
                               savedSession={session.savedSession() ?? undefined}
-                              onRestore={() => void session.handleRestoreSession()}
+                              onRestore={() =>
+                                void session.handleRestoreSession()
+                              }
                             />
                           </Show>
                           <For each={store.terminalIds()}>
@@ -503,7 +508,10 @@ const App: Component = () => {
                                 subTerminalIds={store.getSubTerminalIds(id)}
                                 getMetadata={store.getMetadata}
                                 onCreateSubTerminal={(parentId, cwd) =>
-                                  void crud.handleCreateSubTerminal(parentId, cwd)
+                                  void crud.handleCreateSubTerminal(
+                                    parentId,
+                                    cwd,
+                                  )
                                 }
                                 onCloseTerminal={closeTerminal}
                                 activeMeta={store.activeMeta()}
@@ -606,7 +614,8 @@ const App: Component = () => {
                   orientation="horizontal"
                   sizes={[1 - rightPanel.panelSize(), rightPanel.panelSize()]}
                   onSizesChange={(sizes) => {
-                    if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+                    if (sizes[1] !== undefined)
+                      rightPanel.setPanelSize(sizes[1]);
                   }}
                   class="flex-1 min-h-0 overflow-hidden"
                 >

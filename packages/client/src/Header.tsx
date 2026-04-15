@@ -1,7 +1,14 @@
 /** Header — unified app bar with identity, agent status, panel toggles, and controls.
  *  Burger is mobile-only; panel toggles are desktop-only. */
 
-import { type Component, Show, createSignal, createEffect, on, mergeProps } from "solid-js";
+import {
+  type Component,
+  Show,
+  createSignal,
+  createEffect,
+  on,
+  mergeProps,
+} from "solid-js";
 import { MenuIcon, SearchIcon, SettingsIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
@@ -94,7 +101,9 @@ const Header: Component<{
   const rightPanel = useRightPanel();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [isFullscreen, setIsFullscreen] = createSignal(!!document.fullscreenElement);
+  const [isFullscreen, setIsFullscreen] = createSignal(
+    !!document.fullscreenElement,
+  );
 
   // Sync fullscreen state with browser
   document.addEventListener("fullscreenchange", () =>
@@ -168,7 +177,13 @@ const Header: Component<{
             <Show
               when={!isFullscreen()}
               fallback={
-                <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <svg
+                  class="w-3.5 h-3.5"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                >
                   <polyline points="5,2 2,2 2,5" />
                   <polyline points="11,14 14,14 14,11" />
                   <line x1="2" y1="2" x2="6" y2="6" />
@@ -176,7 +191,13 @@ const Header: Component<{
                 </svg>
               }
             >
-              <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <svg
+                class="w-3.5 h-3.5"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+              >
                 <polyline points="10,2 14,2 14,6" />
                 <polyline points="6,14 2,14 2,10" />
                 <line x1="14" y1="2" x2="9" y2="7" />

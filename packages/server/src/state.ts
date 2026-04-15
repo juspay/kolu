@@ -181,7 +181,9 @@ export const store = new Conf<PersistedState>({
     // rightPanel.pinned added — default to true (docked) for existing users.
     "1.11.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
-      if ((current.rightPanel as Record<string, unknown>).pinned === undefined) {
+      if (
+        (current.rightPanel as Record<string, unknown>).pinned === undefined
+      ) {
         store.set("preferences", {
           ...current,
           rightPanel: { ...current.rightPanel, pinned: true },

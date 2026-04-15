@@ -1,13 +1,7 @@
 /** TerminalCanvas — freeform 2D canvas where terminals can be dragged
  *  and resized like desktop windows. Two-finger scroll pans the canvas. */
 
-import {
-  type Component,
-  For,
-  Show,
-  createEffect,
-  on,
-} from "solid-js";
+import { type Component, For, Show, createEffect, on } from "solid-js";
 import { createStore } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type { ITheme } from "@xterm/xterm";
@@ -156,13 +150,15 @@ const TerminalCanvas: Component<{
             const isExpanded = () => hasSubs() && !panelState().collapsed;
             const activeSubTab = () => panelState().activeSubTab;
             const focusTarget = () => panelState().focusTarget;
-            const layout = () => layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
+            const layout = () =>
+              layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
 
             return (
               <div
                 class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-150"
                 classList={{
-                  "border-accent/60 ring-1 ring-accent/30 shadow-lg shadow-accent/10": isActive(),
+                  "border-accent/60 ring-1 ring-accent/30 shadow-lg shadow-accent/10":
+                    isActive(),
                   "border-edge/50 hover:border-edge shadow-md": !isActive(),
                 }}
                 style={{
@@ -170,7 +166,8 @@ const TerminalCanvas: Component<{
                   top: `${layout().y}px`,
                   width: `${layout().w}px`,
                   height: `${layout().h}px`,
-                  "background-color": theme().background ?? "var(--color-surface-1)",
+                  "background-color":
+                    theme().background ?? "var(--color-surface-1)",
                   "z-index": isActive() ? 10 : 1,
                 }}
                 onMouseDown={() => props.onSelect(id)}
@@ -208,7 +205,10 @@ const TerminalCanvas: Component<{
                     <Terminal
                       terminalId={id}
                       visible={true}
-                      focused={isActive() && (!isExpanded() || focusTarget() === "main")}
+                      focused={
+                        isActive() &&
+                        (!isExpanded() || focusTarget() === "main")
+                      }
                       theme={theme()}
                       searchOpen={isActive() && props.searchOpen}
                       onSearchOpenChange={props.onSearchOpenChange}
@@ -226,7 +226,9 @@ const TerminalCanvas: Component<{
                         subIds={subIds()}
                         activeSubTab={activeSubTab()}
                         getMetadata={props.getMetadata}
-                        onSelect={(subId) => subPanel.setActiveSubTab(id, subId)}
+                        onSelect={(subId) =>
+                          subPanel.setActiveSubTab(id, subId)
+                        }
                         onClose={props.onCloseTerminal}
                         onCollapse={() => subPanel.collapsePanel(id)}
                         onCreate={() =>
