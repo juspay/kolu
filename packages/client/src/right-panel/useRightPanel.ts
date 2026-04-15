@@ -16,12 +16,17 @@ export function useRightPanel() {
     collapsed: () => rp().collapsed,
     panelSize: () => rp().size,
     activeTab: () => rp().tab,
+    /** Whether the right panel is pinned (docked) vs floating overlay.
+     *  Defaults to true (pinned) for backwards compat with classic mode. */
+    pinned: () => rp().pinned !== false,
     setActiveTab: (tab: RightPanelTab) =>
       updatePreferences({ rightPanel: { tab } }),
     togglePanel: () =>
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
+    togglePinned: () =>
+      updatePreferences({ rightPanel: { pinned: rp().pinned === false } }),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } });
     },

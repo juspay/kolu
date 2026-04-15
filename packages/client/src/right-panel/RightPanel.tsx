@@ -71,6 +71,20 @@ const RightPanel: Component<{
         </For>
         <div class="flex-1" />
         <button
+          class="px-1.5 h-full transition-colors cursor-pointer"
+          classList={{
+            "text-accent": rightPanel.pinned(),
+            "text-fg-3/40 hover:text-fg-2": !rightPanel.pinned(),
+          }}
+          onClick={() => rightPanel.togglePinned()}
+          aria-label={rightPanel.pinned() ? "Unpin panel" : "Pin panel"}
+          title={rightPanel.pinned() ? "Unpin (overlay)" : "Pin (dock)"}
+        >
+          <svg class="w-3 h-3" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707l-.586-.586-3.535 3.536.354 3.182a.5.5 0 0 1-.854.39L7.05 10.293 3.11 14.233a.5.5 0 0 1-.707-.707l3.94-3.94-2.753-2.753a.5.5 0 0 1 .39-.854l3.182.354L10.697 2.8l-.586-.586a.5.5 0 0 1 .146-.854l-.429.638z" />
+          </svg>
+        </button>
+        <button
           class="px-2 h-full text-fg-3/40 hover:text-fg-2 transition-colors cursor-pointer"
           onClick={props.onToggle}
           aria-label="Collapse panel"

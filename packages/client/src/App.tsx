@@ -497,22 +497,99 @@ const App: Component = () => {
                 />
               }
             >
-              <TerminalStrip
-                terminalIds={store.terminalIds()}
-                activeId={store.activeId()}
-                getMetadata={store.getMetadata}
-                getDisplayInfo={store.getDisplayInfo}
-                getTerminalTheme={getTerminalTheme}
-                onSelect={store.setActiveId}
-                onCloseTerminal={closeTerminal}
-                onCreateSubTerminal={(parentId, cwd) =>
-                  void crud.handleCreateSubTerminal(parentId, cwd)
+              {/* Pinned: docked right panel with Resizable. Unpinned: overlay. */}
+              <Show
+                when={!rightPanel.collapsed() && rightPanel.pinned()}
+                fallback={
+                  <div class="flex-1 min-h-0 min-w-0 flex relative">
+                    <TerminalStrip
+                      terminalIds={store.terminalIds()}
+                      activeId={store.activeId()}
+                      getMetadata={store.getMetadata}
+                      getDisplayInfo={store.getDisplayInfo}
+                      getTerminalTheme={getTerminalTheme}
+                      onSelect={store.setActiveId}
+                      onCloseTerminal={closeTerminal}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void crud.handleCreateSubTerminal(parentId, cwd)
+                      }
+                      activeMeta={store.activeMeta()}
+                      searchOpen={searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={store.getSubTerminalIds}
+                    />
+                    {/* Overlay right panel */}
+                    <Show when={!rightPanel.collapsed()}>
+                      <>
+                        <div
+                          class="absolute inset-0 bg-black/20 z-20"
+                          onClick={() => rightPanel.collapsePanel()}
+                        />
+                        <div
+                          class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 shadow-2xl shadow-black/30"
+                          style={{ "max-width": "50%" }}
+                        >
+                          <RightPanel
+                            meta={store.activeMeta()}
+                            onToggle={rightPanel.togglePanel}
+                            themeName={activeThemeName()}
+                            onThemeClick={() => openPaletteGroup("Theme")}
+                          />
+                        </div>
+                      </>
+                    </Show>
+                  </div>
                 }
-                activeMeta={store.activeMeta()}
-                searchOpen={searchOpen()}
-                onSearchOpenChange={setSearchOpen}
-                subTerminalIds={store.getSubTerminalIds}
-              />
+              >
+                {/* Pinned: docked via Resizable */}
+                <Resizable
+                  orientation="horizontal"
+                  sizes={[1 - rightPanel.panelSize(), rightPanel.panelSize()]}
+                  onSizesChange={(sizes) => {
+                    if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+                  }}
+                  class="flex-1 min-h-0 overflow-hidden"
+                >
+                  <Resizable.Panel
+                    as="div"
+                    class="min-w-0 min-h-0 flex"
+                    minSize={0.3}
+                  >
+                    <TerminalStrip
+                      terminalIds={store.terminalIds()}
+                      activeId={store.activeId()}
+                      getMetadata={store.getMetadata}
+                      getDisplayInfo={store.getDisplayInfo}
+                      getTerminalTheme={getTerminalTheme}
+                      onSelect={store.setActiveId}
+                      onCloseTerminal={closeTerminal}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void crud.handleCreateSubTerminal(parentId, cwd)
+                      }
+                      activeMeta={store.activeMeta()}
+                      searchOpen={searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={store.getSubTerminalIds}
+                    />
+                  </Resizable.Panel>
+                  <Resizable.Handle
+                    class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                    aria-label="Resize inspector panel"
+                  />
+                  <Resizable.Panel
+                    as="div"
+                    class="min-w-0 min-h-0 overflow-hidden"
+                    minSize={0}
+                  >
+                    <RightPanel
+                      meta={store.activeMeta()}
+                      onToggle={rightPanel.togglePanel}
+                      themeName={activeThemeName()}
+                      onThemeClick={() => openPaletteGroup("Theme")}
+                    />
+                  </Resizable.Panel>
+                </Resizable>
+              </Show>
             </Show>
           </Show>
         </Show>

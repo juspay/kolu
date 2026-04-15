@@ -42,5 +42,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
     collapsed: true,
     size: 0.25,
     tab: "inspector",
+    pinned: true,
   },
 };

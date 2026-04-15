@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.10.0";
+const SCHEMA_VERSION = "1.11.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -177,6 +177,16 @@ export const store = new Conf<PersistedState>({
         ...(rest as Partial<Preferences>),
         shuffleTheme,
       });
+    },
+    // rightPanel.pinned added — default to true (docked) for existing users.
+    "1.11.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      if ((current.rightPanel as Record<string, unknown>).pinned === undefined) {
+        store.set("preferences", {
+          ...current,
+          rightPanel: { ...current.rightPanel, pinned: true },
+        });
+      }
     },
   },
 });
