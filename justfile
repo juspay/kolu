@@ -1,8 +1,11 @@
 # Prefix for commands that need a Nix devshell; empty if already inside one.
 
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + ' -c' }
+# Use git+file:// (default) instead of path: — path: disables the eval cache
+# and re-copies/re-evaluates on every invocation (~4200ms vs ~130ms hot).
+# Caveat: new .nix files must be `git add`ed before nix develop sees them.
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
 # E2e shell includes Playwright browsers (not in default shell for perf).
-nix_shell_e2e := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop path:' + justfile_directory() + '#e2e -c' }
+nix_shell_e2e := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 

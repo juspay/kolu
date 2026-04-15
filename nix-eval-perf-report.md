@@ -69,6 +69,7 @@
 | 8 | Move playwright-driver.browsers to `devShells.e2e` | 1046 | 131 | **-655** | **-56** |
 | 9 | Static word lists (eliminate wordnet dependency) | 990 | 123 | -56 | -8 |
 | 10 | Remove prettier from nix shell (use pnpm's) | 925 | 120 | -65 | -3 |
+| 11 | **Switch justfile from `path:` to `git+file://`** | 925 | **129** | 0 | **-4092** |
 
 ## Investigated but no improvement
 
