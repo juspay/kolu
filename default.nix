@@ -95,10 +95,21 @@ let
       cp -r . $out
       rm -rf $out/packages/client/src $out/packages/client/node_modules
 
+      # Remove build-only packages from the output (~120MB). These are
+      # devDependencies used by Vite/babel during the client build but
+      # not needed at runtime (the server runs TypeScript via tsx).
+      cd $out/node_modules/.pnpm
+      rm -rf typescript@* @esbuild* esbuild@* prettier@* \
+             lightningcss* rollup@* @rollup* \
+             vitest@* @vitest* \
+             vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
+             @babel* babel-plugin-* \
+             es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
+             @types+node@* @types+ws@* \
+             core-js-compat@* regexpu-core@* regjsparser@* terser@*
+
       # node-pty: keep only the node-gyp-built binary and JS runtime.
-      # The prebuilds/ directory (58MB of Windows/macOS binaries) and
-      # build sources are not needed — we compile from source via node-gyp.
-      local pty=$out/node_modules/.pnpm/node-pty@*/node_modules/node-pty
+      local pty=node-pty@*/node_modules/node-pty
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
              $pty/build/Release/obj.target $pty/node-addon-api@*
 
