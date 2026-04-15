@@ -3,12 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { simpleGit } from "simple-git";
-import { initHostname } from "./hostname.ts";
-import { initLog } from "./log.ts";
 import { worktreeCreate } from "./git.ts";
-
-initHostname();
-initLog();
 
 // Mock randomName to return a predictable value
 vi.mock("./randomName.ts", () => ({
