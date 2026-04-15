@@ -5,7 +5,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { log } from "./log.ts";
+import type { Logger } from "kolu-integration-common";
 
 function readLines(filePath: string): string[] {
   return fs
@@ -16,7 +16,10 @@ function readLines(filePath: string): string[] {
 
 let cached: { adjectives: string[]; nouns: string[] } | null = null;
 
-function loadWordLists(): { adjectives: string[]; nouns: string[] } {
+function loadWordLists(log?: Logger): {
+  adjectives: string[];
+  nouns: string[];
+} {
   if (cached) return cached;
 
   const dir = process.env.KOLU_RANDOM_WORDS;
@@ -29,7 +32,7 @@ function loadWordLists(): { adjectives: string[]; nouns: string[] } {
     throw new Error(`Word list files not found in ${dir}`);
   }
   cached = { adjectives: readLines(adjPath), nouns: readLines(nounPath) };
-  log.info(
+  log?.info(
     { adjectives: cached.adjectives.length, nouns: cached.nouns.length },
     "loaded word lists",
   );
@@ -40,7 +43,7 @@ function pick(list: string[]): string {
   return list[Math.floor(Math.random() * list.length)]!;
 }
 
-export function randomName(): string {
-  const { adjectives: adj, nouns: n } = loadWordLists();
+export function randomName(log?: Logger): string {
+  const { adjectives: adj, nouns: n } = loadWordLists(log);
   return `${pick(adj)}-${pick(n)}`;
 }
