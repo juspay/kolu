@@ -30,6 +30,10 @@ export const CONTEXTUAL_TIPS = {
     id: "worktree",
     text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → New terminal → worktree for parallel sessions`,
   },
+  themeSwitch: {
+    id: "theme-switch",
+    text: `Tip: ${formatKeybind(SHORTCUTS.shuffleTheme.keybind)} cycles through terminal themes`,
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [
