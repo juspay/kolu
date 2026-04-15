@@ -118,7 +118,11 @@ Research the task thoroughly before writing code.
 
 ### hickey + lowy
 
-Invoke `/hickey` and `/lowy` via the Skill tool. **Both calls MUST appear in a single message** so they execute in parallel — they are completely independent. Do NOT wait for one to finish before invoking the other. One message, two Skill tool calls. No exceptions.
+Invoke `/hickey` and `/lowy` via the Skill tool. They are completely independent — do NOT wait for one to finish before invoking the other.
+
+<use_parallel_tool_calls>
+For this step, invoke both Skill("hickey") and Skill("lowy") simultaneously in a single response. Do not include any other tool calls or text — just the two parallel Skill invocations.
+</use_parallel_tool_calls>
 
 After both complete, revise the approach to eliminate accidental complexity before proceeding.
 
