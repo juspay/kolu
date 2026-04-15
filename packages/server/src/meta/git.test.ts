@@ -127,4 +127,50 @@ describe("resolveGitInfo", () => {
     expect(info).not.toBeNull();
     expect(info!.branch).toBe("HEAD");
   });
+
+  it("resolves a bare repo when cwd is the bare dir", async () => {
+    // Canonical bare repo: `/tmp/foo` is itself bare; cwd == bare dir.
+    const dir = path.join(tmpDir, "plain-bare");
+    fs.mkdirSync(dir, { recursive: true });
+    await simpleGit(dir).init(true);
+
+    const info = await resolveGitInfo(dir);
+    expect(info).not.toBeNull();
+    expect(info!.repoName).toBe("plain-bare");
+    expect(info!.repoRoot).toBe(fs.realpathSync(dir));
+    expect(info!.mainRepoRoot).toBe(fs.realpathSync(dir));
+  });
+
+  it("resolves a bare repo with .git-suffix convention", async () => {
+    // `/tmp/foo.git` — bare repo dir suffixed with `.git`. Expected
+    // repoName strips the suffix.
+    const dir = path.join(tmpDir, "suffixed.git");
+    fs.mkdirSync(dir, { recursive: true });
+    await simpleGit(dir).init(true);
+
+    const info = await resolveGitInfo(dir);
+    expect(info).not.toBeNull();
+    expect(info!.repoName).toBe("suffixed");
+    expect(info!.repoRoot).toBe(fs.realpathSync(dir));
+  });
+
+  it("resolves a sibling of a `.git` bare repo (project-layout)", async () => {
+    // Project layout: `/tmp/proj/.git` is bare, siblings like
+    // `/tmp/proj/.worktrees/` are normal directories. `cd` into a sibling
+    // must NOT report the sibling's basename as the repo name — that's
+    // how `.worktrees` ended up in the recent-repos palette. The
+    // repoName must come from the bare repo's location, not cwd.
+    const proj = path.join(tmpDir, "proj");
+    const gitDir = path.join(proj, ".git");
+    fs.mkdirSync(gitDir, { recursive: true });
+    await simpleGit(gitDir).init(true);
+    const sibling = path.join(proj, ".worktrees");
+    fs.mkdirSync(sibling, { recursive: true });
+
+    const info = await resolveGitInfo(sibling);
+    expect(info).not.toBeNull();
+    expect(info!.repoName).toBe("proj");
+    expect(info!.repoName).not.toBe(".worktrees");
+    expect(info!.mainRepoRoot).toBe(fs.realpathSync(proj));
+  });
 });
