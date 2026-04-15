@@ -336,7 +336,7 @@ const Terminal: Component<{
     // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
     if (props.visible) {
       fitAddon.fit();
-      term.focus();
+      if (props.focused !== false) term.focus();
     } else if (!props.isSub) {
       const vp = viewportDimensions();
       if (vp) term.resize(vp.cols, vp.rows);
