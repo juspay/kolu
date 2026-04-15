@@ -147,7 +147,8 @@ export const store = new Conf<PersistedState>({
 
 /** Validate the store against the Zod schema and throw a descriptive error
  *  instead of letting oRPC's generic "Event iterator validation failed" be
- *  the first signal. Called on every read so runtime mutations are caught too. */
+ *  the first signal. Called on every read; writes are covered because
+ *  updateServerState() publishes via getServerState() after mutating. */
 function assertStoreValid(): void {
   const result = PersistedStateSchema.safeParse(store.store);
   if (result.success) return;
@@ -157,6 +158,16 @@ function assertStoreValid(): void {
   const msg = `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
   log.error({ issues: result.error.issues, path: store.path }, msg);
   throw new Error(msg);
+}
+
+// Early validation so corrupt state shows up in journalctl immediately at
+// startup, not only when the first client connects. The throw is caught here
+// — runtime calls to assertStoreValid() in getServerState() will re-throw.
+// TODO: remove try/catch and let the server crash once error propagation is confirmed.
+try {
+  assertStoreValid();
+} catch {
+  // Already logged inside assertStoreValid().
 }
 
 /** Check if a path exists on disk. */
