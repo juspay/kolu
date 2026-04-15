@@ -147,10 +147,11 @@ body {
 }
 
 .card-border-wrap.card-spin-waiting {
-  background: repeating-conic-gradient(
-    from var(--spin-angle),
-    var(--card-color) 0deg 8deg,
-    transparent 8deg 20deg
-  );
-  animation: border-spin 6s linear infinite;
+  background: oklch(from var(--card-color) l c h / 0.4);
+  animation: border-pulse 3s ease-in-out infinite;
+}
+
+@keyframes border-pulse {
+  0%, 100% { background: oklch(from var(--card-color) l c h / 0.15); }
+  50% { background: oklch(from var(--card-color) l c h / 0.5); }
 }
