@@ -90,12 +90,12 @@ clean:
     git clean -fdX
 
 # Format all files in-place
-fmt:
-    {{ nix_shell }} sh -c 'prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
+fmt: install
+    {{ nix_shell }} sh -c 'pnpm exec prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
 
 # Check formatting without modifying files (used by CI)
-fmt-check:
-    {{ nix_shell }} sh -c 'prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
+fmt-check: install
+    {{ nix_shell }} sh -c 'pnpm exec prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
 # Nix build (server + client)
 build:

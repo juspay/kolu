@@ -30,7 +30,8 @@ pkgs.mkShell {
     pnpm
     tsx
     nixpkgs-fmt
-    prettier
+    # prettier is provided by pnpm (same version) — no need for a nix copy.
+    # Use `pnpm exec prettier` or ensure `just install` has been run.
     # node-gyp toolchain — required by `pnpm install` to recompile node-pty
     # after applying patches/node-pty@1.1.0.patch (the patched install
     # script forces node-gyp rebuild). The build derivation already lists
