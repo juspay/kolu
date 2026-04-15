@@ -217,9 +217,7 @@ const SidebarEntry: Component<{
              * Inactive cards get a light mix of THIS terminal's theme bg into
              * surface-1 so the sidebar at rest looks variegated — each card
              * hints at its own terminal's colour instead of every card being
-             * the same surface-1 grey. Repo identity moves to the left
-             * accent stripe below so the two concerns stop time-sharing one
-             * channel.
+             * the same surface-1 grey.
              *
              * Active card also scope-overrides the fg tier vars so every
              * `text-fg-*` descendant re-tunes to the terminal theme's own
