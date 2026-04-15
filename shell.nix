@@ -12,7 +12,10 @@ pkgs.mkShell {
   # Env vars shared with the nix build (defined once in nix/env.nix)
   env = koluEnv // {
     KOLU_COMMIT_HASH = "dev";
-    PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers}";
+    # Pass derivation directly instead of interpolating with "${...}" — avoids
+    # forcing the drv path during Nix evaluation (~330ms savings). nix develop
+    # resolves the store path during realization instead.
+    PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   };
 
