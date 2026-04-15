@@ -3,19 +3,26 @@ import type { GitChangedFile, GitChangeStatus } from "kolu-common";
 /** A file leaf in the tree. */
 export type FileNode = {
   kind: "file";
+  /** Display name (basename, or collapsed chain like `src/utils`). */
   name: string;
+  /** Path relative to repo root (e.g. `src/utils/helpers.ts`). */
   path: string;
+  /** Git change status (M, A, D, etc.). */
   status: GitChangeStatus;
 };
 
 /** A directory branch in the tree. */
 export type DirNode = {
   kind: "dir";
+  /** Display name (basename, or collapsed chain like `packages/server/src`). */
   name: string;
+  /** Path relative to repo root for the deepest segment of this node. */
   path: string;
+  /** Child nodes — directories first, then files, alphabetically. */
   children: TreeNode[];
 };
 
+/** Discriminated union for tree nodes. Use `node.kind` to narrow. */
 export type TreeNode = FileNode | DirNode;
 
 /** Build a hierarchical tree from a flat list of changed files.
