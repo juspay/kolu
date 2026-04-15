@@ -80,6 +80,38 @@ Then(
 );
 
 Then(
+  "the Code tab should show a directory node {string}",
+  async function (this: KoluWorld, path: string) {
+    const dir = this.page.locator(
+      `[data-testid="file-tree-dir"][data-path="${path}"]`,
+    );
+    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I click the directory node {string} in the Code tab",
+  async function (this: KoluWorld, path: string) {
+    const dir = this.page.locator(
+      `[data-testid="file-tree-dir"][data-path="${path}"]`,
+    );
+    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await dir.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the Code tab should not list a changed file {string}",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(
+      `[data-testid="diff-file-item"][data-path="${path}"]`,
+    );
+    await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the Code tab should render a diff view",
   async function (this: KoluWorld) {
     // Assert an actual rendered diff row, not just the wrapper div —

@@ -16,6 +16,7 @@
 import {
   type Component,
   createEffect,
+  createMemo,
   createResource,
   createSignal,
   For,
@@ -29,10 +30,28 @@ import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
 import "./code-tab.css";
-import type { GitDiffMode, TerminalMetadata } from "kolu-common";
+import type {
+  GitChangeStatus,
+  GitDiffMode,
+  TerminalMetadata,
+} from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
 import { DiffLocalIcon, DiffBranchIcon } from "../ui/Icons";
+import { buildFileTree } from "../ui/buildFileTree";
+import FileTree from "../ui/FileTree";
+
+/** Color class for each git status letter. */
+const STATUS_COLOR: Record<GitChangeStatus, string> = {
+  M: "text-warning",
+  A: "text-ok",
+  D: "text-danger",
+  R: "text-fg-3",
+  C: "text-fg-3",
+  U: "text-danger",
+  T: "text-warning",
+  "?": "text-ok",
+};
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -172,43 +191,39 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               </div>
             </Match>
             <Match when={status()}>
-              {(s) => (
-                <Show
-                  when={s().files.length > 0}
-                  fallback={
-                    <div
-                      class="px-2 py-4 text-fg-3/50 text-center"
-                      data-testid="diff-empty"
-                    >
-                      {EMPTY_STATE[mode()]}
-                    </div>
-                  }
-                >
-                  <For each={s().files}>
-                    {(f) => (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          // Re-click on the active row collapses the diff.
-                          setSelectedPath((p) => (p === f.path ? null : f.path))
-                        }
-                        class="flex w-full items-center gap-2 px-2 py-0.5 text-left font-mono text-fg hover:bg-surface-1 cursor-pointer"
-                        classList={{
-                          "bg-surface-1": selectedPath() === f.path,
-                        }}
-                        data-testid="diff-file-item"
-                        data-path={f.path}
-                        data-active={selectedPath() === f.path}
+              {(s) => {
+                const tree = createMemo(() => buildFileTree(s().files));
+                return (
+                  <Show
+                    when={s().files.length > 0}
+                    fallback={
+                      <div
+                        class="px-2 py-4 text-fg-3/50 text-center"
+                        data-testid="diff-empty"
                       >
-                        <span class="text-fg-3/70 w-3 shrink-0 text-center">
-                          {f.status}
-                        </span>
-                        <span class="truncate min-w-0">{f.path}</span>
-                      </button>
-                    )}
-                  </For>
-                </Show>
-              )}
+                        {EMPTY_STATE[mode()]}
+                      </div>
+                    }
+                  >
+                    <FileTree
+                      nodes={tree()}
+                      selectedPath={selectedPath()}
+                      onSelect={(path) =>
+                        setSelectedPath((p) => (p === path ? null : path))
+                      }
+                      renderBadge={(node) =>
+                        node.kind === "file" ? (
+                          <span
+                            class={`w-3 text-center ${STATUS_COLOR[node.status]}`}
+                          >
+                            {node.status}
+                          </span>
+                        ) : null
+                      }
+                    />
+                  </Show>
+                );
+              }}
             </Match>
           </Switch>
         </div>

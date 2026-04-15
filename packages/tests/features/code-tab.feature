@@ -49,3 +49,25 @@ Feature: Code tab (diff review)
     Then the Code tab should render a diff view
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should not render a diff view
+
+  Scenario: Groups files into a directory tree
+    When I run "git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p src/components && printf 'a\n' > src/index.ts && printf 'b\n' > src/components/Button.tsx"
+    And I click the Code tab
+    And I click the refresh button in the Code tab
+    Then the Code tab should show a directory node "src"
+    And the Code tab should list a changed file "src/index.ts"
+    And the Code tab should list a changed file "src/components/Button.tsx"
+
+  Scenario: Collapsing a directory hides its children
+    When I run "git init /tmp/kolu-review-collapse && cd /tmp/kolu-review-collapse"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts && printf 'y\n' > pkg/b.ts"
+    And I click the Code tab
+    And I click the refresh button in the Code tab
+    Then the Code tab should list a changed file "pkg/a.ts"
+    When I click the directory node "pkg" in the Code tab
+    Then the Code tab should not list a changed file "pkg/a.ts"
+    When I click the directory node "pkg" in the Code tab
+    Then the Code tab should list a changed file "pkg/a.ts"
