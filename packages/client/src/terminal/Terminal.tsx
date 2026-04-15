@@ -28,7 +28,7 @@ import { ImageAddon } from "@xterm/addon-image";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import { FONT_FAMILY } from "../theme";
+import { FONT_FAMILY } from "terminal-themes";
 import { client, stream } from "../rpc/rpc";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { matchesAnyShortcut } from "../input/keyboard";

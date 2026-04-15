@@ -6,13 +6,6 @@ import { DEFAULT_PORT } from "kolu-common/config";
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 
-const themesJsonPath = process.env.KOLU_THEMES_JSON;
-if (!themesJsonPath) {
-  throw new Error(
-    "KOLU_THEMES_JSON env var is not set. Run inside the Nix devShell (just dev).",
-  );
-}
-
 const fontsDir = process.env.KOLU_FONTS_DIR;
 if (!fontsDir) {
   throw new Error(
@@ -39,7 +32,6 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "ghostty-themes": themesJsonPath,
       "kolu-fonts": `${fontsDir}/fonts.css`,
     },
   },

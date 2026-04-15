@@ -113,8 +113,10 @@ pnpm monorepo:
 | `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                             |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK                                                                              |
-| `packages/integrations/common/`      | Shared schemas (TaskProgress) and types (Logger) used by both integration packages                                                               |
+| `packages/integrations/common/`      | Agent-agnostic shared types (Logger, TaskProgress) — package name `anyagent`                                                                     |
 | `packages/integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`                                                          |
+| `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                           |
+| `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                   |
 
 ### Communication
 
@@ -197,7 +199,7 @@ flowchart TB
 
 Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
 
-[^build]: `koluEnv` includes `KOLU_THEMES_JSON`, font paths, and clipboard shims. The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
+[^build]: `koluEnv` includes font paths and clipboard shims. Terminal themes and word lists ship checked-in as JSON (see `packages/terminal-themes/` and `packages/memorable-names/`). The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
 
 ## Development
 

@@ -22,7 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 
 interface WalListener {
   cb: () => void;

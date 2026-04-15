@@ -15,7 +15,7 @@ import { type Component, onMount, onCleanup, createEffect, on } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { FONT_FAMILY } from "../theme";
+import { FONT_FAMILY } from "terminal-themes";
 import { stream } from "../rpc/rpc";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import type { TerminalId } from "kolu-common";

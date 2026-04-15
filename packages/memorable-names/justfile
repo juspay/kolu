@@ -1,0 +1,7 @@
+# Regenerate words.json from WordNet
+regenerate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix-build --no-out-link ./regenerate.nix)
+    cp "$out/words.json" words.json
+    echo "Updated words.json"

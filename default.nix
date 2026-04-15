@@ -21,6 +21,8 @@ let
       ./tsconfig.base.json
       ./packages/common
       ./packages/integrations
+      ./packages/terminal-themes
+      ./packages/memorable-names
       ./packages/server
       ./packages/client
       # pnpm.patchedDependencies entries — read by pnpm during install and
@@ -147,7 +149,6 @@ let
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
-      --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"

@@ -22,8 +22,8 @@ import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 
 // --- Claude Code schemas (single source of truth) ---
 
-export { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
-import { TaskProgressSchema, type TaskProgress } from "kolu-integration-common";
+export { TaskProgressSchema, type TaskProgress } from "anyagent";
+import { TaskProgressSchema, type TaskProgress } from "anyagent";
 
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),

@@ -82,8 +82,8 @@ type TranscriptWatching =
 
 // --- Logger interface ---
 
-import type { Logger } from "kolu-integration-common";
-export type { Logger as WatcherLog } from "kolu-integration-common";
+import type { Logger } from "anyagent";
+export type { Logger as WatcherLog } from "anyagent";
 
 // --- Diagnostics counter ---
 

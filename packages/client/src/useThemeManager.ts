@@ -7,9 +7,9 @@ import {
   availableThemes,
   getThemeByName,
   resolveThemeBgs,
-} from "./theme";
-import { pickTheme } from "./themePicker";
-import type { ITheme } from "@xterm/xterm";
+  pickTheme,
+  type ITheme,
+} from "terminal-themes";
 import type { TerminalId } from "kolu-common";
 
 export interface ThemeManagerDeps {

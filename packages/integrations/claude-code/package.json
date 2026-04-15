@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
-    "kolu-integration-common": "workspace:*",
+    "anyagent": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

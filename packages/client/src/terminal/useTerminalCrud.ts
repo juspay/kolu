@@ -4,8 +4,7 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import { toast } from "solid-sonner";
-import { availableThemes, resolveThemeBgs } from "../theme";
-import { pickTheme } from "../themePicker";
+import { availableThemes, resolveThemeBgs, pickTheme } from "terminal-themes";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";

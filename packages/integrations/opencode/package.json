@@ -15,7 +15,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "kolu-integration-common": "workspace:*",
+    "anyagent": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

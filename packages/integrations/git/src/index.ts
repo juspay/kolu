@@ -51,4 +51,4 @@ export { getStatus, getDiff, parseNameStatus } from "./review.ts";
 export { resolveUnder } from "./safe-path.ts";
 
 // Name generation
-export { randomName } from "./random-name.ts";
+export { randomName } from "memorable-names";

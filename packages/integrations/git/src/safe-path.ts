@@ -6,7 +6,7 @@
  */
 
 import path from "node:path";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 import { type GitResult, ok, err } from "./errors.ts";
 
 /**

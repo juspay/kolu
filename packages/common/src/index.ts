@@ -4,7 +4,7 @@
 // kolu-git); this module re-exports them and composes aggregate types.
 
 import { z } from "zod";
-import { TaskProgressSchema } from "kolu-integration-common";
+import { TaskProgressSchema } from "anyagent";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { OpenCodeInfoSchema } from "kolu-opencode";
 import {

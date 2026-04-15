@@ -4,7 +4,7 @@ import { createMemo, batch } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
-import { availableThemes } from "./theme";
+import { availableThemes } from "terminal-themes";
 import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
 import { useServerState } from "./settings/useServerState";
 import { client } from "./rpc/rpc";

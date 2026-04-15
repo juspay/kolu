@@ -1,0 +1,9 @@
+# Regenerate themes.json from iTerm2-Color-Schemes
+regenerate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root=$(git rev-parse --show-toplevel)
+    out=$(nix-build --no-out-link ./regenerate.nix \
+      --arg iTerm2-Color-Schemes "(import $root/npins).iTerm2-Color-Schemes")
+    cp "$out/themes.json" themes.json
+    echo "Updated themes.json"
