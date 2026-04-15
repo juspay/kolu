@@ -27,10 +27,24 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.9.0";
 
+// KOLU_STATE_SUFFIX isolates state per environment:
+//   "prod" → production (~/.config/kolu) — only the nix-built binary sets this.
+//   "dev"  → ~/.config/kolu-dev (just dev).
+//   "test…" → ~/.config/kolu-test… (e2e + unit tests set their own suffixes).
+// Unset/empty crashes rather than silently clobbering production state.
+const suffixEnv = process.env.KOLU_STATE_SUFFIX;
+if (suffixEnv === undefined || suffixEnv === "") {
+  throw new Error(
+    "KOLU_STATE_SUFFIX must be set. Use 'prod' to target production " +
+      "state (~/.config/kolu); only the nix-built kolu binary is allowed " +
+      "to do that. Dev/test entrypoints set their own non-'prod' suffix.",
+  );
+}
+const projectSuffix = suffixEnv === "prod" ? "" : suffixEnv;
+
 export const store = new Conf<PersistedState>({
   projectName: "kolu",
-  // KOLU_STATE_SUFFIX isolates state per environment (e.g. "test" → ~/.config/kolu-test)
-  projectSuffix: process.env.KOLU_STATE_SUFFIX ?? "",
+  projectSuffix,
   projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
