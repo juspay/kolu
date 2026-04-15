@@ -5,7 +5,7 @@
 
 import { toast } from "solid-sonner";
 import { availableThemes, resolveThemeBgs } from "../theme";
-import { pickVariegatedTheme } from "../themePicker";
+import { pickTheme } from "../themePicker";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";
@@ -117,7 +117,9 @@ export function useTerminalCrud(deps: {
     });
     const theme =
       themeName ??
-      (peerBgs ? pickVariegatedTheme(availableThemes, peerBgs) : undefined);
+      (peerBgs
+        ? pickTheme(availableThemes, { spread: true, peerBgs })
+        : undefined);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (theme) setThemeName(info.id, theme);
