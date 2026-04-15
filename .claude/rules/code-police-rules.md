@@ -71,3 +71,10 @@ Every `createSubscription` call must include an `onError` handler to surface fai
 Bad: `const sub = createSubscription(() => stream.state());`
 Good: `const sub = createSubscription(() => stream.state(), { onError: (err) => toast.error(\`Server state error: ${err.message}\`) });`
 _Rationale_: oRPC application errors (`ORPCError`) are not retried by `ClientRetryPlugin`, so the stream dies permanently. Without `onError`, the failure is invisible — the user gets a blank or stale UI with no toast, no console warning, nothing.
+
+### e2e-poll-async-state
+
+E2e step definitions must never assert synchronously on state that changes asynchronously (clipboard, DOM content, reactive UI updates). Use `page.waitForFunction()` with `POLL_TIMEOUT` to poll until the expected condition is met.
+Bad: `const text = await page.evaluate(() => navigator.clipboard.readText()); assert.ok(text.includes(expected));`
+Good: `await page.waitForFunction((exp) => navigator.clipboard.readText().then(t => t.includes(exp)), expected, { timeout: POLL_TIMEOUT });`
+_Rationale_: A bare `page.evaluate()` + `assert` is a race condition — the async operation (clipboard write, SolidJS reactivity flush, DOM update) may not have completed by the time the read fires. This passes on fast machines (x86_64-linux) and fails on slower ones (aarch64-darwin). The fix was applied in commit `36c82cd` for command palette tests; this rule prevents the pattern from recurring.
