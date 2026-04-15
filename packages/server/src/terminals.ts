@@ -25,7 +25,7 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import { parseAgentCommand } from "./agent-cli.ts";
+import { parseAgentCommand } from "anyagent";
 import { trackRecentAgent } from "./state.ts";
 import type { SavedTerminal } from "kolu-common";
 

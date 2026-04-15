@@ -1,7 +1,9 @@
-/** Shared schemas and types used by multiple integration packages.
+/** Shared schemas, types, and utilities used by multiple integration packages.
  *  Lives here (not in kolu-common) to avoid circular dependencies:
  *  kolu-common imports from integration packages for their agent schemas,
  *  so integration packages can't import back from kolu-common. */
+
+export { parseAgentCommand } from "./agent-cli.ts";
 
 import { z } from "zod";
 
