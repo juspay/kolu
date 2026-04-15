@@ -5,8 +5,7 @@ import {
   type Component,
   Show,
   createSignal,
-  createEffect,
-  on,
+  onCleanup,
   mergeProps,
 } from "solid-js";
 import { MenuIcon, SearchIcon, SettingsIcon } from "./ui/Icons";
@@ -87,7 +86,7 @@ const Header: Component<{
   // Theme
   themeName?: string;
   onThemeClick?: () => void;
-  // Strip mode
+  // Canvas mode
   canvasMode?: boolean;
   onToggleCanvasMode?: () => void;
   // Panel toggles
@@ -106,9 +105,9 @@ const Header: Component<{
   );
 
   // Sync fullscreen state with browser
-  document.addEventListener("fullscreenchange", () =>
-    setIsFullscreen(!!document.fullscreenElement),
-  );
+  const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+  document.addEventListener("fullscreenchange", onFsChange);
+  onCleanup(() => document.removeEventListener("fullscreenchange", onFsChange));
 
   function toggleFullscreen() {
     if (document.fullscreenElement) {

@@ -39,11 +39,17 @@ const TerminalCanvas: Component<{
     { name: "kolu-canvas-layouts" },
   );
 
-  // Auto-assign layout for new terminals
+  // Auto-assign layout for new terminals and clean up removed ones
   createEffect(
     on(
       () => props.terminalIds,
       (ids) => {
+        const idSet = new Set(ids as string[]);
+        // Remove layouts for terminals that no longer exist
+        for (const key of Object.keys(layouts)) {
+          if (!idSet.has(key)) setLayouts(key, undefined!);
+        }
+        // Assign layouts for new terminals
         let nextIndex = 0;
         for (const id of ids) {
           if (!layouts[id]) {
