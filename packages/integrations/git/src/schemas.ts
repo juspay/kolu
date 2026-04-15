@@ -111,6 +111,27 @@ export const GitDiffOutputSchema = z.object({
 });
 export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 
+// --- File tree browsing ---
+
+export const FsListDirInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+  /** Path relative to repo root (empty string for root). */
+  dirPath: z.string(),
+});
+
+export const FsDirEntrySchema = z.object({
+  name: z.string(),
+  isDirectory: z.boolean(),
+  /** Path relative to repo root. */
+  path: z.string(),
+});
+
+export const FsListDirOutputSchema = z.object({
+  entries: z.array(FsDirEntrySchema),
+});
+export type FsListDirOutput = z.infer<typeof FsListDirOutputSchema>;
+
 // --- Derived types ---
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
