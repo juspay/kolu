@@ -36,12 +36,13 @@ Reduce `nix build .#default` wall-clock time (uncached, no eval cache).
 
 | Cycle | Change | Before | After | Delta | Committed? |
 |-------|--------|--------|-------|-------|------------|
-| | | | | | |
+| 1 | `dontFixup = true` — skip fixupPhase (strip, patchShebangs, patchELF) | 32.29s | 15.87s | -16.42s (51%) | Yes |
 
 ## Dead Ends
-(Investigated but no improvement)
+- `dontPatchShebangs = true` (without dontFixup): Only 0.42s improvement — patchShebangs was 0.5s of the 6.4s fixupPhase; the rest was strip/patchELF tree traversal.
 
 ## Key Findings
 - fixupPhase re-patches shebangs that pnpmConfigHook already patched (redundant work)
 - The 395MB output triggers expensive Nix store operations (NAR hashing, signing, registration)
 - Only ~2.5MB of that output is actually kolu's own code; the rest is node_modules
+- `dontFixup = true` saves 16.4s (51%) — far more than the 6.4s measured fixupPhase time, suggesting Nix store registration is significantly faster when the output hasn't been modified in-place by fixup operations

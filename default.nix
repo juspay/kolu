@@ -68,6 +68,12 @@ let
 
     inherit pnpmDeps;
 
+    # The fixupPhase (strip, patchShebangs, patchELF) traverses the entire
+    # output tree (~395MB of node_modules). For a Node.js app this is pure
+    # overhead: shebangs are already patched by pnpmConfigHook, and the
+    # only native binary (node-pty .node) is correctly linked by node-gyp.
+    dontFixup = true;
+
     env = {
       npm_config_nodedir = pkgs.nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
