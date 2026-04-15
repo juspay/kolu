@@ -23,6 +23,8 @@ export {
   FsListDirInputSchema,
   FsDirEntrySchema,
   FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
   type GitInfo,
   type GitChangeStatus,
   type GitChangedFile,
@@ -52,7 +54,7 @@ export {
 export { getStatus, getDiff, parseNameStatus } from "./review.ts";
 
 // File tree browsing
-export { listDir } from "./browse.ts";
+export { listDir, readFile } from "./browse.ts";
 
 // Path security
 export { resolveUnder } from "./safe-path.ts";

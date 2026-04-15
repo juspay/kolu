@@ -23,6 +23,8 @@ import {
   FsListDirInputSchema,
   FsDirEntrySchema,
   FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
 } from "kolu-git";
 
 // Re-export integration schemas so consumers import from kolu-common only.
@@ -45,6 +47,8 @@ export {
   FsListDirInputSchema,
   FsDirEntrySchema,
   FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
 };
 export type {
   GitInfo,

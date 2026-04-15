@@ -28,6 +28,7 @@ import {
   getStatus,
   getDiff,
   listDir,
+  readFile,
   type GitResult,
 } from "kolu-git";
 import {
@@ -240,6 +241,9 @@ export const appRouter = t.router({
     listDir: t.fs.listDir.handler(async ({ input }) => ({
       entries: unwrapGit(await listDir(input.repoPath, input.dirPath, log)),
     })),
+    readFile: t.fs.readFile.handler(async ({ input }) =>
+      unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+    ),
   },
   state: {
     get: t.state.get.handler(async function* ({ signal }) {

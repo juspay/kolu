@@ -196,6 +196,17 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     return entriesToNodes(result.entries);
   };
 
+  /** File content for the selected file in browse mode. */
+  const [fileContent] = createResource(
+    () => {
+      const p = repoPath();
+      const s = selectedPath();
+      if (!p || !s || view() !== "browse") return null;
+      return { repoPath: p, filePath: s };
+    },
+    (input) => client.fs.readFile(input),
+  );
+
   return (
     <Show
       when={repoPath()}
@@ -376,7 +387,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           {/* === File browser mode === */}
           <Match when={!isDiffView()}>
             <div
-              class="flex-1 min-h-0 overflow-y-auto"
+              class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
               data-testid="file-browser"
             >
               <Switch
@@ -409,6 +420,46 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   )}
                 </Match>
               </Switch>
+            </div>
+            <div
+              class="flex-1 min-h-0 overflow-auto"
+              data-testid="file-content"
+            >
+              <Show
+                when={selectedPath()}
+                fallback={
+                  <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
+                    <FileDiffIcon class="w-8 h-8 opacity-40" />
+                    <span class="text-[11px]">
+                      Select a file to view its content
+                    </span>
+                  </div>
+                }
+              >
+                <Switch
+                  fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
+                >
+                  <Match when={fileContent.error}>
+                    <div class="px-2 py-1 text-danger">
+                      Error: {(fileContent.error as Error).message}
+                    </div>
+                  </Match>
+                  <Match when={fileContent()}>
+                    {(fc) => (
+                      <>
+                        <Show when={fc().truncated}>
+                          <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
+                            File truncated (exceeds 1 MB)
+                          </div>
+                        </Show>
+                        <pre class="px-2 py-1 font-mono text-fg whitespace-pre-wrap break-all">
+                          {fc().content}
+                        </pre>
+                      </>
+                    )}
+                  </Match>
+                </Switch>
+              </Show>
             </div>
           </Match>
         </Switch>

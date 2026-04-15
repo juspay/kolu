@@ -132,6 +132,19 @@ export const FsListDirOutputSchema = z.object({
 });
 export type FsListDirOutput = z.infer<typeof FsListDirOutputSchema>;
 
+export const FsReadFileInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+  /** Path relative to repo root. */
+  filePath: z.string(),
+});
+
+export const FsReadFileOutputSchema = z.object({
+  content: z.string(),
+  /** True if the file exceeded the size limit and was truncated. */
+  truncated: z.boolean(),
+});
+
 // --- Derived types ---
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
