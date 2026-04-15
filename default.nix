@@ -94,7 +94,14 @@ let
       runHook preInstall
       cp -r . $out
       rm -rf $out/packages/client/src $out/packages/client/node_modules
-      chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
+
+      # node-pty: keep only the node-gyp-built binary and JS runtime.
+      # The prebuilds/ directory (58MB of Windows/macOS binaries) and
+      # build sources are not needed — we compile from source via node-gyp.
+      local pty=$out/node_modules/.pnpm/node-pty@*/node_modules/node-pty
+      rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
+             $pty/build/Release/obj.target $pty/node-addon-api@*
+
       runHook postInstall
     '';
   };
