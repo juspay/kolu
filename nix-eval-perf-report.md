@@ -39,4 +39,5 @@
 | 6 | — | Share npins import for ghostty-themes (arch cleanup, no perf change) | — | — | — | — |
 | 7 | — | Disable flake registry lookups (use-registries = false) | 1701 | 187 | -269 | -10 |
 | 8 | — | Move playwright-driver.browsers to devShells.e2e | 1046 | 131 | -655 | -56 |
+| 9 | — | Static word lists (eliminate wordnet dependency) | 990 | 123 | -56 | -8 |
 | 6 | — | Share npins import for ghostty-themes via overlay | 1976 | 199 | +6 | +2 |
