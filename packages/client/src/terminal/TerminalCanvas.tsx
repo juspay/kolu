@@ -231,7 +231,7 @@ const CanvasTile: Component<{
   return (
     <div
       ref={draggable.ref}
-      class="absolute flex flex-col rounded-xl overflow-hidden border transition-all duration-200"
+      class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
         "border-accent/60 shadow-xl": isActive(),
         "border-edge/40 hover:border-edge/60": !isActive(),
