@@ -7,9 +7,9 @@ import {
 } from "./session.ts";
 import type { SavedTerminal } from "kolu-common";
 
-// KOLU_STATE_SUFFIX is set via vitest env (see vitest.config.ts or inline env)
-// to isolate test state from real user state. The state.ts module reads it at load time.
-// We rely on the test runner passing KOLU_STATE_SUFFIX=test (set in package.json script).
+// KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
+// conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
+// module load — no extra setup is needed here.
 
 const terminal: SavedTerminal = {
   id: "term-1",
