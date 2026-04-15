@@ -27,24 +27,36 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.8.0";
 
-// KOLU_STATE_SUFFIX isolates state per environment:
-//   "prod" → production (~/.config/kolu) — only the nix-built binary sets this.
-//   "dev"  → ~/.config/kolu-dev (just dev).
-//   "test…" → ~/.config/kolu-test… (e2e + unit tests set their own suffixes).
-// Unset/empty crashes rather than silently clobbering production state.
-const suffixEnv = process.env.KOLU_STATE_SUFFIX;
-if (suffixEnv === undefined || suffixEnv === "") {
+// State location is resolved from one of two env vars:
+//   KOLU_STATE_DIR   — explicit absolute directory. Used by tests to route
+//                      state to $TMPDIR instead of polluting ~/.config.
+//                      Takes precedence over SUFFIX.
+//   KOLU_STATE_SUFFIX — env-paths label:
+//                      "prod" → ~/.config/kolu (only the nix-built binary)
+//                      "dev"  → ~/.config/kolu-dev (just dev)
+// At least one must be set — a silent fallback would clobber production state.
+function resolveStateLocation():
+  | { cwd: string }
+  | { projectName: string; projectSuffix: string } {
+  const stateDir = process.env.KOLU_STATE_DIR;
+  if (stateDir) return { cwd: stateDir };
+  const suffixEnv = process.env.KOLU_STATE_SUFFIX;
+  if (suffixEnv) {
+    return {
+      projectName: "kolu",
+      projectSuffix: suffixEnv === "prod" ? "" : suffixEnv,
+    };
+  }
   throw new Error(
-    "KOLU_STATE_SUFFIX must be set. Use 'prod' to target production " +
-      "state (~/.config/kolu); only the nix-built kolu binary is allowed " +
-      "to do that. Dev/test entrypoints set their own non-'prod' suffix.",
+    "KOLU_STATE_DIR or KOLU_STATE_SUFFIX must be set. Use SUFFIX='prod' " +
+      "to target production state (~/.config/kolu); only the nix-built kolu " +
+      "binary is allowed to do that. Dev sets SUFFIX='dev'; tests set " +
+      "KOLU_STATE_DIR to an ephemeral $TMPDIR path.",
   );
 }
-const projectSuffix = suffixEnv === "prod" ? "" : suffixEnv;
 
 export const store = new Conf<PersistedState>({
-  projectName: "kolu",
-  projectSuffix,
+  ...resolveStateLocation(),
   projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
