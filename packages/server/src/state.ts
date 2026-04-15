@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.11.0";
+const SCHEMA_VERSION = "1.12.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -188,6 +188,14 @@ export const store = new Conf<PersistedState>({
           ...current,
           rightPanel: { ...current.rightPanel, pinned: true },
         });
+      }
+    },
+    // canvasMode preference added — default to true (canvas) for new installs,
+    // but existing users who haven't seen it get true as well.
+    "1.12.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      if ((current as Record<string, unknown>).canvasMode === undefined) {
+        store.set("preferences", { ...current, canvasMode: true });
       }
     },
   },

@@ -275,6 +275,9 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+  /** Canvas mode shows all terminals as freeform draggable tiles.
+   *  Focus mode shows one terminal at a time with a sidebar. */
+  canvasMode: z.boolean(),
   rightPanel: RightPanelPrefsSchema,
 });
 

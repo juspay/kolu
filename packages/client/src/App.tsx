@@ -36,6 +36,7 @@ import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
+import { useServerState } from "./settings/useServerState";
 import { useTips } from "./settings/useTips";
 
 const App: Component = () => {
@@ -61,10 +62,13 @@ const App: Component = () => {
   });
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
-  const [canvasMode, setCanvasMode] = createSignal(true);
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
+  const { preferences, updatePreferences } = useServerState();
+  const canvasMode = () => preferences().canvasMode;
+  const toggleCanvasMode = () =>
+    updatePreferences({ canvasMode: !canvasMode() });
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -341,7 +345,7 @@ const App: Component = () => {
         themeName={activeThemeName()}
         onThemeClick={() => openPaletteGroup("Theme")}
         canvasMode={canvasMode()}
-        onToggleCanvasMode={() => setCanvasMode((v) => !v)}
+        onToggleCanvasMode={toggleCanvasMode}
         sidebarOpen={sidebarOpen()}
         hasSubPanel={
           store.activeId() !== null &&
