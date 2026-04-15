@@ -4,7 +4,7 @@
  * Streaming handlers subscribe to publisher channels over WebSocket.
  * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
  */
-import { implement } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
@@ -22,8 +22,13 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
-import { worktreeCreate, worktreeRemove } from "./git.ts";
-import { getStatus, getDiff } from "./git-review.ts";
+import {
+  worktreeCreate,
+  worktreeRemove,
+  getStatus,
+  getDiff,
+  type GitResult,
+} from "kolu-git";
 import {
   getServerState,
   testSetServerState,
@@ -38,6 +43,25 @@ function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
+}
+
+/** Unwrap a GitResult or throw an ORPCError for the client. */
+function unwrapGit<T>(result: GitResult<T>): T {
+  if (result.ok) return result.value;
+  const e = result.error;
+  const status =
+    e.code === "BASE_BRANCH_NOT_FOUND"
+      ? "PRECONDITION_FAILED"
+      : "INTERNAL_SERVER_ERROR";
+  const message =
+    e.code === "PATH_ESCAPES_ROOT"
+      ? `path escapes root: ${e.child}`
+      : e.code === "BASE_BRANCH_NOT_FOUND"
+        ? e.message
+        : "message" in e
+          ? e.message
+          : `Git operation failed: ${e.code}`;
+  throw new ORPCError(status, { message });
 }
 
 export const appRouter = t.router({
@@ -185,7 +209,7 @@ export const appRouter = t.router({
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
       log.info({ repo: input.repoPath }, "worktree create");
-      const result = await worktreeCreate(input.repoPath);
+      const result = unwrapGit(await worktreeCreate(input.repoPath, log));
       log.info(
         { repo: input.repoPath, path: result.path, branch: result.branch },
         "worktree created",
@@ -194,13 +218,15 @@ export const appRouter = t.router({
     }),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
-      await worktreeRemove(input.worktreePath);
+      unwrapGit(await worktreeRemove(input.worktreePath, log));
     }),
     status: t.git.status.handler(async ({ input }) => {
-      return getStatus(input.repoPath, input.mode);
+      return unwrapGit(await getStatus(input.repoPath, input.mode, log));
     }),
     diff: t.git.diff.handler(async ({ input }) => {
-      return getDiff(input.repoPath, input.filePath, input.mode);
+      return unwrapGit(
+        await getDiff(input.repoPath, input.filePath, input.mode, log),
+      );
     }),
   },
   state: {

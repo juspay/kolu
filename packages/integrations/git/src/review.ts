@@ -1,5 +1,5 @@
 /**
- * Diff review — powers the "Code Diff" right-panel tab (issue #514).
+ * Diff review — powers the "Code Diff" right-panel tab.
  *
  * Two operations, each parameterized by a `mode`:
  *   - `getStatus(repoPath, mode)` → files changed for that mode.
@@ -8,8 +8,8 @@
  *     `DiffView` data prop.
  *
  * Modes:
- *   - `local` (phase 1): working tree vs `HEAD`. Includes untracked files.
- *   - `branch` (phase 2): working tree vs `merge-base(HEAD, origin/<default>)` —
+ *   - `local`: working tree vs `HEAD`. Includes untracked files.
+ *   - `branch`: working tree vs `merge-base(HEAD, origin/<default>)` —
  *     same answer a PR's "Files changed" tab gives, computed locally and
  *     forge-agnostically. Untracked files are excluded (they can't ship).
  *
@@ -21,8 +21,8 @@
 import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ORPCError } from "@orpc/server";
 import { simpleGit } from "simple-git";
+import type { Logger } from "kolu-integration-common";
 import {
   GitChangeStatusSchema,
   type GitBaseRef,
@@ -31,10 +31,10 @@ import {
   type GitDiffMode,
   type GitDiffOutput,
   type GitStatusOutput,
-} from "kolu-common";
-import { detectDefaultBranch } from "./git.ts";
-import { log } from "./log.ts";
+} from "./schemas.ts";
+import { detectDefaultBranch } from "./worktree.ts";
 import { resolveUnder } from "./safe-path.ts";
+import { type GitResult, ok, err } from "./errors.ts";
 
 const execFileP = promisify(execFile);
 
@@ -47,33 +47,25 @@ function toChangeStatus(letter: string): GitChangeStatus {
 
 /**
  * Resolve the base ref for branch mode: `origin/<defaultBranch>` and the
- * merge-base SHA between it and HEAD. Throws with an actionable message
- * when `origin/<defaultBranch>` doesn't exist — users can't review "what
- * this branch adds vs the base" if there is no base to diff against.
+ * merge-base SHA between it and HEAD.
  */
-async function resolveBase(repoPath: string): Promise<GitBaseRef> {
+async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
   const defaultBranch = await detectDefaultBranch(repoPath);
   const ref = `origin/${defaultBranch}`;
   const git = simpleGit(repoPath);
   try {
     await git.raw(["rev-parse", "--verify", `${ref}^{commit}`]);
   } catch {
-    // `rev-parse --verify` is a read-only name lookup — the realistic
-    // failure mode is "ref doesn't exist". Translate that to an actionable
-    // error rather than surfacing simple-git's `fatal: Needed a single
-    // revision` string to the reviewer.
-    //
-    // Uses `ORPCError` (not plain `Error`) so the message survives to the
-    // client — oRPC sanitizes unknown `Error` throws to "Internal Server
-    // Error" by default, which would hide the actionable suggestion below.
-    throw new ORPCError("PRECONDITION_FAILED", {
+    return err({
+      code: "BASE_BRANCH_NOT_FOUND",
+      ref,
       message:
         `No base branch found — ${ref} doesn't exist. ` +
         `Run: git fetch origin && git remote set-head origin --auto`,
     });
   }
   const sha = (await git.raw(["merge-base", "HEAD", ref])).trim();
-  return { ref, sha };
+  return ok({ ref, sha });
 }
 
 /**
@@ -131,13 +123,30 @@ async function getLocalStatus(repoPath: string): Promise<GitChangedFile[]> {
 export async function getStatus(
   repoPath: string,
   mode: GitDiffMode,
-): Promise<GitStatusOutput> {
-  if (mode === "local") {
-    return { files: await getLocalStatus(repoPath), base: null };
+  log?: Logger,
+): Promise<GitResult<GitStatusOutput>> {
+  try {
+    if (mode === "local") {
+      return ok({ files: await getLocalStatus(repoPath), base: null });
+    }
+    const baseResult = await resolveBase(repoPath);
+    if (!baseResult.ok) return baseResult;
+    const raw = await gitOutput(repoPath, [
+      "diff",
+      "--name-status",
+      baseResult.value.sha,
+    ]);
+    return ok({ files: parseNameStatus(raw), base: baseResult.value });
+  } catch (e) {
+    log?.error(
+      { err: e instanceof Error ? e.message : String(e), repoPath, mode },
+      "git-review: getStatus failed",
+    );
+    return err({
+      code: "GIT_FAILED",
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
-  const base = await resolveBase(repoPath);
-  const raw = await gitOutput(repoPath, ["diff", "--name-status", base.sha]);
-  return { files: parseNameStatus(raw), base };
 }
 
 /**
@@ -154,15 +163,15 @@ async function readContentAtRev(
   const git = simpleGit(repoPath);
   try {
     return await git.show([`${rev}:${relPath}`]);
-  } catch (err) {
+  } catch (e) {
     // Narrow to the one expected failure: simple-git wraps the fatal
     // line, which for a missing path reads either
     //   "fatal: path '<p>' does not exist in '<rev>'"
     // or
     //   "fatal: Path '<p>' exists on disk, but not in '<rev>'"
-    const msg = err instanceof Error ? err.message : "";
+    const msg = e instanceof Error ? e.message : "";
     if (/does not exist in |exists on disk, but not in /.test(msg)) return "";
-    throw err;
+    throw e;
   }
 }
 
@@ -174,9 +183,9 @@ async function readContentAtRev(
 async function readWorkingContent(fileAbs: string): Promise<string> {
   try {
     return await fs.readFile(fileAbs, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
-    throw err;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw e;
   }
 }
 
@@ -194,14 +203,14 @@ async function gitOutput(cwd: string, args: string[]): Promise<string> {
       maxBuffer: 16 * 1024 * 1024,
     });
     return stdout;
-  } catch (err) {
+  } catch (e) {
     // `execFile`'s rejection carries `code` (exit status, number) and
     // `stdout`/`stderr` on the error object. NodeJS.ErrnoException types
     // `code` as `string`, which doesn't match — cast through the shape
     // we actually observe.
-    const e = err as { code?: number; stdout?: string };
-    if (e.code === 1 && typeof e.stdout === "string") return e.stdout;
-    throw err;
+    const ex = e as { code?: number; stdout?: string };
+    if (ex.code === 1 && typeof ex.stdout === "string") return ex.stdout;
+    throw e;
   }
 }
 
@@ -219,53 +228,63 @@ export async function getDiff(
   repoPath: string,
   filePath: string,
   mode: GitDiffMode,
-): Promise<GitDiffOutput> {
-  const { abs, rel } = resolveUnder(repoPath, filePath);
+  log?: Logger,
+): Promise<GitResult<GitDiffOutput>> {
+  const pathResult = resolveUnder(repoPath, filePath, log);
+  if (!pathResult.ok) return pathResult;
+  const { abs, rel } = pathResult.value;
 
-  const baseRev = mode === "local" ? "HEAD" : (await resolveBase(repoPath)).sha;
-
-  const [oldContent, newContent, tracked] = await Promise.all([
-    readContentAtRev(repoPath, baseRev, rel),
-    readWorkingContent(abs),
-    gitOutput(repoPath, ["diff", baseRev, "--", rel]),
-  ]);
-
-  // Branch mode's file list comes from `git diff --name-status`, which
-  // only surfaces files already in the diff — so `git diff <base> -- <f>`
-  // is guaranteed to produce output and never needs `--no-index`. Local
-  // mode, on the other hand, also surfaces untracked files (via
-  // `git.status().not_added`); those yield empty output from the normal
-  // `git diff HEAD --` path, so we synthesize a diff against `/dev/null`.
-  const rawDiff =
-    mode === "local" && tracked.trim().length === 0
-      ? await gitOutput(repoPath, [
-          "diff",
-          "--no-index",
-          "--",
-          "/dev/null",
-          // Use the pre-validated absolute path — `--no-index`'s behavior
-          // w.r.t. cwd is less universally stable than `git diff HEAD --`,
-          // and `abs` already went through `resolveUnder`.
-          abs,
-        ])
-      : tracked;
-
-  if (!rawDiff.trim().length) {
-    // Both `git diff <base> --` and `--no-index` produced nothing for a
-    // file the client asked about. Legitimate cases (mode-only change
-    // that's already been reset, race with an external `git reset`) are
-    // possible but rare — log so operators can spot a pattern.
-    log.warn(
-      { filePath: rel, mode },
-      "git-review: empty diff for requested file",
-    );
+  let baseRev: string;
+  if (mode === "local") {
+    baseRev = "HEAD";
+  } else {
+    const baseResult = await resolveBase(repoPath);
+    if (!baseResult.ok) return baseResult;
+    baseRev = baseResult.value.sha;
   }
 
-  return {
-    oldFileName: oldContent ? rel : null,
-    newFileName: newContent ? rel : null,
-    oldContent,
-    newContent,
-    hunks: rawDiff ? [rawDiff] : [],
-  };
+  try {
+    const [oldContent, newContent, tracked] = await Promise.all([
+      readContentAtRev(repoPath, baseRev, rel),
+      readWorkingContent(abs),
+      gitOutput(repoPath, ["diff", baseRev, "--", rel]),
+    ]);
+
+    // Branch mode's file list comes from `git diff --name-status`, which
+    // only surfaces files already in the diff — so `git diff <base> -- <f>`
+    // is guaranteed to produce output and never needs `--no-index`. Local
+    // mode, on the other hand, also surfaces untracked files (via
+    // `git.status().not_added`); those yield empty output from the normal
+    // `git diff HEAD --` path, so we synthesize a diff against `/dev/null`.
+    const rawDiff =
+      mode === "local" && tracked.trim().length === 0
+        ? await gitOutput(repoPath, [
+            "diff",
+            "--no-index",
+            "--",
+            "/dev/null",
+            abs,
+          ])
+        : tracked;
+
+    if (!rawDiff.trim().length) {
+      log?.warn(
+        { filePath: rel, mode },
+        "git-review: empty diff for requested file",
+      );
+    }
+
+    return ok({
+      oldFileName: oldContent ? rel : null,
+      newFileName: newContent ? rel : null,
+      oldContent,
+      newContent,
+      hunks: rawDiff ? [rawDiff] : [],
+    });
+  } catch (e) {
+    return err({
+      code: "GIT_FAILED",
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
 }
