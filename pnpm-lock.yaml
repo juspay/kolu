@@ -140,7 +140,7 @@ importers:
         version: 1.13.13
       anyagent:
         specifier: workspace:*
-        version: link:../integrations/common
+        version: link:../integrations/anyagent
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -158,6 +158,22 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/integrations/anyagent:
+    dependencies:
+      string-argv:
+        specifier: ^0.3.2
+        version: 0.3.2
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/integrations/claude-code:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
@@ -165,7 +181,7 @@ importers:
         version: 0.2.96(zod@4.3.6)
       anyagent:
         specifier: workspace:*
-        version: link:../common
+        version: link:../anyagent
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -183,21 +199,11 @@ importers:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/integrations/common:
-    dependencies:
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-
   packages/integrations/git:
     dependencies:
       anyagent:
         specifier: workspace:*
-        version: link:../common
+        version: link:../anyagent
       memorable-names:
         specifier: workspace:*
         version: link:../../memorable-names
@@ -222,7 +228,7 @@ importers:
     dependencies:
       anyagent:
         specifier: workspace:*
-        version: link:../common
+        version: link:../anyagent
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -278,6 +284,9 @@ importers:
       '@xterm/headless':
         specifier: ^6.0.0
         version: 6.0.0
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
@@ -314,9 +323,6 @@ importers:
       selfsigned:
         specifier: ^5.5.0
         version: 5.5.0
-      string-argv:
-        specifier: ^0.3.2
-        version: 0.3.2
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
