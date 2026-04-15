@@ -80,6 +80,8 @@
 | `--option substitute false` | No measurable difference |
 | Per-package realization | Each package adds ~30-80ms; all share dependency graph |
 | eachSystem evaluating both systems | Nix is lazy — only requested system evaluated |
+| "copying to store" includes node_modules | **No** — flakes use `git ls-files` (2.4MB, 304 files). The 272 copy ops on cold eval are nixpkgs patches/scripts, not our code. Our source copy is ~3ms. |
+| `path:.` scheme (avoids copy?) | **5x slower** (4659ms) — disables eval cache entirely |
 
 ## Methodology
 
