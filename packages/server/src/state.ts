@@ -32,7 +32,7 @@ const SCHEMA_VERSION = "1.9.0";
 // with no env would silently clobber whatever happens to live at conf's
 // default path, so we refuse. Each entrypoint picks its own location:
 //   nix-built kolu → ~/.config/kolu (production)
-//   pnpm dev       → ~/.config/kolu-dev
+//   pnpm dev       → <worktree-root>/.kolu-dev (per-worktree, gitignored)
 //   tests          → an ephemeral $TMPDIR path
 const stateDir = process.env.KOLU_STATE_DIR;
 if (!stateDir) {
