@@ -148,15 +148,15 @@ body {
 }
 
 .card-border-wrap.card-spin-waiting {
-  animation: border-breathe 2.5s ease-in-out infinite;
+  animation: border-breathe 1.6s ease-in-out infinite;
 }
 
 @keyframes border-breathe {
   0%,
   100% {
-    background: oklch(from var(--card-color) l c h / 0.25);
+    background: oklch(from var(--card-color) l c h / 0.1);
   }
   50% {
-    background: oklch(from var(--card-color) l c h / 0.7);
+    background: oklch(from var(--card-color) l calc(c * 1.2) h / 0.9);
   }
 }
