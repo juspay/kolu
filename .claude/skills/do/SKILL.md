@@ -59,10 +59,10 @@ After each step's verification, record results via the `do-results` script. The 
 
 ## Progress tracking
 
-Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 15 step names in order:
+Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 14 step names in order:
 
 ```
-sync, research, hickey, lowy, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
+sync, research, hickey+lowy, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
 ```
 
 At each step boundary, update task state **alongside** the `do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
@@ -71,7 +71,7 @@ Rules:
 
 - **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
 - **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
-- **`--from <step>` entry points**: still seed all 15 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 15-item view regardless of entry point.
+- **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
 - **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason is recorded via `do-results step <name> skipped ... "<reason>"`; the task list just shows the step as done.
 - **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `do-results set status failed`.
 
@@ -116,19 +116,11 @@ Research the task thoroughly before writing code.
 
 ---
 
-### hickey
+### hickey + lowy
 
-Invoke the `/hickey` skill via the Skill tool. Identify concerns, check for complecting, suggest simplifications.
+Invoke `/hickey` and `/lowy` via the Skill tool. **Both calls MUST appear in a single message** so they execute in parallel — they are completely independent. Do NOT wait for one to finish before invoking the other. One message, two Skill tool calls. No exceptions.
 
-**Important**: hickey and lowy are independent — invoke them **in parallel** by issuing both Skill tool calls in a single message. Neither needs the other's output.
-
----
-
-### lowy
-
-Invoke the `/lowy` skill via the Skill tool. Check that module boundaries encapsulate axes of change, not just functionality.
-
-After both hickey and lowy complete, revise the approach to eliminate accidental complexity before proceeding.
+After both complete, revise the approach to eliminate accidental complexity before proceeding.
 
 **If `--review`**: Use `EnterPlanMode` to present the revised approach for user approval:
 
