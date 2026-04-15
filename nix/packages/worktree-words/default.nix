@@ -1,25 +1,24 @@
 # POS-tagged word lists from WordNet for worktree branch names (ADJ-NOUN).
 # Filtered to common words only (tagsense_cnt >= 2 = appeared in tagged corpus).
-{ runCommand, symlinkJoin, wordnet }:
+#
+# Single runCommand instead of symlinkJoin + 2 separate runCommands to reduce
+# Nix evaluation overhead (fewer derivations to instantiate).
+{ runCommand, wordnet }:
 
 let
   # Extract short (3-6 char) words with tagsense_cnt >= 2 from a WordNet index file.
-  extract = file:
-    runCommand "extract-words" { } ''
-      awk '/^[a-z]{3,6} /{
-        for (i = NF; i >= 1; i--)
-          if ($i !~ /^[0-9]{8}$/) {
-            if ($i + 0 >= 2) print $1
-            break
-          }
-      }' ${file} | sort -u > $out
-    '';
-in
-symlinkJoin {
-  name = "worktree-words";
-  paths = [ ];
-  postBuild = ''
-    ln -s ${extract "${wordnet}/dict/index.adj"} $out/adjectives.txt
-    ln -s ${extract "${wordnet}/dict/index.noun"} $out/nouns.txt
+  extractAwk = ''
+    /^[a-z]{3,6} /{
+      for (i = NF; i >= 1; i--)
+        if ($i !~ /^[0-9]{8}$/) {
+          if ($i + 0 >= 2) print $1
+          break
+        }
+    }
   '';
-}
+in
+runCommand "worktree-words" { } ''
+  mkdir -p $out
+  awk '${extractAwk}' ${wordnet}/dict/index.adj | sort -u > $out/adjectives.txt
+  awk '${extractAwk}' ${wordnet}/dict/index.noun | sort -u > $out/nouns.txt
+''
