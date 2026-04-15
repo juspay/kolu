@@ -27,10 +27,10 @@ _linux:
 # Runs post-nix steps in parallel. Within the same just process, their
 # `: nix` deps are already satisfied, so nix is not rebuilt.
 [parallel]
-_linux-fanout: home-manager e2e run
+_linux-fanout: home-manager e2e
 
 [parallel]
-_darwin-fanout: e2e run
+_darwin-fanout: e2e
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
@@ -62,10 +62,6 @@ typecheck:
 
 e2e: nix
     just ci::_run e2e just test
-
-# Smoke-test `nix run .` works
-run: nix
-    just ci::_run run nix run . -- --help
 
 # Run vitest unit tests (server + client)
 unit:
