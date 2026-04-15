@@ -18,8 +18,36 @@ export const agentNames: Record<AgentInfo["kind"], string> = {
   opencode: "OpenCode",
 };
 
-export const stateLabels: Record<AgentInfo["state"], string> = {
-  thinking: "Thinking",
-  tool_use: "Running tools",
-  waiting: "Waiting for input",
+/** Unified display config per agent state — label, color, and animation in one
+ *  table so adding a new state variant can't drift across separate lookups. */
+export const stateDisplay: Record<
+  AgentInfo["state"],
+  { label: string; color: string; animation: string }
+> = {
+  thinking: {
+    label: "Thinking",
+    color: "text-busy",
+    animation: "animate-pulse",
+  },
+  tool_use: {
+    label: "Running tools",
+    color: "text-busy",
+    animation: "animate-spin",
+  },
+  waiting: {
+    label: "Waiting for input",
+    color: "text-warning",
+    animation: "animate-pulse",
+  },
+  monitoring: {
+    label: "Monitoring",
+    color: "text-busy",
+    animation: "animate-pulse",
+  },
 };
+
+/** Convenience accessor for display labels only. */
+export const stateLabels: Record<AgentInfo["state"], string> =
+  Object.fromEntries(
+    Object.entries(stateDisplay).map(([k, v]) => [k, v.label]),
+  ) as Record<AgentInfo["state"], string>;

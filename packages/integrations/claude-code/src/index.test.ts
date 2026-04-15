@@ -33,6 +33,53 @@ describe("deriveState", () => {
     },
   );
 
+  it("returns monitoring when tool_use contains Monitor", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-6",
+        content: [{ type: "tool_use", name: "Monitor", id: "t1", input: {} }],
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "monitoring",
+      model: "claude-opus-4-6",
+    });
+  });
+
+  it("returns waiting when tool_use contains AskUserQuestion", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-6",
+        content: [
+          { type: "tool_use", name: "AskUserQuestion", id: "t1", input: {} },
+        ],
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "waiting",
+      model: "claude-opus-4-6",
+    });
+  });
+
+  it("returns tool_use for regular tools like Bash", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-6",
+        content: [{ type: "tool_use", name: "Bash", id: "t1", input: {} }],
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "tool_use",
+      model: "claude-opus-4-6",
+    });
+  });
+
   it("returns thinking for assistant with missing stop_reason", () => {
     const line = JSON.stringify({
       type: "assistant",

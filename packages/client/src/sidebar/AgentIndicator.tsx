@@ -4,29 +4,13 @@
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { AgentInfo } from "kolu-common";
-import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
-
-/** Busy = actively working (thinking or running tools). Warning = needs user input. */
-const BUSY_COLOR = "text-busy";
-
-/** State → display config. Keyed on state, not kind — all agents currently
- *  share the same visual treatment per state. When agents diverge in states,
- *  this becomes a per-kind dispatch (the `agentIcons`/`agentNames` tables
- *  already handle the per-kind axis). */
-const stateConfig: Record<
-  AgentInfo["state"],
-  { color: string; animation: string }
-> = {
-  thinking: { color: BUSY_COLOR, animation: "animate-pulse" },
-  tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
-  waiting: { color: "text-warning", animation: "animate-pulse" },
-};
+import { agentIcons, agentNames, stateDisplay } from "../ui/agentDisplay";
 
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
-  const cfg = () => stateConfig[props.agent.state];
+  const cfg = () => stateDisplay[props.agent.state];
   const Icon = () => agentIcons[props.agent.kind];
   const name = () => agentNames[props.agent.kind];
-  const label = () => stateLabels[props.agent.state];
+  const label = () => cfg().label;
   return (
     <span
       class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}

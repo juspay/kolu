@@ -28,7 +28,7 @@ import { TaskProgressSchema, type TaskProgress } from "anyagent";
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
   /** Current state derived from session JSONL. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
+  state: z.enum(["thinking", "tool_use", "waiting", "monitoring"]),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
@@ -183,6 +183,26 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 
 // --- State derivation ---
 
+/** Tool names whose `tool_use` stop-reason means "waiting on something
+ *  external" rather than "actively running a tool." */
+const MONITORING_TOOLS = new Set(["Monitor"]);
+
+/** Tool names whose `tool_use` stop-reason means "waiting for user input." */
+const WAITING_TOOLS = new Set(["AskUserQuestion"]);
+
+/** Inspect content blocks to refine the tool_use state. */
+function refineToolUseState(
+  content: Array<{ type?: string; name?: string }> | undefined,
+): ClaudeCodeInfo["state"] {
+  if (!Array.isArray(content)) return "tool_use";
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    if (block.name && WAITING_TOOLS.has(block.name)) return "waiting";
+    if (block.name && MONITORING_TOOLS.has(block.name)) return "monitoring";
+  }
+  return "tool_use";
+}
+
 /** Derive Claude Code state from the last relevant JSONL message. */
 export function deriveState(
   lines: string[],
@@ -192,7 +212,11 @@ export function deriveState(
     try {
       const entry: {
         type?: string;
-        message?: { stop_reason?: string | null; model?: string | null };
+        message?: {
+          stop_reason?: string | null;
+          model?: string | null;
+          content?: Array<{ type?: string; name?: string }>;
+        };
       } = JSON.parse(lines[i]!);
       const model = entry.message?.model ?? null;
       const result = match({
@@ -204,7 +228,7 @@ export function deriveState(
           model,
         }))
         .with({ type: "assistant", stopReason: "tool_use" }, () => ({
-          state: "tool_use" as const,
+          state: refineToolUseState(entry.message?.content),
           model,
         }))
         .with({ type: "assistant" }, () => ({
