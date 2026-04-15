@@ -21,10 +21,7 @@ describe("buildFileTree", () => {
   });
 
   it("groups files under directory nodes", () => {
-    const tree = buildFileTree([
-      file("src/a.ts"),
-      file("src/b.ts"),
-    ]);
+    const tree = buildFileTree([file("src/a.ts"), file("src/b.ts")]);
     expect(tree).toHaveLength(1);
     expect(tree[0]!.kind).toBe("dir");
     expect(tree[0]!.name).toBe("src");
@@ -57,10 +54,7 @@ describe("buildFileTree", () => {
   });
 
   it("does not collapse when a directory has multiple children", () => {
-    const tree = buildFileTree([
-      file("a/b/x.ts"),
-      file("a/c/y.ts"),
-    ]);
+    const tree = buildFileTree([file("a/b/x.ts"), file("a/c/y.ts")]);
     expect(tree).toHaveLength(1);
     const a = tree[0] as Extract<TreeNode, { kind: "dir" }>;
     expect(a.name).toBe("a");
