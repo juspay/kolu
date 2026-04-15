@@ -102,8 +102,11 @@ let
       sed -i 's/${koluCommitPlaceholder}/${commitHash}/g' {} +
   '';
 
-  # Runtime wrapper around tsx with env vars and PATH baked in.
-  default = pkgs.runCommand "kolu"
+  # Base wrapper: tsx + env vars + PATH. Does NOT set KOLU_STATE_DIR —
+  # callers must provide it (state.ts crashes with a clear error if missing).
+  # Tests use this directly so a missing KOLU_STATE_DIR crashes immediately
+  # instead of silently falling back to the production ~/.config/kolu path.
+  koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
       meta.mainProgram = "kolu";
@@ -122,7 +125,6 @@ let
       --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
       --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
-      --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"' \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
                if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then
@@ -133,7 +135,21 @@ let
                export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
              fi'
   '';
+
+  # Production wrapper: koluBin + default KOLU_STATE_DIR.
+  # Used by `nix run .` and the NixOS service. Sets the state dir
+  # unconditionally — no `:-` override, so tests can't accidentally
+  # inherit the production path.
+  default = pkgs.runCommand "kolu"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
+      --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
+  '';
 in
 {
-  inherit default koluEnv pnpmDeps;
+  inherit default koluBin koluEnv pnpmDeps;
 }
