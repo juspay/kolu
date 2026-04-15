@@ -35,3 +35,5 @@
 | 2 | 2f9a6a2 | Consolidate worktree-words into single runCommand | 2005 | 192 | +27 | -2 |
 | 3 | dfa182f | Import env.nix directly in shell.nix | 1994 | 194 | -11 | +2 |
 | 4 | 942d1a9 | Defer playwright-driver.browsers path resolution | 2021 | 197 | +27 | +3 |
+| 5 | 614323e | Defer drv path resolution in env.nix | 1970 | 197 | -51 | 0 |
+| 6 | — | Share npins import for ghostty-themes via overlay | 1976 | 199 | +6 | +2 |
