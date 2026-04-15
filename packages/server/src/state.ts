@@ -27,24 +27,25 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.8.0";
 
-// KOLU_STATE_SUFFIX isolates state per environment:
-//   "prod" → production (~/.config/kolu) — only the nix-built binary sets this.
-//   "dev"  → ~/.config/kolu-dev (just dev).
-//   "test…" → ~/.config/kolu-test… (e2e + unit tests set their own suffixes).
-// Unset/empty crashes rather than silently clobbering production state.
-const suffixEnv = process.env.KOLU_STATE_SUFFIX;
-if (suffixEnv === undefined || suffixEnv === "") {
+// Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
+// with no env would silently clobber whatever happens to live at conf's
+// default path, so we refuse. Each entrypoint picks its own location:
+//   nix-built kolu → ~/.config/kolu (production)
+//   pnpm dev       → ~/.config/kolu-dev
+//   tests          → an ephemeral $TMPDIR path
+const stateDir = process.env.KOLU_STATE_DIR;
+if (!stateDir) {
   throw new Error(
-    "KOLU_STATE_SUFFIX must be set. Use 'prod' to target production " +
-      "state (~/.config/kolu); only the nix-built kolu binary is allowed " +
-      "to do that. Dev/test entrypoints set their own non-'prod' suffix.",
+    "KOLU_STATE_DIR must be set to an absolute directory. The nix-built " +
+      "kolu wrapper, `pnpm dev`, and the test harness each set their own — " +
+      "bare launches are rejected to avoid clobbering production state.",
   );
 }
-const projectSuffix = suffixEnv === "prod" ? "" : suffixEnv;
+
+log.info({ path: stateDir }, "state directory");
 
 export const store = new Conf<PersistedState>({
-  projectName: "kolu",
-  projectSuffix,
+  cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],

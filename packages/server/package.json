@@ -6,9 +6,9 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "KOLU_STATE_SUFFIX=dev node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
+    "dev": "KOLU_STATE_DIR=\"${XDG_CONFIG_HOME:-$HOME/.config}/kolu-dev\" node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
-    "test:unit": "KOLU_STATE_SUFFIX=test vitest run"
+    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.13",
