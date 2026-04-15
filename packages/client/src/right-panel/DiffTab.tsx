@@ -1,4 +1,4 @@
-/** ReviewTab — diff review for the terminal's current repo.
+/** DiffTab — diff review for the terminal's current repo.
  *
  * Issue #514:
  *   - Phase 1: lists files changed vs HEAD and renders the unified diff
@@ -27,7 +27,7 @@ import {
 import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
-import "./review-tab.css";
+import "./diff-tab.css";
 import type { GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
@@ -58,7 +58,7 @@ const MODE_HINT: Record<GitDiffMode, string> = {
   branch: "this branch's diff",
 };
 
-const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [mode, setMode] = createSignal<GitDiffMode>("local");
@@ -111,7 +111,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       fallback={
         <div
           class="flex items-center justify-center h-full text-fg-3/50 text-[11px]"
-          data-testid="review-no-repo"
+          data-testid="diff-no-repo"
         >
           Not in a git repository
         </div>
@@ -119,7 +119,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     >
       <div
         class="flex flex-col h-full min-h-0 text-[11px]"
-        data-testid="review-tab"
+        data-testid="diff-tab"
       >
         <div class="flex items-center justify-between h-6 px-2 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
           <button
@@ -127,7 +127,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             onClick={cycleMode}
             title={MODE_SWITCH_TOOLTIP[mode()]}
             class="group flex-1 min-w-0 text-left text-fg-3/70 hover:text-fg-2 cursor-pointer truncate"
-            data-testid="review-mode-label"
+            data-testid="diff-mode-label"
             data-mode={mode()}
           >
             <span>Changes vs </span>
@@ -143,7 +143,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             onClick={handleRefresh}
             class="text-fg-3/50 hover:text-fg-2 cursor-pointer px-1 shrink-0"
             aria-label="Refresh changed files"
-            data-testid="review-refresh"
+            data-testid="diff-refresh"
           >
             ↻
           </button>
@@ -151,11 +151,11 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
         <div
           class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
-          data-testid="review-file-list"
+          data-testid="diff-file-list"
         >
           <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
             <Match when={status.error}>
-              <div class="px-2 py-1 text-danger" data-testid="review-error">
+              <div class="px-2 py-1 text-danger" data-testid="diff-error">
                 Error: {(status.error as Error).message}
               </div>
             </Match>
@@ -166,7 +166,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   fallback={
                     <div
                       class="px-2 py-4 text-fg-3/50 text-center"
-                      data-testid="review-empty"
+                      data-testid="diff-empty"
                     >
                       {EMPTY_STATE[mode()]}
                     </div>
@@ -184,7 +184,7 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         classList={{
                           "bg-surface-1": selectedPath() === f.path,
                         }}
-                        data-testid="review-file-item"
+                        data-testid="diff-file-item"
                         data-path={f.path}
                         data-active={selectedPath() === f.path}
                       >
@@ -201,8 +201,8 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           </Switch>
         </div>
 
-        {/* Gutter tightening lives in review-tab.css — see comment there. */}
-        <div class="flex-1 min-h-0 overflow-auto" data-testid="review-diff">
+        {/* Gutter tightening lives in diff-tab.css — see comment there. */}
+        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
           <Show
             when={selectedPath()}
             fallback={
@@ -249,4 +249,4 @@ const ReviewTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   );
 };
 
-export default ReviewTab;
+export default DiffTab;

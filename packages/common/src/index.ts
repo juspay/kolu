@@ -44,7 +44,7 @@ export const WorktreeRemoveInputSchema = z.object({
 // --- Local diff review (issue #514 phase 1) ---
 
 /** Single-letter git porcelain status code, narrowed to what `git.status`
- *  actually surfaces to the Review tab. Excludes " " (unmodified) and
+ *  actually surfaces to the Code Diff tab. Excludes " " (unmodified) and
  *  "!" (ignored) — neither is included in the changed-files list. */
 export const GitChangeStatusSchema = z.enum([
   "M", // modified
@@ -65,7 +65,7 @@ export const GitChangedFileSchema = z.object({
 });
 export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
 
-/** Which base the Review tab is diffing against.
+/** Which base the Code Diff tab is diffing against.
  *  - `local`: working tree vs `HEAD` — "what hasn't been committed yet".
  *  - `branch`: working tree vs `merge-base(HEAD, origin/<defaultBranch>)` —
  *    "what this branch will ship". Same computation as a PR "Files changed"
@@ -318,7 +318,7 @@ export const SidebarAgentPreviewsSchema = z.enum([
 ]);
 export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
 
-export const RightPanelTabSchema = z.enum(["inspector", "review"]);
+export const RightPanelTabSchema = z.enum(["inspector", "diff"]);
 export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
 
 export const RightPanelPrefsSchema = z.object({

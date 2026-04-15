@@ -1,5 +1,5 @@
 /**
- * Diff review — powers the "Review" right-panel tab (issue #514).
+ * Diff review — powers the "Code Diff" right-panel tab (issue #514).
  *
  * Two operations, each parameterized by a `mode`:
  *   - `getStatus(repoPath, mode)` → files changed for that mode.

@@ -1,11 +1,11 @@
 /** RightPanel — right panel shell with tabbed navigation.
- *  Routes between Inspector and Review tabs. */
+ *  Routes between Inspector and Code Diff tabs. */
 
 import { type Component, For } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata, RightPanelTab } from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
-import ReviewTab from "./ReviewTab";
+import DiffTab from "./DiffTab";
 import { useRightPanel } from "./useRightPanel";
 
 type TabProps = {
@@ -29,9 +29,9 @@ type TabDef = {
 // tree-shaking.
 const TABS: Record<RightPanelTab, TabDef> = {
   inspector: { label: "Inspector", component: MetadataInspector },
-  review: {
-    label: "Review",
-    component: (p) => <ReviewTab meta={p.meta} />,
+  diff: {
+    label: "Code Diff",
+    component: (p) => <DiffTab meta={p.meta} />,
   },
 };
 
