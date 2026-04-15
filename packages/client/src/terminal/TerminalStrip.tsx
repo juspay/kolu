@@ -21,7 +21,6 @@ const TerminalStrip: Component<{
   getTerminalTheme: (id: TerminalId) => ITheme;
   onSelect: (id: TerminalId) => void;
   onCloseTerminal: (id: TerminalId) => void;
-  onFullscreen: (id: TerminalId) => void;
   onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   activeMeta: TerminalMetadata | null;
   searchOpen: boolean;
@@ -71,21 +70,6 @@ const TerminalStrip: Component<{
                 <div class="flex-1 min-w-0">
                   <TerminalMeta info={props.getDisplayInfo(id)} />
                 </div>
-                <button
-                  class="flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onFullscreen(id);
-                  }}
-                  title="Fullscreen"
-                >
-                  <svg class="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <polyline points="10,2 14,2 14,6" />
-                    <polyline points="6,14 2,14 2,10" />
-                    <line x1="14" y1="2" x2="9" y2="7" />
-                    <line x1="2" y1="14" x2="7" y2="9" />
-                  </svg>
-                </button>
                 <button
                   class="flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
                   onClick={(e) => {

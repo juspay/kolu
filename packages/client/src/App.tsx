@@ -505,10 +505,6 @@ const App: Component = () => {
                 getTerminalTheme={getTerminalTheme}
                 onSelect={store.setActiveId}
                 onCloseTerminal={closeTerminal}
-                onFullscreen={(id) => {
-                  store.setActiveId(id);
-                  setStripMode(false);
-                }}
                 onCreateSubTerminal={(parentId, cwd) =>
                   void crud.handleCreateSubTerminal(parentId, cwd)
                 }

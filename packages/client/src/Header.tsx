@@ -1,7 +1,7 @@
 /** Header — unified app bar with identity, agent status, panel toggles, and controls.
  *  Burger is mobile-only; panel toggles are desktop-only. */
 
-import { type Component, Show, createSignal, mergeProps } from "solid-js";
+import { type Component, Show, createSignal, createEffect, on, mergeProps } from "solid-js";
 import { MenuIcon, SearchIcon, SettingsIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
@@ -94,6 +94,20 @@ const Header: Component<{
   const rightPanel = useRightPanel();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [isFullscreen, setIsFullscreen] = createSignal(!!document.fullscreenElement);
+
+  // Sync fullscreen state with browser
+  document.addEventListener("fullscreenchange", () =>
+    setIsFullscreen(!!document.fullscreenElement),
+  );
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void document.documentElement.requestFullscreen();
+    }
+  }
 
   return (
     <header class="flex items-center h-10 shrink-0 bg-surface-1 border-b border-edge">
@@ -142,6 +156,33 @@ const Header: Component<{
             onClick={() => props.onToggleStripMode?.()}
           >
             {props.stripMode ? "⇔ Strip" : "⇔ Classic"}
+          </button>
+        </Tip>
+        {/* Fullscreen toggle */}
+        <Tip label={isFullscreen() ? "Exit fullscreen" : "Fullscreen"}>
+          <button
+            data-testid="fullscreen-toggle"
+            class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            onClick={toggleFullscreen}
+          >
+            <Show
+              when={!isFullscreen()}
+              fallback={
+                <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <polyline points="5,2 2,2 2,5" />
+                  <polyline points="11,14 14,14 14,11" />
+                  <line x1="2" y1="2" x2="6" y2="6" />
+                  <line x1="14" y1="14" x2="10" y2="10" />
+                </svg>
+              }
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="10,2 14,2 14,6" />
+                <polyline points="6,14 2,14 2,10" />
+                <line x1="14" y1="2" x2="9" y2="7" />
+                <line x1="2" y1="14" x2="7" y2="9" />
+              </svg>
+            </Show>
           </button>
         </Tip>
         {/* Panel toggle icons — desktop only */}
