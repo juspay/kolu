@@ -27,36 +27,23 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.8.0";
 
-// State location is resolved from one of two env vars:
-//   KOLU_STATE_DIR   — explicit absolute directory. Used by tests to route
-//                      state to $TMPDIR instead of polluting ~/.config.
-//                      Takes precedence over SUFFIX.
-//   KOLU_STATE_SUFFIX — env-paths label:
-//                      "prod" → ~/.config/kolu (only the nix-built binary)
-//                      "dev"  → ~/.config/kolu-dev (just dev)
-// At least one must be set — a silent fallback would clobber production state.
-function resolveStateLocation():
-  | { cwd: string }
-  | { projectName: string; projectSuffix: string } {
-  const stateDir = process.env.KOLU_STATE_DIR;
-  if (stateDir) return { cwd: stateDir };
-  const suffixEnv = process.env.KOLU_STATE_SUFFIX;
-  if (suffixEnv) {
-    return {
-      projectName: "kolu",
-      projectSuffix: suffixEnv === "prod" ? "" : suffixEnv,
-    };
-  }
+// Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
+// with no env would silently clobber whatever happens to live at conf's
+// default path, so we refuse. Each entrypoint picks its own location:
+//   nix-built kolu → ~/.config/kolu (production)
+//   pnpm dev       → ~/.config/kolu-dev
+//   tests          → an ephemeral $TMPDIR path
+const stateDir = process.env.KOLU_STATE_DIR;
+if (!stateDir) {
   throw new Error(
-    "KOLU_STATE_DIR or KOLU_STATE_SUFFIX must be set. Use SUFFIX='prod' " +
-      "to target production state (~/.config/kolu); only the nix-built kolu " +
-      "binary is allowed to do that. Dev sets SUFFIX='dev'; tests set " +
-      "KOLU_STATE_DIR to an ephemeral $TMPDIR path.",
+    "KOLU_STATE_DIR must be set to an absolute directory. The nix-built " +
+      "kolu wrapper, `pnpm dev`, and the test harness each set their own — " +
+      "bare launches are rejected to avoid clobbering production state.",
   );
 }
 
 export const store = new Conf<PersistedState>({
-  ...resolveStateLocation(),
+  cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   defaults: {
     recentRepos: [],
