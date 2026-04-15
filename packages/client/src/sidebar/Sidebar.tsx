@@ -228,7 +228,7 @@ const SidebarEntry: Component<{
             "background-color": props.isActive
               ? "var(--active-terminal-bg)"
               : props.terminalTheme.background
-                ? `color-mix(in oklch, ${props.terminalTheme.background} 20%, var(--color-surface-1))`
+                ? `color-mix(in oklch, ${props.terminalTheme.background} 8%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
             ...(props.isActive
               ? {
