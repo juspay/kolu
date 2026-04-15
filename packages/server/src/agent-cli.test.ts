@@ -89,6 +89,12 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("opencode --debug")).toBe("opencode");
   });
 
+  it("preserves --dangerously-skip-permissions for opencode", () => {
+    expect(parseAgentCommand("opencode --dangerously-skip-permissions")).toBe(
+      "opencode --dangerously-skip-permissions",
+    );
+  });
+
   it("recognizes all known agents", () => {
     for (const agent of [
       "claude",
