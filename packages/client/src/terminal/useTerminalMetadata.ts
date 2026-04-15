@@ -19,7 +19,6 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import {
   createSubscription,
-  onSubscriptionError,
   type Subscription,
 } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
@@ -61,7 +60,9 @@ export function useTerminalMetadata(deps: {
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
-    const meta = createSubscription(() => stream.metadata(id));
+    const meta = createSubscription(() => stream.metadata(id), {
+      onError: (err) => toast.error(`Metadata error: ${err.message}`),
+    });
     // Snapshot replaces, delta appends — every re-subscribe begins with
     // a fresh snapshot, so reconnect-safety is structural (no dedupe).
     const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
@@ -81,15 +82,8 @@ export function useTerminalMetadata(deps: {
             .exhaustive();
         },
         initial: [] as ActivitySample[],
+        onError: (err) => toast.error(`Activity error: ${err.message}`),
       },
-    );
-    // Surface subscription errors — mapArray memoizes by key, so these
-    // are created once per terminal ID and disposed when it leaves.
-    onSubscriptionError(meta, (err) =>
-      toast.error(`Metadata error: ${err.message}`),
-    );
-    onSubscriptionError(activity, (err) =>
-      toast.error(`Activity error: ${err.message}`),
     );
     return { id, meta, activity };
   });

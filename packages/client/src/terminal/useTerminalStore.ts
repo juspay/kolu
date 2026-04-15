@@ -6,20 +6,15 @@
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
 import { toast } from "solid-sonner";
-import {
-  createSubscription,
-  onSubscriptionError,
-} from "../rpc/createSubscription";
+import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 export function useTerminalStore() {
-  const listSub = createSubscription(() => stream.terminalList());
-  // Surface subscription errors so they don't vanish silently.
-  onSubscriptionError(listSub, (err) =>
-    toast.error(`Terminal list error: ${err.message}`),
-  );
+  const listSub = createSubscription(() => stream.terminalList(), {
+    onError: (err) => toast.error(`Terminal list error: ${err.message}`),
+  });
 
   const view = useViewState();
   const metadata = useTerminalMetadata({

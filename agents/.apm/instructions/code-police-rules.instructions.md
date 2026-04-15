@@ -67,7 +67,7 @@ _Rationale_: Operators filter on `error` level for alerting. An actual failure l
 
 ### subscription-must-surface-errors
 
-Every `createSubscription` consumer must call `onSubscriptionError` (from `createSubscription.ts`) to surface failures to the user via `toast.error()`. A subscription whose `.error()` signal is never read silently swallows server-side failures — the stream dies and the user sees stale/missing data with no indication of what went wrong.
-Bad: `const sub = createSubscription(() => stream.state()); /* error never surfaced */`
-Good: `onSubscriptionError(sub, (err) => toast.error(\`Server state error: ${err.message}\`));`
-_Rationale_: oRPC application errors (`ORPCError`) are not retried by `ClientRetryPlugin`, so the stream dies permanently. Without reading `.error()`, the failure is invisible — the user gets a blank or stale UI with no toast, no console warning, nothing.
+Every `createSubscription` call must include an `onError` handler to surface failures to the user (typically via `toast.error()`). A subscription without `onError` silently swallows server-side failures — the stream dies and the user sees stale/missing data with no indication of what went wrong.
+Bad: `const sub = createSubscription(() => stream.state());`
+Good: `const sub = createSubscription(() => stream.state(), { onError: (err) => toast.error(\`Server state error: ${err.message}\`) });`
+_Rationale_: oRPC application errors (`ORPCError`) are not retried by `ClientRetryPlugin`, so the stream dies permanently. Without `onError`, the failure is invisible — the user gets a blank or stale UI with no toast, no console warning, nothing.

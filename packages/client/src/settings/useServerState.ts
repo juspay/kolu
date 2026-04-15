@@ -15,10 +15,7 @@
 import { createEffect, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import {
-  createSubscription,
-  onSubscriptionError,
-} from "../rpc/createSubscription";
+import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
@@ -35,7 +32,9 @@ const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
 let storeInitialized = false;
 
 export function useServerState() {
-  const sub = createSubscription(() => stream.state());
+  const sub = createSubscription(() => stream.state(), {
+    onError: (err) => toast.error(`Server state error: ${err.message}`),
+  });
 
   // Sync singleton store from subscription — only the first caller wires this up.
   if (!storeInitialized) {
@@ -47,10 +46,6 @@ export function useServerState() {
           if (serverPrefs) setPrefs(reconcile(serverPrefs));
         },
       ),
-    );
-    // Surface subscription errors (e.g. schema mismatch) so they don't vanish silently.
-    onSubscriptionError(sub, (err) =>
-      toast.error(`Server state error: ${err.message}`),
     );
   }
 
