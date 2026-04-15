@@ -37,7 +37,12 @@ import type {
 } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
-import { DiffLocalIcon, DiffBranchIcon } from "../ui/Icons";
+import {
+  DiffLocalIcon,
+  DiffBranchIcon,
+  FileDiffIcon,
+  GitBranchIcon,
+} from "../ui/Icons";
 import { buildFileTree } from "../ui/buildFileTree";
 import FileTree from "../ui/FileTree";
 
@@ -136,9 +141,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       when={repoPath()}
       fallback={
         <div
-          class="flex items-center justify-center h-full text-fg-3/50 text-[11px]"
+          class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
           data-testid="diff-no-repo"
         >
+          <GitBranchIcon class="w-8 h-8 opacity-40" />
           Not in a git repository
         </div>
       }
@@ -147,24 +153,26 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
       >
-        <div class="flex items-center h-6 px-1 bg-surface-1/30 border-b border-edge shrink-0 gap-0.5">
-          <For each={MODE_TABS}>
-            {(tab) => (
-              <button
-                type="button"
-                onClick={() => setMode(tab.mode)}
-                title={tab.tooltip}
-                class="flex items-center justify-center w-6 h-6 text-fg-3/50 hover:text-fg-2 cursor-pointer rounded-sm data-[active=true]:text-fg data-[active=true]:bg-surface-2/60"
-                data-testid={`diff-mode-${tab.mode}`}
-                data-active={mode() === tab.mode}
-                aria-pressed={mode() === tab.mode}
-              >
-                <Dynamic component={tab.icon} class="w-3 h-3" />
-              </button>
-            )}
-          </For>
+        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1">
+          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
+            <For each={MODE_TABS}>
+              {(tab) => (
+                <button
+                  type="button"
+                  onClick={() => setMode(tab.mode)}
+                  title={tab.tooltip}
+                  class="flex items-center justify-center w-5 h-5 text-fg-3/50 hover:text-fg-2 cursor-pointer rounded transition-colors data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm"
+                  data-testid={`diff-mode-${tab.mode}`}
+                  data-active={mode() === tab.mode}
+                  aria-pressed={mode() === tab.mode}
+                >
+                  <Dynamic component={tab.icon} class="w-3 h-3" />
+                </button>
+              )}
+            </For>
+          </div>
           <span
-            class="text-fg-3/50 text-[10px] font-mono truncate min-w-0 ml-1.5"
+            class="text-fg-3/50 text-[10px] font-mono truncate min-w-0 ml-1"
             data-testid="diff-mode-label"
             data-mode={mode()}
           >
@@ -174,7 +182,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           <button
             type="button"
             onClick={handleRefresh}
-            class="text-fg-3/50 hover:text-fg-2 cursor-pointer px-1 shrink-0"
+            class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
             aria-label="Refresh changed files"
             data-testid="diff-refresh"
           >
@@ -216,9 +224,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       renderBadge={(node) =>
                         node.kind === "file" ? (
                           <span
-                            class={`w-3 text-center ${STATUS_COLOR[node.status]}`}
+                            class={`inline-flex items-center gap-1 ${STATUS_COLOR[node.status]}`}
                           >
-                            {node.status}
+                            <span class="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
+                            <span class="text-[10px] font-medium">
+                              {node.status}
+                            </span>
                           </span>
                         ) : null
                       }
@@ -235,8 +246,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           <Show
             when={selectedPath()}
             fallback={
-              <div class="flex items-center justify-center h-full text-fg-3/50">
-                Select a file to view its diff
+              <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
+                <FileDiffIcon class="w-8 h-8 opacity-40" />
+                <span class="text-[11px]">Select a file to view its diff</span>
               </div>
             }
           >
