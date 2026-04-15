@@ -16,19 +16,18 @@ The server unwraps results at the RPC boundary via `unwrapGit()` in `router.ts`,
 
 ## Logger injection
 
-Functions accept `log?: Logger` (from `kolu-integration-common`). Pass a pino child logger in production; omit in tests.
+Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in production; omit in tests.
 
 ## Modules
 
-| Module           | Exports                                                       | Purpose                                        |
-| ---------------- | ------------------------------------------------------------- | ---------------------------------------------- |
-| `schemas.ts`     | `GitInfoSchema`, `GitDiffOutputSchema`, etc.                  | Zod schemas (re-exported by `kolu-common`)     |
-| `resolve.ts`     | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir` | Repo context resolution + `.git/HEAD` watching |
-| `worktree.ts`    | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`     | Worktree lifecycle                             |
-| `review.ts`      | `getStatus`, `getDiff`, `parseNameStatus`                     | Diff review (local + branch modes)             |
-| `safe-path.ts`   | `resolveUnder`                                                | Path traversal guard                           |
-| `random-name.ts` | `randomName`                                                  | ADJ-NOUN name generator for worktrees          |
-| `errors.ts`      | `GitError`, `GitResult`, `ok`, `err`                          | Sum-type error types and constructors          |
+| Module         | Exports                                                       | Purpose                                        |
+| -------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| `schemas.ts`   | `GitInfoSchema`, `GitDiffOutputSchema`, etc.                  | Zod schemas (re-exported by `kolu-common`)     |
+| `resolve.ts`   | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir` | Repo context resolution + `.git/HEAD` watching |
+| `worktree.ts`  | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`     | Worktree lifecycle                             |
+| `review.ts`    | `getStatus`, `getDiff`, `parseNameStatus`                     | Diff review (local + branch modes)             |
+| `safe-path.ts` | `resolveUnder`                                                | Path traversal guard                           |
+| `errors.ts`    | `GitError`, `GitResult`, `ok`, `err`                          | Sum-type error types and constructors          |
 
 ## Server integration
 

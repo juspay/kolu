@@ -21,7 +21,7 @@ import {
 } from "./index.ts";
 
 // Mock randomName to return a predictable value
-vi.mock("./random-name.ts", () => ({
+vi.mock("memorable-names", () => ({
   randomName: () => "test-worktree",
 }));
 

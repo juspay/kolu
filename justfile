@@ -100,6 +100,22 @@ fmt: install
 fmt-check: install
     {{ nix_shell }} sh -c 'pnpm exec prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
 
+# Regenerate packages/terminal-themes/themes.json from iTerm2-Color-Schemes
+regenerate-themes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build .#regenerateTerminalThemes --print-out-paths --no-link)
+    cp "$out/themes.json" packages/terminal-themes/themes.json
+    echo "Updated packages/terminal-themes/themes.json"
+
+# Regenerate packages/memorable-names/words.json from WordNet
+regenerate-words:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build .#regenerateWords --print-out-paths --no-link)
+    cp "$out/words.json" packages/memorable-names/words.json
+    echo "Updated packages/memorable-names/words.json"
+
 # Nix build (server + client)
 build:
     nix build

@@ -9,7 +9,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { simpleGit } from "simple-git";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 import type { GitInfo } from "./schemas.ts";
 import { type GitResult, ok, err } from "./errors.ts";
 

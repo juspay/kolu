@@ -30,16 +30,8 @@ export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 // --- OpenCode schemas (single source of truth) ---
 
-export {
-  TaskProgressSchema,
-  type TaskProgress,
-  type Logger,
-} from "kolu-integration-common";
-import {
-  TaskProgressSchema,
-  type TaskProgress,
-  type Logger,
-} from "kolu-integration-common";
+export { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
+import { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),

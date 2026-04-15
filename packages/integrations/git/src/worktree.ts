@@ -6,9 +6,9 @@
 import path from "node:path";
 import fs from "node:fs";
 import { simpleGit } from "simple-git";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 import { type GitResult, ok, err } from "./errors.ts";
-import { randomName } from "./random-name.ts";
+import { randomName } from "memorable-names";
 
 /** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {
@@ -62,7 +62,7 @@ export async function worktreeCreate(
     const defaultBranch = await detectDefaultBranch(mainRoot);
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      const branch = randomName(log);
+      const branch = randomName();
       const targetPath = path.join(mainRoot, ".worktrees", branch);
 
       // Check for both directory and branch name collision — a previous worktree

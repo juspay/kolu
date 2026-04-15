@@ -1,8 +1,8 @@
-# Nix derivation that produces a themes.json from all Ghostty theme files.
-# Source: mbadolato/iTerm2-Color-Schemes (managed by npins, passed via overlay)
+# Regenerate themes.json from iTerm2-Color-Schemes.
+# Usage: just regenerate-themes
 { runCommand, python3, iTerm2-Color-Schemes }:
 
-runCommand "ghostty-themes"
+runCommand "regenerate-terminal-themes"
 {
   nativeBuildInputs = [ python3 ];
 } ''

@@ -1,11 +1,11 @@
 /** Terminal theme management.
  *
- * All themes come from the Nix-generated JSON file (ghostty-themes virtual module).
- * The first theme in the list is used as the default.
+ * All themes come from the checked-in themes.json (parsed from
+ * iTerm2-Color-Schemes Ghostty format).
  */
 
 import type { ITheme } from "@xterm/xterm";
-import availableThemesJson from "ghostty-themes";
+import availableThemesJson from "../themes.json" with { type: "json" };
 
 export interface NamedTheme {
   name: string;
@@ -14,8 +14,9 @@ export interface NamedTheme {
 
 export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-/** All available themes from the Nix-generated JSON. */
-export const availableThemes: NamedTheme[] = availableThemesJson;
+/** All available themes from the checked-in JSON. */
+export const availableThemes: NamedTheme[] =
+  availableThemesJson as NamedTheme[];
 
 export const DEFAULT_THEME_NAME = "Tomorrow Night";
 export const DEFAULT_THEME: ITheme =

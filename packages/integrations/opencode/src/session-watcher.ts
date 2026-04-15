@@ -23,7 +23,7 @@ import {
   openDb,
   subscribeOpenCodeDb,
 } from "./index.ts";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 
 // --- Tuning constants ---
 

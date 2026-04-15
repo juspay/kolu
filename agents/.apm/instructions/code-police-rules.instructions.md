@@ -63,7 +63,7 @@ _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extr
 Actual errors (failed I/O, failed queries, unexpected exceptions, callback throws) must log at `error` level, not `warn` or `debug`. Reserve `warn` for degraded-but-recoverable states (e.g. a non-critical fallback path). Reserve `debug` for expected-absent conditions (e.g. file not found on a machine that doesn't have the tool installed).
 Bad: `log.warn({ err }, "query failed")` / `log.debug({ err }, "scan failed")`
 Good: `log.error({ err }, "query failed")`
-_Rationale_: Operators filter on `error` level for alerting. An actual failure logged at `warn` or `debug` is invisible in production. The `Logger` type in `kolu-integration-common` includes all four levels (`debug`, `info`, `warn`, `error`) — use the right one.
+_Rationale_: Operators filter on `error` level for alerting. An actual failure logged at `warn` or `debug` is invisible in production. The `Logger` type in `anyagent` includes all four levels (`debug`, `info`, `warn`, `error`) — use the right one.
 
 ### subscription-must-surface-errors
 

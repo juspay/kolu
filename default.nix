@@ -21,6 +21,8 @@ let
       ./tsconfig.base.json
       ./packages/common
       ./packages/integrations
+      ./packages/terminal-themes
+      ./packages/memorable-names
       ./packages/server
       ./packages/client
       # pnpm.patchedDependencies entries — read by pnpm during install and
@@ -147,7 +149,6 @@ let
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_CLIPBOARD_SHIM_DIR "${koluEnv.KOLU_CLIPBOARD_SHIM_DIR}" \
-      --set KOLU_RANDOM_WORDS "${koluEnv.KOLU_RANDOM_WORDS}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
@@ -173,7 +174,19 @@ let
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
+  # Regeneration derivations for checked-in data files.
+  # Usage: just regenerate-themes / just regenerate-words
+  sources = import ./npins;
+  regenerateTerminalThemes = import ./packages/terminal-themes/regenerate.nix {
+    inherit (pkgs) runCommand python3;
+    iTerm2-Color-Schemes = sources.iTerm2-Color-Schemes;
+  };
+  regenerateWords = import ./packages/memorable-names/regenerate.nix {
+    inherit (pkgs) runCommand jq;
+    wordnet = pkgs.wordnet;
+  };
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
+  inherit regenerateTerminalThemes regenerateWords;
 }

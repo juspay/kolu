@@ -4,13 +4,9 @@
  *  Why this exists: new terminals get an auto-picked theme so the sidebar
  *  ends up with a recognisable colour-per-terminal instead of a sea of
  *  look-alikes. Pure random collides; nearest-neighbour maximisation in
- *  OkLab gives a visibly spread palette.
- *
- *  Kept as a separate module from `theme.ts` so the picker is trivially
- *  unit-testable — `theme.ts` imports the Nix-generated `ghostty-themes`
- *  virtual module, which vitest can't resolve without extra wiring. */
+ *  OkLab gives a visibly spread palette. */
 
-import type { NamedTheme } from "./theme";
+import type { NamedTheme } from "./theme.ts";
 
 interface OkLab {
   L: number;

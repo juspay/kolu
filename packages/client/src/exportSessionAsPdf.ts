@@ -10,7 +10,7 @@
 
 import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { FONT_FAMILY } from "./theme";
+import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { terminalName } from "./terminal/terminalDisplay";
 

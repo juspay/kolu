@@ -22,7 +22,7 @@ import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { simpleGit } from "simple-git";
-import type { Logger } from "kolu-integration-common";
+import type { Logger } from "anyagent";
 import {
   GitChangeStatusSchema,
   type GitBaseRef,

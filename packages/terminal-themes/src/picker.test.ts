@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hexToOkLab, okLabDistance, pickTheme } from "./themePicker";
+import { hexToOkLab, okLabDistance, pickTheme } from "./picker";
 import type { NamedTheme } from "./theme";
 
 function mk(name: string, background: string): NamedTheme {

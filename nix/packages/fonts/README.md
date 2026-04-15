@@ -28,7 +28,7 @@ $out/
 
 - **Build** (`typescript.nix`): `KOLU_FONTS_DIR` env var points to the derivation output. The build phase copies fonts into `client/public/fonts/` before `vite build`.
 - **Dev** (`devshell.nix`): The shell hook symlinks `client/public/fonts` → `$KOLU_FONTS_DIR` so vite serves them at `/fonts/`.
-- **CSS** (`vite.config.ts`): `fonts.css` is imported via the `kolu-fonts` vite alias, matching the `ghostty-themes` pattern.
+- **CSS** (`vite.config.ts`): `fonts.css` is imported via the `kolu-fonts` vite alias.
 
 ## Updating fonts
 
