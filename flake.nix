@@ -13,6 +13,9 @@
   nixConfig = {
     extra-substituters = "https://cache.nixos.asia/oss";
     extra-trusted-public-keys = "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=";
+    # Skip flake registry lookups — this flake has zero inputs, so the
+    # registry check is pure overhead (~280ms on cold eval).
+    use-registries = false;
   };
 
   outputs = { self, ... }:

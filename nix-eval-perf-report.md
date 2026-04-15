@@ -36,4 +36,6 @@
 | 3 | dfa182f | Import env.nix directly in shell.nix | 1994 | 194 | -11 | +2 |
 | 4 | 942d1a9 | Defer playwright-driver.browsers path resolution | 2021 | 197 | +27 | +3 |
 | 5 | 614323e | Defer drv path resolution in env.nix | 1970 | 197 | -51 | 0 |
+| 6 | — | Share npins import for ghostty-themes (arch cleanup, no perf change) | — | — | — | — |
+| 7 | — | Disable flake registry lookups (use-registries = false) | 1701 | 187 | -269 | -10 |
 | 6 | — | Share npins import for ghostty-themes via overlay | 1976 | 199 | +6 | +2 |
