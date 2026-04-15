@@ -9,13 +9,14 @@
 import fs from "node:fs";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
-import type {
-  Preferences,
-  RecentRepo,
-  RecentAgent,
-  PersistedState,
-  ServerState,
-  ServerStatePatch,
+import {
+  PersistedStateSchema,
+  type Preferences,
+  type RecentRepo,
+  type RecentAgent,
+  type PersistedState,
+  type ServerState,
+  type ServerStatePatch,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
@@ -143,6 +144,21 @@ export const store = new Conf<PersistedState>({
     },
   },
 });
+
+// Validate persisted state against the Zod schema. A mismatch means either a
+// version downgrade (newer build wrote fields the current schema doesn't know)
+// or on-disk corruption. Log the full Zod issues so the user can diagnose.
+// TODO: crash the server here once client-side error propagation is confirmed working.
+const _stateCheck = PersistedStateSchema.safeParse(store.store);
+if (!_stateCheck.success) {
+  log.error(
+    {
+      issues: _stateCheck.error.issues,
+      path: store.path,
+    },
+    `Persisted state does not match schema. Delete ${store.path} to reset to defaults.`,
+  );
+}
 
 /** Check if a path exists on disk. */
 function existsOnDisk(path: string): boolean {
