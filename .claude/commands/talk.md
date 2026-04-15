@@ -1,5 +1,5 @@
 ---
-argument-hint: <topic or question>
+argument-hint: '[-l|--laconic] <topic or question>'
 description: Enter talk mode — conversation only, no file changes
 ---
 
@@ -65,5 +65,23 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 
 - Be direct, opinionated, and concise.
 - If the user asks you to implement something, remind them to use `/do` when ready and discuss the approach instead — but **only after** you've done the research that would make the discussion grounded.
+
+## Auto-Hickey
+
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` skill on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold the Hickey findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved) rather than dumping raw skill output on top.
+
+Skip the Hickey pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
+
+## Laconic mode
+
+If `ARGUMENTS` begins with `-l` or `--laconic` (strip the flag before treating the rest as the topic), answer as tersely as possible:
+
+- One or two sentences when it will do. A single word when *that* will do.
+- No preamble, no recap of the question, no "great question", no closing offers to help further.
+- Drop bullet lists unless the answer is genuinely a list. No headings.
+- Keep file:line citations — brevity does not override the research/citation rules above. Research silently; show only the conclusion plus its citations.
+- Code blocks only when code is the answer.
+
+Laconic mode trims the *output*, not the *investigation*. Do the same reading you would otherwise; just say less about it.
 
 ARGUMENTS: $ARGUMENTS
