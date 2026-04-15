@@ -13,24 +13,24 @@ Reduce `nix build .#default` wall-clock time (uncached, no eval cache).
 - **Runs per measurement**: 5 (report median)
 - **Machine**: x86_64-linux, Nix 2.31.3
 
-## Baseline
-| Metric | Value |
-|--------|-------|
-| Median (5 runs) | **32.29s** |
-| Runs | 33.02, 32.29, 32.11, 32.26, 32.41 |
+## Results
 
-### Component Breakdown (baseline)
-| Component | Time | % of total |
-|-----------|------|------------|
-| Nix post-build overhead (NAR hash 395MB output) | 12.6s | 41% |
-| fixupPhase (patchShebangs on 395MB output) | 6.4s | 21% |
-| pnpmConfigHook (extract + install + patchShebangs) | 5.3s | 17% |
-| Vite client build | 3.7s | 12% |
-| node-gyp (node-pty native module) | 1.3s | 4% |
-| Nix eval + sandbox setup | 0.9s | 3% |
-| installPhase (cp -r + rm) | 0.6s | 2% |
+| | Median | Runs |
+|---|---|---|
+| **Baseline** | **32.29s** | 33.02, 32.29, 32.11, 32.26, 32.41 |
+| **Final** | **14.55s** | 14.50, 14.55, 14.55, 14.56, 14.68 |
+| **Improvement** | **-17.74s (55%)** | |
 
-**Key insight**: The 395MB output size is the dominant cost driver (41% NAR hashing + 21% fixup patching = 62% of build time). The output includes all 619 npm packages (dev + prod) because `cp -r . $out` copies everything.
+### Component Breakdown (baseline → final)
+| Component | Baseline | Final | Savings |
+|-----------|----------|-------|---------|
+| Nix post-build overhead | 12.6s | 1.9s | -10.7s |
+| fixupPhase | 6.4s | 0s | -6.4s |
+| pnpmConfigHook | 5.3s | 4.4s | -0.9s |
+| Vite client build | 3.7s | 3.8s | — |
+| node-gyp (node-pty) | 1.3s | 1.4s | — |
+| Nix eval + sandbox | 0.9s | 1.1s | — |
+| installPhase | 0.6s | 0.7s | — |
 
 ## Optimization Log
 
@@ -46,7 +46,7 @@ Reduce `nix build .#default` wall-clock time (uncached, no eval cache).
 - `pnpm prune --prod`: Breaks pnpm workspace symlink structure, causing `ERR_MODULE_NOT_FOUND` at runtime.
 
 ## Key Findings
-- fixupPhase re-patches shebangs that pnpmConfigHook already patched (redundant work)
-- The 395MB output triggers expensive Nix store operations (NAR hashing, signing, registration)
-- Only ~2.5MB of that output is actually kolu's own code; the rest is node_modules
-- `dontFixup = true` saves 16.4s (51%) — far more than the 6.4s measured fixupPhase time, suggesting Nix store registration is significantly faster when the output hasn't been modified in-place by fixup operations
+- **`dontFixup` is the single biggest win.** The stdenv fixupPhase (strip, patchShebangs, patchELF) traverses the entire output tree. For a Node.js app this is pure overhead: shebangs are already patched by pnpmConfigHook, and the only native binary (node-pty .node) is correctly linked by node-gyp. Disabling it saves 16.4s (51%) — far more than the 6.4s measured fixupPhase time, suggesting Nix store registration is significantly faster when the output hasn't been modified in-place by fixup operations.
+- **Output size directly impacts Nix overhead.** The 395MB output triggered 12.6s of Nix post-build overhead (NAR hashing, signing, registration). Reducing to 208MB cut this to 1.9s.
+- **pnpm workspace pruning is fragile.** `pnpm prune --prod` breaks the virtual store symlink structure in workspace monorepos. Manual `rm -rf` of known dev packages is crude but reliable.
+- **Most of the output is node_modules.** Only ~5MB of the 395MB original output was kolu's own code; the rest was 619 npm packages (dev + prod). After cleanup: 208MB with 480 packages.
