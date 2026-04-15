@@ -248,12 +248,17 @@ const CanvasTile: Component<{
       }}
       onMouseDown={() => props.parent.onSelect(id)}
     >
-      {/* Title bar — drag handle */}
+      {/* Title bar — drag handle. Background is derived from the terminal
+       *  theme so it stays harmonious with any color scheme. We mix white
+       *  into the terminal bg to create a subtle lighter bar. */}
       <div
         class="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 cursor-grab active:cursor-grabbing select-none"
         classList={{
-          "border-accent/30 bg-accent/5": isActive(),
-          "border-edge/30 bg-surface-1/50": !isActive(),
+          "border-accent/30": isActive(),
+          "border-edge/30": !isActive(),
+        }}
+        style={{
+          "background-color": `color-mix(in oklch, ${theme().background ?? "var(--color-surface-1)"} 85%, white)`,
         }}
         {...draggable.dragActivators}
       >
