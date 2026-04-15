@@ -23,14 +23,21 @@ import { spawn } from "node:child_process";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
 
-/** Create a unique $TMPDIR path tagged with `prefix`, the parent pid, and
- *  the worker id. `mkdtempSync`'s random suffix already prevents collisions;
- *  pid + workerId in the name make it easy to spot which concurrent test run
- *  owns a dir (`ps`, `lsof`) and to scope manual cleanup. */
-const mkWorkerTmpDir = (prefix: string) =>
-  fs.mkdtempSync(
-    path.join(os.tmpdir(), `${prefix}-${process.pid}-w${workerId}-`),
-  );
+/** One base $TMPDIR per worker holds everything this test run creates:
+ *  the kolu server's state dir and the Claude Code mock harness's
+ *  sessions/projects dirs. Nesting keeps /tmp tidy (one entry per run
+ *  instead of three) and makes cleanup a single recursive remove.
+ *  Pid + workerId in the name let `ps`/`lsof` identify which concurrent
+ *  run owns the tree; `mkdtempSync`'s random suffix prevents collisions. */
+const testBaseDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), `kolu-test-${process.pid}-w${workerId}-`),
+);
+
+const mkSubDir = (name: string) => {
+  const dir = path.join(testBaseDir, name);
+  fs.mkdirSync(dir);
+  return dir;
+};
 
 /** Per-worker temp dirs for the Claude Code mock harness — see
  *  `claude_code_steps.ts`. Sharing one dir across all eight cucumber
@@ -38,16 +45,15 @@ const mkWorkerTmpDir = (prefix: string) =>
  *  enough inotify pressure on the server's `fs.watch(SESSIONS_DIR)` that
  *  events get dropped under load and detection silently misses the mock
  *  session. Each worker getting its own dir eliminates the contention. */
-const claudeSessionsDir = mkWorkerTmpDir("kolu-claude-sessions");
-const claudeProjectsDir = mkWorkerTmpDir("kolu-claude-projects");
+const claudeSessionsDir = mkSubDir("claude-sessions");
+const claudeProjectsDir = mkSubDir("claude-projects");
 process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
 process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
- *  to $TMPDIR keeps test state out of `~/.config` and makes cleanup
- *  trivial — the OS sweeps /tmp, and `AfterAll` removes the dir
- *  explicitly on graceful shutdown. */
-const koluStateDir = mkWorkerTmpDir("kolu-state");
+ *  to $TMPDIR keeps test state out of `~/.config`; nesting under
+ *  `testBaseDir` means the whole run's scratch space cleans up together. */
+const koluStateDir = mkSubDir("state");
 
 let baseUrl: string;
 let browser: Browser;
@@ -191,19 +197,17 @@ AfterAll(async function () {
   if (browser) await browser.close();
   keepAliveAgent.destroy();
   killServer();
-  // Remove the per-worker temp dirs created with `mkdtempSync` above. Without
+  // Remove the per-worker base dir created with `mkdtempSync` above. Without
   // this, every `just test` invocation leaks ~100–200MB of JSONL transcripts
-  // and session files into /tmp/kolu-claude-*, and a long ralph loop or CI
+  // and session files into /tmp/kolu-test-*, and a long ralph loop or CI
   // server will eventually fill /tmp or /. Discovered during the #440
   // hardening loop — the halt at 0 bytes free was directly caused by this.
-  for (const dir of [claudeSessionsDir, claudeProjectsDir, koluStateDir]) {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // Best-effort cleanup — if something already removed the dir (or we
-      // don't have permission for some reason) there's nothing productive
-      // to do in a test teardown. The OS will clean /tmp eventually.
-    }
+  try {
+    fs.rmSync(testBaseDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup — if something already removed the tree (or we
+    // don't have permission for some reason) there's nothing productive
+    // to do in a test teardown. The OS will clean /tmp eventually.
   }
 });
 
