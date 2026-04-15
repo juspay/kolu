@@ -84,7 +84,7 @@ const TreeLevel: Component<TreeLevelProps> = (props) => (
               node.kind === "file" && props.selectedPath === node.path,
           }}
           style={{ "padding-left": `${props.depth * 12 + 8}px` }}
-          data-testid={node.kind === "dir" ? "file-tree-dir" : "file-tree-file"}
+          data-testid={node.kind === "dir" ? "file-tree-dir" : "diff-file-item"}
           data-path={node.path}
           data-active={node.kind === "file" && props.selectedPath === node.path}
         >
