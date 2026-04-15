@@ -197,10 +197,10 @@ export const appRouter = t.router({
       await worktreeRemove(input.worktreePath);
     }),
     status: t.git.status.handler(async ({ input }) => {
-      return getStatus(input.repoPath);
+      return getStatus(input.repoPath, input.mode);
     }),
     diff: t.git.diff.handler(async ({ input }) => {
-      return getDiff(input.repoPath, input.filePath);
+      return getDiff(input.repoPath, input.filePath, input.mode);
     }),
   },
   state: {
