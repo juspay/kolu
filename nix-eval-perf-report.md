@@ -4,10 +4,10 @@
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| `nix develop -c true` cold (fresh HOME) | **2500ms** | **981ms** | **-61%** |
-| `nix develop -c true` hot (eval cache) | **333ms** | **127ms** | **-62%** |
-| `nix develop .#e2e -c true` cold | — | **1677ms** | (new, includes playwright) |
-| `nix develop .#e2e -c true` hot | — | **176ms** | (new, includes playwright) |
+| `nix develop -c true` cold (fresh HOME) | **2500ms** | **925ms** | **-63%** |
+| `nix develop -c true` hot (eval cache) | **333ms** | **120ms** | **-64%** |
+| `nix develop .#e2e -c true` cold | — | **1677ms** | *new shell for e2e tests* |
+| `nix develop .#e2e -c true` hot | — | **176ms** | *new shell for e2e tests* |
 
 ## Hot-path analysis (before optimization)
 
