@@ -8,7 +8,7 @@ import {
   getThemeByName,
   resolveThemeBgs,
 } from "./theme";
-import { pickShuffleTheme } from "./themePicker";
+import { pickTheme } from "./themePicker";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
@@ -58,16 +58,16 @@ function init(deps: ThemeManagerDeps) {
    *  and B's farthest is A, so repeated ⌘J just bounces between two).
    *  Excludes every live terminal's bg so we don't land on a duplicate of
    *  a sibling, and stays under the chroma cap so we don't surface neon
-   *  yellow. New-terminal creation still uses the variegated argmax —
-   *  see {@link pickShuffleTheme} for the rationale. */
+   *  yellow. New-terminal creation uses spread mode instead —
+   *  see {@link pickTheme} for the rationale. */
   function handleShuffleTheme() {
     const id = deps.activeId();
     if (id === null) return;
     const current = deps.getThemeName(id);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const peerBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
-    handleSetTheme(pickShuffleTheme(candidates, peerBgs));
+    const excludeBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
+    handleSetTheme(pickTheme(candidates, { excludeBgs }));
   }
 
   return {

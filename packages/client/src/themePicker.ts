@@ -1,5 +1,5 @@
-/** Variegated theme picker — choose a theme whose background is
- *  perceptually distinct from a set of already-in-use backgrounds.
+/** Theme picker — choose a theme whose background is perceptually distinct
+ *  from already-in-use backgrounds, or shuffle to a random one.
  *
  *  Why this exists: new terminals get an auto-picked theme so the sidebar
  *  ends up with a recognisable colour-per-terminal instead of a sea of
@@ -94,94 +94,108 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
   return Math.sqrt(dL * dL + da * da + db * db);
 }
 
-/**
- * Pick a theme whose background is maximally distinct from `usedBgs`.
- *
- * Returns the name of the candidate whose background has the largest
- * min-distance (in anisotropic OkLab) to any background in `usedBgs`.
- * Ties are broken by `rand()`, which must return a value in `[0, 1)`
- * (default `Math.random`).
- *
- * - Empty `candidates` → throws; callers always have the full theme list.
- * - Empty `usedBgs` (or only unparseable hex) → every in-gamut candidate
- *   ties at `+Infinity`; `rand()` picks one.
- * - Candidates without a parseable bg, or with a chroma above
- *   {@link MAX_CANDIDATE_CHROMA}, score `-Infinity` so they only win when
- *   nothing else is available.
- */
-export function pickVariegatedTheme(
+/** Filter candidates to those with parseable, in-gamut backgrounds.
+ *  Falls back to the full list when filtering leaves nothing. */
+function filterEligible(
   candidates: NamedTheme[],
-  usedBgs: string[],
-  rand: () => number = Math.random,
+  excludeBgs?: Set<string>,
+): NamedTheme[] {
+  const eligible = candidates.filter((t) => {
+    const bg = t.theme.background;
+    if (!bg) return false;
+    if (excludeBgs?.has(bg)) return false;
+    const lab = getLab(bg);
+    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+  });
+  return eligible.length > 0 ? eligible : candidates;
+}
+
+/** Candidates within this OkLab distance of the best score are all eligible
+ *  for the random pick. Widens the tie pool so spread picks are
+ *  nondeterministic — different `rand` values yield different themes even
+ *  when there's a single strict argmax winner. Tuned so ~3-6 themes
+ *  typically land in the band on the ghostty catalog. */
+const SCORE_TOLERANCE = 0.02;
+
+/** Pick the candidate whose background is farthest from `peerBgs`, with a
+ *  tolerance band so near-best candidates also compete. */
+function pickSpread(
+  candidates: NamedTheme[],
+  peerBgs: string[],
+  rand: () => number,
 ): string {
-  if (candidates.length === 0) {
-    throw new Error("pickVariegatedTheme: no candidates");
-  }
-  const usedLabs: OkLab[] = [];
-  for (const hex of usedBgs) {
+  const pool = filterEligible(candidates);
+  const peerLabs: OkLab[] = [];
+  for (const hex of peerBgs) {
     const lab = getLab(hex);
-    if (lab) usedLabs.push(lab);
+    if (lab) peerLabs.push(lab);
   }
+  if (peerLabs.length === 0) {
+    return pool[Math.floor(rand() * pool.length)]!.name;
+  }
+  const scores: number[] = [];
   let bestScore = Number.NEGATIVE_INFINITY;
-  const bestIdxs: number[] = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const bg = candidates[i]!.theme.background;
+  for (const t of pool) {
+    const bg = t.theme.background;
     const lab = bg ? getLab(bg) : undefined;
     let score: number;
-    if (!lab || chroma(lab) > MAX_CANDIDATE_CHROMA) {
+    if (!lab) {
       score = Number.NEGATIVE_INFINITY;
-    } else if (usedLabs.length === 0) {
-      score = Number.POSITIVE_INFINITY;
     } else {
       let min = Number.POSITIVE_INFINITY;
-      for (const u of usedLabs) {
+      for (const u of peerLabs) {
         const d = okLabDistance(lab, u);
         if (d < min) min = d;
       }
       score = min;
     }
-    if (score > bestScore) {
-      bestScore = score;
-      bestIdxs.length = 0;
-      bestIdxs.push(i);
-    } else if (score === bestScore) {
-      bestIdxs.push(i);
-    }
+    scores.push(score);
+    if (score > bestScore) bestScore = score;
   }
-  const pickIdx = bestIdxs[Math.floor(rand() * bestIdxs.length)] ?? 0;
-  return candidates[pickIdx]!.name;
+  const threshold = bestScore - SCORE_TOLERANCE;
+  const band: number[] = [];
+  for (let i = 0; i < scores.length; i++) {
+    if (scores[i]! >= threshold) band.push(i);
+  }
+  const pickIdx = band[Math.floor(rand() * band.length)] ?? 0;
+  return pool[pickIdx]!.name;
+}
+
+/** Pick uniformly at random, excluding `excludeBgs`. */
+function pickShuffle(
+  candidates: NamedTheme[],
+  excludeBgs: string[],
+  rand: () => number,
+): string {
+  const pool = filterEligible(candidates, new Set(excludeBgs));
+  return pool[Math.floor(rand() * pool.length)]!.name;
 }
 
 /**
- * Pick a theme uniformly at random from `candidates`, excluding any whose
- * background equals one of `excludeBgs` or exceeds {@link MAX_CANDIDATE_CHROMA}.
+ * Unified theme picker.
  *
- * This is the **shuffle** picker — it's deliberately non-deterministic so
- * repeated invocations walk the palette instead of ping-ponging between two
- * mutually-farthest themes (which is what {@link pickVariegatedTheme} does
- * by design — it argmaxes distance, and Theme A's farthest tends to be
- * Theme B and vice versa). Use this for user-triggered ⌘J shuffle; reserve
- * the variegated picker for new-terminal creation where deterministic
- * "spread out from peers" is desirable.
+ * - `{ spread: true, peerBgs }` — pick a theme whose background is
+ *   maximally distinct from `peerBgs` (with a tolerance band for
+ *   nondeterminism). Use for new-terminal creation.
+ * - `{ excludeBgs }` — pick uniformly at random, excluding `excludeBgs`.
+ *   Use for user-triggered ⌘J shuffle.
  *
- * If chroma + bg-exclusion filtering leaves the pool empty, falls back to
- * the full `candidates` list so the call always returns SOMETHING.
+ * Both modes reject candidates with unparseable backgrounds or chroma
+ * above {@link MAX_CANDIDATE_CHROMA}, falling back to the full list when
+ * filtering leaves nothing.
  */
-export function pickShuffleTheme(
+export function pickTheme(
   candidates: NamedTheme[],
-  excludeBgs: string[],
-  rand: () => number = Math.random,
+  config:
+    | { spread: true; peerBgs: string[]; rand?: () => number }
+    | { spread?: false; excludeBgs: string[]; rand?: () => number },
 ): string {
   if (candidates.length === 0) {
-    throw new Error("pickShuffleTheme: no candidates");
+    throw new Error("pickTheme: no candidates");
   }
-  const excluded = new Set(excludeBgs);
-  const acceptable = candidates.filter((t) => {
-    const bg = t.theme.background;
-    if (!bg || excluded.has(bg)) return false;
-    const lab = getLab(bg);
-    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
-  });
-  const pool = acceptable.length > 0 ? acceptable : candidates;
-  return pool[Math.floor(rand() * pool.length)]!.name;
+  const rand = config.rand ?? Math.random;
+  if (config.spread) {
+    return pickSpread(candidates, config.peerBgs, rand);
+  }
+  return pickShuffle(candidates, config.excludeBgs, rand);
 }
