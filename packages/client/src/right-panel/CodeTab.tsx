@@ -52,6 +52,26 @@ import { buildFileTree } from "../ui/buildFileTree";
 import type { TreeNode } from "../ui/buildFileTree";
 import FileTree from "../ui/FileTree";
 
+/** Map file extensions to highlight.js language names where they differ. */
+const EXT_TO_LANG: Record<string, string> = {
+  md: "markdown",
+  ts: "typescript",
+  tsx: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  yml: "yaml",
+  sh: "bash",
+  zsh: "bash",
+  rs: "rust",
+  py: "python",
+  rb: "ruby",
+  kt: "kotlin",
+  cs: "csharp",
+  hs: "haskell",
+  ex: "elixir",
+  exs: "elixir",
+};
+
 /** Color class for each git status letter. */
 const STATUS_COLOR: Record<GitChangeStatus, string> = {
   M: "text-warning",
@@ -450,7 +470,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       const highlighted = createMemo(() => {
                         const path = selectedPath() ?? "";
                         const ext = path.split(".").pop() ?? "";
-                        const lang = hljs.getLanguage(ext) ? ext : undefined;
+                        const lang =
+                          EXT_TO_LANG[ext] ??
+                          (hljs.getLanguage(ext) ? ext : undefined);
                         return lang
                           ? hljs.highlight(fc().content, { language: lang })
                           : hljs.highlightAuto(fc().content);
