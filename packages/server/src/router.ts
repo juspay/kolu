@@ -15,6 +15,7 @@ import {
   killTerminal,
   killAllTerminals,
   setTerminalTheme,
+  setCanvasLayout,
   setTerminalParent,
   reorderTerminals,
   type TerminalProcess,
@@ -94,6 +95,11 @@ export const appRouter = t.router({
       requireTerminal(input.id);
       log.info({ terminal: input.id, theme: input.themeName }, "set theme");
       setTerminalTheme(input.id, input.themeName);
+    }),
+
+    setCanvasLayout: t.terminal.setCanvasLayout.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      setCanvasLayout(input.id, input.layout);
     }),
 
     /**

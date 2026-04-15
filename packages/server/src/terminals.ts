@@ -104,6 +104,7 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 export function snapshotSession(): SavedTerminal[] {
   return [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
+    const layout = canvasLayouts.get(id);
     return {
       id,
       cwd: m.cwd,
@@ -111,6 +112,7 @@ export function snapshotSession(): SavedTerminal[] {
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
       ...(m.themeName && { themeName: m.themeName }),
+      ...(layout && { canvasLayout: layout }),
     };
   });
 }
@@ -246,6 +248,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
+  canvasLayouts.delete(id);
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -264,6 +267,29 @@ export function setTerminalParent(
       m.sortOrder = nextSortOrder(newParent);
     });
   }
+}
+
+// Canvas layout positions — client-reported, used only for session snapshots.
+// Not part of TerminalMetadata (which is streamed to all clients).
+const canvasLayouts = new Map<
+  TerminalId,
+  { x: number; y: number; w: number; h: number }
+>();
+
+/** Store a terminal's canvas layout position (reported by the client). */
+export function setCanvasLayout(
+  id: TerminalId,
+  layout: { x: number; y: number; w: number; h: number },
+): void {
+  canvasLayouts.set(id, layout);
+  emitChanged();
+}
+
+/** Get a terminal's canvas layout (for session snapshot). */
+export function getCanvasLayout(
+  id: TerminalId,
+): { x: number; y: number; w: number; h: number } | undefined {
+  return canvasLayouts.get(id);
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

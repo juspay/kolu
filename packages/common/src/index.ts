@@ -154,6 +154,19 @@ export const TerminalSetThemeInputSchema = z.object({
   themeName: z.string(),
 });
 
+export const CanvasLayoutSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
+
+export const TerminalSetCanvasLayoutInputSchema = z.object({
+  id: TerminalIdSchema,
+  layout: CanvasLayoutSchema,
+});
+
 export const TerminalCreateInputSchema = z.object({
   cwd: z.string().optional(),
   parentId: TerminalIdSchema.optional(),
@@ -230,6 +243,8 @@ export const SavedTerminalSchema = z.object({
   sortOrder: z.number().optional(),
   /** Theme name at save time. */
   themeName: z.string().optional(),
+  /** Canvas tile position and size at save time. */
+  canvasLayout: CanvasLayoutSchema.optional(),
 });
 
 export const SavedSessionSchema = z.object({

@@ -15,8 +15,6 @@ import {
   on,
   batch,
 } from "solid-js";
-import { createStore } from "solid-js/store";
-import { makePersisted } from "@solid-primitives/storage";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -28,6 +26,7 @@ import Terminal from "./Terminal";
 import TerminalMeta from "./TerminalMeta";
 import SubPanelTabBar from "./SubPanelTabBar";
 import { useSubPanel } from "./useSubPanel";
+import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -36,8 +35,6 @@ const DEFAULT_H = 500;
 const CASCADE_OFFSET = 30;
 const MIN_W = 300;
 const MIN_H = 200;
-
-type TileLayout = { x: number; y: number; w: number; h: number };
 
 const TerminalCanvas: Component<{
   terminalIds: TerminalId[];
@@ -54,11 +51,7 @@ const TerminalCanvas: Component<{
   subTerminalIds: (id: TerminalId) => TerminalId[];
 }> = (props) => {
   const subPanel = useSubPanel();
-
-  const [layouts, setLayouts] = makePersisted(
-    createStore<Record<string, TileLayout>>({}),
-    { name: "kolu-canvas-layouts" },
-  );
+  const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
 
   // Auto-assign layout for new terminals and clean up removed ones
   createEffect(
@@ -106,6 +99,7 @@ const TerminalCanvas: Component<{
     const { x: dx, y: dy } = dragDelta();
     if (dx !== 0 || dy !== 0) {
       setLayouts(id, { ...l, x: l.x + dx, y: l.y + dy });
+      reportLayout(id as TerminalId);
     }
     setDragDelta({ x: 0, y: 0 });
   }
@@ -143,9 +137,14 @@ const TerminalCanvas: Component<{
       },
       { signal },
     );
-    window.addEventListener("pointerup", () => resizeAbort?.abort(), {
-      signal,
-    });
+    window.addEventListener(
+      "pointerup",
+      () => {
+        resizeAbort?.abort();
+        reportLayout(id);
+      },
+      { signal },
+    );
   }
 
   // Compute canvas size to fit all tiles + padding

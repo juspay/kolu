@@ -3,6 +3,7 @@
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
+import { useCanvasLayouts } from "./useCanvasLayouts";
 import { useServerState } from "../settings/useServerState";
 import { lifecycle } from "../rpc/rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
@@ -19,6 +20,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
+  const { setLayouts, reportLayout } = useCanvasLayouts();
   const serverState = useServerState();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -123,6 +125,15 @@ export function useSessionRestore(deps: {
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+      }
+      // Restore canvas tile positions under the new terminal IDs
+      for (const t of session.terminals) {
+        if (!t.canvasLayout) continue;
+        const newId = oldToNew.get(t.id);
+        if (newId) {
+          setLayouts(newId, t.canvasLayout);
+          reportLayout(newId);
+        }
       }
       toast.success("Session restored", { id });
     } catch (err) {
