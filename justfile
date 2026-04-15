@@ -51,7 +51,7 @@ test-unit: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="${KOLU_SERVER:-$(nix build --print-out-paths)/bin/kolu}"
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --print-out-paths)/bin/kolu}"
     cd packages/tests
     {{ nix_shell }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell }} pnpm test
