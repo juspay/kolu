@@ -82,10 +82,13 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-    /** List files modified vs HEAD (working-tree + staged + untracked). */
+    /** List files changed for the given mode: `local` = vs HEAD
+     *  (working tree + staged + untracked); `branch` = vs merge-base
+     *  with `origin/<defaultBranch>` (what this branch will ship). */
     status: oc.input(GitStatusInputSchema).output(GitStatusOutputSchema),
-    /** Raw `git diff HEAD -- <file>` output (or `--no-index` for untracked)
-     *  plus the old/new file contents, shaped for `@git-diff-view`. */
+    /** Raw unified diff plus old/new file contents for `@git-diff-view`.
+     *  Base depends on mode — HEAD in local mode, merge-base with
+     *  `origin/<defaultBranch>` in branch mode. */
     diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
   },
   state: {

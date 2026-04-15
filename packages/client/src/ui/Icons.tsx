@@ -63,6 +63,33 @@ export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Local diff: pencil icon — uncommitted working-tree edits. */
+export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M11.5 1.5l3 3-9 9H2.5v-3l9-9z" />
+    <path d="M9.5 3.5l3 3" />
+  </svg>
+);
+
+/** Branch diff: fork icon — what this branch adds vs the base. */
+export const DiffBranchIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+  >
+    <path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm6.5 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM5 12.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm-1.25-7.5v5.256a2.25 2.25 0 1 0 1.5 0V7.121A5.69 5.69 0 0 0 9.5 9.5a3.5 3.5 0 0 0 3.5-3.5V5.372a2.25 2.25 0 1 0-1.5 0V6a2 2 0 0 1-2 2 4.19 4.19 0 0 1-3.75-2.846V5.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z" />
+  </svg>
+);
+
 export const CloseIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

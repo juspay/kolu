@@ -11,12 +11,12 @@
  * (chrome-devtools-mcp) — see PR #515.
  */
 
-[data-testid="review-diff"] table {
+[data-testid="diff-content"] table {
   table-layout: auto !important;
 }
 
-[data-testid="review-diff"] .diff-line-num,
-[data-testid="review-diff"] .diff-line-hunk-action {
+[data-testid="diff-content"] .diff-line-num,
+[data-testid="diff-content"] .diff-line-hunk-action {
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
@@ -25,30 +25,30 @@
 }
 
 /* 6px breathing room between old + new line numbers (lib default is 0). */
-[data-testid="review-diff"] .diff-line-num .flex {
+[data-testid="diff-content"] .diff-line-num .flex {
   gap: 6px !important;
 }
 
 /* Drop empty side-number spans on add/del rows so they don't reserve
  * layout space (no `w-[50%]` placeholder slot). */
-[data-testid="review-diff"] .diff-line-num .flex > span:empty {
+[data-testid="diff-content"] .diff-line-num .flex > span:empty {
   display: none !important;
 }
 
 /* Tighten the content's `pl-[2em]` indent reserved for the +/- operator
  * (which overlays via `ml-[-1.5em]`) to roughly half. */
-[data-testid="review-diff"] .diff-line-content-item {
+[data-testid="diff-content"] .diff-line-content-item {
   padding-left: 1em !important;
 }
-[data-testid="review-diff"] .diff-line-content-operator {
+[data-testid="diff-content"] .diff-line-content-operator {
   width: 0.9em !important;
   margin-left: -0.9em !important;
 }
 
 /* `diffViewWrap` ships inline `word-break: break-all`, which wraps
  * mid-identifier / mid-string. Swap in normal word-boundary wrapping. */
-[data-testid="review-diff"] .diff-line-content,
-[data-testid="review-diff"] .diff-line-content * {
+[data-testid="diff-content"] .diff-line-content,
+[data-testid="diff-content"] .diff-line-content * {
   word-break: normal !important;
   overflow-wrap: anywhere;
 }

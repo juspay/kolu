@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.9.0";
+const SCHEMA_VERSION = "1.10.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -130,11 +130,11 @@ export const store = new Conf<PersistedState>({
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
     // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
+    // Cast through `string` because the historical enum values are no longer in the live type.
     "1.8.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
-      const staleTab =
-        current.rightPanel.tab !== "inspector" &&
-        current.rightPanel.tab !== "review";
+      const tab = current.rightPanel.tab as string;
+      const staleTab = tab !== "inspector" && tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
@@ -142,11 +142,28 @@ export const store = new Conf<PersistedState>({
         });
       }
     },
+    // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
+    // signal forge/VCS-agnostic intent. Anything other than "inspector" or
+    // "diff" coerces to "inspector". Cast through `string` because "review"
+    // is no longer in the live `RightPanelTab` enum.
+    "1.9.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      const tab = current.rightPanel.tab as string;
+      const next = tab === "review" ? "diff" : tab;
+      const valid = next === "inspector" || next === "diff";
+      store.set("preferences", {
+        ...current,
+        rightPanel: {
+          ...current.rightPanel,
+          tab: valid ? next : "inspector",
+        },
+      });
+    },
     // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
     // semantics changed under the hood — "shuffle" now uses a perceptual
     // distance picker instead of pure random, so collisions vanish — but
     // the user-facing on/off bit carries over verbatim.
-    "1.9.0": (store: Conf<PersistedState>) => {
+    "1.10.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as unknown as
         | (Record<string, unknown> & { randomTheme?: unknown })
         | undefined;

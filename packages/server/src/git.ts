@@ -17,7 +17,7 @@ async function resolveMainRepoRoot(repoPath: string): Promise<string> {
 }
 
 /** Detect the default branch name on the remote (e.g. "main" or "master"). */
-async function detectDefaultBranch(repoPath: string): Promise<string> {
+export async function detectDefaultBranch(repoPath: string): Promise<string> {
   const git = simpleGit(repoPath);
   try {
     const ref = (
