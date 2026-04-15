@@ -14,7 +14,14 @@
  *  a reactive owner per item and disposes it when the item leaves the list.
  *  No manual Map, AbortController, or version signals needed. */
 
-import { type Accessor, createMemo, mapArray } from "solid-js";
+import {
+  type Accessor,
+  createEffect,
+  createMemo,
+  mapArray,
+  on,
+} from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import {
   createSubscription,
@@ -80,6 +87,24 @@ export function useTerminalMetadata(deps: {
         },
         initial: [] as ActivitySample[],
       },
+    );
+    // Surface subscription errors — mapArray memoizes by key, so these
+    // effects are created once per terminal ID and disposed when it leaves.
+    createEffect(
+      on(
+        () => meta.error(),
+        (err) => {
+          if (err) toast.error(`Metadata error: ${err.message}`);
+        },
+      ),
+    );
+    createEffect(
+      on(
+        () => activity.error(),
+        (err) => {
+          if (err) toast.error(`Activity error: ${err.message}`);
+        },
+      ),
     );
     return { id, meta, activity };
   });
