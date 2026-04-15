@@ -151,14 +151,23 @@ export const store = new Conf<PersistedState>({
 // TODO: crash the server here once client-side error propagation is confirmed working.
 const _stateCheck = PersistedStateSchema.safeParse(store.store);
 if (!_stateCheck.success) {
+  const summary = _stateCheck.error.issues
+    .map((i) => `${i.path.join(".")}: ${i.message}`)
+    .join("; ");
   log.error(
     {
       issues: _stateCheck.error.issues,
       path: store.path,
     },
-    `Persisted state does not match schema. Delete ${store.path} to reset to defaults.`,
+    `Persisted state does not match schema. Delete ${store.path} to reset to defaults. (${summary})`,
   );
 }
+
+// Stored so getServerState() can throw a descriptive error instead of
+// returning invalid data and letting oRPC's generic validator be first.
+const _stateCorruptMessage = _stateCheck.success
+  ? null
+  : `Persisted state corrupt (${_stateCheck.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}). Delete ${store.path} to reset.`;
 
 /** Check if a path exists on disk. */
 function existsOnDisk(path: string): boolean {
@@ -244,8 +253,11 @@ function getRecentAgents(): RecentAgent[] {
 
 // --- Server state ---
 
-/** Get the full server state. */
+/** Get the full server state. Throws if persisted state failed schema validation at startup. */
 export function getServerState(): ServerState {
+  if (_stateCorruptMessage) {
+    throw new Error(_stateCorruptMessage);
+  }
   return {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
