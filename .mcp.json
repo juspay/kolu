@@ -2,7 +2,13 @@
   "mcpServers": {
     "chrome-devtools": {
       "command": "nix",
-      "args": ["develop", ".#e2e", "--command", "just", "ai::mcp-chrome-devtools"]
+      "args": [
+        "develop",
+        ".#e2e",
+        "--command",
+        "just",
+        "ai::mcp-chrome-devtools"
+      ]
     }
   }
 }
