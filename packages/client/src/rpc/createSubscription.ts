@@ -7,7 +7,13 @@
  * loading/error tracking for a mutation, use SolidJS's `createResource`.
  */
 
-import { createSignal, onCleanup, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  type Accessor,
+} from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
 /**
@@ -41,6 +47,10 @@ export interface SubscriptionOptions<T, R = T> {
    * subscriptions outside a reactive owner (e.g. dynamic per-entity maps).
    */
   signal?: AbortSignal;
+  /** Called when the stream errors. Use to surface failures to the user
+   *  (e.g. `toast.error`). Without this, stream errors are only available
+   *  via the reactive `sub.error()` signal — easy to forget to read. */
+  onError?: (err: Error) => void;
 }
 
 /**
@@ -51,7 +61,9 @@ export interface SubscriptionOptions<T, R = T> {
  * for fine-grained reactivity on nested object fields.
  *
  * ```tsx
- * const meta = createSubscription(() => client.terminal.onMetadataChange({ id }));
+ * const meta = createSubscription(() => client.terminal.onMetadataChange({ id }), {
+ *   onError: (err) => toast.error(`Metadata error: ${err.message}`),
+ * });
  * meta()?.tickCount  // reactive read — re-renders only when tickCount changes
  * meta.pending()     // true until first event
  * meta.error()       // stream error, if any
@@ -139,8 +151,22 @@ export function createSubscription<T, R = T>(
     }
   })();
 
-  return Object.assign(() => store.v as (T | R) | undefined, {
+  const sub = Object.assign(() => store.v as (T | R) | undefined, {
     error,
     pending,
   }) as Subscription<T | R>;
+
+  if (options?.onError) {
+    const handler = options.onError;
+    createEffect(
+      on(
+        () => sub.error(),
+        (err) => {
+          if (err) handler(err);
+        },
+      ),
+    );
+  }
+
+  return sub;
 }
