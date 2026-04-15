@@ -146,8 +146,12 @@ export const store = new Conf<PersistedState>({
 });
 
 /** Format Zod issues into a one-line diagnostic with a recovery hint. */
-function formatStateError(issues: { path: PropertyKey[]; message: string }[]): string {
-  const summary = issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+function formatStateError(
+  issues: { path: PropertyKey[]; message: string }[],
+): string {
+  const summary = issues
+    .map((i) => `${i.path.join(".")}: ${i.message}`)
+    .join("; ");
   return `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
 }
 
