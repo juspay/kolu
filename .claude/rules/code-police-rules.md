@@ -64,3 +64,10 @@ Actual errors (failed I/O, failed queries, unexpected exceptions, callback throw
 Bad: `log.warn({ err }, "query failed")` / `log.debug({ err }, "scan failed")`
 Good: `log.error({ err }, "query failed")`
 _Rationale_: Operators filter on `error` level for alerting. An actual failure logged at `warn` or `debug` is invisible in production. The `Logger` type in `kolu-integration-common` includes all four levels (`debug`, `info`, `warn`, `error`) — use the right one.
+
+### subscription-must-surface-errors
+
+Every `createSubscription` consumer must watch `sub.error()` and surface failures to the user (typically via `toast.error()`). A subscription whose `.error()` signal is never read silently swallows server-side failures — the stream dies and the user sees stale/missing data with no indication of what went wrong.
+Bad: `const sub = createSubscription(() => stream.state()); /* sub.error() never read */`
+Good: `createEffect(on(() => sub.error(), (err) => { if (err) toast.error(\`Server state error: ${err.message}\`); }));`
+_Rationale_: oRPC application errors (`ORPCError`) are not retried by `ClientRetryPlugin`, so the stream dies permanently. Without reading `.error()`, the failure is invisible — the user gets a blank or stale UI with no toast, no console warning, nothing.
