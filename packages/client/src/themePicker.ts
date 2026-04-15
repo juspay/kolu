@@ -151,3 +151,37 @@ export function pickVariegatedTheme(
   const pickIdx = bestIdxs[Math.floor(rand() * bestIdxs.length)] ?? 0;
   return candidates[pickIdx]!.name;
 }
+
+/**
+ * Pick a theme uniformly at random from `candidates`, excluding any whose
+ * background equals one of `excludeBgs` or exceeds {@link MAX_CANDIDATE_CHROMA}.
+ *
+ * This is the **shuffle** picker — it's deliberately non-deterministic so
+ * repeated invocations walk the palette instead of ping-ponging between two
+ * mutually-farthest themes (which is what {@link pickVariegatedTheme} does
+ * by design — it argmaxes distance, and Theme A's farthest tends to be
+ * Theme B and vice versa). Use this for user-triggered ⌘J shuffle; reserve
+ * the variegated picker for new-terminal creation where deterministic
+ * "spread out from peers" is desirable.
+ *
+ * If chroma + bg-exclusion filtering leaves the pool empty, falls back to
+ * the full `candidates` list so the call always returns SOMETHING.
+ */
+export function pickShuffleTheme(
+  candidates: NamedTheme[],
+  excludeBgs: string[],
+  rand: () => number = Math.random,
+): string {
+  if (candidates.length === 0) {
+    throw new Error("pickShuffleTheme: no candidates");
+  }
+  const excluded = new Set(excludeBgs);
+  const acceptable = candidates.filter((t) => {
+    const bg = t.theme.background;
+    if (!bg || excluded.has(bg)) return false;
+    const lab = getLab(bg);
+    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+  });
+  const pool = acceptable.length > 0 ? acceptable : candidates;
+  return pool[Math.floor(rand() * pool.length)]!.name;
+}

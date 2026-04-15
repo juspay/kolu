@@ -8,7 +8,7 @@ import {
   getThemeByName,
   resolveThemeBgs,
 } from "./theme";
-import { pickVariegatedTheme } from "./themePicker";
+import { pickShuffleTheme } from "./themePicker";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
@@ -53,12 +53,13 @@ function init(deps: ThemeManagerDeps) {
     deps.setThemeName(id, themeName);
   }
 
-  /** Shuffle the active terminal to a theme whose background is perceptually
-   *  far from EVERY live terminal (the active one included — keeps us from
-   *  shuffling to a near-identical bg). Same semantics as new-terminal
-   *  creation, just applied retroactively. Filtering the current theme out
-   *  of `candidates` guarantees a distinct name even when tie-breaking
-   *  doesn't favour us. */
+  /** Shuffle the active terminal to a random theme. Random — not argmax —
+   *  because argmax ping-pongs (theme A's farthest neighbour is theme B,
+   *  and B's farthest is A, so repeated ⌘J just bounces between two).
+   *  Excludes every live terminal's bg so we don't land on a duplicate of
+   *  a sibling, and stays under the chroma cap so we don't surface neon
+   *  yellow. New-terminal creation still uses the variegated argmax —
+   *  see {@link pickShuffleTheme} for the rationale. */
   function handleShuffleTheme() {
     const id = deps.activeId();
     if (id === null) return;
@@ -66,7 +67,7 @@ function init(deps: ThemeManagerDeps) {
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
     const peerBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
-    handleSetTheme(pickVariegatedTheme(candidates, peerBgs));
+    handleSetTheme(pickShuffleTheme(candidates, peerBgs));
   }
 
   return {

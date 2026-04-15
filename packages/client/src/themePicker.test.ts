@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { hexToOkLab, okLabDistance, pickVariegatedTheme } from "./themePicker";
+import {
+  hexToOkLab,
+  okLabDistance,
+  pickShuffleTheme,
+  pickVariegatedTheme,
+} from "./themePicker";
 import type { NamedTheme } from "./theme";
 
 function mk(name: string, background: string): NamedTheme {
@@ -152,5 +157,80 @@ describe("pickVariegatedTheme", () => {
     const first = pickVariegatedTheme(candidates, peers, rand);
     const second = pickVariegatedTheme(candidates, peers, rand);
     expect(first).toBe(second);
+  });
+});
+
+describe("pickShuffleTheme", () => {
+  // Regression: argmax-style picking ping-pongs between two themes when
+  // called in a loop with the prior pick as the only peer (theme A's
+  // farthest is B, B's farthest is A). pickShuffleTheme must NOT do that.
+  it("does not ping-pong when looped — random, not deterministic argmax", () => {
+    const themes = [
+      mk("A", "#000000"),
+      mk("B", "#202020"),
+      mk("C", "#404040"),
+      mk("D", "#606060"),
+    ];
+    let current = "A";
+    const visited: string[] = [current];
+    // Cycle the rand sequence so consecutive shuffles see different values.
+    const rand = seqRand(0.0, 0.34, 0.67, 0.99, 0.5);
+    for (let i = 0; i < 4; i++) {
+      const candidates = themes.filter((t) => t.name !== current);
+      const currentBg = themes.find((t) => t.name === current)!.theme
+        .background!;
+      current = pickShuffleTheme(candidates, [currentBg], rand);
+      visited.push(current);
+    }
+    // With argmax-deterministic picking we'd see ≤ 3 distinct names
+    // (initial + ping-pong pair). Random + current-bg-exclusion must
+    // visit MORE than that across 4 shuffles in a 4-theme palette.
+    expect(new Set(visited).size).toBeGreaterThan(3);
+  });
+
+  it("throws when candidates is empty", () => {
+    expect(() => pickShuffleTheme([], [])).toThrow();
+  });
+
+  it("excludes garish (high-chroma) candidates by default", () => {
+    const candidates = [
+      mk("Tasteful", "#1d1f21"),
+      mk("BrightYellow", "#ffff00"),
+    ];
+    // No matter what rand returns, BrightYellow's chroma is over the cap
+    // and gets filtered before the random draw.
+    expect(pickShuffleTheme(candidates, [], () => 0)).toBe("Tasteful");
+    expect(pickShuffleTheme(candidates, [], () => 0.99)).toBe("Tasteful");
+  });
+
+  it("excludes any candidate whose bg is in excludeBgs", () => {
+    const candidates = [mk("Now", "#1d1f21"), mk("Other", "#282a36")];
+    expect(pickShuffleTheme(candidates, ["#1d1f21"], () => 0)).toBe("Other");
+    expect(pickShuffleTheme(candidates, ["#1d1f21"], () => 0.99)).toBe("Other");
+  });
+
+  it("falls back to full candidates when filters leave nothing", () => {
+    // Both candidates excluded by bg → fall back to the full list, random pick.
+    const candidates = [mk("A", "#111111"), mk("B", "#222222")];
+    const result = pickShuffleTheme(
+      candidates,
+      ["#111111", "#222222"],
+      () => 0,
+    );
+    expect(["A", "B"]).toContain(result);
+  });
+
+  it("uses rand to pick among the acceptable pool", () => {
+    // 4 acceptable themes; rand drives which one gets picked.
+    const candidates = [
+      mk("A", "#101010"),
+      mk("B", "#202020"),
+      mk("C", "#303030"),
+      mk("D", "#404040"),
+    ];
+    expect(pickShuffleTheme(candidates, [], () => 0)).toBe("A");
+    expect(pickShuffleTheme(candidates, [], () => 0.25)).toBe("B");
+    expect(pickShuffleTheme(candidates, [], () => 0.5)).toBe("C");
+    expect(pickShuffleTheme(candidates, [], () => 0.99)).toBe("D");
   });
 });

@@ -62,6 +62,14 @@ Feature: Theme switching
     Then the header theme should differ from "Tomorrow Night"
     And there should be no page errors
 
+  # Regression: argmax-style picker ping-pongs between two themes when
+  # the loop only sees the current bg as a peer (Theme A's farthest is
+  # Theme B and vice versa). Shuffle must be random, not argmax.
+  Scenario: Shuffle does not ping-pong between two themes
+    When I press the shuffle theme shortcut 4 times
+    Then the shuffle history should have at least 4 distinct themes
+    And there should be no page errors
+
   Scenario: Shuffle theme via command palette
     When I open the command palette
     And I select "Shuffle theme" in the palette
