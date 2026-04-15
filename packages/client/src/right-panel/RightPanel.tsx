@@ -1,5 +1,5 @@
 /** RightPanel — right panel shell with tabbed navigation.
- *  Routes between Inspector and Code Diff tabs. */
+ *  Routes between Inspector and Code tabs. */
 
 import { type Component, For } from "solid-js";
 import { Dynamic } from "solid-js/web";
@@ -30,7 +30,7 @@ type TabDef = {
 const TABS: Record<RightPanelTab, TabDef> = {
   inspector: { label: "Inspector", component: MetadataInspector },
   diff: {
-    label: "Code Diff",
+    label: "Code",
     component: (p) => <DiffTab meta={p.meta} />,
   },
 };

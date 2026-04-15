@@ -24,6 +24,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
@@ -31,32 +32,35 @@ import "./diff-tab.css";
 import type { GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
+import { DiffLocalIcon, DiffBranchIcon } from "../ui/Icons";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
   branch: "No changes vs base",
 };
 
-/** What the cycle-on-click header label shows for each mode. The label
- *  *is* the mode switch — clicking it flips to the other mode. */
-const MODE_REF: Record<GitDiffMode, string> = {
-  local: "HEAD",
-  branch: "branch base",
-};
-
-/** Tooltip shown in the current mode, describing the click action. */
-const MODE_SWITCH_TOOLTIP: Record<GitDiffMode, string> = {
-  local: "Switch to branch diff (vs origin/<default>)",
-  branch: "Switch to local changes (vs HEAD)",
-};
-
-/** Plain-English annotation shown after the ref — disambiguates `HEAD`
- *  and `origin/master` for users who don't immediately parse them, and
- *  surfaces what each mode actually answers. */
-const MODE_HINT: Record<GitDiffMode, string> = {
-  local: "uncommitted only",
-  branch: "this branch's diff",
-};
+/** Sub-tab config for each diff mode. Icons double as the tab's visual
+ *  affordance; the tooltip spells out what the mode means. The label
+ *  is a short context string shown in the header after the icons. */
+const MODE_TABS: {
+  mode: GitDiffMode;
+  icon: Component<{ class?: string }>;
+  tooltip: string;
+  label: string;
+}[] = [
+  {
+    mode: "local",
+    icon: DiffLocalIcon,
+    tooltip: "Local changes (vs HEAD)",
+    label: "vs HEAD",
+  },
+  {
+    mode: "branch",
+    icon: DiffBranchIcon,
+    tooltip: "Branch diff (vs origin/<default>)",
+    label: "vs branch base",
+  },
+];
 
 const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
@@ -97,13 +101,14 @@ const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const diffTheme = () =>
     preferences().colorScheme === "light" ? "light" : "dark";
 
-  /** The ref name to show in the header: real `base.ref` once status
-   *  returns; a short placeholder before that (or if branch mode errored
-   *  before resolving). Local mode is always `HEAD` — no server trip. */
-  const headerRef = () =>
-    mode() === "local" ? "HEAD" : (status()?.base?.ref ?? MODE_REF.branch);
-
-  const cycleMode = () => setMode((m) => (m === "local" ? "branch" : "local"));
+  /** Context label shown after the icon tabs — resolves to the actual
+   *  base ref name once status returns (e.g. `origin/master`), falling
+   *  back to the static label from MODE_TABS until then. */
+  const headerLabel = () => {
+    const tab = MODE_TABS.find((t) => t.mode === mode())!;
+    if (mode() === "local") return tab.label;
+    return status()?.base?.ref ? `vs ${status()!.base!.ref}` : tab.label;
+  };
 
   return (
     <Show
@@ -121,23 +126,30 @@ const DiffTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
       >
-        <div class="flex items-center justify-between h-6 px-2 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
-          <button
-            type="button"
-            onClick={cycleMode}
-            title={MODE_SWITCH_TOOLTIP[mode()]}
-            class="group flex-1 min-w-0 text-left text-fg-3/70 hover:text-fg-2 cursor-pointer truncate"
+        <div class="flex items-center h-6 px-1 bg-surface-1/30 border-b border-edge shrink-0 gap-0.5">
+          <For each={MODE_TABS}>
+            {(tab) => (
+              <button
+                type="button"
+                onClick={() => setMode(tab.mode)}
+                title={tab.tooltip}
+                class="flex items-center justify-center w-6 h-6 text-fg-3/50 hover:text-fg-2 cursor-pointer rounded-sm data-[active=true]:text-fg data-[active=true]:bg-surface-2/60"
+                data-testid={`diff-mode-${tab.mode}`}
+                data-active={mode() === tab.mode}
+                aria-pressed={mode() === tab.mode}
+              >
+                <Dynamic component={tab.icon} class="w-3 h-3" />
+              </button>
+            )}
+          </For>
+          <span
+            class="text-fg-3/50 text-[10px] font-mono truncate min-w-0 ml-1.5"
             data-testid="diff-mode-label"
             data-mode={mode()}
           >
-            <span>Changes vs </span>
-            <span class="underline-offset-2 decoration-dotted group-hover:underline font-mono text-fg-2/90">
-              {headerRef()}
-            </span>
-            <span class="ml-1.5 text-fg-3/50 italic">
-              · {MODE_HINT[mode()]}
-            </span>
-          </button>
+            {headerLabel()}
+          </span>
+          <div class="flex-1" />
           <button
             type="button"
             onClick={handleRefresh}
