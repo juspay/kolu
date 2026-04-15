@@ -1,4 +1,4 @@
-/** TerminalStrip — freeform 2D canvas where terminals can be dragged
+/** TerminalCanvas — freeform 2D canvas where terminals can be dragged
  *  and resized like desktop windows. Two-finger scroll pans the canvas. */
 
 import {
@@ -24,7 +24,7 @@ const CASCADE_OFFSET = 30;
 
 type TileLayout = { x: number; y: number; w: number; h: number };
 
-const TerminalStrip: Component<{
+const TerminalCanvas: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
@@ -282,4 +282,4 @@ const TerminalStrip: Component<{
   );
 };
 
-export default TerminalStrip;
+export default TerminalCanvas;

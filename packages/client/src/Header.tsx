@@ -81,8 +81,8 @@ const Header: Component<{
   themeName?: string;
   onThemeClick?: () => void;
   // Strip mode
-  stripMode?: boolean;
-  onToggleStripMode?: () => void;
+  canvasMode?: boolean;
+  onToggleCanvasMode?: () => void;
   // Panel toggles
   sidebarOpen?: boolean;
   hasSubPanel?: boolean;
@@ -145,17 +145,17 @@ const Header: Component<{
       {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {/* Strip mode toggle */}
-        <Tip label={props.stripMode ? "Classic view" : "Strip view"}>
+        <Tip label={props.canvasMode ? "Focus mode" : "Canvas mode"}>
           <button
-            data-testid="strip-mode-toggle"
+            data-testid="canvas-mode-toggle"
             class="h-7 px-2 text-xs rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             classList={{
-              "bg-accent/20 text-accent": props.stripMode,
-              "text-fg-2 hover:text-fg hover:bg-surface-2": !props.stripMode,
+              "bg-accent/20 text-accent": props.canvasMode,
+              "text-fg-2 hover:text-fg hover:bg-surface-2": !props.canvasMode,
             }}
-            onClick={() => props.onToggleStripMode?.()}
+            onClick={() => props.onToggleCanvasMode?.()}
           >
-            {props.stripMode ? "⇔ Strip" : "⇔ Classic"}
+            {props.canvasMode ? "⇔ Canvas" : "⇔ Focus"}
           </button>
         </Tip>
         {/* Fullscreen toggle */}

@@ -14,7 +14,7 @@ import Header from "./Header";
 import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
 import TerminalPane from "./terminal/TerminalPane";
-import TerminalStrip from "./terminal/TerminalStrip";
+import TerminalCanvas from "./terminal/TerminalCanvas";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -62,7 +62,7 @@ const App: Component = () => {
   });
 
   const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
-  const [stripMode, setStripMode] = createSignal(true);
+  const [canvasMode, setCanvasMode] = createSignal(true);
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
@@ -341,8 +341,8 @@ const App: Component = () => {
         appTitle={appTitle()}
         themeName={activeThemeName()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        stripMode={stripMode()}
-        onToggleStripMode={() => setStripMode((v) => !v)}
+        canvasMode={canvasMode()}
+        onToggleCanvasMode={() => setCanvasMode((v) => !v)}
         sidebarOpen={sidebarOpen()}
         hasSubPanel={
           store.activeId() !== null &&
@@ -372,7 +372,7 @@ const App: Component = () => {
         }}
       >
         <Show
-          when={stripMode()}
+          when={canvasMode()}
           fallback={
             <>
               <Sidebar
@@ -479,7 +479,7 @@ const App: Component = () => {
             </>
           }
         >
-          {/* Strip mode — all terminals visible side-by-side */}
+          {/* Canvas mode — all terminals on freeform 2D canvas */}
           <Show
             when={!session.isLoading()}
             fallback={
@@ -502,7 +502,7 @@ const App: Component = () => {
                 when={!rightPanel.collapsed() && rightPanel.pinned()}
                 fallback={
                   <div class="flex-1 min-h-0 min-w-0 flex relative">
-                    <TerminalStrip
+                    <TerminalCanvas
                       terminalIds={store.terminalIds()}
                       activeId={store.activeId()}
                       getMetadata={store.getMetadata}
@@ -555,7 +555,7 @@ const App: Component = () => {
                     class="min-w-0 min-h-0 flex"
                     minSize={0.3}
                   >
-                    <TerminalStrip
+                    <TerminalCanvas
                       terminalIds={store.terminalIds()}
                       activeId={store.activeId()}
                       getMetadata={store.getMetadata}
