@@ -64,7 +64,9 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
 }
 
 /** Build a JSONL transcript with a specific final state. */
-function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
+function buildTranscript(
+  state: "thinking" | "tool_use" | "waiting" | "monitoring",
+): string {
   const userMsg = JSON.stringify({
     type: "user",
     uuid: "u1",
@@ -72,7 +74,10 @@ function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
     message: { role: "user", content: [{ type: "text", text: "hello" }] },
   });
 
-  const assistantMsg = (stopReason: string) =>
+  const assistantMsg = (
+    stopReason: string,
+    content: Array<Record<string, unknown>> = [{ type: "text", text: "Done!" }],
+  ) =>
     JSON.stringify({
       type: "assistant",
       uuid: "a1",
@@ -81,13 +86,19 @@ function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
         model: "claude-opus-4-6",
         role: "assistant",
         stop_reason: stopReason,
-        content: [{ type: "text", text: "Done!" }],
+        content,
       },
     });
 
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
+  if (state === "monitoring")
+    lines.push(
+      assistantMsg("tool_use", [
+        { type: "tool_use", name: "Monitor", id: "t1", input: {} },
+      ]),
+    );
   // "thinking" = user message only (no assistant response yet)
 
   return lines.join("\n") + "\n";
@@ -153,7 +164,9 @@ When(
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(
       mockTranscriptPath,
-      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
+      buildTranscript(
+        state as "thinking" | "tool_use" | "waiting" | "monitoring",
+      ),
     );
 
     // Now the trigger — session file last.
@@ -230,7 +243,9 @@ When(
     if (!mockTranscriptPath) throw new Error("No mock transcript to update");
     fs.writeFileSync(
       mockTranscriptPath,
-      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
+      buildTranscript(
+        state as "thinking" | "tool_use" | "waiting" | "monitoring",
+      ),
     );
   },
 );

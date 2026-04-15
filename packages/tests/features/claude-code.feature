@@ -31,6 +31,11 @@ Feature: Claude Code status detection
     Then the header should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Monitor tool shows monitoring state instead of tool_use
+    When a Claude Code session is mocked with state "monitoring"
+    Then the header should show an agent indicator with state "monitoring"
+    And there should be no page errors
+
   Scenario: Previous-session JSONL in the project dir doesn't confuse detection
     When a Claude Code session is mocked with state "thinking"
     And a newer stale previous-session JSONL exists in the same project dir
