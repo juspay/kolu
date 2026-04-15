@@ -137,12 +137,18 @@ body {
 .card-border-wrap.card-spin-active {
   background: conic-gradient(
     from var(--spin-angle),
-    oklch(from var(--card-color) l c h / 0.15) 0%,
-    var(--card-color) 4%,
-    oklch(from var(--card-color) l c h / 0.15) 10%,
-    oklch(from var(--card-color) l c h / 0.15) 100%
+    transparent 0%,
+    var(--card-color) 25%,
+    transparent 50%,
+    oklch(from var(--card-color) l c h / 0.3) 75%,
+    transparent 100%
   );
-  animation: border-spin 1.5s linear infinite;
+  animation: border-spin 2s linear infinite, border-spin-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes border-spin-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .card-border-wrap.card-spin-waiting {
