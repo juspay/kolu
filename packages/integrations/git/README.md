@@ -20,19 +20,20 @@ Functions accept `log?: Logger` (from `kolu-integration-common`). Pass a pino ch
 
 ## Modules
 
-| Module | Exports | Purpose |
-|--------|---------|---------|
-| `schemas.ts` | `GitInfoSchema`, `GitDiffOutputSchema`, etc. | Zod schemas (re-exported by `kolu-common`) |
-| `resolve.ts` | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir` | Repo context resolution + `.git/HEAD` watching |
-| `worktree.ts` | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch` | Worktree lifecycle |
-| `review.ts` | `getStatus`, `getDiff`, `parseNameStatus` | Diff review (local + branch modes) |
-| `safe-path.ts` | `resolveUnder` | Path traversal guard |
-| `random-name.ts` | `randomName` | ADJ-NOUN name generator for worktrees |
-| `errors.ts` | `GitError`, `GitResult`, `ok`, `err` | Sum-type error types and constructors |
+| Module           | Exports                                                       | Purpose                                        |
+| ---------------- | ------------------------------------------------------------- | ---------------------------------------------- |
+| `schemas.ts`     | `GitInfoSchema`, `GitDiffOutputSchema`, etc.                  | Zod schemas (re-exported by `kolu-common`)     |
+| `resolve.ts`     | `resolveGitInfo`, `watchGitHead`, `gitInfoEqual`, `hasGitDir` | Repo context resolution + `.git/HEAD` watching |
+| `worktree.ts`    | `worktreeCreate`, `worktreeRemove`, `detectDefaultBranch`     | Worktree lifecycle                             |
+| `review.ts`      | `getStatus`, `getDiff`, `parseNameStatus`                     | Diff review (local + branch modes)             |
+| `safe-path.ts`   | `resolveUnder`                                                | Path traversal guard                           |
+| `random-name.ts` | `randomName`                                                  | ADJ-NOUN name generator for worktrees          |
+| `errors.ts`      | `GitError`, `GitResult`, `ok`, `err`                          | Sum-type error types and constructors          |
 
 ## Server integration
 
 The server keeps a thin provider adapter in `meta/git.ts` that:
+
 1. Calls `resolveGitInfo()` / `watchGitHead()` from this package
 2. Bridges results into the metadata event system (`updateMetadata`, `publishForTerminal`)
 3. Distinguishes `NOT_A_REPO` (expected, debug) from `GIT_FAILED` (unexpected, error)
