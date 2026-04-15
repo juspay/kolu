@@ -145,29 +145,10 @@ export const store = new Conf<PersistedState>({
   },
 });
 
-/** Validate the store against the Zod schema and throw a descriptive error
- *  instead of letting oRPC's generic "Event iterator validation failed" be
- *  the first signal. Called on every read; writes are covered because
- *  updateServerState() publishes via getServerState() after mutating. */
-function assertStoreValid(): void {
-  const result = PersistedStateSchema.safeParse(store.store);
-  if (result.success) return;
-  const summary = result.error.issues
-    .map((i) => `${i.path.join(".")}: ${i.message}`)
-    .join("; ");
-  const msg = `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
-  log.error({ issues: result.error.issues, path: store.path }, msg);
-  throw new Error(msg);
-}
-
-// Early validation so corrupt state shows up in journalctl immediately at
-// startup, not only when the first client connects. The throw is caught here
-// — runtime calls to assertStoreValid() in getServerState() will re-throw.
-// TODO: remove try/catch and let the server crash once error propagation is confirmed.
-try {
-  assertStoreValid();
-} catch {
-  // Already logged inside assertStoreValid().
+/** Format Zod issues into a one-line diagnostic with a recovery hint. */
+function formatStateError(issues: { path: PropertyKey[]; message: string }[]): string {
+  const summary = issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+  return `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
 }
 
 /** Check if a path exists on disk. */
@@ -254,15 +235,22 @@ function getRecentAgents(): RecentAgent[] {
 
 // --- Server state ---
 
-/** Get the full server state. Throws if persisted state fails schema validation. */
+/** Get the full server state. Validates against the Zod schema so callers
+ *  get a descriptive error instead of oRPC's generic validation failure. */
 export function getServerState(): ServerState {
-  assertStoreValid();
-  return {
+  const state = {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
     session: store.get("session"),
     preferences: store.get("preferences"),
   };
+  const result = PersistedStateSchema.safeParse(state);
+  if (!result.success) {
+    const msg = formatStateError(result.error.issues);
+    log.error({ issues: result.error.issues, path: store.path }, msg);
+    throw new Error(msg);
+  }
+  return result.data;
 }
 
 /** Merge a partial update into the current state.
@@ -284,6 +272,15 @@ export function updateServerState(patch: ServerStatePatch): void {
   }
   // Notify live query subscribers
   publishSystem("state:changed", getServerState());
+}
+
+// Early validation so corrupt state shows up in journalctl immediately at
+// startup, not only when the first client connects.
+// TODO: remove try/catch and let the server crash once error propagation is confirmed.
+try {
+  getServerState();
+} catch {
+  // Already logged inside getServerState().
 }
 
 /** Test-only: apply a full patch including `recentRepos` and `recentAgents`.
