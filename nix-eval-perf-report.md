@@ -4,8 +4,9 @@
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| `nix develop -c true` cold (fresh HOME) | **2500ms** | **925ms** | **-63%** |
-| `nix develop -c true` hot (eval cache) | **333ms** | **120ms** | **-64%** |
+| `nix develop -c true` cold (fresh HOME) | **2500ms** | **892ms** | **-64%** |
+| `nix develop -c true` hot (eval cache) | **333ms** | **121ms** | **-64%** |
+| `just dev` hot (was using `path:`) | **4221ms** | **121ms** | **-97% (35x)** |
 | `nix develop .#e2e -c true` cold | — | **1677ms** | *new shell for e2e tests* |
 | `nix develop .#e2e -c true` hot | — | **176ms** | *new shell for e2e tests* |
 
