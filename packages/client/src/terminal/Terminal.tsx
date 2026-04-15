@@ -156,12 +156,13 @@ const Terminal: Component<{
     ),
   );
 
-  // Refocus terminal when search bar closes
+  // Refocus terminal when search bar closes — only if this terminal should have focus.
   createEffect(
     on(
       () => props.searchOpen,
       (open) => {
-        if (!open && props.visible && terminal) terminal.focus();
+        if (!open && props.visible && props.focused !== false && terminal)
+          terminal.focus();
       },
       { defer: true },
     ),
