@@ -97,7 +97,7 @@ let
       # Removing ~187MB of dev deps here means cp -r copies 208MB instead
       # of 395MB, halving the I/O and Nix NAR hashing time.
       rm -rf packages/client/src packages/client/node_modules
-      cd node_modules/.pnpm
+      pushd node_modules/.pnpm
       rm -rf typescript@* @esbuild* esbuild@* prettier@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
@@ -109,7 +109,7 @@ let
       local pty=node-pty@*/node_modules/node-pty
       rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
              $pty/build/Release/obj.target $pty/node-addon-api@*
-      cd /build/source
+      popd
 
       cp -r . $out
 
