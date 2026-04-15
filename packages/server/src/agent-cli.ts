@@ -9,19 +9,16 @@
  * is not a known agent invocation.
  *
  * Normalization rules:
- * - First token (basename-stripped) must be in `KNOWN_AGENTS`.
- * - Prompt/message flags (`-p`, `--prompt`, `-m`, `--message`) are
- *   stripped together with their values so ephemeral prompt text
- *   never lands in the persisted MRU (leak prevention).
- * - Session-resume flags (`-c`, `--continue`, `-r`, `--resume`) are
- *   stripped because they refer to a transient prior session —
- *   persisting them in the MRU would offer to resume a session that
- *   no longer exists (or is the wrong one) when the user picks the
- *   entry later. `--resume` may take an optional session-id value,
- *   which is also stripped.
+ * - First token (basename-stripped) must be in `STABLE_FLAGS`.
+ * - Commands containing exit-immediately flags (`--version`, `--help`,
+ *   `-V`, `-h`) return `null` — they are not agent sessions.
+ * - Only flags listed in `STABLE_FLAGS` (per agent) are preserved.
+ *   Unknown flags are dropped by default — safe by construction.
+ *   This is an allowlist, not a denylist: adding a new agent CLI flag
+ *   upstream cannot silently pollute the MRU; it is dropped until
+ *   someone adds it to the allowlist.
  * - Trailing positional arguments (after the last flag) are stripped
  *   so `aider src/foo.ts` collapses to `aider`.
- * - All other flags are preserved verbatim in their original order.
  *
  * Tokenization delegates to `string-argv`, a small focused library
  * for splitting shell-like strings into argv. We don't try to evaluate
@@ -34,38 +31,33 @@
 
 import { parseArgsStringToArgv } from "string-argv";
 
-/** Agent CLI basenames kolu recognizes out of the box.
- *  Adding a new agent is a one-line change — no adapter, no registry. */
-const KNOWN_AGENTS: ReadonlySet<string> = new Set([
-  "claude",
-  "opencode",
-  "aider",
-  "codex",
-  "goose",
-  "gemini",
-  "cursor-agent",
+/** Flags that cause the CLI to print info and exit immediately.
+ *  Commands containing any of these are not agent sessions. */
+const EXIT_FLAGS: ReadonlySet<string> = new Set([
+  "--version",
+  "-V",
+  "--help",
+  "-h",
 ]);
 
-/** Flags whose presence (and optional following value) is ephemeral and
- *  must be stripped from the MRU form. Two kinds live here:
+/** Per-agent allowlist of flags that define a meaningfully different
+ *  invocation. Only these are preserved in the MRU form. The map's
+ *  keys double as the set of known agent basenames — no separate
+ *  KNOWN_AGENTS set to keep in sync.
  *
- *  - Prompt/message flags (`-p`, `--prompt`, `-m`, `--message`): their
- *    value is user prompt text and must never be persisted.
- *  - Session-resume flags (`-c`, `--continue`, `-r`, `--resume`): they
- *    point at a transient prior session; persisting them would offer to
- *    resume a session that no longer exists when the user later picks
- *    the MRU entry. `--resume` accepts an optional session-id value,
- *    which is stripped by the same "skip next non-flag token" branch.
- */
-const EPHEMERAL_FLAGS: ReadonlySet<string> = new Set([
-  "-p",
-  "--prompt",
-  "-m",
-  "--message",
-  "-c",
-  "--continue",
-  "-r",
-  "--resume",
+ *  A flag not listed here is dropped silently — that is the safe
+ *  default. To add support for a new stable flag, add it here. */
+const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    "claude",
+    new Set(["--model", "--dangerously-skip-permissions", "--allowedTools"]),
+  ],
+  ["opencode", new Set(["--model"])],
+  ["aider", new Set(["--model"])],
+  ["codex", new Set(["--model"])],
+  ["goose", new Set([])],
+  ["gemini", new Set([])],
+  ["cursor-agent", new Set([])],
 ]);
 
 /** Basename of a path-like token (strips directory prefix). */
@@ -84,19 +76,24 @@ export function parseAgentCommand(raw: string): string | null {
   if (tokens.length === 0) return null;
 
   const agent = basename(tokens[0]!);
-  if (!KNOWN_AGENTS.has(agent)) return null;
+  if (!STABLE_FLAGS.has(agent)) return null;
 
-  // Collect stable flags + drop ephemeral flags with their values.
-  // A stable flag is any `-x` or `--xxx` that is not in EPHEMERAL_FLAGS.
-  // Anything else (trailing positional args) is dropped.
-  const kept: string[] = [agent];
   const args = tokens.slice(1);
+
+  // Exit-immediately flags → not an agent session.
+  if (args.some((t) => EXIT_FLAGS.has(t))) return null;
+
+  const allowed = STABLE_FLAGS.get(agent)!;
+
+  // Keep only allowlisted flags + their values.
+  // Anything else (unknown flags, positional args) is dropped.
+  const kept: string[] = [agent];
   for (let i = 0; i < args.length; i++) {
     const t = args[i]!;
     if (t === "--") break; // stop at explicit end-of-flags
     if (!t.startsWith("-")) continue; // drop positional
-    if (EPHEMERAL_FLAGS.has(t)) {
-      // Skip the flag and its value (if present and not another flag)
+    if (!allowed.has(t)) {
+      // Unknown flag — skip it and its value (if present)
       if (i + 1 < args.length && !args[i + 1]!.startsWith("-")) i++;
       continue;
     }

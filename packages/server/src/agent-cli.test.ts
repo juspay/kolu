@@ -74,6 +74,21 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("   ")).toBeNull();
   });
 
+  it("returns null for exit-immediately flags (--version, --help)", () => {
+    expect(parseAgentCommand("claude --version")).toBeNull();
+    expect(parseAgentCommand("claude -V")).toBeNull();
+    expect(parseAgentCommand("claude --help")).toBeNull();
+    expect(parseAgentCommand("claude -h")).toBeNull();
+    expect(parseAgentCommand("opencode --version")).toBeNull();
+    expect(parseAgentCommand("opencode --help")).toBeNull();
+  });
+
+  it("drops unknown flags (allowlist, not denylist)", () => {
+    expect(parseAgentCommand("claude --verbose")).toBe("claude");
+    expect(parseAgentCommand("claude --no-color")).toBe("claude");
+    expect(parseAgentCommand("opencode --debug")).toBe("opencode");
+  });
+
   it("recognizes all known agents", () => {
     for (const agent of [
       "claude",
