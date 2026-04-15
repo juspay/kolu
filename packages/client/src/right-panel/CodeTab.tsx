@@ -30,12 +30,28 @@ import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
 import "./code-tab.css";
-import type { GitDiffMode, TerminalMetadata } from "kolu-common";
+import type {
+  GitChangeStatus,
+  GitDiffMode,
+  TerminalMetadata,
+} from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
 import { DiffLocalIcon, DiffBranchIcon } from "../ui/Icons";
 import { buildFileTree } from "../ui/buildFileTree";
 import FileTree from "../ui/FileTree";
+
+/** Color class for each git status letter. */
+const STATUS_COLOR: Record<GitChangeStatus, string> = {
+  M: "text-warning",
+  A: "text-ok",
+  D: "text-danger",
+  R: "text-fg-3",
+  C: "text-fg-3",
+  U: "text-danger",
+  T: "text-warning",
+  "?": "text-ok",
+};
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -197,7 +213,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       }
                       renderBadge={(node) =>
                         node.kind === "file" ? (
-                          <span class="text-fg-3/70 w-3 text-center">
+                          <span
+                            class={`w-3 text-center ${STATUS_COLOR[node.status]}`}
+                          >
                             {node.status}
                           </span>
                         ) : null
