@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import {
   saveSession,
   getSavedSession,
@@ -6,10 +6,16 @@ import {
   setSavedSession,
 } from "./session.ts";
 import type { SavedTerminal } from "kolu-common";
+import { initHostname } from "./hostname.ts";
+import { initLog } from "./log.ts";
+import { initState } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
-// conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at
-// module load — no extra setup is needed here.
+// conf state into $TMPDIR, keeping ~/.config clean. Modules are inert on
+// import, so we must call the init functions explicitly before tests run.
+initHostname();
+initLog();
+initState();
 
 const terminal: SavedTerminal = {
   id: "term-1",

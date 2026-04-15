@@ -28,122 +28,141 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.8.0";
 
+// Set by initState(). Module is inert on import — no Conf instance is
+// created, no files are touched, and no env vars are checked until the
+// server explicitly initialises persistent state.
+
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
 // default path, so we refuse. Each entrypoint picks its own location:
 //   nix-built kolu → ~/.config/kolu (production)
 //   pnpm dev       → ~/.config/kolu-dev
 //   tests          → an ephemeral $TMPDIR path
-const stateDir = process.env.KOLU_STATE_DIR;
-if (!stateDir) {
-  throw new Error(
-    "KOLU_STATE_DIR must be set to an absolute directory. The nix-built " +
-      "kolu wrapper, `pnpm dev`, and the test harness each set their own — " +
-      "bare launches are rejected to avoid clobbering production state.",
-  );
-}
+export let store: Conf<PersistedState>;
 
-log.info({ path: stateDir }, "state directory");
+/** Create the Conf store, run migrations, and validate the persisted state.
+ *  Requires `initLog()` to have run first. */
+export function initState(): void {
+  const stateDir = process.env.KOLU_STATE_DIR;
+  if (!stateDir) {
+    throw new Error(
+      "KOLU_STATE_DIR must be set to an absolute directory. The nix-built " +
+        "kolu wrapper, `pnpm dev`, and the test harness each set their own — " +
+        "bare launches are rejected to avoid clobbering production state.",
+    );
+  }
 
-export const store = new Conf<PersistedState>({
-  cwd: stateDir,
-  projectVersion: SCHEMA_VERSION,
-  defaults: {
-    recentRepos: [],
-    recentAgents: [],
-    session: null,
-    preferences: DEFAULT_PREFERENCES,
-  },
-  migrations: {
-    // sortOrder added to SavedTerminal — old sessions don't have it.
-    // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
-    "1.1.0": () => {},
-    // Preferences added — old state files don't have them.
-    // conf auto-merges defaults, but explicit migration ensures clean shape.
-    "1.2.0": (store: Conf<PersistedState>) => {
-      if (!store.has("preferences")) {
-        store.set("preferences", DEFAULT_PREFERENCES);
-      }
+  log.info({ path: stateDir }, "state directory");
+
+  store = new Conf<PersistedState>({
+    cwd: stateDir,
+    projectVersion: SCHEMA_VERSION,
+    defaults: {
+      recentRepos: [],
+      recentAgents: [],
+      session: null,
+      preferences: DEFAULT_PREFERENCES,
     },
-    // sidebarAgentPreviews added — old preference blobs lack this field.
-    "1.3.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as
-        | Partial<Preferences>
-        | undefined;
-      store.set("preferences", {
-        ...DEFAULT_PREFERENCES,
-        ...current,
-      });
-    },
-    // sidebarAgentPreviews: boolean → enum. Previously `true` meant
-    // "preview every agent terminal" (now "agents"), `false` meant off
-    // (now "none"). New installs default to "attention".
-    "1.4.0": (store: Conf<PersistedState>) => {
-      // Cast through `unknown` because the persisted shape predates
-      // the enum — on disk the field may still be a boolean.
-      const current = store.get("preferences") as unknown as
-        | (Record<string, unknown> & { sidebarAgentPreviews?: unknown })
-        | undefined;
-      const old = current?.sidebarAgentPreviews;
-      const migrated =
-        old === true
-          ? "agents"
-          : old === false
-            ? "none"
-            : typeof old === "string"
-              ? (old as Preferences["sidebarAgentPreviews"])
-              : undefined;
-      store.set("preferences", {
-        ...DEFAULT_PREFERENCES,
-        ...(current as Partial<Preferences>),
-        sidebarAgentPreviews:
-          migrated ?? DEFAULT_PREFERENCES.sidebarAgentPreviews,
-      });
-    },
-    // recentAgents added — seed as empty array for existing state files.
-    "1.5.0": (store: Conf<PersistedState>) => {
-      if (!store.has("recentAgents")) {
-        store.set("recentAgents", []);
-      }
-    },
-    // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
-    "1.6.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as
-        | Partial<Preferences>
-        | undefined;
-      store.set("preferences", {
-        ...DEFAULT_PREFERENCES,
-        ...current,
-      });
-    },
-    // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
-    "1.7.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as
-        | Record<string, unknown>
-        | undefined;
-      const { rightPanelCollapsed, rightPanelSize, ...rest } = current ?? {};
-      store.set("preferences", {
-        ...DEFAULT_PREFERENCES,
-        ...rest,
-        rightPanel: DEFAULT_PREFERENCES.rightPanel,
-      });
-    },
-    // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
-    // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    "1.8.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const staleTab =
-        current.rightPanel.tab !== "inspector" &&
-        current.rightPanel.tab !== "review";
-      if (staleTab) {
+    migrations: {
+      // sortOrder added to SavedTerminal — old sessions don't have it.
+      // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
+      "1.1.0": () => {},
+      // Preferences added — old state files don't have them.
+      // conf auto-merges defaults, but explicit migration ensures clean shape.
+      "1.2.0": (store: Conf<PersistedState>) => {
+        if (!store.has("preferences")) {
+          store.set("preferences", DEFAULT_PREFERENCES);
+        }
+      },
+      // sidebarAgentPreviews added — old preference blobs lack this field.
+      "1.3.0": (store: Conf<PersistedState>) => {
+        const current = store.get("preferences") as
+          | Partial<Preferences>
+          | undefined;
         store.set("preferences", {
+          ...DEFAULT_PREFERENCES,
           ...current,
-          rightPanel: { ...current.rightPanel, tab: "inspector" },
         });
-      }
+      },
+      // sidebarAgentPreviews: boolean → enum. Previously `true` meant
+      // "preview every agent terminal" (now "agents"), `false` meant off
+      // (now "none"). New installs default to "attention".
+      "1.4.0": (store: Conf<PersistedState>) => {
+        // Cast through `unknown` because the persisted shape predates
+        // the enum — on disk the field may still be a boolean.
+        const current = store.get("preferences") as unknown as
+          | (Record<string, unknown> & { sidebarAgentPreviews?: unknown })
+          | undefined;
+        const old = current?.sidebarAgentPreviews;
+        const migrated =
+          old === true
+            ? "agents"
+            : old === false
+              ? "none"
+              : typeof old === "string"
+                ? (old as Preferences["sidebarAgentPreviews"])
+                : undefined;
+        store.set("preferences", {
+          ...DEFAULT_PREFERENCES,
+          ...(current as Partial<Preferences>),
+          sidebarAgentPreviews:
+            migrated ?? DEFAULT_PREFERENCES.sidebarAgentPreviews,
+        });
+      },
+      // recentAgents added — seed as empty array for existing state files.
+      "1.5.0": (store: Conf<PersistedState>) => {
+        if (!store.has("recentAgents")) {
+          store.set("recentAgents", []);
+        }
+      },
+      // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
+      "1.6.0": (store: Conf<PersistedState>) => {
+        const current = store.get("preferences") as
+          | Partial<Preferences>
+          | undefined;
+        store.set("preferences", {
+          ...DEFAULT_PREFERENCES,
+          ...current,
+        });
+      },
+      // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
+      "1.7.0": (store: Conf<PersistedState>) => {
+        const current = store.get("preferences") as
+          | Record<string, unknown>
+          | undefined;
+        const { rightPanelCollapsed, rightPanelSize, ...rest } = current ?? {};
+        store.set("preferences", {
+          ...DEFAULT_PREFERENCES,
+          ...rest,
+          rightPanel: DEFAULT_PREFERENCES.rightPanel,
+        });
+      },
+      // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
+      // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
+      "1.8.0": (store: Conf<PersistedState>) => {
+        const current = store.get("preferences");
+        const staleTab =
+          current.rightPanel.tab !== "inspector" &&
+          current.rightPanel.tab !== "review";
+        if (staleTab) {
+          store.set("preferences", {
+            ...current,
+            rightPanel: { ...current.rightPanel, tab: "inspector" },
+          });
+        }
+      },
     },
-  },
-});
+  });
+
+  // Early validation so corrupt state shows up in journalctl immediately at
+  // startup, not only when the first client connects.
+  // TODO: remove try/catch and let the server crash once error propagation is confirmed.
+  try {
+    getServerState();
+  } catch {
+    // Already logged inside getServerState().
+  }
+}
 
 /** Format Zod issues into a one-line diagnostic with a recovery hint. */
 function formatStateError(
@@ -276,15 +295,6 @@ export function updateServerState(patch: ServerStatePatch): void {
   }
   // Notify live query subscribers
   publishSystem("state:changed", getServerState());
-}
-
-// Early validation so corrupt state shows up in journalctl immediately at
-// startup, not only when the first client connects.
-// TODO: remove try/catch and let the server crash once error propagation is confirmed.
-try {
-  getServerState();
-} catch {
-  // Already logged inside getServerState().
 }
 
 /** Test-only: apply a full patch including `recentRepos` and `recentAgents`.

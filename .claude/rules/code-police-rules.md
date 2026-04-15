@@ -65,6 +65,16 @@ Bad: `log.warn({ err }, "query failed")` / `log.debug({ err }, "scan failed")`
 Good: `log.error({ err }, "query failed")`
 _Rationale_: Operators filter on `error` level for alerting. An actual failure logged at `warn` or `debug` is invisible in production. The `Logger` type in `kolu-integration-common` includes all four levels (`debug`, `info`, `warn`, `error`) — use the right one.
 
+### no-side-effects-on-import
+
+Modules must be inert on import. No I/O, system calls, env-var validation, logging, or constructor calls that touch the outside world at module scope. Importing a module gives you functions and types — it does not *do* things.
+Bad: `export const store = new Conf({...})` (creates files on disk when imported)
+Bad: `export const host = hostname()` (system call at module scope)
+Bad: `export const X = (() => { if (!process.env.Y) throw ... })()` (env check IIFE at module scope)
+Good: `export let store: Conf<...>; export function initState() { store = new Conf({...}); }`
+_Rationale_: Module-scope side effects make the import graph an implicit initialization sequence. CLI flags like `--help` trigger disk writes. Tests can't import a module without triggering its effects. Startup order becomes fragile and implicit. Explicit `init*()` calls make the dependency order visible and controllable.
+**Exception**: Pure in-memory allocation (`new Map()`, `new Set()`, array literals) and `createRequire()` for CJS interop are not side effects — they don't touch the outside world.
+
 ### subscription-must-surface-errors
 
 Every `createSubscription` consumer must watch `sub.error()` and surface failures to the user (typically via `toast.error()`). A subscription whose `.error()` signal is never read silently swallows server-side failures — the stream dies and the user sees stale/missing data with no indication of what went wrong.

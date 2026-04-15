@@ -16,21 +16,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serverProcessId } from "./hostname.ts";
 
-const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
-
+// Set by ensureKoluRoot(). Module is inert on import — paths are computed
+// only when the server explicitly creates the root directory.
 /** Per-server-instance root. Everything kolu's server writes to disk for
  *  transient per-terminal use lives under here. */
-export const koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
+export let koluRoot: string;
 
 /** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
-export const koluShellDir = join(koluRoot, "shell");
+export let koluShellDir: string;
 
 /** Per-terminal clipboard image-paste shim directories. */
-export const koluClipboardDir = join(koluRoot, "clipboard");
+export let koluClipboardDir: string;
 
-/** Create the root + subdirs with owner-only mode. Called once at server
- *  startup before any terminal spawns. Idempotent. */
+/** Compute paths and create the root + subdirs with owner-only mode.
+ *  Called once at server startup before any terminal spawns.
+ *  Requires `initHostname()` to have run first. Idempotent. */
 export function ensureKoluRoot(): void {
+  const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
+  koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
+  koluShellDir = join(koluRoot, "shell");
+  koluClipboardDir = join(koluRoot, "clipboard");
   mkdirSync(koluShellDir, { recursive: true, mode: 0o700 });
   mkdirSync(koluClipboardDir, { recursive: true, mode: 0o700 });
 }
@@ -38,7 +43,9 @@ export function ensureKoluRoot(): void {
 /** Remove the whole per-instance root on shutdown. Registered on the
  *  `process.on('exit', ...)` hook so it runs synchronously from every exit
  *  path. If rmSync throws, Node's default exit-handler reporter prints the
- *  stack — we do not swallow. */
+ *  stack — we do not swallow. Guards against early exits before
+ *  `ensureKoluRoot()` has computed the paths. */
 export function shutdownCleanup(): void {
+  if (!koluRoot) return;
   rmSync(koluRoot, { recursive: true, force: true });
 }
