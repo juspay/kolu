@@ -1,0 +1,7 @@
+# Regenerate words.json from WordNet
+regenerate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build "$(git rev-parse --show-toplevel)#regenerateWords" --print-out-paths --no-link)
+    cp "$out/words.json" "$(dirname "$0")/words.json"
+    echo "Updated words.json"

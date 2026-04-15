@@ -4,7 +4,7 @@
  *  checked-in as themes.json — no env var, no Vite virtual module.
  *
  *  To regenerate from iTerm2-Color-Schemes:
- *    just regenerate-themes
+ *    just regenerate  (from this package directory)
  */
 
 export type { ITheme } from "@xterm/xterm";

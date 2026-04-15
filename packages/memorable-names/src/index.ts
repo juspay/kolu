@@ -3,7 +3,7 @@
  * Word lists ship checked-in as words.json (no env var, no runtime file I/O).
  *
  * To regenerate from WordNet:
- *   just regenerate-words
+ *   just regenerate  (from packages/memorable-names/)
  */
 
 import words from "../words.json" with { type: "json" };

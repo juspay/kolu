@@ -16,5 +16,5 @@ const name = randomName(); // e.g. "bright-falcon"
 To rebuild `words.json` from WordNet:
 
 ```sh
-just regenerate-words
+cd packages/memorable-names && just regenerate
 ```

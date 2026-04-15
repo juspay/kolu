@@ -34,5 +34,5 @@ const shuffled = pickTheme(availableThemes, {
 To rebuild `themes.json` from iTerm2-Color-Schemes:
 
 ```sh
-just regenerate-themes
+cd packages/terminal-themes && just regenerate
 ```
