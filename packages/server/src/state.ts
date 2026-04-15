@@ -9,13 +9,14 @@
 import fs from "node:fs";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
-import type {
-  Preferences,
-  RecentRepo,
-  RecentAgent,
-  PersistedState,
-  ServerState,
-  ServerStatePatch,
+import {
+  PersistedStateSchema,
+  type Preferences,
+  type RecentRepo,
+  type RecentAgent,
+  type PersistedState,
+  type ServerState,
+  type ServerStatePatch,
 } from "kolu-common";
 import { publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
@@ -163,6 +164,16 @@ export const store = new Conf<PersistedState>({
   },
 });
 
+/** Format Zod issues into a one-line diagnostic with a recovery hint. */
+function formatStateError(
+  issues: { path: PropertyKey[]; message: string }[],
+): string {
+  const summary = issues
+    .map((i) => `${i.path.join(".")}: ${i.message}`)
+    .join("; ");
+  return `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
+}
+
 /** Check if a path exists on disk. */
 function existsOnDisk(path: string): boolean {
   try {
@@ -247,14 +258,22 @@ function getRecentAgents(): RecentAgent[] {
 
 // --- Server state ---
 
-/** Get the full server state. */
+/** Get the full server state. Validates against the Zod schema so callers
+ *  get a descriptive error instead of oRPC's generic validation failure. */
 export function getServerState(): ServerState {
-  return {
+  const state = {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
     session: store.get("session"),
     preferences: store.get("preferences"),
   };
+  const result = PersistedStateSchema.safeParse(state);
+  if (!result.success) {
+    const msg = formatStateError(result.error.issues);
+    log.error({ issues: result.error.issues, path: store.path }, msg);
+    throw new Error(msg);
+  }
+  return result.data;
 }
 
 /** Merge a partial update into the current state.
@@ -276,6 +295,15 @@ export function updateServerState(patch: ServerStatePatch): void {
   }
   // Notify live query subscribers
   publishSystem("state:changed", getServerState());
+}
+
+// Early validation so corrupt state shows up in journalctl immediately at
+// startup, not only when the first client connects.
+// TODO: remove try/catch and let the server crash once error propagation is confirmed.
+try {
+  getServerState();
+} catch {
+  // Already logged inside getServerState().
 }
 
 /** Test-only: apply a full patch including `recentRepos` and `recentAgents`.

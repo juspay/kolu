@@ -38,13 +38,31 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
   try {
     const git = simpleGit(cwd);
     // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
-    // throws on them. Detect up front and return a GitInfo rooted at cwd —
-    // the palette consumer treats the result as "a repo you can spawn a
-    // worktree from," which is exactly right for a bare repo.
+    // throws on them. Detect up front and return a GitInfo rooted at the
+    // bare repo's own location — the palette consumer treats the result as
+    // "a repo you can spawn a worktree from," which is exactly right.
     const isBare =
       (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
     if (isBare) {
-      const realCwd = fs.realpathSync(cwd);
+      // Derive the repo location from `--git-dir`, not cwd. For a canonical
+      // bare repo (`/tmp/foo` bare, cwd == bare dir) the two coincide. For
+      // project layouts where a bare `.git` sits inside a working dir
+      // (`/home/user/proj/.git` with sibling `proj/.worktrees/`), cwd can be
+      // anywhere around `.git` — falling back to `basename(cwd)` would
+      // report the wrong name (e.g. `.worktrees`).
+      const gitDirAbs = fs.realpathSync(
+        path.resolve(cwd, (await git.raw(["rev-parse", "--git-dir"])).trim()),
+      );
+      const gitDirBase = path.basename(gitDirAbs);
+      // Three shapes:
+      //   /proj/.git        → root /proj,        name proj
+      //   /foo.git          → root /foo.git,     name foo
+      //   /foo (bare dir)   → root /foo,         name foo
+      const isDotGit = gitDirBase === ".git";
+      const repoRoot = isDotGit ? path.dirname(gitDirAbs) : gitDirAbs;
+      const repoName = isDotGit
+        ? path.basename(repoRoot)
+        : gitDirBase.replace(/\.git$/, "");
       let branch: string;
       try {
         branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
@@ -53,12 +71,12 @@ export async function resolveGitInfo(cwd: string): Promise<GitInfo | null> {
         branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
       }
       return {
-        repoRoot: realCwd,
-        repoName: path.basename(realCwd),
-        worktreePath: realCwd,
+        repoRoot,
+        repoName,
+        worktreePath: repoRoot,
         branch,
         isWorktree: false,
-        mainRepoRoot: realCwd,
+        mainRepoRoot: repoRoot,
       };
     }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();

@@ -45,6 +45,15 @@ export function useServerState() {
         },
       ),
     );
+    // Surface subscription errors (e.g. schema mismatch) so they don't vanish silently.
+    createEffect(
+      on(
+        () => sub.error(),
+        (err) => {
+          if (err) toast.error(`Server state error: ${err.message}`);
+        },
+      ),
+    );
   }
 
   /** Update one or more preferences. Instant local update + async server persist.
