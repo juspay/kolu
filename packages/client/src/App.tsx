@@ -392,26 +392,12 @@ const App: Component = () => {
               />
               {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size.
                *  overflow-hidden: prevent scrollbar when collapsed edge strip + Resizable exceed container width. */}
-              <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
-                <Resizable
-                  orientation="horizontal"
-                  sizes={
-                    rightPanel.collapsed()
-                      ? [1, 0]
-                      : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-                  }
-                  onSizesChange={(sizes) => {
-                    if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
-                  }}
-                  class="flex-1 min-h-0 overflow-hidden"
-                >
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 flex flex-col"
-                    minSize={0.3}
-                  >
+              <Show
+                when={!rightPanel.collapsed() && rightPanel.pinned()}
+                fallback={
+                  <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden relative">
                     <div
-                      class="flex-1 min-h-0 overflow-hidden"
+                      class="flex-1 min-h-0 overflow-hidden flex flex-col"
                       style={{ "background-color": activeTheme().background }}
                       data-testid="terminal-viewport"
                     >
@@ -448,34 +434,108 @@ const App: Component = () => {
                           )}
                         </For>
                       </Show>
+                      <MobileKeyBar activeId={store.activeId} />
                     </div>
-                    <MobileKeyBar activeId={store.activeId} />
-                  </Resizable.Panel>
+                    {/* Overlay right panel */}
+                    <Show when={!rightPanel.collapsed()}>
+                      <>
+                        <div
+                          class="absolute inset-0 bg-black/20 z-20"
+                          onClick={() => rightPanel.collapsePanel()}
+                        />
+                        <div
+                          class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 shadow-2xl shadow-black/30"
+                          style={{ "max-width": "50%" }}
+                        >
+                          <RightPanel
+                            meta={store.activeMeta()}
+                            onToggle={rightPanel.togglePanel}
+                            themeName={activeThemeName()}
+                            onThemeClick={() => openPaletteGroup("Theme")}
+                          />
+                        </div>
+                      </>
+                    </Show>
+                  </div>
+                }
+              >
+                <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
+                  <Resizable
+                    orientation="horizontal"
+                    sizes={[1 - rightPanel.panelSize(), rightPanel.panelSize()]}
+                    onSizesChange={(sizes) => {
+                      if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+                    }}
+                    class="flex-1 min-h-0 overflow-hidden"
+                  >
+                    <Resizable.Panel
+                      as="div"
+                      class="min-w-0 min-h-0 flex flex-col"
+                      minSize={0.3}
+                    >
+                      <div
+                        class="flex-1 min-h-0 overflow-hidden"
+                        style={{ "background-color": activeTheme().background }}
+                        data-testid="terminal-viewport"
+                      >
+                        <Show
+                          when={!session.isLoading()}
+                          fallback={
+                            <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                              Connecting...
+                            </div>
+                          }
+                        >
+                          <Show when={store.terminalIds().length === 0}>
+                            <EmptyState
+                              savedSession={session.savedSession() ?? undefined}
+                              onRestore={() => void session.handleRestoreSession()}
+                            />
+                          </Show>
+                          <For each={store.terminalIds()}>
+                            {(id) => (
+                              <TerminalPane
+                                terminalId={id}
+                                visible={store.activeId() === id}
+                                theme={getTerminalTheme(id)}
+                                searchOpen={searchOpen()}
+                                onSearchOpenChange={setSearchOpen}
+                                subTerminalIds={store.getSubTerminalIds(id)}
+                                getMetadata={store.getMetadata}
+                                onCreateSubTerminal={(parentId, cwd) =>
+                                  void crud.handleCreateSubTerminal(parentId, cwd)
+                                }
+                                onCloseTerminal={closeTerminal}
+                                activeMeta={store.activeMeta()}
+                              />
+                            )}
+                          </For>
+                        </Show>
+                      </div>
+                      <MobileKeyBar activeId={store.activeId} />
+                    </Resizable.Panel>
 
-                  <Show when={!rightPanel.collapsed()}>
                     <Resizable.Handle
                       data-testid="right-panel-handle"
                       class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
                       aria-label="Resize inspector panel"
                     />
-                  </Show>
 
-                  <Resizable.Panel
-                    as="div"
-                    class="min-w-0 min-h-0 overflow-hidden"
-                    minSize={0}
-                  >
-                    <Show when={!rightPanel.collapsed()}>
+                    <Resizable.Panel
+                      as="div"
+                      class="min-w-0 min-h-0 overflow-hidden"
+                      minSize={0}
+                    >
                       <RightPanel
                         meta={store.activeMeta()}
                         onToggle={rightPanel.togglePanel}
                         themeName={activeThemeName()}
                         onThemeClick={() => openPaletteGroup("Theme")}
                       />
-                    </Show>
-                  </Resizable.Panel>
-                </Resizable>
-              </div>
+                    </Resizable.Panel>
+                  </Resizable>
+                </div>
+              </Show>
             </>
           }
         >
