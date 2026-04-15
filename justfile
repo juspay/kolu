@@ -5,7 +5,10 @@
 # Caveat: new .nix files must be `git add`ed before nix develop sees them.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
 # E2e shell includes Playwright browsers (not in default shell for perf).
-nix_shell_e2e := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
+# Check PLAYWRIGHT_BROWSERS_PATH, not IN_NIX_SHELL — the default shell sets
+# IN_NIX_SHELL but doesn't provide browsers, so `just ci::e2e` (which runs
+# inside the default shell) must still enter .#e2e to get them.
+nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
