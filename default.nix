@@ -68,6 +68,12 @@ let
 
     inherit pnpmDeps;
 
+    # The fixupPhase (strip, patchShebangs, patchELF) traverses the entire
+    # output tree (~395MB of node_modules). For a Node.js app this is pure
+    # overhead: shebangs are already patched by pnpmConfigHook, and the
+    # only native binary (node-pty .node) is correctly linked by node-gyp.
+    dontFixup = true;
+
     env = {
       npm_config_nodedir = pkgs.nodejs;
       NIX_NODEJS_BUILDNPMPACKAGE = "1";
@@ -86,9 +92,27 @@ let
 
     installPhase = ''
       runHook preInstall
+
+      # Strip build-only packages and artifacts BEFORE copying to $out.
+      # Removing ~187MB of dev deps here means cp -r copies 208MB instead
+      # of 395MB, halving the I/O and Nix NAR hashing time.
+      rm -rf packages/client/src packages/client/node_modules
+      pushd node_modules/.pnpm
+      rm -rf typescript@* @esbuild* esbuild@* prettier@* \
+             lightningcss* rollup@* @rollup* \
+             vitest@* @vitest* \
+             vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
+             @babel* babel-plugin-* \
+             es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
+             @types+node@* @types+ws@* \
+             core-js-compat@* regexpu-core@* regjsparser@* terser@*
+      local pty=node-pty@*/node_modules/node-pty
+      rm -rf $pty/prebuilds $pty/third_party $pty/deps $pty/src $pty/scripts \
+             $pty/build/Release/obj.target $pty/node-addon-api@*
+      popd
+
       cp -r . $out
-      rm -rf $out/packages/client/src $out/packages/client/node_modules
-      chmod +x $out/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true
+
       runHook postInstall
     '';
   };
