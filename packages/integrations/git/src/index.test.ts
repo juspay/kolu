@@ -58,7 +58,13 @@ describe("getDiff", () => {
 
     await git.raw(["mv", "old-name.ts", "new-name.ts"]);
 
-    const result = await getDiff(dir, "new-name.ts", "local");
+    const result = await getDiff(
+      dir,
+      "new-name.ts",
+      "local",
+      undefined,
+      "old-name.ts",
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -66,8 +72,14 @@ describe("getDiff", () => {
     expect(result.value.newFileName).toBe("new-name.ts");
     expect(result.value.oldContent).toBe(content);
     expect(result.value.newContent).toBe(content);
-    // No content change — hunks should be empty
-    expect(result.value.hunks).toEqual([]);
+    // No content change — hunks contain the rename header but no +/- lines.
+    const diffLines = result.value.hunks
+      .join("")
+      .split("\n")
+      .filter(
+        (l) => /^[+-]/.test(l) && !l.startsWith("---") && !l.startsWith("+++"),
+      );
+    expect(diffLines).toEqual([]);
   });
 
   it("rename + edit: old path and content, hunks show only the delta", async () => {
@@ -84,7 +96,13 @@ describe("getDiff", () => {
       "export const a = 1;\nexport const b = 2;\n",
     );
 
-    const result = await getDiff(dir, "lib/utils.ts", "local");
+    const result = await getDiff(
+      dir,
+      "lib/utils.ts",
+      "local",
+      undefined,
+      "utils.ts",
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -99,7 +117,9 @@ describe("getDiff", () => {
     const diffLines = result.value.hunks
       .join("")
       .split("\n")
-      .filter((l) => /^[+-]/.test(l) && !l.startsWith("---") && !l.startsWith("+++"));
+      .filter(
+        (l) => /^[+-]/.test(l) && !l.startsWith("---") && !l.startsWith("+++"),
+      );
     expect(diffLines).toEqual(["+export const b = 2;"]);
   });
 });
@@ -196,13 +216,15 @@ describe("parseNameStatus", () => {
   it("extracts the new path from renames (R<score>)", () => {
     const raw = "R100\told/path.ts\tnew/path.ts\n";
     expect(parseNameStatus(raw)).toEqual([
-      { path: "new/path.ts", status: "R" },
+      { path: "new/path.ts", status: "R", oldPath: "old/path.ts" },
     ]);
   });
 
   it("extracts the destination from copies (C<score>)", () => {
     const raw = "C075\tsrc.ts\tdst.ts\n";
-    expect(parseNameStatus(raw)).toEqual([{ path: "dst.ts", status: "C" }]);
+    expect(parseNameStatus(raw)).toEqual([
+      { path: "dst.ts", status: "C", oldPath: "src.ts" },
+    ]);
   });
 
   it("handles type-change (T) lines", () => {

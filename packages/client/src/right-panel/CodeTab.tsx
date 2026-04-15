@@ -100,7 +100,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     () => {
       const p = repoPath();
       const s = selectedPath();
-      return p && s ? { repoPath: p, filePath: s, mode: mode() } : null;
+      if (!p || !s) return null;
+      const file = status()?.files.find((f) => f.path === s);
+      return { repoPath: p, filePath: s, mode: mode(), oldPath: file?.oldPath };
     },
     (input) => client.git.diff(input),
   );

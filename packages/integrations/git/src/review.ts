@@ -83,9 +83,12 @@ export function parseNameStatus(raw: string): GitChangedFile[] {
     const parts = line.split("\t");
     const letter = parts[0]?.[0] ?? "";
     // Rename/copy rows have 3 fields; everything else has 2.
-    const filePath = parts.length >= 3 ? parts[2] : parts[1];
+    const isRenameOrCopy = parts.length >= 3;
+    const filePath = isRenameOrCopy ? parts[2] : parts[1];
     if (!filePath) continue;
-    files.push({ path: filePath, status: toChangeStatus(letter) });
+    const status = toChangeStatus(letter);
+    const oldPath = isRenameOrCopy ? parts[1] : undefined;
+    files.push({ path: filePath, status, ...(oldPath && { oldPath }) });
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -106,7 +109,11 @@ async function getLocalStatus(repoPath: string): Promise<GitChangedFile[]> {
   for (const f of status.files) {
     // working_dir takes precedence; fall back to index.
     const letter = f.working_dir !== " " ? f.working_dir : f.index;
-    seen.set(f.path, { path: f.path, status: toChangeStatus(letter) });
+    seen.set(f.path, {
+      path: f.path,
+      status: toChangeStatus(letter),
+      ...(f.from && { oldPath: f.from }),
+    });
   }
   for (const p of status.not_added) {
     if (!seen.has(p)) seen.set(p, { path: p, status: "?" });
@@ -229,10 +236,20 @@ export async function getDiff(
   filePath: string,
   mode: GitDiffMode,
   log?: Logger,
+  oldPath?: string,
 ): Promise<GitResult<GitDiffOutput>> {
   const pathResult = resolveUnder(repoPath, filePath, log);
   if (!pathResult.ok) return pathResult;
   const { abs, rel } = pathResult.value;
+
+  // Validate oldPath the same way filePath is validated — it comes from
+  // the client and must not escape the repo root.
+  let oldRel = rel;
+  if (oldPath) {
+    const oldPathResult = resolveUnder(repoPath, oldPath, log);
+    if (!oldPathResult.ok) return oldPathResult;
+    oldRel = oldPathResult.value.rel;
+  }
 
   let baseRev: string;
   if (mode === "local") {
@@ -245,9 +262,11 @@ export async function getDiff(
 
   try {
     const [oldContent, newContent, tracked] = await Promise.all([
-      readContentAtRev(repoPath, baseRev, rel),
+      readContentAtRev(repoPath, baseRev, oldRel),
       readWorkingContent(abs),
-      gitOutput(repoPath, ["diff", baseRev, "--", rel]),
+      oldPath
+        ? gitOutput(repoPath, ["diff", "-M", baseRev, "--", oldRel, rel])
+        : gitOutput(repoPath, ["diff", baseRev, "--", rel]),
     ]);
 
     // Branch mode's file list comes from `git diff --name-status`, which
@@ -275,7 +294,7 @@ export async function getDiff(
     }
 
     return ok({
-      oldFileName: oldContent ? rel : null,
+      oldFileName: oldContent ? oldRel : null,
       newFileName: newContent ? rel : null,
       oldContent,
       newContent,
