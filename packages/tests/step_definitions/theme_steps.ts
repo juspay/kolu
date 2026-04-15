@@ -48,10 +48,52 @@ Then(
   },
 );
 
-When("I press the random theme shortcut", async function (this: KoluWorld) {
+When("I press the shuffle theme shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+j`);
   await this.waitForFrame();
 });
+
+/** Press shuffle N times, recording the displayed theme name after each
+ *  press into `world.shuffleHistory`. The initial (pre-shuffle) theme is
+ *  also captured at index 0 so the next-step assertions can reason about
+ *  the full sequence. */
+When(
+  "I press the shuffle theme shortcut {int} times",
+  async function (this: KoluWorld, count: number) {
+    const themeName = this.page.locator('[data-testid="theme-name"]');
+    await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const initial = (await themeName.textContent()) ?? "";
+    this.shuffleHistory = [initial];
+    for (let i = 0; i < count; i++) {
+      const before = this.shuffleHistory[this.shuffleHistory.length - 1]!;
+      await this.page.keyboard.press(`${MOD_KEY}+j`);
+      // Wait until the theme name actually changes — shuffle is async (RPC
+      // round-trip + subscription tick), so reading immediately after the
+      // keypress would race and capture the prior theme.
+      await this.page.waitForFunction(
+        (prev) => {
+          const el = document.querySelector('[data-testid="theme-name"]');
+          return (el?.textContent ?? "") !== prev;
+        },
+        before,
+        { timeout: POLL_TIMEOUT },
+      );
+      const next = (await themeName.textContent()) ?? "";
+      this.shuffleHistory.push(next);
+    }
+  },
+);
+
+Then(
+  "the shuffle history should have at least {int} distinct themes",
+  function (this: KoluWorld, expected: number) {
+    const distinct = new Set(this.shuffleHistory);
+    assert.ok(
+      distinct.size >= expected,
+      `Expected ≥${expected} distinct themes across shuffles; got ${distinct.size}: ${JSON.stringify(this.shuffleHistory)}`,
+    );
+  },
+);
 
 Then(
   "the header theme should differ from {string}",

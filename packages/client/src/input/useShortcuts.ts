@@ -21,7 +21,7 @@ interface ShortcutDeps {
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
-  handleRandomizeTheme: () => void;
+  handleShuffleTheme: () => void;
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
   toggleRightPanel: () => void;
@@ -163,8 +163,8 @@ function dispatch(
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.randomizeTheme.keybind)) {
-    deps.handleRandomizeTheme();
+  if (matchesKeybind(e, SHORTCUTS.shuffleTheme.keybind)) {
+    deps.handleShuffleTheme();
     return true;
   }
 

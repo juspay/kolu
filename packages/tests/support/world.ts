@@ -44,6 +44,7 @@ export class KoluWorld extends World {
   savedVisibleText?: string;
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];
+  shuffleHistory: string[] = [];
 
   /** Wait for a double-rAF — ensures SolidJS reactivity + Corvu transitions have been flushed. */
   async waitForFrame() {

@@ -1,0 +1,236 @@
+import { describe, it, expect } from "vitest";
+import {
+  hexToOkLab,
+  okLabDistance,
+  pickShuffleTheme,
+  pickVariegatedTheme,
+} from "./themePicker";
+import type { NamedTheme } from "./theme";
+
+function mk(name: string, background: string): NamedTheme {
+  return { name, theme: { background } };
+}
+
+// Fixed-sequence rand — useful for making tiebreakers deterministic.
+function seqRand(...values: number[]): () => number {
+  let i = 0;
+  return () => values[i++ % values.length] ?? 0;
+}
+
+describe("hexToOkLab", () => {
+  it("parses #rrggbb", () => {
+    const lab = hexToOkLab("#000000");
+    expect(lab).toBeDefined();
+    expect(lab!.L).toBeCloseTo(0, 5);
+  });
+
+  it("parses #rgb shorthand same as full form", () => {
+    const a = hexToOkLab("#f00");
+    const b = hexToOkLab("#ff0000");
+    expect(a).toEqual(b);
+  });
+
+  it("rejects non-hex", () => {
+    expect(hexToOkLab("red")).toBeUndefined();
+    expect(hexToOkLab("#1234")).toBeUndefined();
+    expect(hexToOkLab("#12345678")).toBeUndefined();
+    expect(hexToOkLab("")).toBeUndefined();
+  });
+
+  it("white has max L", () => {
+    const white = hexToOkLab("#ffffff")!;
+    const black = hexToOkLab("#000000")!;
+    expect(white.L).toBeGreaterThan(black.L);
+    expect(white.L).toBeCloseTo(1, 2);
+  });
+});
+
+describe("okLabDistance", () => {
+  it("is zero for identical colours", () => {
+    const a = hexToOkLab("#282a36")!;
+    expect(okLabDistance(a, a)).toBe(0);
+  });
+
+  it("down-weights luminance relative to hue", () => {
+    // For two candidates with the same peer, the one whose delta is purely
+    // in luminance (Δa=Δb=0) should score less distant than the one whose
+    // delta is in the a-axis only, at equal raw magnitudes. This is a
+    // direct algebraic consequence of `dL / L_DOWNWEIGHT` — luminance is
+    // the only axis that gets divided, so equal |Δ| on (a,b) produces a
+    // strictly larger distance than equal |Δ| on L.
+    const ref = { L: 0.5, a: 0, b: 0 };
+    const lightShift = { L: 0.7, a: 0, b: 0 };
+    const hueShift = { L: 0.5, a: 0.2, b: 0 };
+    expect(okLabDistance(ref, hueShift)).toBeGreaterThan(
+      okLabDistance(ref, lightShift),
+    );
+  });
+});
+
+describe("pickVariegatedTheme", () => {
+  it("throws when candidates is empty", () => {
+    expect(() => pickVariegatedTheme([], [])).toThrow();
+  });
+
+  it("with no used bgs, rand picks the tiebreaker", () => {
+    const candidates = [
+      mk("A", "#111111"),
+      mk("B", "#222222"),
+      mk("C", "#333333"),
+    ];
+    // rand()=0 → first tied candidate (index 0)
+    expect(pickVariegatedTheme(candidates, [], () => 0)).toBe("A");
+    // rand()=0.99 → last tied candidate. Tie group has length 3, floor(0.99*3)=2.
+    expect(pickVariegatedTheme(candidates, [], () => 0.99)).toBe("C");
+  });
+
+  it("never picks a candidate whose bg matches a used bg exactly", () => {
+    // When one candidate's bg is identical to the only used bg, it scores 0;
+    // any other parseable candidate scores > 0 and wins.
+    const candidates = [mk("Same", "#282a36"), mk("Other", "#ffffff")];
+    expect(pickVariegatedTheme(candidates, ["#282a36"])).toBe("Other");
+  });
+
+  it("maximises distance across multiple peers", () => {
+    // Peers cluster in blue-ish dark territory; green-tinted candidate is
+    // farthest and should be picked regardless of tie-breaking rand.
+    const candidates = [
+      mk("Blueish", "#222244"),
+      mk("PurpleDark", "#332244"),
+      mk("GreenTint", "#224422"),
+    ];
+    const peers = ["#222244", "#2a2a50"];
+    expect(pickVariegatedTheme(candidates, peers, () => 0)).toBe("GreenTint");
+  });
+
+  it("rejects candidates whose bg chroma exceeds the garish cap", () => {
+    // The picker maximises distance, which without a chroma cap would
+    // gleefully pick neon-bright bgs over tasteful ones (they're the
+    // farthest points in colour space). With the cap, an over-saturated
+    // candidate falls to score = -Infinity and only wins when nothing
+    // else is available.
+    const candidates = [
+      mk("Tasteful", "#1d1f21"), // low chroma, dark
+      mk("BrightYellow", "#ffff00"), // chroma well above the cap
+    ];
+    expect(pickVariegatedTheme(candidates, ["#000000"])).toBe("Tasteful");
+  });
+
+  it("skips candidates without a parseable bg", () => {
+    const candidates = [
+      mk("NoBg", ""),
+      mk("Named", "red" /* not #hex → unparseable */),
+      mk("Real", "#123456"),
+    ];
+    expect(pickVariegatedTheme(candidates, ["#fedcba"])).toBe("Real");
+  });
+
+  it("falls back to an unparseable candidate when it's all that's left", () => {
+    const candidates = [mk("Broken", "not-a-color")];
+    expect(pickVariegatedTheme(candidates, [])).toBe("Broken");
+  });
+
+  it("tiebreaker uses rand across every maximally-distant candidate", () => {
+    // Two candidates at exactly the same max distance from the peer.
+    // Using neutral greys keeps both well under MAX_CANDIDATE_CHROMA so the
+    // cap doesn't interfere with the tie test.
+    const candidates = [
+      mk("Left", "#888888"),
+      mk("Right", "#888888"), // identical bg → identical score
+      mk("Closer", "#101010"),
+    ];
+    const peer = ["#000000"];
+    // rand()=0 → index 0 of tie group ("Left")
+    expect(pickVariegatedTheme(candidates, peer, () => 0)).toBe("Left");
+    // rand()=0.99 → floor(0.99*2)=1 → "Right"
+    expect(pickVariegatedTheme(candidates, peer, () => 0.99)).toBe("Right");
+  });
+
+  it("is a pure function — same inputs give same output", () => {
+    const candidates = [
+      mk("A", "#aa0000"),
+      mk("B", "#00aa00"),
+      mk("C", "#0000aa"),
+    ];
+    const peers = ["#333333"];
+    const rand = seqRand(0.5);
+    const first = pickVariegatedTheme(candidates, peers, rand);
+    const second = pickVariegatedTheme(candidates, peers, rand);
+    expect(first).toBe(second);
+  });
+});
+
+describe("pickShuffleTheme", () => {
+  // Regression: argmax-style picking ping-pongs between two themes when
+  // called in a loop with the prior pick as the only peer (theme A's
+  // farthest is B, B's farthest is A). pickShuffleTheme must NOT do that.
+  it("does not ping-pong when looped — random, not deterministic argmax", () => {
+    const themes = [
+      mk("A", "#000000"),
+      mk("B", "#202020"),
+      mk("C", "#404040"),
+      mk("D", "#606060"),
+    ];
+    let current = "A";
+    const visited: string[] = [current];
+    // Cycle the rand sequence so consecutive shuffles see different values.
+    const rand = seqRand(0.0, 0.34, 0.67, 0.99, 0.5);
+    for (let i = 0; i < 4; i++) {
+      const candidates = themes.filter((t) => t.name !== current);
+      const currentBg = themes.find((t) => t.name === current)!.theme
+        .background!;
+      current = pickShuffleTheme(candidates, [currentBg], rand);
+      visited.push(current);
+    }
+    // With argmax-deterministic picking we'd see ≤ 3 distinct names
+    // (initial + ping-pong pair). Random + current-bg-exclusion must
+    // visit MORE than that across 4 shuffles in a 4-theme palette.
+    expect(new Set(visited).size).toBeGreaterThan(3);
+  });
+
+  it("throws when candidates is empty", () => {
+    expect(() => pickShuffleTheme([], [])).toThrow();
+  });
+
+  it("excludes garish (high-chroma) candidates by default", () => {
+    const candidates = [
+      mk("Tasteful", "#1d1f21"),
+      mk("BrightYellow", "#ffff00"),
+    ];
+    // No matter what rand returns, BrightYellow's chroma is over the cap
+    // and gets filtered before the random draw.
+    expect(pickShuffleTheme(candidates, [], () => 0)).toBe("Tasteful");
+    expect(pickShuffleTheme(candidates, [], () => 0.99)).toBe("Tasteful");
+  });
+
+  it("excludes any candidate whose bg is in excludeBgs", () => {
+    const candidates = [mk("Now", "#1d1f21"), mk("Other", "#282a36")];
+    expect(pickShuffleTheme(candidates, ["#1d1f21"], () => 0)).toBe("Other");
+    expect(pickShuffleTheme(candidates, ["#1d1f21"], () => 0.99)).toBe("Other");
+  });
+
+  it("falls back to full candidates when filters leave nothing", () => {
+    // Both candidates excluded by bg → fall back to the full list, random pick.
+    const candidates = [mk("A", "#111111"), mk("B", "#222222")];
+    const result = pickShuffleTheme(
+      candidates,
+      ["#111111", "#222222"],
+      () => 0,
+    );
+    expect(["A", "B"]).toContain(result);
+  });
+
+  it("uses rand to pick among the acceptable pool", () => {
+    // 4 acceptable themes; rand drives which one gets picked.
+    const candidates = [
+      mk("A", "#101010"),
+      mk("B", "#202020"),
+      mk("C", "#303030"),
+      mk("D", "#404040"),
+    ];
+    expect(pickShuffleTheme(candidates, [], () => 0)).toBe("A");
+    expect(pickShuffleTheme(candidates, [], () => 0.25)).toBe("B");
+    expect(pickShuffleTheme(candidates, [], () => 0.5)).toBe("C");
+    expect(pickShuffleTheme(candidates, [], () => 0.99)).toBe("D");
+  });
+});

@@ -130,9 +130,9 @@ export const SHORTCUTS = {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous split tab",
   },
-  randomizeTheme: {
+  shuffleTheme: {
     keybind: { key: "j", mod: true },
-    label: "Random theme",
+    label: "Shuffle theme",
   },
   copyTerminalText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },

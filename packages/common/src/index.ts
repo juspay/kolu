@@ -330,7 +330,9 @@ export const RightPanelPrefsSchema = z.object({
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  randomTheme: z.boolean(),
+  /** Auto-pick a perceptually-distinct theme for each new terminal. When
+   *  off, every terminal gets the server default until the user picks one. */
+  shuffleTheme: z.boolean(),
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,

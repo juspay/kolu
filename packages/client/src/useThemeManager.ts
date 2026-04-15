@@ -2,12 +2,24 @@
 
 import { createSignal, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
-import { DEFAULT_THEME_NAME, availableThemes, getThemeByName } from "./theme";
+import {
+  DEFAULT_THEME_NAME,
+  availableThemes,
+  getThemeByName,
+  resolveThemeBgs,
+} from "./theme";
+import { pickShuffleTheme } from "./themePicker";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
 export interface ThemeManagerDeps {
   activeId: Accessor<TerminalId | null>;
+  /** Live terminal IDs — used by `handleVariegateTheme` to collect peer
+   *  backgrounds (every terminal other than the active one) so the
+   *  shortcut/palette path matches new-terminal creation semantics:
+   *  pick something distinct from every sibling, not just from the
+   *  current terminal's own bg. */
+  terminalIds: Accessor<TerminalId[]>;
   getThemeName: (id: TerminalId) => string | undefined;
   setThemeName: (id: TerminalId, name: string) => void;
 }
@@ -41,14 +53,21 @@ function init(deps: ThemeManagerDeps) {
     deps.setThemeName(id, themeName);
   }
 
-  function handleRandomizeTheme() {
+  /** Shuffle the active terminal to a random theme. Random — not argmax —
+   *  because argmax ping-pongs (theme A's farthest neighbour is theme B,
+   *  and B's farthest is A, so repeated ⌘J just bounces between two).
+   *  Excludes every live terminal's bg so we don't land on a duplicate of
+   *  a sibling, and stays under the chroma cap so we don't surface neon
+   *  yellow. New-terminal creation still uses the variegated argmax —
+   *  see {@link pickShuffleTheme} for the rationale. */
+  function handleShuffleTheme() {
     const id = deps.activeId();
     if (id === null) return;
     const current = deps.getThemeName(id);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-    handleSetTheme(pick.name);
+    const peerBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
+    handleSetTheme(pickShuffleTheme(candidates, peerBgs));
   }
 
   return {
@@ -59,7 +78,7 @@ function init(deps: ThemeManagerDeps) {
     getTerminalTheme,
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
-    handleRandomizeTheme,
+    handleShuffleTheme,
   } as const;
 }
 

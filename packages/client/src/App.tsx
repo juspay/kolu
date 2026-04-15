@@ -52,9 +52,10 @@ const App: Component = () => {
     getTerminalTheme,
     isPreviewingTheme,
     handleSetTheme,
-    handleRandomizeTheme,
+    handleShuffleTheme,
   } = useThemeManager({
     activeId: store.activeId,
+    terminalIds: store.terminalIds,
     getThemeName: (id) => store.getMetadata(id)?.themeName,
     setThemeName: crud.setThemeName,
   });
@@ -139,7 +140,7 @@ const App: Component = () => {
         store.getSubTerminalIds(parentId),
         direction,
       ),
-    handleRandomizeTheme,
+    handleShuffleTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     toggleRightPanel: rightPanel.togglePanel,
@@ -193,7 +194,7 @@ const App: Component = () => {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
-    handleRandomizeTheme,
+    handleShuffleTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>

@@ -4,7 +4,8 @@
  *  changes via the live subscriptions — no optimistic cache needed. */
 
 import { toast } from "solid-sonner";
-import { availableThemes } from "../theme";
+import { availableThemes, resolveThemeBgs } from "../theme";
+import { pickVariegatedTheme } from "../themePicker";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";
@@ -94,23 +95,29 @@ export function useTerminalCrud(deps: {
   /** Create a new terminal on the server and make it active.
    *  Returns the new terminal ID (for session restore mapping).
    *  When `themeName` is provided (e.g. session restore), it overrides
-   *  the random-theme preference so only one setTheme RPC fires. */
+   *  the shuffle-theme preference so only one setTheme RPC fires. */
   async function handleCreate(
     cwd?: string,
     themeName?: string,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
+    // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
+    // server's default theme for a frame, which we don't want scored as a
+    // peer against itself.
+    const peerBgs = preferences().shuffleTheme
+      ? resolveThemeBgs(
+          store.terminalIds(),
+          (id) => store.getMetadata(id)?.themeName,
+        )
+      : null;
     const info = await client.terminal.create({ cwd }).catch((err: Error) => {
       toast.error(`Failed to create terminal: ${err.message}`);
       throw err;
     });
     const theme =
       themeName ??
-      (preferences().randomTheme
-        ? availableThemes[Math.floor(Math.random() * availableThemes.length)]!
-            .name
-        : undefined);
+      (peerBgs ? pickVariegatedTheme(availableThemes, peerBgs) : undefined);
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (theme) setThemeName(info.id, theme);

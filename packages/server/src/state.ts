@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.9.0";
+const SCHEMA_VERSION = "1.10.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -157,6 +157,25 @@ export const store = new Conf<PersistedState>({
           ...current.rightPanel,
           tab: valid ? next : "inspector",
         },
+      });
+    },
+    // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
+    // semantics changed under the hood — "shuffle" now uses a perceptual
+    // distance picker instead of pure random, so collisions vanish — but
+    // the user-facing on/off bit carries over verbatim.
+    "1.10.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as unknown as
+        | (Record<string, unknown> & { randomTheme?: unknown })
+        | undefined;
+      const { randomTheme, ...rest } = current ?? {};
+      const shuffleTheme =
+        typeof randomTheme === "boolean"
+          ? randomTheme
+          : DEFAULT_PREFERENCES.shuffleTheme;
+      store.set("preferences", {
+        ...DEFAULT_PREFERENCES,
+        ...(rest as Partial<Preferences>),
+        shuffleTheme,
       });
     },
   },

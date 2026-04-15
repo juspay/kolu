@@ -23,32 +23,26 @@ Then(
   },
 );
 
+When("I click the shuffle theme toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="shuffle-theme-toggle"]');
+  await this.waitForFrame();
+});
+
 Then(
-  "the random theme toggle state should change",
+  "the shuffle theme toggle state should change",
   async function (this: KoluWorld) {
-    // Get current state, click, verify it changed
-    const toggle = this.page.locator('[data-testid="random-theme-toggle"]');
+    const toggle = this.page.locator('[data-testid="shuffle-theme-toggle"]');
     const before = await toggle.getAttribute("data-enabled");
-    // The toggle was already clicked in the previous step, so just verify
-    // it differs from its initial state by clicking again and comparing
-    const after = await toggle.getAttribute("data-enabled");
-    // If before was null (off), after click it should have been set to "" (on), or vice versa
-    // Since we already clicked once, just verify the toggle responds
-    await this.page.click('[data-testid="random-theme-toggle"]');
+    await this.page.click('[data-testid="shuffle-theme-toggle"]');
     await this.waitForFrame();
-    const afterSecond = await toggle.getAttribute("data-enabled");
+    const after = await toggle.getAttribute("data-enabled");
     assert.notStrictEqual(
+      before,
       after,
-      afterSecond,
-      "Expected random theme toggle to change state on click",
+      "Expected shuffle theme toggle to change state on click",
     );
   },
 );
-
-When("I click the random theme toggle", async function (this: KoluWorld) {
-  await this.page.click('[data-testid="random-theme-toggle"]');
-  await this.waitForFrame();
-});
 
 When(
   "I click the {string} color scheme button",

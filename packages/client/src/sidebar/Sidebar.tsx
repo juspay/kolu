@@ -214,6 +214,11 @@ const SidebarEntry: Component<{
             /* Active card uses the actual xterm theme bg — same material as the terminal.
              * --active-terminal-bg is published by App.tsx on the layout root.
              *
+             * Inactive cards get a light mix of THIS terminal's theme bg into
+             * surface-1 so the sidebar at rest looks variegated — each card
+             * hints at its own terminal's colour instead of every card being
+             * the same surface-1 grey.
+             *
              * Active card also scope-overrides the fg tier vars so every
              * `text-fg-*` descendant re-tunes to the terminal theme's own
              * foreground instead of the global one. color-mix against the
@@ -222,8 +227,8 @@ const SidebarEntry: Component<{
              * light or dark. Fixes #390. */
             "background-color": props.isActive
               ? "var(--active-terminal-bg)"
-              : props.displayInfo?.repoColor
-                ? `color-mix(in oklch, ${props.displayInfo.repoColor} 5%, var(--color-surface-1))`
+              : props.terminalTheme.background
+                ? `color-mix(in oklch, ${props.terminalTheme.background} 8%, var(--color-surface-1))`
                 : "var(--color-surface-1)",
             ...(props.isActive
               ? {
