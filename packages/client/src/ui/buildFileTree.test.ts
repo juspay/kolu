@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildFileTree, collectDirPaths } from "./buildFileTree";
 import type { TreeNode } from "./buildFileTree";
-import type { GitChangedFile } from "kolu-common";
+import type { GitChangedFile, GitChangeStatus } from "kolu-common";
 
-const file = (path: string, status = "M" as const): GitChangedFile => ({
+const file = (path: string, status: GitChangeStatus = "M"): GitChangedFile => ({
   path,
   status,
 });
