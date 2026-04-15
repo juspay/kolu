@@ -13,3 +13,4 @@ packages/client/public/fonts
 .worktrees
 .logs/
 .do-results.json
+.kolu-dev/
