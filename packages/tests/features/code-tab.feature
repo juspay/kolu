@@ -50,6 +50,17 @@ Feature: Code tab (diff review)
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should not render a diff view
 
+  Scenario: Untracked files appear alongside modified tracked files
+    When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'initial\n' > tracked.txt && git add tracked.txt && git commit -m 'add tracked'"
+    And I run "printf 'modified\n' > tracked.txt"
+    And I run "printf 'new\n' > untracked.txt"
+    And I click the Code tab
+    And I click the refresh button in the Code tab
+    Then the Code tab should list a changed file "tracked.txt"
+    And the Code tab should list a changed file "untracked.txt"
+
   Scenario: Groups files into a directory tree
     When I run "git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
     And I run "git commit --allow-empty -m init"
