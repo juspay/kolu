@@ -135,20 +135,16 @@ body {
 
 /* Spinning states — all use --card-color (the terminal's repo color) */
 .card-border-wrap.card-spin-active {
-  background: conic-gradient(
-    from var(--spin-angle),
-    transparent 0%,
-    var(--card-color) 25%,
-    transparent 50%,
-    oklch(from var(--card-color) l c h / 0.3) 75%,
-    transparent 100%
-  );
-  animation: border-spin 2s linear infinite, border-spin-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes border-spin-pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
+  background:
+    conic-gradient(
+      from var(--spin-angle),
+      transparent 0%,
+      oklch(from var(--card-color) l calc(c * 1.3) h) 8%,
+      transparent 16%,
+      transparent 100%
+    ),
+    oklch(from var(--card-color) l c h / 0.4);
+  animation: border-spin 2s linear infinite;
 }
 
 .card-border-wrap.card-spin-waiting {
