@@ -216,11 +216,11 @@ Before(async function (this: KoluWorld, scenario) {
         session: null,
         recentRepos: [],
         recentAgents: [],
-        // Reset all preferences to defaults (themeMode=fixed for deterministic tests)
+        // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
         preferences: {
           seenTips: [],
           startupTips: true,
-          themeMode: "fixed",
+          shuffleTheme: false,
           scrollLock: true,
           activityAlerts: true,
           colorScheme: "dark",

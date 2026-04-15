@@ -48,13 +48,8 @@ Then(
   },
 );
 
-When("I press the random theme shortcut", async function (this: KoluWorld) {
+When("I press the shuffle theme shortcut", async function (this: KoluWorld) {
   await this.page.keyboard.press(`${MOD_KEY}+j`);
-  await this.waitForFrame();
-});
-
-When("I press the variegated theme shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+Shift+KeyJ`);
   await this.waitForFrame();
 });
 

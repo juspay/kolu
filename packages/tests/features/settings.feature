@@ -11,13 +11,11 @@ Feature: Settings Popover
     Then the settings popover should not be visible
     And there should be no page errors
 
-  Scenario: Switch theme mode to variegated
+  Scenario: Toggle shuffle theme setting
     When I click the settings button
     Then the settings popover should be visible
-    When I click the "variegated" theme mode button
-    Then the theme mode should be "variegated"
-    When I click the "random" theme mode button
-    Then the theme mode should be "random"
+    When I click the shuffle theme toggle
+    Then the shuffle theme toggle state should change
     And there should be no page errors
 
   Scenario: Switch UI color scheme to light

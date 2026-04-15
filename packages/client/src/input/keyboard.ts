@@ -130,16 +130,9 @@ export const SHORTCUTS = {
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     label: "Previous split tab",
   },
-  randomizeTheme: {
+  shuffleTheme: {
     keybind: { key: "j", mod: true },
-    label: "Random theme",
-  },
-  variegateTheme: {
-    // Shift+J reports key="J" but code="KeyJ"; match on code so casing
-    // doesn't matter. Sits next to `randomizeTheme` on Cmd+J as the
-    // "smart" sibling: same gesture, distinct-background picker.
-    keybind: { key: "J", code: "KeyJ", mod: true, shift: true },
-    label: "Variegated theme",
+    label: "Shuffle theme",
   },
   copyTerminalText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },

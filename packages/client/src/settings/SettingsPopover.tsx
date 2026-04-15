@@ -10,7 +10,7 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { useServerState } from "./useServerState";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
-import type { SidebarAgentPreviews, ThemeMode } from "kolu-common";
+import type { SidebarAgentPreviews } from "kolu-common";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },
@@ -29,16 +29,6 @@ const PREVIEW_OPTIONS: readonly SegmentedControlOption<SidebarAgentPreviews>[] =
     { value: "agents", label: "Agents" },
     { value: "all", label: "All" },
   ];
-
-/** Theme-mode options — how new terminals choose their theme.
- *  `variegated` is the default; `fixed` is the opt-out; `random` is the
- *  pre-existing "just give me variety, I don't care if it's distinct"
- *  behavior. */
-const THEME_MODE_OPTIONS: readonly SegmentedControlOption<ThemeMode>[] = [
-  { value: "fixed", label: "Fixed" },
-  { value: "random", label: "Random" },
-  { value: "variegated", label: "Variegated" },
-];
 
 const SettingsPopover: Component<{
   open: boolean;
@@ -103,20 +93,17 @@ const SettingsPopover: Component<{
               testIdPrefix="color-scheme"
             />
           </div>
-          {/* Theme mode — how new terminals pick their initial theme.
-           *  "Variegated" (default) maximises perceptual distance so the
-           *  sidebar ends up with a recognisable colour-per-terminal
-           *  instead of a sea of look-alikes. "Random" keeps the old
-           *  uniform-random behavior. "Fixed" disables auto-pick. */}
-          <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="text-fg-2">Theme mode</span>
-            <SegmentedControl
-              options={THEME_MODE_OPTIONS}
-              value={preferences().themeMode}
-              onChange={(v) => updatePreferences({ themeMode: v })}
-              testIdPrefix="theme-mode"
+          {/* Shuffle theme — auto-pick a perceptually-distinct background
+           *  for each new terminal so the sidebar at rest looks variegated
+           *  instead of a sea of look-alikes. */}
+          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
+            <span class="text-fg-2">Shuffle theme</span>
+            <Toggle
+              testId="shuffle-theme-toggle"
+              enabled={preferences().shuffleTheme}
+              onChange={(on) => updatePreferences({ shuffleTheme: on })}
             />
-          </div>
+          </label>
           {/* Scroll lock */}
           <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
             <span class="text-fg-2">Scroll lock</span>

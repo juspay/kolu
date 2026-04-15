@@ -300,20 +300,12 @@ export const RightPanelPrefsSchema = z.object({
   tab: RightPanelTabSchema,
 });
 
-/** New-terminal theme picking mode.
- *  - `fixed`: no auto-pick; every terminal gets the server default until the
- *    user picks one.
- *  - `random`: uniform random pick from `availableThemes`. Pre-existing
- *    behavior — collisions possible.
- *  - `variegated`: max-perceptual-distance pick so every live terminal ends
- *    up with a visibly distinct background. Default. */
-export const ThemeModeSchema = z.enum(["fixed", "random", "variegated"]);
-export type ThemeMode = z.infer<typeof ThemeModeSchema>;
-
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
   startupTips: z.boolean(),
-  themeMode: ThemeModeSchema,
+  /** Auto-pick a perceptually-distinct theme for each new terminal. When
+   *  off, every terminal gets the server default until the user picks one. */
+  shuffleTheme: z.boolean(),
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,

@@ -52,8 +52,7 @@ export interface CommandDeps {
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
-  handleRandomizeTheme: () => void;
-  handleVariegateTheme: () => void;
+  handleShuffleTheme: () => void;
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
@@ -195,22 +194,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             name: "Shuffle theme",
-            description: "Pick a different theme for this terminal",
-            children: [
-              {
-                name: "Variegated",
-                description:
-                  "Pick a theme whose background is perceptually distinct from this terminal's current one",
-                keybind: SHORTCUTS.variegateTheme.keybind,
-                onSelect: () => deps.handleVariegateTheme(),
-              },
-              {
-                name: "Random",
-                description: "Pick any other theme uniformly at random",
-                keybind: SHORTCUTS.randomizeTheme.keybind,
-                onSelect: () => deps.handleRandomizeTheme(),
-              },
-            ],
+            description:
+              "Pick a theme whose background is perceptually distinct from every live terminal",
+            keybind: SHORTCUTS.shuffleTheme.keybind,
+            onSelect: () => deps.handleShuffleTheme(),
           },
         ]
       : []),

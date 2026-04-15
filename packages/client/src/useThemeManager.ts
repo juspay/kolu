@@ -53,24 +53,13 @@ function init(deps: ThemeManagerDeps) {
     deps.setThemeName(id, themeName);
   }
 
-  /** Shuffle the active terminal to a uniformly-random different theme. */
-  function handleRandomizeTheme() {
-    const id = deps.activeId();
-    if (id === null) return;
-    const current = deps.getThemeName(id);
-    const candidates = availableThemes.filter((t) => t.name !== current);
-    if (candidates.length === 0) return;
-    const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
-    handleSetTheme(pick.name);
-  }
-
   /** Shuffle the active terminal to a theme whose background is perceptually
    *  far from EVERY live terminal (the active one included — keeps us from
    *  shuffling to a near-identical bg). Same semantics as new-terminal
    *  creation, just applied retroactively. Filtering the current theme out
    *  of `candidates` guarantees a distinct name even when tie-breaking
    *  doesn't favour us. */
-  function handleVariegateTheme() {
+  function handleShuffleTheme() {
     const id = deps.activeId();
     if (id === null) return;
     const current = deps.getThemeName(id);
@@ -88,8 +77,7 @@ function init(deps: ThemeManagerDeps) {
     getTerminalTheme,
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
-    handleRandomizeTheme,
-    handleVariegateTheme,
+    handleShuffleTheme,
   } as const;
 }
 

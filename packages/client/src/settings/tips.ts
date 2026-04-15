@@ -47,8 +47,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.findInTerminal.keybind)} searches terminal output`,
   },
   {
-    id: "amb-random-theme",
-    text: `${formatKeybind(SHORTCUTS.randomizeTheme.keybind)} randomizes the terminal color theme`,
+    id: "amb-shuffle-theme",
+    text: `${formatKeybind(SHORTCUTS.shuffleTheme.keybind)} shuffles the terminal color theme`,
   },
   {
     id: "amb-export-pdf",

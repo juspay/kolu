@@ -23,29 +23,23 @@ Then(
   },
 );
 
-When(
-  "I click the {string} theme mode button",
-  async function (this: KoluWorld, mode: string) {
-    await this.page.click(`[data-testid="theme-mode-${mode}"]`);
-    await this.waitForFrame();
-  },
-);
+When("I click the shuffle theme toggle", async function (this: KoluWorld) {
+  await this.page.click('[data-testid="shuffle-theme-toggle"]');
+  await this.waitForFrame();
+});
 
 Then(
-  "the theme mode should be {string}",
-  async function (this: KoluWorld, mode: string) {
-    // The selected option gets `bg-accent`; siblings get `bg-surface-2`.
-    // We check by comparing the `class` attribute instead of a dedicated
-    // data attribute because the segmented control mirrors the existing
-    // `color-scheme-*` pattern in this same popover — keeping them
-    // uniform is more valuable than adding a new `data-selected` just here.
-    const button = this.page.locator(`[data-testid="theme-mode-${mode}"]`);
-    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const cls = await button.getAttribute("class");
-    assert.match(
-      cls ?? "",
-      /bg-accent/,
-      `Expected theme-mode-${mode} to be the selected option (bg-accent)`,
+  "the shuffle theme toggle state should change",
+  async function (this: KoluWorld) {
+    const toggle = this.page.locator('[data-testid="shuffle-theme-toggle"]');
+    const before = await toggle.getAttribute("data-enabled");
+    await this.page.click('[data-testid="shuffle-theme-toggle"]');
+    await this.waitForFrame();
+    const after = await toggle.getAttribute("data-enabled");
+    assert.notStrictEqual(
+      before,
+      after,
+      "Expected shuffle theme toggle to change state on click",
     );
   },
 );

@@ -126,26 +126,23 @@ export const store = new Conf<PersistedState>({
         });
       }
     },
-    // `randomTheme` (boolean) replaced by `themeMode` ("fixed" | "random" |
-    // "variegated"). Users who had random-theme ON get promoted to the new
-    // "variegated" default (strictly better: no duplicate backgrounds);
-    // users who had it OFF get "fixed" (stay opted out). Anyone on the new
-    // default keeps "variegated".
+    // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
+    // semantics changed under the hood — "shuffle" now uses a perceptual
+    // distance picker instead of pure random, so collisions vanish — but
+    // the user-facing on/off bit carries over verbatim.
     "1.9.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as unknown as
         | (Record<string, unknown> & { randomTheme?: unknown })
         | undefined;
       const { randomTheme, ...rest } = current ?? {};
-      const themeMode =
-        randomTheme === true
-          ? "variegated"
-          : randomTheme === false
-            ? "fixed"
-            : DEFAULT_PREFERENCES.themeMode;
+      const shuffleTheme =
+        typeof randomTheme === "boolean"
+          ? randomTheme
+          : DEFAULT_PREFERENCES.shuffleTheme;
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...(rest as Partial<Preferences>),
-        themeMode,
+        shuffleTheme,
       });
     },
   },
