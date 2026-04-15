@@ -5,7 +5,7 @@
 #
 #   - Each flake input adds ~1.5s of fetcher-cache verification on cold
 #     eval cache. Even a single nixpkgs input costs ~7s.
-#   - With zero inputs, `nix develop` cold is ~2.6s, warm is ~0.3s.
+#   - With zero inputs, `nix develop` cold is ~1.0s, warm is ~0.1s.
 #
 # DO NOT add flake inputs (nixpkgs, flake-parts, git-hooks, etc.).
 # Instead, use fetchTarball or callPackage in nix/ files.
