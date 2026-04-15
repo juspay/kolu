@@ -147,14 +147,11 @@ body {
 }
 
 .card-border-wrap.card-spin-waiting {
-  background: conic-gradient(
-    from var(--spin-angle),
-    transparent 0%,
-    var(--card-color) 20%,
-    transparent 40%,
-    var(--card-color) 60%,
-    transparent 80%,
-    var(--card-color) 100%
-  );
-  animation: border-spin 1.2s linear infinite;
+  background: var(--card-color);
+  animation: border-breathe 2.5s ease-in-out infinite;
+}
+
+@keyframes border-breathe {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.6; }
 }
