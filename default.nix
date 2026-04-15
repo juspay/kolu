@@ -174,19 +174,7 @@ let
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
-  # Regeneration derivations for checked-in data files.
-  # Usage: just regenerate-themes / just regenerate-words
-  sources = import ./npins;
-  regenerateTerminalThemes = import ./packages/terminal-themes/regenerate.nix {
-    inherit (pkgs) runCommand python3;
-    iTerm2-Color-Schemes = sources.iTerm2-Color-Schemes;
-  };
-  regenerateWords = import ./packages/memorable-names/regenerate.nix {
-    inherit (pkgs) runCommand jq;
-    wordnet = pkgs.wordnet;
-  };
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
-  inherit regenerateTerminalThemes regenerateWords;
 }

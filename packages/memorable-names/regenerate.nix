@@ -1,6 +1,6 @@
 # Regenerate words.json from WordNet.
-# Usage: just regenerate-words
-{ runCommand, wordnet, jq }:
+# Usage: just regenerate  (from this directory)
+{ pkgs ? import ../../nix/nixpkgs.nix { } }:
 
 let
   extractAwk = ''
@@ -13,9 +13,9 @@ let
     }
   '';
 in
-runCommand "regenerate-memorable-names" { nativeBuildInputs = [ jq ]; } ''
-  adj=$(awk '${extractAwk}' ${wordnet}/dict/index.adj | sort -u)
-  nouns=$(awk '${extractAwk}' ${wordnet}/dict/index.noun | sort -u)
+pkgs.runCommand "regenerate-memorable-names" { nativeBuildInputs = [ pkgs.jq ]; } ''
+  adj=$(awk '${extractAwk}' ${pkgs.wordnet}/dict/index.adj | sort -u)
+  nouns=$(awk '${extractAwk}' ${pkgs.wordnet}/dict/index.noun | sort -u)
   mkdir -p $out
   jq -n \
     --argjson adjectives "$(echo "$adj" | jq -R . | jq -s .)" \

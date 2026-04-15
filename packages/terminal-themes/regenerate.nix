@@ -1,10 +1,12 @@
 # Regenerate themes.json from iTerm2-Color-Schemes.
-# Usage: just regenerate-themes
-{ runCommand, python3, iTerm2-Color-Schemes }:
+# Usage: just regenerate  (from this directory)
+{ pkgs ? import ../../nix/nixpkgs.nix { }
+, iTerm2-Color-Schemes
+}:
 
-runCommand "regenerate-terminal-themes"
+pkgs.runCommand "regenerate-terminal-themes"
 {
-  nativeBuildInputs = [ python3 ];
+  nativeBuildInputs = [ pkgs.python3 ];
 } ''
   mkdir -p $out
   python3 ${./parse-themes.py} "${iTerm2-Color-Schemes}/ghostty" > $out/themes.json

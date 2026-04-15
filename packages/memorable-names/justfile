@@ -2,6 +2,6 @@
 regenerate:
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(nix build "$(git rev-parse --show-toplevel)#regenerateWords" --print-out-paths --no-link)
-    cp "$out/words.json" "$(dirname "$0")/words.json"
+    out=$(nix-build --no-out-link ./regenerate.nix)
+    cp "$out/words.json" words.json
     echo "Updated words.json"

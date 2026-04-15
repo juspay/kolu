@@ -2,6 +2,8 @@
 regenerate:
     #!/usr/bin/env bash
     set -euo pipefail
-    out=$(nix build "$(git rev-parse --show-toplevel)#regenerateTerminalThemes" --print-out-paths --no-link)
-    cp "$out/themes.json" "$(dirname "$0")/themes.json"
+    root=$(git rev-parse --show-toplevel)
+    out=$(nix-build --no-out-link ./regenerate.nix \
+      --arg iTerm2-Color-Schemes "(import $root/npins).iTerm2-Color-Schemes")
+    cp "$out/themes.json" themes.json
     echo "Updated themes.json"
