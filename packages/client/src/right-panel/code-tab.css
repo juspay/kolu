@@ -1,3 +1,81 @@
+/* ── highlight.js token colors for the file browser code viewer ──
+ * Minimal set covering the most common token types. Uses CSS custom
+ * properties scoped by .dark / :not(.dark) to follow kolu's theme. */
+
+[data-testid="file-content"] .hljs {
+  background: transparent;
+}
+
+/* ── Dark palette ── */
+:root.dark [data-testid="file-content"] .hljs-keyword {
+  color: #ff7b72;
+}
+:root.dark [data-testid="file-content"] .hljs-string,
+:root.dark [data-testid="file-content"] .hljs-regexp {
+  color: #a5d6ff;
+}
+:root.dark [data-testid="file-content"] .hljs-number,
+:root.dark [data-testid="file-content"] .hljs-literal {
+  color: #79c0ff;
+}
+:root.dark [data-testid="file-content"] .hljs-comment,
+:root.dark [data-testid="file-content"] .hljs-doctag {
+  color: #8b949e;
+}
+:root.dark [data-testid="file-content"] .hljs-title,
+:root.dark [data-testid="file-content"] .hljs-function {
+  color: #d2a8ff;
+}
+:root.dark [data-testid="file-content"] .hljs-type,
+:root.dark [data-testid="file-content"] .hljs-built_in {
+  color: #ffa657;
+}
+:root.dark [data-testid="file-content"] .hljs-attr,
+:root.dark [data-testid="file-content"] .hljs-attribute {
+  color: #79c0ff;
+}
+:root.dark [data-testid="file-content"] .hljs-meta {
+  color: #8b949e;
+}
+:root.dark [data-testid="file-content"] .hljs-tag {
+  color: #7ee787;
+}
+
+/* ── Light palette ── */
+:root:not(.dark) [data-testid="file-content"] .hljs-keyword {
+  color: #cf222e;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-string,
+:root:not(.dark) [data-testid="file-content"] .hljs-regexp {
+  color: #0a3069;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-number,
+:root:not(.dark) [data-testid="file-content"] .hljs-literal {
+  color: #0550ae;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-comment,
+:root:not(.dark) [data-testid="file-content"] .hljs-doctag {
+  color: #6e7781;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-title,
+:root:not(.dark) [data-testid="file-content"] .hljs-function {
+  color: #8250df;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-type,
+:root:not(.dark) [data-testid="file-content"] .hljs-built_in {
+  color: #953800;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-attr,
+:root:not(.dark) [data-testid="file-content"] .hljs-attribute {
+  color: #0550ae;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-meta {
+  color: #6e7781;
+}
+:root:not(.dark) [data-testid="file-content"] .hljs-tag {
+  color: #116329;
+}
+
 /*
  * Vendor overrides for `@git-diff-view/solid` to fit a narrow side panel.
  *

@@ -28,6 +28,7 @@ import {
   Switch,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import hljs from "highlight.js";
 import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
 import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
@@ -445,18 +446,34 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     </div>
                   </Match>
                   <Match when={fileContent()}>
-                    {(fc) => (
-                      <>
-                        <Show when={fc().truncated}>
-                          <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
-                            File truncated (exceeds 1 MB)
-                          </div>
-                        </Show>
-                        <pre class="px-2 py-1 font-mono text-fg whitespace-pre-wrap break-all">
-                          {fc().content}
-                        </pre>
-                      </>
-                    )}
+                    {(fc) => {
+                      const highlighted = createMemo(() => {
+                        const path = selectedPath() ?? "";
+                        const ext = path.split(".").pop() ?? "";
+                        const lang = hljs.getLanguage(ext) ? ext : undefined;
+                        return lang
+                          ? hljs.highlight(fc().content, { language: lang })
+                          : hljs.highlightAuto(fc().content);
+                      });
+                      return (
+                        <>
+                          <Show when={fc().truncated}>
+                            <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
+                              File truncated (exceeds 1 MB)
+                            </div>
+                          </Show>
+                          <pre
+                            class="px-2 py-1 font-mono text-[11px] text-fg whitespace-pre-wrap break-all leading-relaxed"
+                            style={{ "tab-size": "2" }}
+                          >
+                            <code
+                              class="hljs"
+                              innerHTML={highlighted().value}
+                            />
+                          </pre>
+                        </>
+                      );
+                    }}
                   </Match>
                 </Switch>
               </Show>
