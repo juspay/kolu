@@ -293,12 +293,17 @@ export async function getDiff(
       );
     }
 
+    // A pure rename produces a header (similarity index, rename from/to)
+    // but no @@ hunks. @git-diff-view/core rejects diff strings without
+    // hunks, so only include rawDiff when it contains actual hunk markers.
+    const hasHunks = rawDiff.includes("\n@@");
+
     return ok({
       oldFileName: oldContent ? oldRel : null,
       newFileName: newContent ? rel : null,
       oldContent,
       newContent,
-      hunks: rawDiff ? [rawDiff] : [],
+      hunks: rawDiff && hasHunks ? [rawDiff] : [],
     });
   } catch (e) {
     return err({

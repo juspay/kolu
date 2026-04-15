@@ -248,6 +248,19 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   Error: {(diff.error as Error).message}
                 </div>
               </Match>
+              <Match
+                when={
+                  diff() &&
+                  diff()!.hunks.length === 0 &&
+                  diff()!.oldFileName &&
+                  diff()!.newFileName &&
+                  diff()!.oldFileName !== diff()!.newFileName
+                }
+              >
+                <div class="flex items-center justify-center h-full text-fg-3/50">
+                  File renamed: {diff()!.oldFileName} → {diff()!.newFileName}
+                </div>
+              </Match>
               <Match when={diff()}>
                 {(d) => (
                   <DiffView
