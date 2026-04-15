@@ -20,6 +20,19 @@ export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+export const ChevronRightIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+  >
+    <path d="M6 4L10 8L6 12" />
+  </svg>
+);
+
 export const ChevronUpIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
@@ -242,6 +255,50 @@ export const PrStateIcon: Component<{
     </span>
   );
 };
+
+/** Terminal prompt icon — empty-state placeholder for "no terminal selected". */
+export const TerminalIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </svg>
+);
+
+/** File with diff line — empty-state placeholder for "select a file". */
+export const FileDiffIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="9" y1="15" x2="15" y2="15" />
+  </svg>
+);
+
+/** Git branch icon (filled) — empty-state placeholder for "not a git repo". */
+export const GitBranchIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+  >
+    <path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm6.5 0a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zM5 12.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0zm-1.25-7.5v5.256a2.25 2.25 0 1 0 1.5 0V7.121A5.69 5.69 0 0 0 9.5 9.5a3.5 3.5 0 0 0 3.5-3.5V5.372a2.25 2.25 0 1 0-1.5 0V6a2 2 0 0 1-2 2 4.19 4.19 0 0 1-3.75-2.846V5.25zM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z" />
+  </svg>
+);
 
 export const WorktreeIcon: Component<{ class?: string }> = (props) => (
   <svg

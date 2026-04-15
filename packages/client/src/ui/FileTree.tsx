@@ -78,10 +78,13 @@ const TreeLevel: Component<TreeLevelProps> = (props) => (
               ? props.onToggle(node.path)
               : props.onSelect(node.path)
           }
-          class="flex w-full items-center gap-1 px-2 py-0.5 text-left font-mono text-fg hover:bg-surface-1 cursor-pointer"
+          class="flex w-full items-center gap-1 px-2 py-0.5 text-left font-mono text-fg hover:bg-surface-2/40 cursor-pointer transition-colors"
           classList={{
-            "bg-surface-1":
+            "bg-surface-2/50 border-l-2 border-accent":
               node.kind === "file" && props.selectedPath === node.path,
+            "border-l-2 border-transparent": !(
+              node.kind === "file" && props.selectedPath === node.path
+            ),
           }}
           style={{ "padding-left": `${props.depth * 12 + 8}px` }}
           data-testid={node.kind === "dir" ? "file-tree-dir" : "diff-file-item"}
