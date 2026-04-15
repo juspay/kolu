@@ -16,7 +16,7 @@ Parse the arguments string: `[--review] [--no-git] [--from <step-id>] <task desc
 
 The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHub or elsewhere during the **sync** step (see Forge Detection). Only GitHub has an active code path today — Bitbucket/other forges gracefully skip PR-related steps. Tracking: [srid/agency#10](https://github.com/srid/agency/issues/10).
 
-- `--review`: Pause after **hickey** for user plan approval via `EnterPlanMode`/`ExitPlanMode`, then continue autonomously
+- `--review`: Pause after **hickey**/**lowy** for user plan approval via `EnterPlanMode`/`ExitPlanMode`, then continue autonomously
 - `--no-git`: Extend the working tree **in place** — do not create a branch, commit, push, or touch any PR. Research, implement, check, docs, police, fmt, and test all run; git-mutating steps (**branch**, **commit**, **create-pr**) are skipped. Use this when you have uncommitted local work and want the agent to build on it without taking over git state. Feedback from a Bitbucket user in [#26](https://github.com/srid/agency/issues/26).
 - `--from <step-id>`: Start from a specific step (see entry points below)
 
@@ -59,10 +59,10 @@ After each step's verification, record results via the `do-results` script. The 
 
 ## Progress tracking
 
-Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 14 step names in order:
+Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 15 step names in order:
 
 ```
-sync, research, hickey, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
+sync, research, hickey, lowy, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
 ```
 
 At each step boundary, update task state **alongside** the `do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
@@ -71,7 +71,7 @@ Rules:
 
 - **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
 - **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
-- **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
+- **`--from <step>` entry points**: still seed all 15 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 15-item view regardless of entry point.
 - **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason is recorded via `do-results step <name> skipped ... "<reason>"`; the task list just shows the step as done.
 - **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `do-results set status failed`.
 
@@ -118,18 +118,24 @@ Research the task thoroughly before writing code.
 
 ### hickey
 
-Evaluate the planned approach for structural simplicity. Invoke the `hickey` and `lowy` skills **in parallel** (two Skill tool calls in a single message) — the skills are independent and neither needs the other's output.
+Invoke the `/hickey` skill via the Skill tool. Identify concerns, check for complecting, suggest simplifications.
 
-- **hickey**: Identify concerns. Check for complecting. Suggest simplifications.
-- **lowy**: Check that module boundaries encapsulate axes of change, not just functionality.
-- Revise the approach to eliminate accidental complexity before proceeding.
+**Important**: hickey and lowy are independent — invoke them **in parallel** by issuing both Skill tool calls in a single message. Neither needs the other's output.
 
-**If `--review`**: After hickey completes, use `EnterPlanMode` to present the revised approach for user approval:
+---
+
+### lowy
+
+Invoke the `/lowy` skill via the Skill tool. Check that module boundaries encapsulate axes of change, not just functionality.
+
+After both hickey and lowy complete, revise the approach to eliminate accidental complexity before proceeding.
+
+**If `--review`**: Use `EnterPlanMode` to present the revised approach for user approval:
 
 - **Clarify ambiguities** first — ask via `AskUserQuestion` if anything is unclear. Don't guess.
 - **High-level plan**: what to do and why, not implementation details. Include an **Architecture section** (affected modules, new abstractions, ripple effects).
 - **Split non-trivial plans into phases** — MVP first, each phase functionally self-sufficient.
-- Include a **Simplicity assessment** noting what hickey found and any trade-offs accepted.
+- Include a **Simplicity assessment** noting what hickey/lowy found and any trade-offs accepted.
 
 Use `ExitPlanMode` to present the plan. Once approved, continue autonomously from **branch**.
 
@@ -195,7 +201,7 @@ When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
 **Cross-reference hickey/lowy actions**: After code-police completes, check every hickey and lowy finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey/lowy (which find structural issues before implementation) and police (which verifies the implementation after).
 
-**For followup entry points**: Run hickey and lowy on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey step (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
+**For followup entry points**: Run hickey and lowy on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey/lowy steps (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
 
 **Verify**: All 3 passes clean ("All clear") AND all hickey/lowy "Fix in this PR" actions addressed in the diff.
 **If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
@@ -251,17 +257,17 @@ Check whether a PR already exists for this branch (`gh pr view`).
 
    **MANDATORY**: Load the `forge-pr` skill (via Skill tool) BEFORE writing the PR title/body.
 
-2. **Post hickey results**: If the hickey step produced findings with suggestions, post the full hickey analysis as a PR comment using `gh pr comment`. Use a `## Hickey Analysis` header. Skip this if hickey found no issues.
+2. **Post hickey/lowy results**: If the hickey or lowy steps produced findings with suggestions, post the analysis as a PR comment using `gh pr comment`. Use a `## Hickey/Lowy Analysis` header. Skip this if neither found issues.
 
 **If PR already exists** (followup runs, `--from` entry points):
 
 Re-check the PR title/body against current scope. If scope changed, update via `gh pr edit` per the `forge-pr` skill.
 
-**Surface deferred hickey findings**: If the hickey step produced any **"Defer `#issue`"** actions, append a `> **Deferred:** #123, #124` line to the PR body (via `gh pr edit`) so reviewers see the outstanding structural debt. These are easy to miss in a PR comment — the description is what reviewers actually read.
+**Surface deferred hickey/lowy findings**: If the hickey or lowy steps produced any **"Defer `#issue`"** actions, append a `> **Deferred:** #123, #124` line to the PR body (via `gh pr edit`) so reviewers see the outstanding structural debt. These are easy to miss in a PR comment — the description is what reviewers actually read.
 
 **Why this runs before `ci`**: The draft PR is the canonical home for CI status. Opening it before CI runs means CI checks land directly on the PR, reviewers see the run history as it happens, and a failing run doesn't leave an orphaned branch with red statuses and no PR to explain them. If retries exhaust in **ci**, the draft PR remains as the artifact of the failed attempt — visible, reviewable, and ready to resume via `--from ci-only`.
 
-**Verify**: Draft PR exists (`gh pr view` succeeds), PR title/body matches the delivered scope, hickey findings posted if any, and any deferred hickey issues are linked in the body.
+**Verify**: Draft PR exists (`gh pr view` succeeds), PR title/body matches the delivered scope, hickey/lowy findings posted if any, and any deferred issues are linked in the body.
 
 ---
 
@@ -360,7 +366,7 @@ COMMENT
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
 - **Background for CI.** Run CI with `run_in_background: true`.
-- **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey pause.
+- **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey/lowy pause.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
 - **Complete the full workflow.** Implementing code is one step of many. The task is not done until a PR URL (GitHub), a pushed branch name (non-GitHub forges), or a working-tree summary (`--no-git`) is reported.
 - **Exhausted retries = halt.** If `ci` or `test` retries are exhausted, set status to `"failed"` and skip to **done**. On `ci` failure the draft PR (opened in the preceding **create-pr** step) stays open as the record of the failed attempt — do not close, undraft, or otherwise mutate it.
