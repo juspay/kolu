@@ -2,7 +2,12 @@
 
 import path from "node:path";
 import { describe, it, expect } from "vitest";
+import { initHostname } from "./hostname.ts";
+import { initLog } from "./log.ts";
 import { resolveUnder } from "./safe-path.ts";
+
+initHostname();
+initLog();
 
 const ROOT = "/tmp/kolu-test-repo";
 

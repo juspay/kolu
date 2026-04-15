@@ -3,8 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { simpleGit } from "simple-git";
+import { initHostname } from "../hostname.ts";
+import { initLog } from "../log.ts";
 import { gitInfoEqual, resolveGitInfo } from "./git.ts";
 import type { GitInfo } from "kolu-common";
+
+initHostname();
+initLog();
 
 describe("gitInfoEqual", () => {
   const info: GitInfo = {
