@@ -145,29 +145,19 @@ export const store = new Conf<PersistedState>({
   },
 });
 
-// Validate persisted state against the Zod schema. A mismatch means either a
-// version downgrade (newer build wrote fields the current schema doesn't know)
-// or on-disk corruption. Log the full Zod issues so the user can diagnose.
-// TODO: crash the server here once client-side error propagation is confirmed working.
-const _stateCheck = PersistedStateSchema.safeParse(store.store);
-if (!_stateCheck.success) {
-  const summary = _stateCheck.error.issues
+/** Validate the store against the Zod schema and throw a descriptive error
+ *  instead of letting oRPC's generic "Event iterator validation failed" be
+ *  the first signal. Called on every read so runtime mutations are caught too. */
+function assertStoreValid(): void {
+  const result = PersistedStateSchema.safeParse(store.store);
+  if (result.success) return;
+  const summary = result.error.issues
     .map((i) => `${i.path.join(".")}: ${i.message}`)
     .join("; ");
-  log.error(
-    {
-      issues: _stateCheck.error.issues,
-      path: store.path,
-    },
-    `Persisted state does not match schema. Delete ${store.path} to reset to defaults. (${summary})`,
-  );
+  const msg = `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
+  log.error({ issues: result.error.issues, path: store.path }, msg);
+  throw new Error(msg);
 }
-
-// Stored so getServerState() can throw a descriptive error instead of
-// returning invalid data and letting oRPC's generic validator be first.
-const _stateCorruptMessage = _stateCheck.success
-  ? null
-  : `Persisted state corrupt (${_stateCheck.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}). Delete ${store.path} to reset.`;
 
 /** Check if a path exists on disk. */
 function existsOnDisk(path: string): boolean {
@@ -253,11 +243,9 @@ function getRecentAgents(): RecentAgent[] {
 
 // --- Server state ---
 
-/** Get the full server state. Throws if persisted state failed schema validation at startup. */
+/** Get the full server state. Throws if persisted state fails schema validation. */
 export function getServerState(): ServerState {
-  if (_stateCorruptMessage) {
-    throw new Error(_stateCorruptMessage);
-  }
+  assertStoreValid();
   return {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
