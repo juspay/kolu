@@ -118,9 +118,10 @@ Research the task thoroughly before writing code.
 
 ### hickey
 
-Evaluate the planned approach for structural simplicity. Invoke the `hickey` skill via the Skill tool.
+Evaluate the planned approach for structural simplicity. Invoke the `hickey` and `lowy` skills **in parallel** (two Skill tool calls in a single message) — the skills are independent and neither needs the other's output.
 
-- Identify concerns. Check for complecting. Suggest simplifications.
+- **hickey**: Identify concerns. Check for complecting. Suggest simplifications.
+- **lowy**: Check that module boundaries encapsulate axes of change, not just functionality.
 - Revise the approach to eliminate accidental complexity before proceeding.
 
 **If `--review`**: After hickey completes, use `EnterPlanMode` to present the revised approach for user approval:
@@ -192,11 +193,11 @@ Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three pas
 
 When `/code-police` asks about scope: **changes in the current branch/PR only**.
 
-**Cross-reference hickey actions**: After code-police completes, check every hickey finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey (which finds structural issues before implementation) and police (which verifies the implementation after).
+**Cross-reference hickey/lowy actions**: After code-police completes, check every hickey and lowy finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey/lowy (which find structural issues before implementation) and police (which verifies the implementation after).
 
-**For followup entry points**: Run hickey on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey step (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
+**For followup entry points**: Run hickey and lowy on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey step (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
 
-**Verify**: All 3 passes clean ("All clear") AND all hickey "Fix in this PR" actions addressed in the diff.
+**Verify**: All 3 passes clean ("All clear") AND all hickey/lowy "Fix in this PR" actions addressed in the diff.
 **If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
 
 ---
