@@ -7,7 +7,13 @@
  * loading/error tracking for a mutation, use SolidJS's `createResource`.
  */
 
-import { createSignal, onCleanup, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  type Accessor,
+} from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 
 /**
@@ -143,4 +149,21 @@ export function createSubscription<T, R = T>(
     error,
     pending,
   }) as Subscription<T | R>;
+}
+
+/** Watch a subscription's error signal and call `handler` on failure.
+ *  Centralizes the `createEffect(on(() => sub.error(), ...))` boilerplate
+ *  so every consumer surfaces errors the same way. */
+export function onSubscriptionError(
+  sub: Subscription<unknown>,
+  handler: (err: Error) => void,
+): void {
+  createEffect(
+    on(
+      () => sub.error(),
+      (err) => {
+        if (err) handler(err);
+      },
+    ),
+  );
 }

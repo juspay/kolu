@@ -15,7 +15,10 @@
 import { createEffect, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { createSubscription } from "../rpc/createSubscription";
+import {
+  createSubscription,
+  onSubscriptionError,
+} from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import type {
@@ -46,13 +49,8 @@ export function useServerState() {
       ),
     );
     // Surface subscription errors (e.g. schema mismatch) so they don't vanish silently.
-    createEffect(
-      on(
-        () => sub.error(),
-        (err) => {
-          if (err) toast.error(`Server state error: ${err.message}`);
-        },
-      ),
+    onSubscriptionError(sub, (err) =>
+      toast.error(`Server state error: ${err.message}`),
     );
   }
 

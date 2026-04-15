@@ -5,9 +5,11 @@
  *  The terminal list is a live subscription — the server pushes updates on
  *  create/kill/reorder. No manual client-side bookkeeping needed. */
 
-import { createEffect, on } from "solid-js";
 import { toast } from "solid-sonner";
-import { createSubscription } from "../rpc/createSubscription";
+import {
+  createSubscription,
+  onSubscriptionError,
+} from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
@@ -15,13 +17,8 @@ import { useTerminalMetadata } from "./useTerminalMetadata";
 export function useTerminalStore() {
   const listSub = createSubscription(() => stream.terminalList());
   // Surface subscription errors so they don't vanish silently.
-  createEffect(
-    on(
-      () => listSub.error(),
-      (err) => {
-        if (err) toast.error(`Terminal list error: ${err.message}`);
-      },
-    ),
+  onSubscriptionError(listSub, (err) =>
+    toast.error(`Terminal list error: ${err.message}`),
   );
 
   const view = useViewState();
