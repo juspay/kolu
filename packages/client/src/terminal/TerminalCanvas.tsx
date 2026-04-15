@@ -6,7 +6,15 @@
  *  Resize uses raw pointer events (resize is not a drag-to-position
  *  gesture, so solid-dnd's model doesn't fit). */
 
-import { type Component, For, Show, createEffect, on, batch } from "solid-js";
+import {
+  type Component,
+  For,
+  Show,
+  createEffect,
+  createSignal,
+  on,
+  batch,
+} from "solid-js";
 import { createStore } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import {
@@ -80,14 +88,26 @@ const TerminalCanvas: Component<{
     ),
   );
 
-  /** Apply drag delta to the tile's persisted position on drag end. */
+  // solid-dnd resets the draggable transform before onDragEnd fires,
+  // so we capture the last known delta during onDragMove.
+  const [dragDelta, setDragDelta] = createSignal({ x: 0, y: 0 });
+
+  function handleDragMove({ draggable }: DragEvent) {
+    if (draggable)
+      setDragDelta({ x: draggable.transform.x, y: draggable.transform.y });
+  }
+
+  /** Apply captured drag delta to the tile's persisted position. */
   function handleDragEnd({ draggable }: DragEvent) {
     if (!draggable) return;
     const id = draggable.id as string;
     const l = layouts[id];
     if (!l) return;
-    const { x: dx, y: dy } = draggable.transform;
-    setLayouts(id, { ...l, x: l.x + dx, y: l.y + dy });
+    const { x: dx, y: dy } = dragDelta();
+    if (dx !== 0 || dy !== 0) {
+      setLayouts(id, { ...l, x: l.x + dx, y: l.y + dy });
+    }
+    setDragDelta({ x: 0, y: 0 });
   }
 
   /** Start resizing a tile from the bottom-right corner.
@@ -142,7 +162,7 @@ const TerminalCanvas: Component<{
   };
 
   return (
-    <DragDropProvider onDragEnd={handleDragEnd}>
+    <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
       <div class="flex-1 min-h-0 overflow-auto relative">
         <div
