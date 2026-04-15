@@ -164,7 +164,7 @@ const TerminalCanvas: Component<{
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
-      <div class="flex-1 min-h-0 overflow-auto relative">
+      <div class="flex-1 min-h-0 overflow-auto relative canvas-grid-bg">
         <div
           style={{
             position: "relative",
@@ -225,40 +225,39 @@ const CanvasTile: Component<{
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
 
+  const themeBg = () => theme().background ?? "var(--color-surface-1)";
+  const themeFg = () => theme().foreground ?? "var(--color-fg)";
+
   return (
     <div
       ref={draggable.ref}
-      class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-150"
+      class="absolute flex flex-col rounded-xl overflow-hidden border transition-all duration-200"
       classList={{
-        "border-accent/60 ring-1 ring-accent/30 shadow-lg shadow-accent/10":
-          isActive(),
-        "border-edge/50 hover:border-edge shadow-md": !isActive(),
+        "border-accent/60 shadow-xl": isActive(),
+        "border-edge/40 hover:border-edge/60": !isActive(),
       }}
       style={{
         left: `${layout().x}px`,
         top: `${layout().y}px`,
         width: `${layout().w}px`,
         height: `${layout().h}px`,
-        "background-color": theme().background ?? "var(--color-surface-1)",
+        "background-color": themeBg(),
         "z-index": isActive() ? 10 : 1,
-        // solid-dnd applies transform during drag via this style
-        ...{
-          transform: `translate(${draggable.transform.x}px, ${draggable.transform.y}px)`,
-        },
+        opacity: isActive() ? 1 : 0.92,
+        "box-shadow": isActive()
+          ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+          : `0 2px 8px rgba(0,0,0,0.2)`,
+        transform: `translate(${draggable.transform.x}px, ${draggable.transform.y}px)`,
       }}
       onMouseDown={() => props.parent.onSelect(id)}
     >
-      {/* Title bar — drag handle. Background is derived from the terminal
-       *  theme so it stays harmonious with any color scheme. We mix white
-       *  into the terminal bg to create a subtle lighter bar. */}
+      {/* Title bar — uses terminal foreground at low opacity for guaranteed
+       *  contrast against the terminal background, regardless of theme. */}
       <div
-        class="flex items-center gap-2 px-3 py-1.5 border-b shrink-0 cursor-grab active:cursor-grabbing select-none"
-        classList={{
-          "border-accent/30": isActive(),
-          "border-edge/30": !isActive(),
-        }}
+        class="flex items-center gap-2 px-3 py-1.5 shrink-0 cursor-grab active:cursor-grabbing select-none"
         style={{
-          "background-color": `color-mix(in oklch, ${theme().background ?? "var(--color-surface-1)"} 85%, white)`,
+          "background-color": `color-mix(in oklch, ${themeFg()} 8%, ${themeBg()})`,
+          "border-bottom": `1px solid color-mix(in oklch, ${themeFg()} 12%, ${themeBg()})`,
         }}
         {...draggable.dragActivators}
       >
@@ -266,7 +265,10 @@ const CanvasTile: Component<{
           <TerminalMeta info={props.parent.getDisplayInfo(id)} />
         </div>
         <button
-          class="flex items-center justify-center w-5 h-5 rounded-full text-fg-3 hover:text-fg hover:bg-surface-3 transition-colors cursor-pointer shrink-0 pointer-events-auto"
+          class="flex items-center justify-center w-5 h-5 rounded-full transition-colors cursor-pointer shrink-0 pointer-events-auto"
+          style={{
+            color: `color-mix(in oklch, ${themeFg()} 50%, ${themeBg()})`,
+          }}
           onClick={(e) => {
             e.stopPropagation();
             props.parent.onCloseTerminal(id);
@@ -336,19 +338,25 @@ const CanvasTile: Component<{
         </Show>
       </div>
 
-      {/* Resize handle — bottom-right corner */}
+      {/* Resize handle — bottom-right corner, larger hit area */}
       <div
-        class="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"
+        class="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-0 hover:opacity-100 transition-opacity"
         onPointerDown={(e) => props.startResize(id, e)}
       >
         <svg
-          class="w-3 h-3 text-fg-3 absolute bottom-0.5 right-0.5"
-          viewBox="0 0 12 12"
+          class="w-3.5 h-3.5 absolute bottom-0.5 right-0.5"
+          viewBox="0 0 14 14"
+          style={{
+            color: `color-mix(in oklch, ${themeFg()} 40%, ${themeBg()})`,
+          }}
           fill="currentColor"
         >
-          <circle cx="10" cy="10" r="1.2" />
-          <circle cx="6" cy="10" r="1.2" />
-          <circle cx="10" cy="6" r="1.2" />
+          <circle cx="12" cy="12" r="1.3" />
+          <circle cx="8" cy="12" r="1.3" />
+          <circle cx="12" cy="8" r="1.3" />
+          <circle cx="4" cy="12" r="1.3" />
+          <circle cx="8" cy="8" r="1.3" />
+          <circle cx="12" cy="4" r="1.3" />
         </svg>
       </div>
     </div>

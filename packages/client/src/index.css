@@ -160,3 +160,15 @@ body {
     background: oklch(from var(--card-color) l calc(c * 1.2) h / 0.9);
   }
 }
+
+/* ── Canvas grid background ─────────────────────────────────── */
+/* Subtle dot grid gives spatial grounding to the freeform canvas.
+   Dots use the edge color at low opacity so they adapt to light/dark themes. */
+.canvas-grid-bg {
+  background-image: radial-gradient(
+    circle,
+    var(--color-edge) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
