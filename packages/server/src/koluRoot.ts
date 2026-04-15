@@ -16,28 +16,41 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { serverProcessId } from "./hostname.ts";
 
-// Set by ensureKoluRoot(). Module is inert on import — paths are computed
-// only when the server explicitly creates the root directory.
+// Private state — set by ensureKoluRoot(), accessed through getters.
+let _root: string | null = null;
+let _shellDir: string | null = null;
+let _clipboardDir: string | null = null;
+
 /** Per-server-instance root. Everything kolu's server writes to disk for
  *  transient per-terminal use lives under here. */
-export let koluRoot: string;
+export function koluRoot(): string {
+  if (!_root) throw new Error("koluRoot: call ensureKoluRoot() first");
+  return _root;
+}
 
 /** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
-export let koluShellDir: string;
+export function koluShellDir(): string {
+  if (!_shellDir) throw new Error("koluShellDir: call ensureKoluRoot() first");
+  return _shellDir;
+}
 
 /** Per-terminal clipboard image-paste shim directories. */
-export let koluClipboardDir: string;
+export function koluClipboardDir(): string {
+  if (!_clipboardDir)
+    throw new Error("koluClipboardDir: call ensureKoluRoot() first");
+  return _clipboardDir;
+}
 
 /** Compute paths and create the root + subdirs with owner-only mode.
  *  Called once at server startup before any terminal spawns.
  *  Requires `initHostname()` to have run first. Idempotent. */
 export function ensureKoluRoot(): void {
   const runtimeRoot = process.env.XDG_RUNTIME_DIR ?? tmpdir();
-  koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
-  koluShellDir = join(koluRoot, "shell");
-  koluClipboardDir = join(koluRoot, "clipboard");
-  mkdirSync(koluShellDir, { recursive: true, mode: 0o700 });
-  mkdirSync(koluClipboardDir, { recursive: true, mode: 0o700 });
+  _root = join(runtimeRoot, `kolu-${serverProcessId()}`);
+  _shellDir = join(_root, "shell");
+  _clipboardDir = join(_root, "clipboard");
+  mkdirSync(_shellDir, { recursive: true, mode: 0o700 });
+  mkdirSync(_clipboardDir, { recursive: true, mode: 0o700 });
 }
 
 /** Remove the whole per-instance root on shutdown. Registered on the
@@ -46,6 +59,6 @@ export function ensureKoluRoot(): void {
  *  stack — we do not swallow. Guards against early exits before
  *  `ensureKoluRoot()` has computed the paths. */
 export function shutdownCleanup(): void {
-  if (!koluRoot) return;
-  rmSync(koluRoot, { recursive: true, force: true });
+  if (!_root) return;
+  rmSync(_root, { recursive: true, force: true });
 }

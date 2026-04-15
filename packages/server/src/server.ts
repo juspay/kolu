@@ -129,7 +129,7 @@ export async function startServer(flags: ServerFlags): Promise<void> {
   // --- Dynamic PWA manifest (includes hostname) ---
   // theme_color must match <meta name="theme-color"> in client/index.html
   app.get("/manifest.webmanifest", (c) => {
-    const name = `kolu@${serverHostname}`;
+    const name = `kolu@${serverHostname()}`;
     return c.json(
       {
         name,

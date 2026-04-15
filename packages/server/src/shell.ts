@@ -165,7 +165,7 @@ export function osc7Init(opts: {
   const pathLine = extraPath ? `export PATH="${extraPath}:$PATH"` : "";
 
   if (isBash) {
-    const rcFile = join(koluShellDir, `bashrc-${terminalId}`);
+    const rcFile = join(koluShellDir(), `bashrc-${terminalId}`);
     writeFileSync(
       rcFile,
       [
@@ -208,7 +208,7 @@ export function osc7Init(opts: {
   }
 
   if (isZsh) {
-    const zdotdir = join(koluShellDir, `zdotdir-${terminalId}`);
+    const zdotdir = join(koluShellDir(), `zdotdir-${terminalId}`);
     mkdirSync(zdotdir, { recursive: true });
     writeFileSync(
       join(zdotdir, ".zshrc"),

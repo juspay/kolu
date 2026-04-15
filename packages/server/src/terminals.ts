@@ -15,7 +15,7 @@ import {
 } from "kolu-common/config";
 import { log } from "./log.ts";
 import {
-  CLIPBOARD_SHIM_DIR,
+  clipboardShimDir,
   createClipboardDir,
   cleanupClipboardDir,
 } from "./clipboard.ts";
@@ -181,7 +181,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         }
       },
     },
-    { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
+    { shimBinDir: clipboardShimDir(), clipboardDir },
     cwd,
   );
 

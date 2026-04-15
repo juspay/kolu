@@ -5,34 +5,34 @@
  */
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
-import { store } from "./state.ts";
+import { getStore } from "./state.ts";
 import { publisher } from "./publisher.ts";
 import { log } from "./log.ts";
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
 export function saveSession(terminals: SavedTerminal[]): void {
   if (terminals.length === 0) {
-    store.set("session", null);
+    getStore().set("session", null);
     return;
   }
-  store.set("session", { terminals, savedAt: Date.now() });
+  getStore().set("session", { terminals, savedAt: Date.now() });
 }
 
 /** Get the saved session, or null if none exists. */
 export function getSavedSession(): SavedSession | null {
-  const session = store.get("session");
+  const session = getStore().get("session");
   if (!session || session.terminals.length === 0) return null;
   return session;
 }
 
 /** Clear the saved session (e.g. after successful restore). */
 export function clearSavedSession(): void {
-  store.set("session", null);
+  getStore().set("session", null);
 }
 
 /** Set the saved session directly (test-only). */
 export function setSavedSession(session: SavedSession): void {
-  store.set("session", session);
+  getStore().set("session", session);
 }
 
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---

@@ -22,8 +22,8 @@ export function initLog(): void {
   const level = process.env.LOG_LEVEL ?? "info";
   const base = {
     pid: process.pid,
-    hostname: serverHostname,
-    serverId: serverProcessId,
+    hostname: serverHostname(),
+    serverId: serverProcessId(),
   };
 
   log = pino(

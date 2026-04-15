@@ -28,17 +28,20 @@ import { log } from "./log.ts";
  */
 const SCHEMA_VERSION = "1.8.0";
 
-// Set by initState(). Module is inert on import — no Conf instance is
-// created, no files are touched, and no env vars are checked until the
-// server explicitly initialises persistent state.
-
+// Private state — set by initState(), accessed through getStore().
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
 // default path, so we refuse. Each entrypoint picks its own location:
 //   nix-built kolu → ~/.config/kolu (production)
 //   pnpm dev       → ~/.config/kolu-dev
 //   tests          → an ephemeral $TMPDIR path
-export let store: Conf<PersistedState>;
+let _store: Conf<PersistedState> | null = null;
+
+/** Access the Conf store. Throws if `initState()` hasn't been called. */
+export function getStore(): Conf<PersistedState> {
+  if (!_store) throw new Error("getStore: call initState() first");
+  return _store;
+}
 
 /** Create the Conf store, run migrations, and validate the persisted state.
  *  Requires `initLog()` to have run first. */
@@ -54,7 +57,7 @@ export function initState(): void {
 
   log.info({ path: stateDir }, "state directory");
 
-  store = new Conf<PersistedState>({
+  _store = new Conf<PersistedState>({
     cwd: stateDir,
     projectVersion: SCHEMA_VERSION,
     defaults: {
@@ -171,7 +174,7 @@ function formatStateError(
   const summary = issues
     .map((i) => `${i.path.join(".")}: ${i.message}`)
     .join("; ");
-  return `Persisted state does not match schema (${summary}). Delete ${store.path} to reset to defaults.`;
+  return `Persisted state does not match schema (${summary}). Delete ${_store!.path} to reset to defaults.`;
 }
 
 /** Check if a path exists on disk. */
@@ -211,21 +214,21 @@ const MAX_RECENT_REPOS = 20;
 /** Upsert a repo into the recent repos list (most-recently-seen first). */
 export function trackRecentRepo(repoRoot: string, repoName: string): void {
   const next = upsertMru(
-    store.get("recentRepos"),
+    _store!.get("recentRepos"),
     { repoRoot, repoName, lastSeen: Date.now() },
     (r) => r.repoRoot,
     (r) => r.lastSeen,
     MAX_RECENT_REPOS,
   );
-  store.set("recentRepos", next);
+  _store!.set("recentRepos", next);
   publishSystem("state:changed", getServerState());
 }
 
 /** Get recent repos, most-recently-seen first. Filters out repos that no longer exist on disk. */
 export function getRecentRepos(): RecentRepo[] {
-  const repos = store.get("recentRepos");
+  const repos = _store!.get("recentRepos");
   const live = repos.filter((r) => existsOnDisk(r.repoRoot));
-  if (live.length < repos.length) store.set("recentRepos", live);
+  if (live.length < repos.length) _store!.set("recentRepos", live);
   return live;
 }
 
@@ -240,20 +243,20 @@ const MAX_RECENT_AGENTS = 10;
  *  `parseAgentCommand` — raw prompt text has already been stripped. */
 export function trackRecentAgent(command: string): void {
   const next = upsertMru(
-    store.get("recentAgents"),
+    _store!.get("recentAgents"),
     { command, lastSeen: Date.now() },
     (a) => a.command,
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
-  store.set("recentAgents", next);
+  _store!.set("recentAgents", next);
   log.info({ command, total: next.length }, "recent agent tracked");
   publishSystem("state:changed", getServerState());
 }
 
 /** Get recent agents, most-recently-seen first. */
 function getRecentAgents(): RecentAgent[] {
-  return store.get("recentAgents");
+  return _store!.get("recentAgents");
 }
 
 // --- Server state ---
@@ -264,13 +267,13 @@ export function getServerState(): ServerState {
   const state = {
     recentRepos: getRecentRepos(),
     recentAgents: getRecentAgents(),
-    session: store.get("session"),
-    preferences: store.get("preferences"),
+    session: _store!.get("session"),
+    preferences: _store!.get("preferences"),
   };
   const result = PersistedStateSchema.safeParse(state);
   if (!result.success) {
     const msg = formatStateError(result.error.issues);
-    log.error({ issues: result.error.issues, path: store.path }, msg);
+    log.error({ issues: result.error.issues, path: _store!.path }, msg);
     throw new Error(msg);
   }
   return result.data;
@@ -280,12 +283,12 @@ export function getServerState(): ServerState {
  *  recentRepos and recentAgents are server-managed — ignored in patches. */
 export function updateServerState(patch: ServerStatePatch): void {
   if (patch.session !== undefined) {
-    store.set("session", patch.session);
+    _store!.set("session", patch.session);
   }
   if (patch.preferences !== undefined) {
-    const current = store.get("preferences");
+    const current = _store!.get("preferences");
     const { rightPanel: rpPatch, ...rest } = patch.preferences;
-    store.set("preferences", {
+    _store!.set("preferences", {
       ...current,
       ...rest,
       ...(rpPatch !== undefined && {
@@ -302,10 +305,10 @@ export function updateServerState(patch: ServerStatePatch): void {
  *  must go through `updateServerState`, which ignores server-managed fields. */
 export function testSetServerState(patch: ServerStatePatch): void {
   if (patch.recentRepos !== undefined) {
-    store.set("recentRepos", patch.recentRepos);
+    _store!.set("recentRepos", patch.recentRepos);
   }
   if (patch.recentAgents !== undefined) {
-    store.set("recentAgents", patch.recentAgents);
+    _store!.set("recentAgents", patch.recentAgents);
   }
   updateServerState(patch);
 }

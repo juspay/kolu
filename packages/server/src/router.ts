@@ -43,8 +43,8 @@ function requireTerminal(id: string): TerminalProcess {
 export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
-      hostname: serverHostname,
-      processId: serverProcessId,
+      hostname: serverHostname(),
+      processId: serverProcessId(),
     })),
   },
   terminal: {

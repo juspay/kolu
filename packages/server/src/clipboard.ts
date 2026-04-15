@@ -15,10 +15,15 @@ import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { koluClipboardDir } from "./koluRoot.ts";
 
-// Set by initClipboard(). Module is inert on import — the env check only
-// runs when the server explicitly initialises clipboard support.
+// Private state — set by initClipboard(), accessed through getter.
+let _shimDir: string | null = null;
+
 /** Clipboard shim bin directory — required, crashes on startup if missing. */
-export let CLIPBOARD_SHIM_DIR: string;
+export function clipboardShimDir(): string {
+  if (!_shimDir)
+    throw new Error("clipboardShimDir: call initClipboard() first");
+  return _shimDir;
+}
 
 /** Validate KOLU_CLIPBOARD_SHIM_DIR and store the path. Must be called once
  *  at server startup before any terminal spawns. */
@@ -29,12 +34,12 @@ export function initClipboard(): void {
       "KOLU_CLIPBOARD_SHIM_DIR must be set (points to the Nix-built xclip/wl-paste shim bin directory)",
     );
   }
-  CLIPBOARD_SHIM_DIR = dir;
+  _shimDir = dir;
 }
 
 /** Create a per-terminal clipboard directory under the server's per-instance root. */
 export function createClipboardDir(terminalId: string): string {
-  const dir = join(koluClipboardDir, terminalId);
+  const dir = join(koluClipboardDir(), terminalId);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
