@@ -225,7 +225,13 @@ export const appRouter = t.router({
     }),
     diff: t.git.diff.handler(async ({ input }) => {
       return unwrapGit(
-        await getDiff(input.repoPath, input.filePath, input.mode, log),
+        await getDiff(
+          input.repoPath,
+          input.filePath,
+          input.mode,
+          log,
+          input.oldPath,
+        ),
       );
     }),
   },

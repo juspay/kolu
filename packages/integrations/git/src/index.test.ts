@@ -12,6 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { simpleGit } from "simple-git";
 import {
+  getDiff,
   gitInfoEqual,
   resolveGitInfo,
   parseNameStatus,
@@ -24,6 +25,104 @@ import {
 vi.mock("memorable-names", () => ({
   randomName: () => "test-worktree",
 }));
+
+// --- getDiff: renames ---
+
+describe("getDiff", () => {
+  let tmpDir: string;
+
+  async function initRepo() {
+    const dir = path.join(tmpDir, `diff-repo-${Date.now()}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    return { dir, git };
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-diff-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("pure rename: old path and content, no diff hunks", async () => {
+    const { dir, git } = await initRepo();
+    const content = "export const x = 1;\n";
+
+    fs.writeFileSync(path.join(dir, "old-name.ts"), content);
+    await git.add("old-name.ts");
+    await git.commit("add old-name.ts");
+
+    await git.raw(["mv", "old-name.ts", "new-name.ts"]);
+
+    const result = await getDiff(
+      dir,
+      "new-name.ts",
+      "local",
+      undefined,
+      "old-name.ts",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.oldFileName).toBe("old-name.ts");
+    expect(result.value.newFileName).toBe("new-name.ts");
+    expect(result.value.oldContent).toBe(content);
+    expect(result.value.newContent).toBe(content);
+    // No content change — hunks contain the rename header but no +/- lines.
+    const diffLines = result.value.hunks
+      .join("")
+      .split("\n")
+      .filter(
+        (l) => /^[+-]/.test(l) && !l.startsWith("---") && !l.startsWith("+++"),
+      );
+    expect(diffLines).toEqual([]);
+  });
+
+  it("rename + edit: old path and content, hunks show only the delta", async () => {
+    const { dir, git } = await initRepo();
+
+    fs.writeFileSync(path.join(dir, "utils.ts"), "export const a = 1;\n");
+    await git.add("utils.ts");
+    await git.commit("add utils.ts");
+
+    fs.mkdirSync(path.join(dir, "lib"));
+    await git.raw(["mv", "utils.ts", "lib/utils.ts"]);
+    fs.writeFileSync(
+      path.join(dir, "lib", "utils.ts"),
+      "export const a = 1;\nexport const b = 2;\n",
+    );
+
+    const result = await getDiff(
+      dir,
+      "lib/utils.ts",
+      "local",
+      undefined,
+      "utils.ts",
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.oldFileName).toBe("utils.ts");
+    expect(result.value.newFileName).toBe("lib/utils.ts");
+    expect(result.value.oldContent).toBe("export const a = 1;\n");
+    expect(result.value.newContent).toBe(
+      "export const a = 1;\nexport const b = 2;\n",
+    );
+    // Hunks should show only the added line, not the entire file as an addition.
+    // Extract the meaningful diff lines (skip headers, no-newline markers).
+    const diffLines = result.value.hunks
+      .join("")
+      .split("\n")
+      .filter(
+        (l) => /^[+-]/.test(l) && !l.startsWith("---") && !l.startsWith("+++"),
+      );
+    expect(diffLines).toEqual(["+export const b = 2;"]);
+  });
+});
 
 // --- resolveUnder ---
 
@@ -117,13 +216,15 @@ describe("parseNameStatus", () => {
   it("extracts the new path from renames (R<score>)", () => {
     const raw = "R100\told/path.ts\tnew/path.ts\n";
     expect(parseNameStatus(raw)).toEqual([
-      { path: "new/path.ts", status: "R" },
+      { path: "new/path.ts", status: "R", oldPath: "old/path.ts" },
     ]);
   });
 
   it("extracts the destination from copies (C<score>)", () => {
     const raw = "C075\tsrc.ts\tdst.ts\n";
-    expect(parseNameStatus(raw)).toEqual([{ path: "dst.ts", status: "C" }]);
+    expect(parseNameStatus(raw)).toEqual([
+      { path: "dst.ts", status: "C", oldPath: "src.ts" },
+    ]);
   });
 
   it("handles type-change (T) lines", () => {

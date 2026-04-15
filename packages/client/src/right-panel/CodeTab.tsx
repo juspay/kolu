@@ -100,7 +100,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     () => {
       const p = repoPath();
       const s = selectedPath();
-      return p && s ? { repoPath: p, filePath: s, mode: mode() } : null;
+      if (!p || !s) return null;
+      const file = status()?.files.find((f) => f.path === s);
+      return { repoPath: p, filePath: s, mode: mode(), oldPath: file?.oldPath };
     },
     (input) => client.git.diff(input),
   );
@@ -244,6 +246,19 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               <Match when={diff.error}>
                 <div class="px-2 py-1 text-danger">
                   Error: {(diff.error as Error).message}
+                </div>
+              </Match>
+              <Match
+                when={
+                  diff() &&
+                  diff()!.hunks.length === 0 &&
+                  diff()!.oldFileName &&
+                  diff()!.newFileName &&
+                  diff()!.oldFileName !== diff()!.newFileName
+                }
+              >
+                <div class="flex items-center justify-center h-full text-fg-3/50">
+                  File renamed: {diff()!.oldFileName} → {diff()!.newFileName}
                 </div>
               </Match>
               <Match when={diff()}>

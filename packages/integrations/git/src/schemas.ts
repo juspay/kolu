@@ -50,6 +50,8 @@ export const GitChangedFileSchema = z.object({
   /** Path relative to repo root. */
   path: z.string(),
   status: GitChangeStatusSchema,
+  /** Original path before rename/copy. Only present for R/C statuses. */
+  oldPath: z.string().optional(),
 });
 export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
 
@@ -88,6 +90,9 @@ export const GitDiffInputSchema = z.object({
   /** Path relative to the repo root. */
   filePath: z.string(),
   mode: GitDiffModeSchema,
+  /** Original path before rename/copy — passed from the file list so
+   *  getDiff can read old content at the correct path. */
+  oldPath: z.string().optional(),
 });
 
 /** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop.
