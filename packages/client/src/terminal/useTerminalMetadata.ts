@@ -15,6 +15,7 @@
  *  No manual Map, AbortController, or version signals needed. */
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import {
   createSubscription,
@@ -59,7 +60,9 @@ export function useTerminalMetadata(deps: {
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
-    const meta = createSubscription(() => stream.metadata(id));
+    const meta = createSubscription(() => stream.metadata(id), {
+      onError: (err) => toast.error(`Metadata error: ${err.message}`),
+    });
     // Snapshot replaces, delta appends — every re-subscribe begins with
     // a fresh snapshot, so reconnect-safety is structural (no dedupe).
     const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
@@ -79,6 +82,7 @@ export function useTerminalMetadata(deps: {
             .exhaustive();
         },
         initial: [] as ActivitySample[],
+        onError: (err) => toast.error(`Activity error: ${err.message}`),
       },
     );
     return { id, meta, activity };
