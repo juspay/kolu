@@ -32,7 +32,9 @@ describe("parseNameStatus", () => {
 
   it("falls back to '?' for unknown status letters", () => {
     const raw = "X\tunknown.txt\n";
-    expect(parseNameStatus(raw)).toEqual([{ path: "unknown.txt", status: "?" }]);
+    expect(parseNameStatus(raw)).toEqual([
+      { path: "unknown.txt", status: "?" },
+    ]);
   });
 
   it("returns empty array for empty input", () => {
