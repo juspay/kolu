@@ -13,6 +13,7 @@ import os from "node:os";
 import { simpleGit } from "simple-git";
 import {
   getDiff,
+  getStatus,
   gitInfoEqual,
   resolveGitInfo,
   parseNameStatus,
@@ -441,6 +442,55 @@ describe("resolveGitInfo", () => {
     expect(result.value.repoName).toBe("proj");
     expect(result.value.repoName).not.toBe(".worktrees");
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(proj));
+  });
+});
+
+// --- getStatus: untracked files (#552) ---
+
+describe("getStatus local mode includes untracked files alongside tracked changes", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-status-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns both modified tracked files and untracked files", async () => {
+    const dir = path.join(tmpDir, "mixed-status");
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+
+    // Create and commit a tracked file
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "initial\n");
+    await git.add("tracked.txt");
+    await git.commit("add tracked file");
+
+    // Modify the tracked file (unstaged)
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "modified\n");
+
+    // Create an untracked file
+    fs.writeFileSync(path.join(dir, "untracked.txt"), "new\n");
+
+    const result = await getStatus(dir, "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const paths = result.value.files.map((f) => f.path);
+    expect(paths).toContain("tracked.txt");
+    expect(paths).toContain("untracked.txt");
+
+    // Verify statuses
+    const tracked = result.value.files.find((f) => f.path === "tracked.txt");
+    const untracked = result.value.files.find(
+      (f) => f.path === "untracked.txt",
+    );
+    expect(tracked?.status).toBe("M");
+    expect(untracked?.status).toBe("?");
   });
 });
 
