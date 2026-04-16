@@ -567,6 +567,11 @@ const Terminal: Component<{
       streamAbort?.abort();
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
+      // Release GPU context explicitly on unmount too — xterm's dispose
+      // detaches the canvas but doesn't call WEBGL_lose_context, same as
+      // the load/unload path. Without this, closing a tile (or leaving
+      // canvas mode) leaks a context until Chrome GCs the detached canvas.
+      unloadWebgl();
       terminal?.dispose();
     });
   });
