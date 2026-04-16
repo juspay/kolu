@@ -2,7 +2,7 @@
  *  Burger is mobile-only; panel toggles are desktop-only. */
 
 import { type Component, Show, createSignal, mergeProps } from "solid-js";
-import { MenuIcon, SearchIcon, SettingsIcon } from "./ui/Icons";
+import { MenuIcon, SearchIcon, SettingsIcon, GridIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
@@ -131,17 +131,17 @@ const Header: Component<{
       {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {/* Canvas/Focus mode toggle */}
-        <Tip label={props.canvasMode ? "Focus mode" : "Canvas mode"}>
+        <Tip label={props.canvasMode ? "Switch to Focus mode" : "Switch to Canvas mode"}>
           <button
             data-testid="canvas-mode-toggle"
-            class="h-7 px-2 text-xs rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="flex items-center justify-center w-6 h-6 rounded transition-colors cursor-pointer"
             classList={{
-              "bg-accent/20 text-accent": props.canvasMode,
-              "text-fg-2 hover:text-fg hover:bg-surface-2": !props.canvasMode,
+              "bg-surface-2 text-fg": props.canvasMode,
+              "text-fg-3 hover:bg-surface-2 hover:text-fg": !props.canvasMode,
             }}
             onClick={() => props.onToggleCanvasMode?.()}
           >
-            {props.canvasMode ? "⇔ Canvas" : "⇔ Focus"}
+            <GridIcon class="w-3.5 h-3.5" />
           </button>
         </Tip>
         {/* Panel toggle icons — desktop only */}
