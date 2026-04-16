@@ -7,8 +7,8 @@ export type FileNode = {
   name: string;
   /** Path relative to repo root (e.g. `src/utils/helpers.ts`). */
   path: string;
-  /** Git change status (M, A, D, etc.). */
-  status: GitChangeStatus;
+  /** Git change status (M, A, D, etc.). Present in diff modes, absent in browse mode. */
+  status?: GitChangeStatus;
 };
 
 /** A directory branch in the tree. */

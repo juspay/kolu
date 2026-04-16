@@ -33,6 +33,10 @@ import {
   GitDiffOutputSchema,
   ServerStateSchema,
   ServerStatePatchSchema,
+  FsListDirInputSchema,
+  FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
 } from "./index";
 import { z } from "zod";
 
@@ -98,6 +102,13 @@ export const contract = oc.router({
      *  Base depends on mode — HEAD in local mode, merge-base with
      *  `origin/<defaultBranch>` in branch mode. */
     diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
+  },
+  fs: {
+    /** List entries in a directory, filtered by git (tracked + untracked-but-not-ignored).
+     *  Used by the Code tab's file tree browser. */
+    listDir: oc.input(FsListDirInputSchema).output(FsListDirOutputSchema),
+    /** Read a file's UTF-8 content, path-traversal guarded. */
+    readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
   },
   state: {
     // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
