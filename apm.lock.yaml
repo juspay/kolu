@@ -50,10 +50,12 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 7630ca3fccd6837efeeb05acdc03b44dce6db140
+  resolved_commit: 90de07a631bef4f76a27c8bf2c3286c56b113d2d
   resolved_ref: master
   package_type: apm_package
   deployed_files:
+  - .claude/agents/hickey.md
+  - .claude/agents/lowy.md
   - .claude/commands/talk.md
   - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
@@ -65,4 +67,4 @@ dependencies:
   - .claude/skills/hickey
   - .claude/skills/lowy
   - .claude/skills/ralph
-  content_hash: sha256:2653b7508204eeb2048bf09e9b4c07f4bb370d811e128540f28e6af734e8c4c4
+  content_hash: sha256:df8031ec58ced933b60387771724ef51b74e3b4d64224d4d95a6c80b469fe87f

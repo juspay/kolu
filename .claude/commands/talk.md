@@ -68,10 +68,10 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 
 ## Auto-Hickey + Auto-Lowy
 
-Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` and `lowy` skills on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved, flag boundaries that track functionality instead of volatility) rather than dumping raw skill output on top.
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` and `lowy` sub-agents on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved, flag boundaries that track functionality instead of volatility) rather than dumping raw sub-agent output on top.
 
 <use_parallel_tool_calls>
-Invoke both Skill("hickey") and Skill("lowy") simultaneously in a single response. They are independent — do not wait for one before invoking the other.
+Invoke both `Agent(subagent_type="hickey")` and `Agent(subagent_type="lowy")` simultaneously in a single response. They are independent — do not wait for one before invoking the other. Do NOT use the `Skill` tool here: `Skill` calls serialize on the main loop, so two Skill invocations in one response still run sequentially. Dedicated sub-agents run concurrently and keep their (large) analysis contexts out of this conversation.
 </use_parallel_tool_calls>
 
 Skip the Hickey/Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
