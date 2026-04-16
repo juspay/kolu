@@ -279,16 +279,13 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
   );
 });
 
-Then(
-  "the minimap map should not be visible",
-  async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      (sel: string) => document.querySelector(sel) === null,
-      MINIMAP_MAP_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
+Then("the minimap map should not be visible", async function (this: KoluWorld) {
+  await this.page.waitForFunction(
+    (sel: string) => document.querySelector(sel) === null,
+    MINIMAP_MAP_SELECTOR,
+    { timeout: POLL_TIMEOUT },
+  );
+});
 
 When("I click the minimap toggle", async function (this: KoluWorld) {
   const toggle = this.page.locator(MINIMAP_TOGGLE_SELECTOR);
@@ -297,38 +294,32 @@ When("I click the minimap toggle", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-When(
-  "I save the canvas viewport state",
-  async function (this: KoluWorld) {
-    const state = await this.page.evaluate((sel: string) => {
-      const el = document.querySelector(sel);
-      if (!el) return null;
-      return {
-        zoom: el.getAttribute("data-zoom"),
-        transform: (el.firstElementChild as HTMLElement)?.style.transform,
-      };
-    }, CANVAS_SELECTOR);
-    (this as any).__savedViewportState = state;
-  },
-);
+When("I save the canvas viewport state", async function (this: KoluWorld) {
+  const state = await this.page.evaluate((sel: string) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    return {
+      zoom: el.getAttribute("data-zoom"),
+      transform: (el.firstElementChild as HTMLElement)?.style.transform,
+    };
+  }, CANVAS_SELECTOR);
+  (this as any).__savedViewportState = state;
+});
 
-When(
-  "I drag the minimap viewport rect",
-  async function (this: KoluWorld) {
-    const rect = this.page.locator(MINIMAP_VIEWPORT_RECT_SELECTOR);
-    await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const box = await rect.boundingBox();
-    if (!box) throw new Error("Viewport rect not visible");
-    // Drag from center of viewport rect 30px to the right
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    await this.page.mouse.move(cx, cy);
-    await this.page.mouse.down();
-    await this.page.mouse.move(cx + 30, cy, { steps: 5 });
-    await this.page.mouse.up();
-    await this.waitForFrame();
-  },
-);
+When("I drag the minimap viewport rect", async function (this: KoluWorld) {
+  const rect = this.page.locator(MINIMAP_VIEWPORT_RECT_SELECTOR);
+  await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await rect.boundingBox();
+  if (!box) throw new Error("Viewport rect not visible");
+  // Drag from center of viewport rect 30px to the right
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await this.page.mouse.move(cx, cy);
+  await this.page.mouse.down();
+  await this.page.mouse.move(cx + 30, cy, { steps: 5 });
+  await this.page.mouse.up();
+  await this.waitForFrame();
+});
 
 Then(
   "the canvas viewport state should have changed",
@@ -341,7 +332,8 @@ Then(
       ({ sel, prev }: { sel: string; prev: { transform: string | null } }) => {
         const el = document.querySelector(sel);
         if (!el) return false;
-        const transform = (el.firstElementChild as HTMLElement)?.style.transform;
+        const transform = (el.firstElementChild as HTMLElement)?.style
+          .transform;
         return transform !== prev.transform;
       },
       { sel: CANVAS_SELECTOR, prev: { transform: saved?.transform ?? null } },

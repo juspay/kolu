@@ -43,7 +43,10 @@ export function startViewportDrag(
         dragging = true;
         onDragStateChange(true);
       }
-      viewport.setPan(startPanX + px / minimapScale, startPanY + py / minimapScale);
+      viewport.setPan(
+        startPanX + px / minimapScale,
+        startPanY + py / minimapScale,
+      );
     },
     onEnd: () => {
       if (dragging) onDragStateChange(false);
