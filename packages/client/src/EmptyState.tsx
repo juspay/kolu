@@ -10,7 +10,6 @@ const features = [
   { label: "New terminal menu", shortcut: SHORTCUTS.newTerminalMenu.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: SHORTCUTS.cycleTerminalMru.keybind },
-  { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
 ];
 
 interface EmptyStateProps {
