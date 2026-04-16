@@ -252,7 +252,7 @@ const CanvasTile: Component<{
         }}
         {...draggable.dragActivators}
       >
-        <div class="flex-1 min-w-0 pointer-events-none">
+        <div class="flex-1 min-w-0">
           <TerminalMeta info={props.parent.getDisplayInfo(id)} />
         </div>
         <button
