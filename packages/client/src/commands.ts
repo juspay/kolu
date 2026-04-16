@@ -163,7 +163,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.isCanvasMode()
       ? [
           {
-            name: "Fit all tiles in viewport",
+            name: "Zoom to fit",
             keybind: SHORTCUTS.canvasFitAll.keybind,
             onSelect: () => deps.canvasFitAll(),
           },

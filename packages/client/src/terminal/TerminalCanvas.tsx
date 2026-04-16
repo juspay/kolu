@@ -28,9 +28,10 @@ import {
 import type { ITheme } from "@xterm/xterm";
 import TerminalContent from "./TerminalContent";
 import TerminalMeta from "./TerminalMeta";
-import { ResizeGripIcon } from "../ui/Icons";
+import { ZoomToFitIcon, ResizeGripIcon } from "../ui/Icons";
 import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import { useCanvasViewport } from "./useCanvasViewport";
+import { SHORTCUTS, formatKeybind } from "../input/keyboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -220,6 +221,23 @@ const TerminalCanvas: Component<{
             )}
           </For>
         </div>
+
+        {/* Zoom-to-fit button — fixed in bottom-left corner of the viewport.
+         *  Tooltip teaches the keyboard shortcut so users graduate to it. */}
+        <button
+          class="absolute bottom-4 left-4 z-20 flex items-center justify-center w-8 h-8 rounded-lg bg-surface-2/80 backdrop-blur-sm border border-edge/40 text-fg-3 hover:text-fg hover:bg-surface-2 transition-colors cursor-pointer"
+          title={`Zoom to fit (${formatKeybind(SHORTCUTS.canvasFitAll.keybind)})`}
+          onClick={() => {
+            const allLayouts: TileLayout[] = [];
+            for (const id of props.terminalIds) {
+              const l = layouts[id];
+              if (l) allLayouts.push(l);
+            }
+            viewport.fitAll(allLayouts);
+          }}
+        >
+          <ZoomToFitIcon class="w-4 h-4" />
+        </button>
       </div>
     </DragDropProvider>
   );

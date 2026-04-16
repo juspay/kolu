@@ -68,6 +68,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-canvas-fit",
-    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.canvasFitAll.keybind)} fits all tiles in the viewport`,
+    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.canvasFitAll.keybind)} zooms to fit all tiles`,
   },
 ];

@@ -47,7 +47,7 @@ An alternative to the default single-terminal focus layout — all terminals flo
 
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
-- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+1</kbd> fits all tiles in the viewport, <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
+- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+1</kbd> zoom to fit all tiles, <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
 - **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
 - **Desktop-only** — mobile devices always use focus mode; canvas mode preference is persisted server-side
 
