@@ -311,6 +311,29 @@ export const GitBranchIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Pin icon — filled pushpin for panel pin/unpin toggle. */
+export const PinIcon: Component<{ class?: string }> = (props) => (
+  <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 16 16" fill="currentColor">
+    <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707l-.586-.586-3.535 3.536.354 3.182a.5.5 0 0 1-.854.39L7.05 10.293 3.11 14.233a.5.5 0 0 1-.707-.707l3.94-3.94-2.753-2.753a.5.5 0 0 1 .39-.854l3.182.354L10.697 2.8l-.586-.586a.5.5 0 0 1 .146-.854l-.429.638z" />
+  </svg>
+);
+
+/** Resize grip — 6-dot triangle for corner resize handles. */
+export const ResizeGripIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 14 14"
+    fill="currentColor"
+  >
+    <circle cx="12" cy="12" r="1.3" />
+    <circle cx="8" cy="12" r="1.3" />
+    <circle cx="12" cy="8" r="1.3" />
+    <circle cx="4" cy="12" r="1.3" />
+    <circle cx="8" cy="8" r="1.3" />
+    <circle cx="12" cy="4" r="1.3" />
+  </svg>
+);
+
 export const WorktreeIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3 h-3"}

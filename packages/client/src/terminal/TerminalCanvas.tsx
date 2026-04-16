@@ -23,6 +23,7 @@ import {
 import type { ITheme } from "@xterm/xterm";
 import TerminalContent from "./TerminalContent";
 import TerminalMeta from "./TerminalMeta";
+import { ResizeGripIcon } from "../ui/Icons";
 import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -290,21 +291,14 @@ const CanvasTile: Component<{
         class="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-0 hover:opacity-100 transition-opacity"
         onPointerDown={(e) => props.startResize(id, e)}
       >
-        <svg
-          class="w-3.5 h-3.5 absolute bottom-0.5 right-0.5"
-          viewBox="0 0 14 14"
+        <span
+          class="absolute bottom-0.5 right-0.5"
           style={{
             color: `color-mix(in oklch, ${themeFg()} 40%, ${themeBg()})`,
           }}
-          fill="currentColor"
         >
-          <circle cx="12" cy="12" r="1.3" />
-          <circle cx="8" cy="12" r="1.3" />
-          <circle cx="12" cy="8" r="1.3" />
-          <circle cx="4" cy="12" r="1.3" />
-          <circle cx="8" cy="8" r="1.3" />
-          <circle cx="12" cy="4" r="1.3" />
-        </svg>
+          <ResizeGripIcon />
+        </span>
       </div>
     </div>
   );
