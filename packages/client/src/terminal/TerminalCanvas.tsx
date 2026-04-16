@@ -157,7 +157,10 @@ const TerminalCanvas: Component<{
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
-      <div class="flex-1 min-h-0 overflow-auto relative canvas-grid-bg">
+      <div
+        data-testid="canvas-container"
+        class="flex-1 min-h-0 overflow-auto relative canvas-grid-bg"
+      >
         <div
           style={{
             position: "relative",

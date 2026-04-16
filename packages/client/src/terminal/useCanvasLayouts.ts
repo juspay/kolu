@@ -1,18 +1,14 @@
 /** Canvas layout state — singleton store for tile positions/sizes.
- *  Persisted to localStorage, also reported to server for session snapshots.
+ *  Reported to server for session snapshots; seeded from server on restore.
  *  Shared between TerminalCanvas (rendering) and useSessionRestore (seeding). */
 
 import { createStore } from "solid-js/store";
-import { makePersisted } from "@solid-primitives/storage";
 import type { CanvasLayout, TerminalId } from "kolu-common";
 import { client } from "../rpc/rpc";
 
 export type TileLayout = CanvasLayout;
 
-const [layouts, setLayouts] = makePersisted(
-  createStore<Record<string, TileLayout>>({}),
-  { name: "kolu-canvas-layouts" },
-);
+const [layouts, setLayouts] = createStore<Record<string, TileLayout>>({});
 
 /** Report a tile's layout to the server for session persistence. */
 function reportLayout(id: TerminalId) {

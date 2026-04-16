@@ -1,7 +1,7 @@
-/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal. */
+/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal.
+ *  Reported to server for session snapshots; seeded from server on restore. */
 
 import { createStore, produce } from "solid-js/store";
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
 import { client } from "../rpc/rpc";
 
@@ -16,10 +16,7 @@ interface SubPanelState {
 
 const DEFAULT_PANEL_SIZE = 0.3;
 
-const [state, setState] = makePersisted(
-  createStore<Record<TerminalId, SubPanelState>>({}),
-  { name: "kolu-sub-panels" },
-);
+const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
 
 function ensureState(parentId: TerminalId): SubPanelState {
   if (!state[parentId]) {

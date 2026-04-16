@@ -36,6 +36,7 @@ const RightPanelLayout: Component<{
           <Show when={!rightPanel.collapsed()}>
             <>
               <div
+                data-testid="right-panel-backdrop"
                 class="absolute inset-0 bg-black/20 z-20"
                 onClick={() => rightPanel.collapsePanel()}
               />

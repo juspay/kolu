@@ -467,7 +467,10 @@ const App: Component = () => {
             <Show
               when={store.terminalIds().length > 0}
               fallback={
-                <div class="flex-1 min-h-0 canvas-grid-bg">
+                <div
+                  data-testid="canvas-container"
+                  class="flex-1 min-h-0 canvas-grid-bg"
+                >
                   <EmptyState
                     savedSession={session.savedSession() ?? undefined}
                     onRestore={() => void session.handleRestoreSession()}
