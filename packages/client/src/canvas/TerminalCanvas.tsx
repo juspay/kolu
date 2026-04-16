@@ -31,6 +31,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
+import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
 
@@ -181,20 +182,21 @@ const TerminalCanvas: Component<{
     setDragDelta({ x: 0, y: 0 });
   }
 
-  /** Start resizing a tile from the bottom-right corner.
+  /** Start resizing a tile from the given edge or corner.
    *  Pointer deltas are in screen-space — normalize by zoom. */
   let abortResize: AbortController | null = null;
-  function startResize(id: string, e: PointerEvent) {
+  function startResize(
+    id: string,
+    direction: ResizeDirection,
+    e: PointerEvent,
+  ) {
     e.preventDefault();
     e.stopPropagation();
-    const l = layoutOf(id);
-    if (!l) return;
+    const origin = layoutOf(id);
+    if (!origin) return;
     const startX = e.clientX;
     const startY = e.clientY;
-    const origW = l.w;
-    const origH = l.h;
-    const origX = l.x;
-    const origY = l.y;
+    const limits = { minW: MIN_W, minH: MIN_H };
 
     abortResize?.abort();
     abortResize = new AbortController();
@@ -205,26 +207,26 @@ const TerminalCanvas: Component<{
             ev.clientX - startX,
             ev.clientY - startY,
           );
-          setPendingLayout(id, {
-            x: origX,
-            y: origY,
-            w: Math.max(MIN_W, origW + dx),
-            h: Math.max(MIN_H, origH + dy),
-          });
+          setPendingLayout(id, applyResize(origin, direction, dx, dy, limits));
         },
-        onEnd: () => {
+        onEnd: (ev) => {
           abortResize = null;
-          const live = pending()[id];
-          if (live) {
-            const snapped: TileLayout = {
-              x: live.x,
-              y: live.y,
-              w: viewport.snapToGrid(live.w),
-              h: viewport.snapToGrid(live.h),
-            };
-            setPendingLayout(id, snapped);
-            props.onLayoutChange(id, snapped);
-          }
+          // No motion — skip commit so a bare click doesn't round-trip the server.
+          if (!pending()[id]) return;
+          const { dx, dy } = viewport.normalizeDelta(
+            ev.clientX - startX,
+            ev.clientY - startY,
+          );
+          const snapped = applyResize(
+            origin,
+            direction,
+            dx,
+            dy,
+            limits,
+            viewport.snapToGrid,
+          );
+          setPendingLayout(id, snapped);
+          props.onLayoutChange(id, snapped);
         },
       },
       abortResize,
