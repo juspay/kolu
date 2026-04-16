@@ -70,4 +70,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-canvas-fit",
     text: `In Canvas mode, ${formatKeybind(SHORTCUTS.canvasFitAll.keybind)} zooms to fit all tiles`,
   },
+  {
+    id: "amb-canvas-hand",
+    text: "In Canvas mode, middle-click and drag to pan freely in any direction",
+  },
 ];

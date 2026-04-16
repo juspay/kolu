@@ -140,6 +140,45 @@ function setContainerRef(el: HTMLDivElement) {
     },
     { passive: false, signal: wheelAbort!.signal },
   );
+
+  // Middle-mouse drag pan (hand tool)
+  let panDragAbort: AbortController | null = null;
+
+  el.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      panDragAbort?.abort();
+      panDragAbort = new AbortController();
+      const { signal } = panDragAbort;
+      const startPanX = panX();
+      const startPanY = panY();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      el.style.cursor = "grabbing";
+
+      window.addEventListener(
+        "pointermove",
+        (ev) => {
+          const z = zoom();
+          setPanX(startPanX - (ev.clientX - startX) / z);
+          setPanY(startPanY - (ev.clientY - startY) / z);
+        },
+        { signal },
+      );
+      window.addEventListener(
+        "pointerup",
+        () => {
+          panDragAbort?.abort();
+          panDragAbort = null;
+          el.style.cursor = "";
+        },
+        { signal },
+      );
+    },
+    { signal: wheelAbort!.signal },
+  );
 }
 
 function normalizeDelta(dx: number, dy: number) {
