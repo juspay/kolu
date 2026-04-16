@@ -232,13 +232,6 @@ const CanvasTile: Component<{
           ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
           : `0 2px 8px rgba(0,0,0,0.2)`,
         transform: `translate(${draggable.transform.x}px, ${draggable.transform.y}px)`,
-        // Scope-override fg tier vars so all text descendants (TerminalMeta,
-        // AgentIndicator, etc.) retune to this terminal's theme foreground
-        // instead of the global app foreground. Fixes unreadable text on
-        // colored terminal backgrounds (e.g. gray text on green bg).
-        "--color-fg": themeFg(),
-        "--color-fg-2": `color-mix(in oklch, ${themeFg()} 75%, ${themeBg()})`,
-        "--color-fg-3": `color-mix(in oklch, ${themeFg()} 55%, ${themeBg()})`,
       }}
       onMouseDown={() => props.parent.onSelect(id)}
     >
@@ -249,6 +242,13 @@ const CanvasTile: Component<{
         style={{
           "background-color": `color-mix(in oklch, ${themeFg()} 8%, ${themeBg()})`,
           "border-bottom": `1px solid color-mix(in oklch, ${themeFg()} 12%, ${themeBg()})`,
+          // Scope-override fg tier vars so title bar text (TerminalMeta,
+          // AgentIndicator) retunes to the terminal theme's foreground.
+          // Scoped here (not on the outer tile) so the search bar overlay
+          // and other chrome inside the terminal body keep app-level colors.
+          "--color-fg": themeFg(),
+          "--color-fg-2": `color-mix(in oklch, ${themeFg()} 75%, ${themeBg()})`,
+          "--color-fg-3": `color-mix(in oklch, ${themeFg()} 55%, ${themeBg()})`,
         }}
         {...draggable.dragActivators}
       >
