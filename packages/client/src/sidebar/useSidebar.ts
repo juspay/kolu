@@ -1,15 +1,12 @@
 /** Sidebar open/close state — singleton module. Syncs with sm breakpoint. */
 
-import { createSignal } from "solid-js";
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { createSignal, createEffect, on } from "solid-js";
+import { isMobile } from "../useMobile";
 
-const SM_QUERY = window.matchMedia("(min-width: 640px)");
-const [sidebarOpen, setSidebarOpen] = createSignal(SM_QUERY.matches);
+const [sidebarOpen, setSidebarOpen] = createSignal(!isMobile());
 
 // Auto-close on mobile, auto-open on desktop when viewport crosses sm breakpoint
-makeEventListener(SM_QUERY, "change", (e: MediaQueryListEvent) =>
-  setSidebarOpen(e.matches),
-);
+createEffect(on(isMobile, (mobile) => setSidebarOpen(!mobile)));
 
 export function useSidebar() {
   return {

@@ -101,8 +101,12 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 }
 
 /** Build a session snapshot from current terminal state. */
-export function snapshotSession(): SavedTerminal[] {
-  return [...terminals.entries()].map(([id, entry]) => {
+/** Build a session snapshot from current terminal + client-reported state. */
+export function snapshotSession(): {
+  terminals: SavedTerminal[];
+  activeTerminalId: string | null;
+} {
+  const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
     return {
       id,
@@ -111,8 +115,11 @@ export function snapshotSession(): SavedTerminal[] {
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
       ...(m.themeName && { themeName: m.themeName }),
+      ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
+      ...(m.subPanel && { subPanel: m.subPanel }),
     };
   });
+  return { terminals: snappedTerminals, activeTerminalId };
 }
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
@@ -264,6 +271,44 @@ export function setTerminalParent(
       m.sortOrder = nextSortOrder(newParent);
     });
   }
+}
+
+/** Store a terminal's canvas layout position (client-reported).
+ *  Mutates metadata directly — no metadata publish to avoid over-broadcasting
+ *  on every drag-end. Only triggers session auto-save. */
+export function setCanvasLayout(
+  id: TerminalId,
+  layout: { x: number; y: number; w: number; h: number },
+): void {
+  const entry = terminals.get(id);
+  if (!entry) return;
+  entry.info.meta.canvasLayout = layout;
+  emitChanged();
+}
+
+/** Store a terminal's sub-panel state (client-reported).
+ *  Same approach: mutate metadata directly, session auto-save only. */
+export function setSubPanelState(
+  id: TerminalId,
+  state: { collapsed: boolean; panelSize: number },
+): void {
+  const entry = terminals.get(id);
+  if (!entry) return;
+  entry.info.meta.subPanel = state;
+  emitChanged();
+}
+
+// Active terminal ID — client-reported, used only for session snapshots.
+let activeTerminalId: TerminalId | null = null;
+
+/** Store which terminal is active (reported by the client).
+ *  Only emits session:changed when a terminal is actually selected —
+ *  null (no selection, e.g. client reconnect) must not trigger auto-save
+ *  because snapshotSession() may return an empty terminal list at that
+ *  point, which would clear the saved session. */
+export function setActiveTerminalId(id: TerminalId | null): void {
+  activeTerminalId = id;
+  if (id !== null) emitChanged();
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

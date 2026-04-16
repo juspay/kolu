@@ -47,7 +47,7 @@ When(
   async function (this: KoluWorld) {
     // The theme section in MetadataInspector renders a clickable button with the theme name.
     const themeButton = this.page.locator(
-      '[data-testid="right-panel"] button.text-accent',
+      '[data-testid="inspector-theme-button"]',
     );
     await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await themeButton.click();
@@ -105,7 +105,7 @@ Then(
   async function (this: KoluWorld) {
     // Theme section renders a clickable button with the theme name inside the right panel.
     const themeButton = this.page.locator(
-      '[data-testid="right-panel"] button.text-accent',
+      '[data-testid="inspector-theme-button"]',
     );
     await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const text = await themeButton.textContent();

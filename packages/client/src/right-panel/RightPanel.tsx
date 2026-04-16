@@ -7,7 +7,7 @@ import type { TerminalMetadata, RightPanelTab } from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
 import CodeTab from "./CodeTab";
 import { useRightPanel } from "./useRightPanel";
-import { ChevronRightIcon } from "../ui/Icons";
+import { ChevronRightIcon, PinIcon } from "../ui/Icons";
 
 type TabProps = {
   meta: TerminalMetadata | null;
@@ -70,6 +70,18 @@ const RightPanel: Component<{
           )}
         </For>
         <div class="flex-1" />
+        <button
+          class="px-1.5 h-full transition-colors cursor-pointer"
+          classList={{
+            "text-accent": rightPanel.pinned(),
+            "text-fg-3/40 hover:text-fg-2": !rightPanel.pinned(),
+          }}
+          onClick={() => rightPanel.togglePinned()}
+          aria-label={rightPanel.pinned() ? "Unpin panel" : "Pin panel"}
+          title={rightPanel.pinned() ? "Unpin (overlay)" : "Pin (dock)"}
+        >
+          <PinIcon />
+        </button>
         <button
           class="px-2 h-full text-fg-3/40 hover:text-fg-2 transition-colors cursor-pointer"
           onClick={props.onToggle}

@@ -5,7 +5,7 @@ import {
   createEffect,
   createSignal,
 } from "solid-js";
-import { createMediaQuery } from "@solid-primitives/media";
+import { isTouch } from "../useMobile";
 import {
   DragDropProvider,
   DragDropSensors,
@@ -116,7 +116,7 @@ const SidebarEntry: Component<{
    *  When coarse, drag activation moves to a small grip handle inside
    *  the card and the button switches to `touch-action: pan-y` so the
    *  list scrolls. Desktop keeps the drag-anywhere behavior unchanged. */
-  const isCoarse = createMediaQuery("(pointer: coarse)");
+  const isCoarse = isTouch;
 
   /** When this entry becomes active, scroll itself into view. Handles both
    *  switching to an existing terminal AND creating a new one: in either

@@ -1,24 +1,17 @@
-/** View state — per-browser-tab UI state that has no server representation.
+/** View state — per-browser-tab UI state.
  *  Which terminal is selected, which have unread completions, MRU switch
- *  history. Viewport grid lives in `useViewport.ts` — it's shared across
+ *  history. Active terminal is reported to server for session snapshots
+ *  and restored via useSessionRestore on reconnect.
+ *  Viewport grid lives in `useViewport.ts` — it's shared across
  *  every main terminal, not keyed per id. */
 
 import { createSignal, createEffect, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
-
-const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
+import { client } from "./rpc/rpc";
 
 export function useViewState() {
-  const [activeId, setActiveId] = makePersisted(
-    createSignal<TerminalId | null>(null),
-    {
-      name: ACTIVE_TERMINAL_KEY,
-      serialize: (v) => (v === null ? "" : v),
-      deserialize: (s) => (s === "" ? null : (s as TerminalId)),
-    },
-  );
+  const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
 
   /** Terminals with unseen Claude completions (cleared when user visits). */
   const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
@@ -29,6 +22,8 @@ export function useViewState() {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
       if (unread[id]) setUnread(produce((s) => delete s[id]));
+      // Report active terminal to server for session snapshots
+      void client.terminal.setActive({ id }).catch(() => {});
     }),
   );
 

@@ -10,18 +10,19 @@ import {
 } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
+import { isMobile } from "./useMobile";
 import Header from "./Header";
 import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
-import TerminalPane from "./terminal/TerminalPane";
+import TerminalContent from "./terminal/TerminalContent";
+import TerminalCanvas from "./terminal/TerminalCanvas";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Dialog from "@corvu/dialog";
-import Resizable from "@corvu/resizable";
 import EmptyState from "./EmptyState";
-import RightPanel from "./right-panel/RightPanel";
+import RightPanelLayout from "./right-panel/RightPanelLayout";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
@@ -36,6 +37,7 @@ import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
+import { useServerState } from "./settings/useServerState";
 import { useTips } from "./settings/useTips";
 
 const App: Component = () => {
@@ -64,6 +66,11 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
+  const { preferences, updatePreferences } = useServerState();
+  // Canvas mode is desktop-only — force focus mode on mobile
+  const canvasMode = () => !isMobile() && preferences().canvasMode;
+  const toggleCanvasMode = () =>
+    updatePreferences({ canvasMode: !canvasMode() });
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -339,6 +346,8 @@ const App: Component = () => {
         appTitle={appTitle()}
         themeName={activeThemeName()}
         onThemeClick={() => openPaletteGroup("Theme")}
+        canvasMode={canvasMode()}
+        onToggleCanvasMode={toggleCanvasMode}
         sidebarOpen={sidebarOpen()}
         hasSubPanel={
           store.activeId() !== null &&
@@ -367,107 +376,132 @@ const App: Component = () => {
           "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
         }}
       >
-        <Sidebar
-          terminalIds={store.terminalIds()}
-          activeId={store.activeId()}
-          getMetadata={store.getMetadata}
-          isUnread={store.isUnread}
-          getDisplayInfo={store.getDisplayInfo}
-          getTerminalTheme={getTerminalTheme}
-          onSelect={store.setActiveId}
-          onCloseTerminal={closeTerminal}
-          onCreate={() => crud.handleCreate()}
-          onNewTerminalMenu={() => openPaletteGroup("New terminal")}
-          onReorder={crud.reorderTerminals}
-          open={sidebarOpen()}
-          onClose={closeSidebar}
-        />
-        {/* min-w-0: override flex min-width:auto so terminal area shrinks below canvas intrinsic size.
-         *  overflow-hidden: prevent scrollbar when collapsed edge strip + Resizable exceed container width. */}
-        <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
-          <Resizable
-            orientation="horizontal"
-            sizes={
-              rightPanel.collapsed()
-                ? [1, 0]
-                : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-            }
-            onSizesChange={(sizes) => {
-              if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
-            }}
-            class="flex-1 min-h-0 overflow-hidden"
-          >
-            <Resizable.Panel
-              as="div"
-              class="min-w-0 min-h-0 flex flex-col"
-              minSize={0.3}
-            >
-              <div
-                class="flex-1 min-h-0 overflow-hidden"
-                style={{ "background-color": activeTheme().background }}
-                data-testid="terminal-viewport"
-              >
-                <Show
-                  when={!session.isLoading()}
-                  fallback={
-                    <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                      Connecting...
-                    </div>
-                  }
-                >
-                  <Show when={store.terminalIds().length === 0}>
-                    <EmptyState
-                      savedSession={session.savedSession() ?? undefined}
-                      onRestore={() => void session.handleRestoreSession()}
-                    />
-                  </Show>
-                  <For each={store.terminalIds()}>
-                    {(id) => (
-                      <TerminalPane
-                        terminalId={id}
-                        visible={store.activeId() === id}
-                        theme={getTerminalTheme(id)}
-                        searchOpen={searchOpen()}
-                        onSearchOpenChange={setSearchOpen}
-                        subTerminalIds={store.getSubTerminalIds(id)}
-                        getMetadata={store.getMetadata}
-                        onCreateSubTerminal={(parentId, cwd) =>
-                          void crud.handleCreateSubTerminal(parentId, cwd)
-                        }
-                        onCloseTerminal={closeTerminal}
-                        activeMeta={store.activeMeta()}
-                      />
-                    )}
-                  </For>
-                </Show>
-              </div>
-              <MobileKeyBar activeId={store.activeId} />
-            </Resizable.Panel>
-
-            <Show when={!rightPanel.collapsed()}>
-              <Resizable.Handle
-                data-testid="right-panel-handle"
-                class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-                aria-label="Resize inspector panel"
+        <Show
+          when={canvasMode()}
+          fallback={
+            <>
+              <Sidebar
+                terminalIds={store.terminalIds()}
+                activeId={store.activeId()}
+                getMetadata={store.getMetadata}
+                isUnread={store.isUnread}
+                getDisplayInfo={store.getDisplayInfo}
+                getTerminalTheme={getTerminalTheme}
+                onSelect={store.setActiveId}
+                onCloseTerminal={closeTerminal}
+                onCreate={() => crud.handleCreate()}
+                onNewTerminalMenu={() => openPaletteGroup("New terminal")}
+                onReorder={crud.reorderTerminals}
+                open={sidebarOpen()}
+                onClose={closeSidebar}
               />
-            </Show>
-
-            <Resizable.Panel
-              as="div"
-              class="min-w-0 min-h-0 overflow-hidden"
-              minSize={0}
+              <RightPanelLayout
+                meta={store.activeMeta()}
+                themeName={activeThemeName()}
+                onThemeClick={() => openPaletteGroup("Theme")}
+                contentClass="flex-col"
+              >
+                <div
+                  class="flex-1 min-h-0 overflow-hidden"
+                  style={{ "background-color": activeTheme().background }}
+                  data-testid="terminal-viewport"
+                >
+                  <Show
+                    when={!session.isLoading()}
+                    fallback={
+                      <div class="flex items-center justify-center h-full text-fg-3 text-sm">
+                        Connecting...
+                      </div>
+                    }
+                  >
+                    <Show when={store.terminalIds().length === 0}>
+                      <EmptyState
+                        savedSession={session.savedSession() ?? undefined}
+                        onRestore={() => void session.handleRestoreSession()}
+                      />
+                    </Show>
+                    <For each={store.terminalIds()}>
+                      {(id) => {
+                        const visible = () => store.activeId() === id;
+                        return (
+                          <div
+                            class="w-full h-full relative flex flex-col"
+                            classList={{ hidden: !visible() }}
+                          >
+                            <TerminalContent
+                              terminalId={id}
+                              visible={visible()}
+                              focused={visible()}
+                              theme={getTerminalTheme(id)}
+                              searchOpen={searchOpen()}
+                              onSearchOpenChange={setSearchOpen}
+                              subTerminalIds={store.getSubTerminalIds(id)}
+                              getMetadata={store.getMetadata}
+                              onCreateSubTerminal={(parentId, cwd) =>
+                                void crud.handleCreateSubTerminal(parentId, cwd)
+                              }
+                              onCloseTerminal={closeTerminal}
+                              activeMeta={store.activeMeta()}
+                            />
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </Show>
+                </div>
+                <MobileKeyBar activeId={store.activeId} />
+              </RightPanelLayout>
+            </>
+          }
+        >
+          {/* Canvas mode — all terminals on freeform 2D canvas */}
+          <Show
+            when={!session.isLoading()}
+            fallback={
+              <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
+                Connecting...
+              </div>
+            }
+          >
+            <Show
+              when={store.terminalIds().length > 0}
+              fallback={
+                <div
+                  data-testid="canvas-container"
+                  class="flex-1 min-h-0 canvas-grid-bg"
+                >
+                  <EmptyState
+                    savedSession={session.savedSession() ?? undefined}
+                    onRestore={() => void session.handleRestoreSession()}
+                  />
+                </div>
+              }
             >
-              <Show when={!rightPanel.collapsed()}>
-                <RightPanel
-                  meta={store.activeMeta()}
-                  onToggle={rightPanel.togglePanel}
-                  themeName={activeThemeName()}
-                  onThemeClick={() => openPaletteGroup("Theme")}
+              <RightPanelLayout
+                meta={store.activeMeta()}
+                themeName={activeThemeName()}
+                onThemeClick={() => openPaletteGroup("Theme")}
+              >
+                <TerminalCanvas
+                  terminalIds={store.terminalIds()}
+                  activeId={store.activeId()}
+                  getMetadata={store.getMetadata}
+                  getDisplayInfo={store.getDisplayInfo}
+                  getTerminalTheme={getTerminalTheme}
+                  onSelect={store.setActiveId}
+                  onCloseTerminal={closeTerminal}
+                  onCreateSubTerminal={(parentId, cwd) =>
+                    void crud.handleCreateSubTerminal(parentId, cwd)
+                  }
+                  activeMeta={store.activeMeta()}
+                  searchOpen={searchOpen()}
+                  onSearchOpenChange={setSearchOpen}
+                  subTerminalIds={store.getSubTerminalIds}
                 />
-              </Show>
-            </Resizable.Panel>
-          </Resizable>
-        </div>
+              </RightPanelLayout>
+            </Show>
+          </Show>
+        </Show>
       </div>
     </div>
   );

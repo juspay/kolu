@@ -11,6 +11,9 @@ import {
   TerminalResizeInputSchema,
   TerminalSendInputSchema,
   TerminalSetThemeInputSchema,
+  TerminalSetCanvasLayoutInputSchema,
+  TerminalSetSubPanelInputSchema,
+  SetActiveTerminalInputSchema,
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
@@ -48,6 +51,11 @@ export const contract = oc.router({
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
+    setCanvasLayout: oc
+      .input(TerminalSetCanvasLayoutInputSchema)
+      .output(z.void()),
+    setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
+    setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
     attach: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalAttachOutputSchema)),

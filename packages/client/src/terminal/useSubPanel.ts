@@ -1,8 +1,9 @@
-/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal. */
+/** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal.
+ *  Reported to server for session snapshots; seeded from server on restore. */
 
 import { createStore, produce } from "solid-js/store";
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
+import { client } from "../rpc/rpc";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -15,10 +16,7 @@ interface SubPanelState {
 
 const DEFAULT_PANEL_SIZE = 0.3;
 
-const [state, setState] = makePersisted(
-  createStore<Record<TerminalId, SubPanelState>>({}),
-  { name: "kolu-sub-panels" },
-);
+const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
 
 function ensureState(parentId: TerminalId): SubPanelState {
   if (!state[parentId]) {
@@ -32,6 +30,19 @@ function ensureState(parentId: TerminalId): SubPanelState {
   return state[parentId]!;
 }
 
+/** Report sub-panel state to server for session persistence. */
+function reportToServer(parentId: TerminalId) {
+  const s = state[parentId];
+  if (!s) return;
+  void client.terminal
+    .setSubPanel({
+      id: parentId,
+      collapsed: s.collapsed,
+      panelSize: s.panelSize,
+    })
+    .catch(() => {});
+}
+
 export function useSubPanel() {
   return {
     getSubPanel(parentId: TerminalId): SubPanelState {
@@ -41,18 +52,21 @@ export function useSubPanel() {
     togglePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", (v) => !v);
+      reportToServer(parentId);
     },
 
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
       setState(parentId, "focusTarget", "sub");
+      reportToServer(parentId);
     },
 
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
       setState(parentId, "focusTarget", "main");
+      reportToServer(parentId);
     },
 
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
@@ -63,6 +77,7 @@ export function useSubPanel() {
     setPanelSize(parentId: TerminalId, size: number) {
       ensureState(parentId);
       setState(parentId, "panelSize", size);
+      reportToServer(parentId);
     },
 
     /** Cycle to the next/previous sub-tab within a parent's sub-panel. */
@@ -77,6 +92,19 @@ export function useSubPanel() {
     setFocusTarget(parentId: TerminalId, target: "main" | "sub") {
       ensureState(parentId);
       setState(parentId, "focusTarget", target);
+    },
+
+    /** Seed sub-panel state from server data — no report-back to server. */
+    seedPanel(
+      parentId: TerminalId,
+      opts: { collapsed: boolean; panelSize: number },
+    ) {
+      setState(parentId, {
+        collapsed: opts.collapsed,
+        panelSize: opts.panelSize,
+        activeSubTab: state[parentId]?.activeSubTab ?? null,
+        focusTarget: opts.collapsed ? "main" : "sub",
+      });
     },
 
     /** Clean up state for a parent that no longer exists. */

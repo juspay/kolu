@@ -229,10 +229,12 @@ Before(async function (this: KoluWorld, scenario) {
           activityAlerts: true,
           colorScheme: "dark",
           sidebarAgentPreviews: "attention",
+          canvasMode: false,
           rightPanel: {
             collapsed: true,
             size: 0.25,
             tab: "inspector",
+            pinned: true,
           },
         },
       },

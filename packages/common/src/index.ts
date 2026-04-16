@@ -102,6 +102,19 @@ export const ForegroundSchema = z.object({
 
 // --- Terminal metadata (unified, provider-aggregated) ---
 
+export const CanvasLayoutSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
+
+export const SubPanelStateSchema = z.object({
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
 export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
@@ -115,6 +128,10 @@ export const TerminalMetadataSchema = z.object({
   parentId: z.string().optional(),
   /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
   sortOrder: z.number(),
+  /** Canvas tile position/size — client-reported, used for session restore. */
+  canvasLayout: CanvasLayoutSchema.optional(),
+  /** Sub-panel collapsed/size state — client-reported, used for session restore. */
+  subPanel: SubPanelStateSchema.optional(),
 });
 
 // --- Activity ---
@@ -163,6 +180,21 @@ export const TerminalSendInputSchema = z.object({
 export const TerminalSetThemeInputSchema = z.object({
   id: TerminalIdSchema,
   themeName: z.string(),
+});
+
+export const TerminalSetCanvasLayoutInputSchema = z.object({
+  id: TerminalIdSchema,
+  layout: CanvasLayoutSchema,
+});
+
+export const TerminalSetSubPanelInputSchema = z.object({
+  id: TerminalIdSchema,
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
+export const SetActiveTerminalInputSchema = z.object({
+  id: TerminalIdSchema.nullable(),
 });
 
 export const TerminalCreateInputSchema = z.object({
@@ -241,10 +273,21 @@ export const SavedTerminalSchema = z.object({
   sortOrder: z.number().optional(),
   /** Theme name at save time. */
   themeName: z.string().optional(),
+  /** Canvas tile position and size at save time. */
+  canvasLayout: CanvasLayoutSchema.optional(),
+  /** Sub-panel state at save time (collapsed, size). */
+  subPanel: z
+    .object({
+      collapsed: z.boolean(),
+      panelSize: z.number(),
+    })
+    .optional(),
 });
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
+  /** Which terminal was active at save time. */
+  activeTerminalId: z.string().nullable().optional(),
   savedAt: z.number(),
 });
 
@@ -272,6 +315,8 @@ export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
   size: z.number(),
   tab: RightPanelTabSchema,
+  /** Whether the right panel is pinned (docked) vs floating overlay. */
+  pinned: z.boolean(),
 });
 
 export const PreferencesSchema = z.object({
@@ -284,6 +329,9 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
+  /** Canvas mode shows all terminals as freeform draggable tiles.
+   *  Focus mode shows one terminal at a time with a sidebar. */
+  canvasMode: z.boolean(),
   rightPanel: RightPanelPrefsSchema,
 });
 

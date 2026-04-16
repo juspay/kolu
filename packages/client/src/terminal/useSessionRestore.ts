@@ -3,6 +3,7 @@
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
+import { useCanvasLayouts } from "./useCanvasLayouts";
 import { useServerState } from "../settings/useServerState";
 import { lifecycle } from "../rpc/rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
@@ -19,6 +20,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
+  const { setLayouts, reportLayout } = useCanvasLayouts();
   const serverState = useServerState();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -41,6 +43,16 @@ export function useSessionRestore(deps: {
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
+    // Seed canvas layouts and sub-panel state from server metadata
+    for (const t of existing) {
+      if (t.meta.canvasLayout) {
+        setLayouts(t.id, t.meta.canvasLayout);
+      }
+      if (t.meta.subPanel) {
+        subPanel.seedPanel(t.id, t.meta.subPanel);
+      }
+    }
+
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
@@ -123,6 +135,23 @@ export function useSessionRestore(deps: {
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+      }
+      // Restore canvas layouts and sub-panel state under the new terminal IDs
+      for (const t of session.terminals) {
+        const newId = oldToNew.get(t.id);
+        if (!newId) continue;
+        if (t.canvasLayout) {
+          setLayouts(newId, t.canvasLayout);
+          reportLayout(newId);
+        }
+        if (t.subPanel) {
+          subPanel.seedPanel(newId, t.subPanel);
+        }
+      }
+      // Restore active terminal
+      if (session.activeTerminalId) {
+        const newActiveId = oldToNew.get(session.activeTerminalId);
+        if (newActiveId) store.setActiveId(newActiveId);
       }
       toast.success("Session restored", { id });
     } catch (err) {

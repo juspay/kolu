@@ -37,6 +37,7 @@ import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "../input/zoom";
 import { createScrollLock } from "../scrollLock";
+import { isTouch } from "../useMobile";
 import { useServerState } from "../settings/useServerState";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
@@ -156,12 +157,13 @@ const Terminal: Component<{
     ),
   );
 
-  // Refocus terminal when search bar closes
+  // Refocus terminal when search bar closes — only if this terminal should have focus.
   createEffect(
     on(
       () => props.searchOpen,
       (open) => {
-        if (!open && props.visible && terminal) terminal.focus();
+        if (!open && props.visible && props.focused !== false && terminal)
+          terminal.focus();
       },
       { defer: true },
     ),
@@ -261,7 +263,7 @@ const Terminal: Component<{
     // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
     // path works fine with a hardware keyboard and we don't want to risk
     // fighting its selection handling.
-    if (window.matchMedia("(pointer: coarse)").matches) {
+    if (isTouch()) {
       const screen = term.element?.querySelector(
         ".xterm-screen",
       ) as HTMLElement | null;
@@ -336,7 +338,7 @@ const Terminal: Component<{
     // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
     if (props.visible) {
       fitAddon.fit();
-      term.focus();
+      if (props.focused !== false) term.focus();
     } else if (!props.isSub) {
       const vp = viewportDimensions();
       if (vp) term.resize(vp.cols, vp.rows);
