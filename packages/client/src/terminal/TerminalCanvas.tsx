@@ -180,11 +180,14 @@ const TerminalCanvas: Component<{
     }
     if (!isFinite(minX)) return;
     hasScrolled = true;
-    // Center of the bounding box, offset by the canvas padding
+    // Center of the bounding box, offset by the canvas padding.
+    // Defer to next frame so the container has layout dimensions.
     const centerX = CANVAS_PAD + (minX + maxX) / 2;
     const centerY = CANVAS_PAD + (minY + maxY) / 2;
-    containerRef.scrollLeft = centerX - containerRef.clientWidth / 2;
-    containerRef.scrollTop = centerY - containerRef.clientHeight / 2;
+    requestAnimationFrame(() => {
+      containerRef.scrollLeft = centerX - containerRef.clientWidth / 2;
+      containerRef.scrollTop = centerY - containerRef.clientHeight / 2;
+    });
   });
 
   return (
