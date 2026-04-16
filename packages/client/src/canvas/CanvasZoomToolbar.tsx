@@ -5,7 +5,7 @@
 import type { Component } from "solid-js";
 import { ZoomToFitIcon } from "../ui/Icons";
 import { SHORTCUTS, formatKeybind } from "../input/keyboard";
-import { useCanvasViewport } from "./useCanvasViewport";
+import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 const CanvasZoomToolbar: Component<{
   onFitAll: () => void;
