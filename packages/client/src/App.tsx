@@ -538,9 +538,9 @@ const App: Component = () => {
                     <TerminalContent
                       terminalId={id as TerminalId}
                       visible={true}
-                      focused={active}
+                      focused={active()}
                       theme={getTerminalTheme(id as TerminalId)}
-                      searchOpen={active && searchOpen()}
+                      searchOpen={active() && searchOpen()}
                       onSearchOpenChange={setSearchOpen}
                       subTerminalIds={store.getSubTerminalIds(id as TerminalId)}
                       getMetadata={store.getMetadata}
