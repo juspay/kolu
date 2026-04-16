@@ -34,12 +34,13 @@ All three are _inferred_ from the prompt — never ask the user to pick one.
 
 ### Mutate an existing node (`/hk #N …`)
 
-1. `gh api repos/<owner>/<repo>/issues/<N> --jq '.body' > /tmp/hk-<N>-body.md`
-2. Read the body. Identify the section/format the user's intent maps to.
-3. Optionally follow `#M` references with another `gh api` call if context is needed (skill decides based on the prompt).
-4. Edit `/tmp/hk-<N>-body.md` in place.
-5. Push: `gh issue edit <N> --repo <owner>/<repo> --body-file /tmp/hk-<N>-body.md`
-6. Report what changed in one sentence.
+1. Fetch fresh: `gh api repos/<owner>/<repo>/issues/<N> --jq '.body' > /tmp/hk-<N>-body.md`
+2. **Snapshot the pre-edit body for the diff**: `cp /tmp/hk-<N>-body.md /tmp/hk-<N>-body.prev.md`
+3. Read the body. Identify the section/format the user's intent maps to.
+4. Optionally follow `#M` references with another `gh api` call if context is needed (skill decides based on the prompt).
+5. Edit `/tmp/hk-<N>-body.md` in place.
+6. Push: `gh issue edit <N> --repo <owner>/<repo> --body-file /tmp/hk-<N>-body.md`
+7. **Always show the diff** in the chat response: `diff -u /tmp/hk-<N>-body.prev.md /tmp/hk-<N>-body.md`. This is non-optional — the user needs a per-invocation audit trail since the skill bypasses confirmation. If the diff is large (>50 lines), show it collapsed or truncated with a note, but never skip it. Follow the diff with a one-sentence summary of what changed.
 
 ### Create a new node (`/hk create a TIL about …`, `/hk new roadmap for …`)
 
