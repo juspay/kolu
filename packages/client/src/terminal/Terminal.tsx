@@ -100,6 +100,7 @@ const Terminal: Component<{
 
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
+  let webglCanvas: HTMLCanvasElement | null = null;
   const [hasWebgl, setHasWebgl] = createSignal(false);
 
   /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
@@ -123,6 +124,12 @@ const Terminal: Component<{
       w.onContextLoss(() => unloadWebgl());
       terminal.loadAddon(w);
       webgl = w;
+      // Capture the canvas the addon just appended so we can explicitly
+      // release its GPU context on unload — see unloadWebgl.
+      webglCanvas =
+        terminal.element?.querySelector<HTMLCanvasElement>(
+          ".xterm-screen canvas",
+        ) ?? null;
       setHasWebgl(true);
     } catch {
       // WebGL unavailable — xterm's DOM renderer is the fallback
@@ -130,9 +137,27 @@ const Terminal: Component<{
   }
 
   function unloadWebgl() {
-    webgl?.dispose();
+    const w = webgl;
+    if (!w) return;
+    // Null out first: `loseContext()` below fires `webglcontextlost`
+    // synchronously, which re-enters this function via the addon's
+    // `onContextLoss` listener. The guard above short-circuits the reentry.
     webgl = null;
     setHasWebgl(false);
+    // Explicitly release the GPU context. xterm's dispose() removes the
+    // canvas from the DOM but does NOT call WEBGL_lose_context.loseContext(),
+    // so Chrome keeps the context alive on the detached canvas until GC.
+    // Rapid focus changes create contexts faster than GC runs and overflow
+    // Chrome's ~16-context-per-tab budget, at which point Chrome starts
+    // evicting live contexts — including the focused tile's — producing a
+    // flicker across every tile. loseContext() releases GPU memory in the
+    // current microtask, keeping the live set at 1.
+    webglCanvas
+      ?.getContext("webgl2")
+      ?.getExtension("WEBGL_lose_context")
+      ?.loseContext();
+    webglCanvas = null;
+    w.dispose();
   }
 
   // Main terminals inherit the viewport grid while they're hidden.
