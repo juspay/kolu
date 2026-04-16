@@ -67,9 +67,11 @@ function computeFitAll(
   const PAD = 80;
   const contentW = maxX - minX + PAD * 2;
   const contentH = maxY - minY + PAD * 2;
+  // Cap at 1.0 — fitAll should zoom out to show everything, never magnify
+  // beyond native size. Users can zoom in manually if they want closer.
   const z = Math.min(
     Math.max(Math.min(viewportW / contentW, viewportH / contentH), MIN_ZOOM),
-    MAX_ZOOM,
+    1,
   );
   const pan = computeCenterPan(minX, minY, maxX, maxY, viewportW, viewportH, z);
   return { panX: pan.panX, panY: pan.panY, zoom: z };
