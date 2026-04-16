@@ -190,12 +190,11 @@ export const store = new Conf<PersistedState>({
         });
       }
     },
-    // canvasMode preference added — default to true (canvas) for new installs,
-    // but existing users who haven't seen it get true as well.
+    // canvasMode preference added — default to false (focus mode).
     "1.12.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
       if ((current as Record<string, unknown>).canvasMode === undefined) {
-        store.set("preferences", { ...current, canvasMode: true });
+        store.set("preferences", { ...current, canvasMode: false });
       }
     },
   },

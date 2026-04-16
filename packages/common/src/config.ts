@@ -38,7 +38,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
-  canvasMode: true,
+  canvasMode: false,
   rightPanel: {
     collapsed: true,
     size: 0.25,
