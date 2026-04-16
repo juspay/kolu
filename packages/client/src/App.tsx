@@ -15,6 +15,7 @@ import Header from "./Header";
 import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
 import TerminalContent from "./terminal/TerminalContent";
+import TerminalMeta from "./terminal/TerminalMeta";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
@@ -510,20 +511,40 @@ const App: Component = () => {
                 onThemeClick={() => openPaletteGroup("Theme")}
               >
                 <TerminalCanvas
-                  terminalIds={store.terminalIds()}
+                  tileIds={store.terminalIds()}
                   activeId={store.activeId()}
-                  getMetadata={store.getMetadata}
-                  getDisplayInfo={store.getDisplayInfo}
-                  getTerminalTheme={getTerminalTheme}
-                  onSelect={store.setActiveId}
-                  onCloseTerminal={closeTerminal}
-                  onCreateSubTerminal={(parentId, cwd) =>
-                    void crud.handleCreateSubTerminal(parentId, cwd)
-                  }
-                  activeMeta={store.activeMeta()}
-                  searchOpen={searchOpen()}
-                  onSearchOpenChange={setSearchOpen}
-                  subTerminalIds={store.getSubTerminalIds}
+                  getTileTheme={(id) => {
+                    const t = getTerminalTheme(id as TerminalId);
+                    return {
+                      bg: t.background ?? "var(--color-surface-1)",
+                      fg: t.foreground ?? "var(--color-fg)",
+                    };
+                  }}
+                  onSelect={(id) => store.setActiveId(id as TerminalId)}
+                  onClose={(id) => closeTerminal(id as TerminalId)}
+                  renderTileTitle={(id) => (
+                    <TerminalMeta
+                      info={store.getDisplayInfo(id as TerminalId)}
+                    />
+                  )}
+                  renderTileBody={(id, active) => (
+                    <TerminalContent
+                      terminalId={id as TerminalId}
+                      visible={true}
+                      focused={active}
+                      theme={getTerminalTheme(id as TerminalId)}
+                      searchOpen={active && searchOpen()}
+                      onSearchOpenChange={setSearchOpen}
+                      subTerminalIds={store.getSubTerminalIds(id as TerminalId)}
+                      getMetadata={store.getMetadata}
+                      onCreateSubTerminal={(parentId, cwd) =>
+                        void crud.handleCreateSubTerminal(parentId, cwd)
+                      }
+                      onCloseTerminal={closeTerminal}
+                      activeMeta={store.activeMeta()}
+                      onFocus={() => store.setActiveId(id as TerminalId)}
+                    />
+                  )}
                 />
               </RightPanelLayout>
             </Show>

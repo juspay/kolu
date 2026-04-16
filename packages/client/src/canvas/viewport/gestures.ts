@@ -2,6 +2,8 @@
  *  Owns event listener lifecycle (AbortController cleanup).
  *  Emits pan/zoom deltas via callbacks; knows nothing about state or CSS. */
 
+import { capturePointerGesture } from "./capturePointerGesture";
+
 const ZOOM_SPEED = 0.002;
 
 export interface GestureCallbacks {
@@ -37,48 +39,36 @@ export function installGestures(
   );
 
   // Middle-mouse drag pan
-  let panDragAbort: AbortController | null = null;
+  let abortPanDrag: (() => void) | null = null;
 
   el.addEventListener(
     "pointerdown",
     (e) => {
       if (e.button !== 1) return;
       e.preventDefault();
-      panDragAbort?.abort();
-      panDragAbort = new AbortController();
-      const dragSignal = panDragAbort.signal;
-      const startX = e.clientX;
-      const startY = e.clientY;
+      abortPanDrag?.();
       el.style.cursor = "grabbing";
 
-      // Track cumulative delta so each move is relative to start
-      let lastX = startX;
-      let lastY = startY;
+      let lastX = e.clientX;
+      let lastY = e.clientY;
 
-      window.addEventListener(
-        "pointermove",
-        (ev) => {
+      abortPanDrag = capturePointerGesture({
+        onMove: (ev) => {
           callbacks.onPan(-(ev.clientX - lastX), -(ev.clientY - lastY));
           lastX = ev.clientX;
           lastY = ev.clientY;
         },
-        { signal: dragSignal },
-      );
-      window.addEventListener(
-        "pointerup",
-        () => {
-          panDragAbort?.abort();
-          panDragAbort = null;
+        onEnd: () => {
+          abortPanDrag = null;
           el.style.cursor = "";
         },
-        { signal: dragSignal },
-      );
+      });
     },
     { signal },
   );
 
   return () => {
-    panDragAbort?.abort();
+    abortPanDrag?.();
     abort.abort();
   };
 }
