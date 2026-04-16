@@ -117,4 +117,31 @@ When(
   },
 );
 
+Then(
+  "the canvas tiles should be visible in the viewport",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const container = document.querySelector(sel);
+        if (!container) return false;
+        const tile = container.querySelector(
+          "[data-terminal-id][data-visible]",
+        );
+        if (!tile) return false;
+        const cRect = container.getBoundingClientRect();
+        const tRect = tile.getBoundingClientRect();
+        // Tile's top-left corner should be within the visible container area
+        return (
+          tRect.left >= cRect.left &&
+          tRect.top >= cRect.top &&
+          tRect.left < cRect.right &&
+          tRect.top < cRect.bottom
+        );
+      },
+      CANVAS_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // "the close confirmation should be visible" is defined in worktree_steps.ts
