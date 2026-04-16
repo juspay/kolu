@@ -42,6 +42,9 @@ const FileTree: Component<FileTreeProps> = (props) => {
   );
 
   // Cache of lazily loaded children keyed by directory path.
+  // Capped to prevent unbounded growth in large repos; oldest entries
+  // are evicted first (Map preserves insertion order).
+  const MAX_CACHE_ENTRIES = 200;
   const [childrenCache, setChildrenCache] = createSignal<
     Map<string, TreeNode[]>
   >(new Map());
@@ -62,7 +65,13 @@ const FileTree: Component<FileTreeProps> = (props) => {
       setLoading((prev) => new Set(prev).add(path));
       props.loadChildren(path).then(
         (children) => {
-          setChildrenCache((prev) => new Map(prev).set(path, children));
+          setChildrenCache((prev) => {
+          const next = new Map(prev).set(path, children);
+          while (next.size > MAX_CACHE_ENTRIES) {
+            next.delete(next.keys().next().value!);
+          }
+          return next;
+        });
           setLoading((prev) => {
             const next = new Set(prev);
             next.delete(path);
