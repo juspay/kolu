@@ -37,17 +37,6 @@ When(
   },
 );
 
-When("I press the screenshot shortcut", async function (this: KoluWorld) {
-  // Mod+Shift+S
-  const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  await this.page.keyboard.down(modifier);
-  await this.page.keyboard.down("Shift");
-  await this.page.keyboard.press("KeyS");
-  await this.page.keyboard.up("Shift");
-  await this.page.keyboard.up(modifier);
-  await this.waitForFrame();
-});
-
 Then(
   "the clipboard should contain a PNG image",
   async function (this: KoluWorld) {

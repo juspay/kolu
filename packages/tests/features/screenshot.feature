@@ -1,6 +1,6 @@
 Feature: Terminal screenshot
-  Copy the rendered terminal pixels to the clipboard as a PNG image. Works from
-  the canvas-mode tile title bar and from the global keyboard shortcut.
+  Copy the rendered terminal pixels to the clipboard as a PNG image via the
+  camera button in each canvas-mode tile's title bar.
 
   Background:
     Given the terminal is ready
@@ -17,12 +17,6 @@ Feature: Terminal screenshot
   Scenario: Click screenshot button copies image to clipboard
     When I click the canvas mode toggle
     And I click the screenshot button on canvas tile 1
-    Then a toast should appear with text "Screenshot copied to clipboard"
-    And the clipboard should contain a PNG image
-    And there should be no page errors
-
-  Scenario: Screenshot keyboard shortcut works in focus mode
-    When I press the screenshot shortcut
     Then a toast should appear with text "Screenshot copied to clipboard"
     And the clipboard should contain a PNG image
     And there should be no page errors

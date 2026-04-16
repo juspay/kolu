@@ -46,7 +46,7 @@ export interface CommandDeps {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportSessionAsPdf: () => void;
-  handleScreenshotTerminal: () => void;
+  handleScreenshotActiveTerminal: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
@@ -157,8 +157,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           {
             name: "Copy terminal screenshot",
-            keybind: SHORTCUTS.screenshotTerminal.keybind,
-            onSelect: () => deps.handleScreenshotTerminal(),
+            onSelect: () => deps.handleScreenshotActiveTerminal(),
           },
         ]
       : []),

@@ -82,8 +82,4 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-canvas-minimap",
     text: "In Canvas mode, toggle the minimap via the grid icon for a bird's-eye view",
   },
-  {
-    id: "amb-screenshot",
-    text: `${formatKeybind(SHORTCUTS.screenshotTerminal.keybind)} copies a screenshot of the terminal to the clipboard`,
-  },
 ];

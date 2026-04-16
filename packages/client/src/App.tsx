@@ -135,10 +135,8 @@ const App: Component = () => {
     exportSessionAsPdf(id, store.getMetadata(id));
   }
 
-  function handleScreenshotTerminal(id?: TerminalId) {
-    const target = id ?? store.activeId();
-    if (target === null) return;
-    void copyTerminalScreenshot(target);
+  function handleScreenshotTerminal(id: TerminalId) {
+    void copyTerminalScreenshot(id);
   }
 
   function handleCanvasFitAll() {
@@ -181,7 +179,6 @@ const App: Component = () => {
     handleShuffleTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
-    handleScreenshotTerminal,
     toggleRightPanel: rightPanel.togglePanel,
     canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
@@ -231,7 +228,10 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
-    handleScreenshotTerminal,
+    handleScreenshotActiveTerminal: () => {
+      const id = store.activeId();
+      if (id !== null) handleScreenshotTerminal(id);
+    },
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
