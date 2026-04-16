@@ -1,11 +1,15 @@
 /** Gesture input for the canvas — wheel pan/zoom and middle-mouse drag.
- *  Owns event listener lifecycle (AbortController cleanup).
+ *  Owns event listener lifecycle (AbortController cleanup) and the wheel-
+ *  ownership state machine that decides whether a continuous scroll belongs
+ *  to the canvas (pan) or the target underneath (native scroll).
  *  Emits pan/zoom deltas via callbacks; knows nothing about state or CSS. */
 
 import { capturePointerGesture } from "./capturePointerGesture";
-import { createWheelOwnership } from "./wheelOwnership";
 
 const ZOOM_SPEED = 0.002;
+const WHEEL_IDLE_MS = 150;
+
+type WheelOwner = "canvas" | "yielded";
 
 export interface GestureCallbacks {
   /** Pan by a canvas-space delta (already divided by zoom). */
@@ -35,9 +39,20 @@ export function installGestures(
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
-  const ownership = shouldYieldWheel
-    ? createWheelOwnership(shouldYieldWheel)
-    : null;
+
+  let wheelOwner: WheelOwner | null = null;
+  let wheelOwnerExpiresAt = 0;
+
+  const yieldsWheel = (e: WheelEvent): boolean => {
+    if (!shouldYieldWheel) return false;
+    const now = performance.now();
+    if (now >= wheelOwnerExpiresAt) wheelOwner = null;
+    if (wheelOwner === null) {
+      wheelOwner = shouldYieldWheel(e) ? "yielded" : "canvas";
+    }
+    wheelOwnerExpiresAt = now + WHEEL_IDLE_MS;
+    return wheelOwner === "yielded";
+  };
 
   // Wheel: unmodified = pan (subject to ownership), ctrl/meta = zoom
   el.addEventListener(
@@ -51,7 +66,7 @@ export function installGestures(
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
         return;
       }
-      if (ownership?.resolve(e) === "yielded") return;
+      if (yieldsWheel(e)) return;
       e.preventDefault();
       e.stopPropagation();
       callbacks.onPan(e.deltaX, e.deltaY);
@@ -90,7 +105,6 @@ export function installGestures(
 
   return () => {
     abortPanDrag?.();
-    ownership?.dispose();
     abort.abort();
   };
 }
