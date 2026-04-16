@@ -2,7 +2,7 @@
  *  pinned (docked via Resizable) or unpinned (overlay with backdrop).
  *  Encapsulates the pin/unpin layout decision so callers don't duplicate it. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, type JSX, Show, children } from "solid-js";
 import Resizable from "@corvu/resizable";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
@@ -17,6 +17,9 @@ const RightPanelLayout: Component<{
   contentClass?: string;
 }> = (props) => {
   const rightPanel = useRightPanel();
+  // Resolve children once — props.children in two Show branches would
+  // create separate DOM trees, causing duplicate terminal mounts.
+  const resolved = children(() => props.children);
 
   const rightPanelProps = () => ({
     meta: props.meta,
@@ -32,7 +35,7 @@ const RightPanelLayout: Component<{
         <div
           class={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative ${props.contentClass ?? ""}`}
         >
-          {props.children}
+          {resolved()}
           {/* Overlay right panel */}
           <Show when={!rightPanel.collapsed()}>
             <>
@@ -72,7 +75,7 @@ const RightPanelLayout: Component<{
             class={`min-w-0 min-h-0 flex ${props.contentClass ?? ""}`}
             minSize={0.3}
           >
-            {props.children}
+            {resolved()}
           </Resizable.Panel>
           <Show when={!rightPanel.collapsed()}>
             <Resizable.Handle
