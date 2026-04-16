@@ -139,6 +139,17 @@ Feature: Canvas mode
     Then the canvas tile should be at x=320 y=420
     And there should be no page errors
 
+  Scenario: WebGL context is held only by the focused tile
+    Given I create a terminal
+    When I click the canvas mode toggle
+    Then there should be 2 canvas tiles
+    And exactly 1 canvas tile should use the webgl renderer
+    And the focused canvas tile should use the webgl renderer
+    When I click canvas tile 1
+    Then exactly 1 canvas tile should use the webgl renderer
+    And the focused canvas tile should use the webgl renderer
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible

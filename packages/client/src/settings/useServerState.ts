@@ -1,18 +1,30 @@
 /**
- * Unified server state — live subscription for server sync, local store for instant UI reactivity.
+ * Unified server state — singleton subscription for server-emitted data,
+ * singleton local store for instant preference updates.
  *
- * Architecture:
- * - createSubscription: server pushes state changes over WebSocket
- * - Singleton SolidJS store: synchronous UI updates for preferences
- * - reconcile effect: syncs subscription → local store on every server push
- * - updatePreferences: instant local store update + async server mutation
+ * Why both? Instant UI response requires synchronous local updates —
+ * waiting for the server echo introduces a visible delay when a pref
+ * flip gates a re-render (e.g., `canvasMode` → canvas mount → wheel
+ * listener attach). On the CI side this timing shows up as a race against
+ * the canvas ownership window; on the user side it's the same class of
+ * single-frame lag.
  *
- * Why both? The server round-trip (even on localhost) takes a few ms.
- * For instant toggle feedback, the local store handles the synchronous update;
- * the subscription pushes authoritative state back via reconcile.
+ * What kept biting before (issue #561): the original code reconciled the
+ * server's preferences blob into the local store on *every* push, so any
+ * unrelated `state:changed` event (a `trackRecentAgent`, another pref
+ * write) would stomp a locally-applied change whose RPC hadn't round-tripped
+ * yet. The fix here is "reconcile only once, at init" — the subscription
+ * seeds the local store on its first yield, then never touches preferences
+ * again. The local store is authoritative for preferences thereafter;
+ * `updatePreferences` writes locally and tells the server, but subsequent
+ * server echoes for those fields are intentionally ignored.
+ *
+ * `recentRepos` / `recentAgents` / `session` still come from the
+ * subscription live — they're server-emitted and the client never writes
+ * them, so there's no divergence to worry about.
  */
 
-import { createEffect, on } from "solid-js";
+import { createEffect, createRoot, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
@@ -27,37 +39,51 @@ import type {
   SavedSession,
 } from "kolu-common";
 
-// Singleton store — all callers share one reactive source of truth for preferences.
 const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
-let storeInitialized = false;
+let initialized = false;
 
-export function useServerState() {
-  const sub = createSubscription(() => stream.state(), {
+// createRoot detaches the subscription + init effect from any transient
+// caller's reactive owner so they live for the app's lifetime.
+const sub = createRoot(() => {
+  const s = createSubscription(() => stream.state(), {
     onError: (err) => toast.error(`Server state error: ${err.message}`),
   });
+  createEffect(
+    on(
+      () => s()?.preferences,
+      (serverPrefs) => {
+        if (serverPrefs && !initialized) {
+          initialized = true;
+          setPrefs(reconcile(serverPrefs));
+        }
+      },
+    ),
+  );
+  return s;
+});
 
-  // Sync singleton store from subscription — only the first caller wires this up.
-  if (!storeInitialized) {
-    storeInitialized = true;
-    createEffect(
-      on(
-        () => sub()?.preferences,
-        (serverPrefs) => {
-          if (serverPrefs) setPrefs(reconcile(serverPrefs));
-        },
-      ),
-    );
-  }
-
-  /** Update one or more preferences. Instant local update + async server persist.
-   *  Nested objects (rightPanel) are deep-merged both locally and on the server. */
+export function useServerState() {
+  /** Update one or more preferences. Applied to the local store
+   *  synchronously (for instant UI response), then persisted to the
+   *  server. The server's echo for these fields is ignored — see the
+   *  module comment for why. */
   function updatePreferences(patch: PreferencesPatch) {
-    // Synchronous local update — UI reacts immediately (singleton store).
-    // SolidJS store setter supports path-based deep updates.
     const { rightPanel: rpPatch, ...rest } = patch;
     if (Object.keys(rest).length > 0) setPrefs(rest);
-    if (rpPatch) setPrefs("rightPanel", rpPatch);
-    // Server persist — live stream will push authoritative state back via reconcile
+    if (rpPatch) {
+      const { tab, ...rpRest } = rpPatch;
+      // Scalar fields of rightPanel (collapsed, size, pinned) go through
+      // the normal merge — any path form works for primitives.
+      if (Object.keys(rpRest).length > 0) {
+        setPrefs("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);
+      }
+      // `tab` is a discriminated-union object. The 3-arg path form
+      // deep-merges an object value (leaving stale fields from the old
+      // variant), and the 2-arg merge form doesn't trigger fine-grained
+      // reactivity on nested readers like `tab.mode` — verified empirically.
+      // `reconcile` both REPLACES wholesale and fires proper reactivity.
+      if (tab !== undefined) setPrefs("rightPanel", "tab", reconcile(tab));
+    }
     void client.state
       .update({ preferences: patch })
       .catch((err: Error) =>
@@ -69,8 +95,9 @@ export function useServerState() {
     sub,
     /** Full server state (undefined while loading). */
     state: () => sub() as ServerState | undefined,
-    /** Preferences — singleton store, synced from subscription on every server push. */
-    preferences: () => prefs,
+    /** Preferences — local store, authoritative after the first server
+     *  yield seeds it. */
+    preferences: (): Preferences => prefs,
     recentRepos: () => (sub()?.recentRepos ?? []) as RecentRepo[],
     recentAgents: () => (sub()?.recentAgents ?? []) as RecentAgent[],
     savedSession: () => (sub()?.session ?? null) as SavedSession | null,

@@ -57,6 +57,7 @@ export interface CommandDeps {
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
+  setDiagnosticInfoOpen: (open: boolean) => void;
   // Right panel
   toggleRightPanel: () => void;
   // Canvas
@@ -241,6 +242,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     {
       name: "Debug",
       children: [
+        {
+          name: "Diagnostic info",
+          description: "Runtime state — renderer, WS, terminals",
+          onSelect: () => deps.setDiagnosticInfoOpen(true),
+        },
         {
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),

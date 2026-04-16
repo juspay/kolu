@@ -1,14 +1,14 @@
 /** Single tile on the canvas — separated so createDraggable gets its own
  *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
- *  title bar, resize handle. Content is injected via render props — the
+ *  title bar, resize handles. Content is injected via render props — the
  *  canvas module has no knowledge of what renders inside a tile. */
 
-import type { Component, JSX } from "solid-js";
+import { type Component, For, type JSX } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { ResizeGripIcon } from "../ui/Icons";
 import type { TileLayout } from "./TileLayout";
+import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 
-/** Minimal theme info for tile chrome (title bar, border, resize handle). */
+/** Minimal theme info for tile chrome (title bar, border). */
 export interface TileTheme {
   bg: string;
   fg: string;
@@ -31,7 +31,11 @@ const CanvasTile: Component<{
   renderTitleActions?: () => JSX.Element;
   renderBody: () => JSX.Element;
   layouts: Record<string, TileLayout>;
-  startResize: (id: string, e: PointerEvent) => void;
+  startResize: (
+    id: string,
+    direction: ResizeDirection,
+    e: PointerEvent,
+  ) => void;
   zoom: () => number;
 }> = (props) => {
   const { id } = props;
@@ -45,6 +49,7 @@ const CanvasTile: Component<{
   return (
     <div
       ref={draggable.ref}
+      data-active={props.active ? "true" : undefined}
       class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
         "border-accent/60 shadow-xl": props.active,
@@ -101,20 +106,19 @@ const CanvasTile: Component<{
       {/* Tile body — injected by caller */}
       {props.renderBody()}
 
-      {/* Resize handle — bottom-right corner, larger hit area */}
-      <div
-        class="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-0 hover:opacity-100 transition-opacity"
-        onPointerDown={(e) => props.startResize(id, e)}
-      >
-        <span
-          class="absolute bottom-0.5 right-0.5"
-          style={{
-            color: `color-mix(in oklch, ${fg()} 40%, ${bg()})`,
-          }}
-        >
-          <ResizeGripIcon />
-        </span>
-      </div>
+      {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
+       *  affordance. Corners are declared after edges in the record so DOM
+       *  order paints them on top of the edge strips they overlap. */}
+      <For each={Object.entries(RESIZE_HANDLES)}>
+        {([direction, handle]) => (
+          <div
+            class={`absolute ${handle.position} ${handle.cursor}`}
+            onPointerDown={(e) =>
+              props.startResize(id, direction as ResizeDirection, e)
+            }
+          />
+        )}
+      </For>
     </div>
   );
 };

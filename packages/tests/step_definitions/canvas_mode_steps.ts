@@ -494,6 +494,67 @@ Then(
   },
 );
 
+When(
+  "I click canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    // Dispatch mousedown directly: Playwright's .click() stalls on xterm's
+    // event-intercepting machinery, but CanvasTile only needs mousedown to
+    // bubble up to its onSelect handler.
+    await this.page.evaluate(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        const rect = tile.getBoundingClientRect();
+        tile.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        );
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+    );
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "exactly {int} canvas tile(s) should use the webgl renderer",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-renderer="webgl"]`,
+        );
+        return tiles.length === want;
+      },
+      { sel: CANVAS_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the focused canvas tile should use the webgl renderer",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        // The active tile is rendered inside a CanvasTile wrapper that flags
+        // itself via data-active="true" (see CanvasTile.tsx).
+        const active = document.querySelector(`${sel} [data-active="true"]`);
+        if (!active) return false;
+        const terminal = active.querySelector("[data-terminal-id]");
+        return terminal?.getAttribute("data-renderer") === "webgl";
+      },
+      CANVAS_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // "the close confirmation should be visible" is defined in worktree_steps.ts
 
 // ── Canvas layout persistence ──

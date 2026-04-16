@@ -31,6 +31,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
+import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
 
@@ -65,7 +66,10 @@ const TerminalCanvas: Component<{
   /** Optional per-tile chrome actions (screenshot, future: pin, duplicate…).
    *  Rendered in the title bar between title and close button. */
   renderTileActions?: (id: string) => JSX.Element;
-  renderTileBody: (id: string, active: boolean) => JSX.Element;
+  /** `active` is passed as an accessor so the subtree doesn't remount on
+   *  every focus change — reads happen inside the returned JSX's props
+   *  (fine-grained reactivity), not around the render-prop effect. */
+  renderTileBody: (id: string, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
 
@@ -184,50 +188,55 @@ const TerminalCanvas: Component<{
     setDragDelta({ x: 0, y: 0 });
   }
 
-  /** Start resizing a tile from the bottom-right corner.
+  /** Start resizing a tile from the given edge or corner.
    *  Pointer deltas are in screen-space — normalize by zoom. */
-  let abortResize: (() => void) | null = null;
-  function startResize(id: string, e: PointerEvent) {
+  let abortResize: AbortController | null = null;
+  function startResize(
+    id: string,
+    direction: ResizeDirection,
+    e: PointerEvent,
+  ) {
     e.preventDefault();
     e.stopPropagation();
-    const l = layoutOf(id);
-    if (!l) return;
+    const origin = layoutOf(id);
+    if (!origin) return;
     const startX = e.clientX;
     const startY = e.clientY;
-    const origW = l.w;
-    const origH = l.h;
-    const origX = l.x;
-    const origY = l.y;
+    const limits = { minW: MIN_W, minH: MIN_H };
 
-    abortResize?.();
-    abortResize = capturePointerGesture({
-      onMove: (ev) => {
-        const { dx, dy } = viewport.normalizeDelta(
-          ev.clientX - startX,
-          ev.clientY - startY,
-        );
-        setPendingLayout(id, {
-          x: origX,
-          y: origY,
-          w: Math.max(MIN_W, origW + dx),
-          h: Math.max(MIN_H, origH + dy),
-        });
-      },
-      onEnd: () => {
-        abortResize = null;
-        const live = pending()[id];
-        if (live) {
-          const snapped: TileLayout = {
-            x: live.x,
-            y: live.y,
-            w: viewport.snapToGrid(live.w),
-            h: viewport.snapToGrid(live.h),
-          };
+    abortResize?.abort();
+    abortResize = new AbortController();
+    capturePointerGesture(
+      {
+        onMove: (ev) => {
+          const { dx, dy } = viewport.normalizeDelta(
+            ev.clientX - startX,
+            ev.clientY - startY,
+          );
+          setPendingLayout(id, applyResize(origin, direction, dx, dy, limits));
+        },
+        onEnd: (ev) => {
+          abortResize = null;
+          // No motion — skip commit so a bare click doesn't round-trip the server.
+          if (!pending()[id]) return;
+          const { dx, dy } = viewport.normalizeDelta(
+            ev.clientX - startX,
+            ev.clientY - startY,
+          );
+          const snapped = applyResize(
+            origin,
+            direction,
+            dx,
+            dy,
+            limits,
+            viewport.snapToGrid,
+          );
           setPendingLayout(id, snapped);
           props.onLayoutChange(id, snapped);
-        }
+        },
       },
-    });
+      abortResize,
+    );
   }
 
   // Auto-center when viewport is at the default origin (pan=0, zoom=1)
@@ -288,7 +297,7 @@ const TerminalCanvas: Component<{
                     : undefined
                 }
                 renderBody={() =>
-                  props.renderTileBody(id, props.activeId === id)
+                  props.renderTileBody(id, () => props.activeId === id)
                 }
                 layouts={layouts()}
                 startResize={startResize}

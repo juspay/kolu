@@ -30,6 +30,18 @@ Feature: Code tab (diff review)
     And I click the Code tab
     Then the Code tab mode should be "local"
 
+  Scenario: Code tab mode survives panel close and reopen
+    When I run "git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    When I press the toggle inspector shortcut
+    Then the right panel should not be visible
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    And the Code tab mode should be "browse"
+
   Scenario: Branch mode surfaces an actionable error when origin is missing
     When I run "git init /tmp/kolu-review-no-origin && cd /tmp/kolu-review-no-origin"
     And I run "git commit --allow-empty -m init"

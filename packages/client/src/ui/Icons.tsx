@@ -367,22 +367,6 @@ export const PinIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Resize grip — 6-dot triangle for corner resize handles. */
-export const ResizeGripIcon: Component<{ class?: string }> = (props) => (
-  <svg
-    class={props.class ?? "w-3.5 h-3.5"}
-    viewBox="0 0 14 14"
-    fill="currentColor"
-  >
-    <circle cx="12" cy="12" r="1.3" />
-    <circle cx="8" cy="12" r="1.3" />
-    <circle cx="12" cy="8" r="1.3" />
-    <circle cx="4" cy="12" r="1.3" />
-    <circle cx="8" cy="8" r="1.3" />
-    <circle cx="12" cy="4" r="1.3" />
-  </svg>
-);
-
 export const WorktreeIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3 h-3"}

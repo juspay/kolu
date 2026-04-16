@@ -106,7 +106,7 @@ const CanvasMinimap: Component<{
   );
 
   // ── Viewport rect drag ──
-  let abortDrag: (() => void) | null = null;
+  let abortDrag: AbortController | null = null;
   // Suppress map click immediately after a drag ends
   let suppressNextClick = false;
   function handleViewportDrag(e: PointerEvent) {
