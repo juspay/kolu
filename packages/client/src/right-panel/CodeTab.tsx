@@ -176,8 +176,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       void refetchStatus();
       if (selectedPath()) void refetchDiff();
     } else {
-      // File browser: increment a counter to trigger re-fetch of root entries.
-      setBrowseRefreshCount((c) => c + 1);
+      void refetchBrowseRoot();
     }
   };
 
@@ -192,15 +191,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
 
   // --- File browser state ---
-  const [browseRefreshCount, setBrowseRefreshCount] = createSignal(0);
 
   /** Root entries for the file browser. */
-  const [browseRoot] = createResource(
+  const [browseRoot, { refetch: refetchBrowseRoot }] = createResource(
     () => {
       const p = repoPath();
       if (!p || view() !== "browse") return null;
-      // Track refresh count so manual refresh re-fetches.
-      browseRefreshCount();
       return { repoPath: p, dirPath: "" };
     },
     async (input) => {
