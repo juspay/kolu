@@ -27,7 +27,7 @@ const RightPanelLayout: Component<{
 
   return (
     <Show
-      when={!rightPanel.collapsed() && rightPanel.pinned()}
+      when={rightPanel.pinned()}
       fallback={
         <div
           class={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative ${props.contentClass ?? ""}`}
@@ -51,10 +51,17 @@ const RightPanelLayout: Component<{
         </div>
       }
     >
+      {/* Pinned: always render Resizable (even when collapsed — sizes=[1,0]).
+       *  This keeps the handle in the DOM for e2e tests and allows the user
+       *  to drag-expand without toggling via the button. */}
       <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
         <Resizable
           orientation="horizontal"
-          sizes={[1 - rightPanel.panelSize(), rightPanel.panelSize()]}
+          sizes={
+            rightPanel.collapsed()
+              ? [1, 0]
+              : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
+          }
           onSizesChange={(sizes) => {
             if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
           }}
@@ -67,16 +74,21 @@ const RightPanelLayout: Component<{
           >
             {props.children}
           </Resizable.Panel>
-          <Resizable.Handle
-            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-            aria-label="Resize inspector panel"
-          />
+          <Show when={!rightPanel.collapsed()}>
+            <Resizable.Handle
+              data-testid="right-panel-handle"
+              class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+              aria-label="Resize inspector panel"
+            />
+          </Show>
           <Resizable.Panel
             as="div"
             class="min-w-0 min-h-0 overflow-hidden"
             minSize={0}
           >
-            <RightPanel {...rightPanelProps()} />
+            <Show when={!rightPanel.collapsed()}>
+              <RightPanel {...rightPanelProps()} />
+            </Show>
           </Resizable.Panel>
         </Resizable>
       </div>
