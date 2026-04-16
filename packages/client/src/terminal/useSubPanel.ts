@@ -94,6 +94,19 @@ export function useSubPanel() {
       setState(parentId, "focusTarget", target);
     },
 
+    /** Seed sub-panel state from server data — no report-back to server. */
+    seedPanel(
+      parentId: TerminalId,
+      opts: { collapsed: boolean; panelSize: number },
+    ) {
+      setState(parentId, {
+        collapsed: opts.collapsed,
+        panelSize: opts.panelSize,
+        activeSubTab: state[parentId]?.activeSubTab ?? null,
+        focusTarget: opts.collapsed ? "main" : "sub",
+      });
+    },
+
     /** Clean up state for a parent that no longer exists. */
     removePanel(parentId: TerminalId) {
       setState(produce((s) => delete s[parentId]));

@@ -102,6 +102,19 @@ export const ForegroundSchema = z.object({
 
 // --- Terminal metadata (unified, provider-aggregated) ---
 
+export const CanvasLayoutSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
+
+export const SubPanelStateSchema = z.object({
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
 export const TerminalMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
@@ -115,6 +128,10 @@ export const TerminalMetadataSchema = z.object({
   parentId: z.string().optional(),
   /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
   sortOrder: z.number(),
+  /** Canvas tile position/size — client-reported, used for session restore. */
+  canvasLayout: CanvasLayoutSchema.optional(),
+  /** Sub-panel collapsed/size state — client-reported, used for session restore. */
+  subPanel: SubPanelStateSchema.optional(),
 });
 
 // --- Activity ---
@@ -164,14 +181,6 @@ export const TerminalSetThemeInputSchema = z.object({
   id: TerminalIdSchema,
   themeName: z.string(),
 });
-
-export const CanvasLayoutSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-});
-export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
 
 export const TerminalSetCanvasLayoutInputSchema = z.object({
   id: TerminalIdSchema,

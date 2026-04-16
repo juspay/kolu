@@ -108,8 +108,6 @@ export function snapshotSession(): {
 } {
   const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
-    const layout = canvasLayouts.get(id);
-    const sp = subPanelStates.get(id);
     return {
       id,
       cwd: m.cwd,
@@ -117,8 +115,8 @@ export function snapshotSession(): {
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
       ...(m.themeName && { themeName: m.themeName }),
-      ...(layout && { canvasLayout: layout }),
-      ...(sp && { subPanel: sp }),
+      ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
+      ...(m.subPanel && { subPanel: m.subPanel }),
     };
   });
   return { terminals: snappedTerminals, activeTerminalId };
@@ -255,8 +253,6 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
-  canvasLayouts.delete(id);
-  subPanelStates.delete(id);
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -277,34 +273,28 @@ export function setTerminalParent(
   }
 }
 
-// Canvas layout positions — client-reported, used only for session snapshots.
-// Not part of TerminalMetadata (which is streamed to all clients).
-const canvasLayouts = new Map<
-  TerminalId,
-  { x: number; y: number; w: number; h: number }
->();
-
-/** Store a terminal's canvas layout position (reported by the client). */
+/** Store a terminal's canvas layout position (client-reported).
+ *  Mutates metadata directly — no metadata publish to avoid over-broadcasting
+ *  on every drag-end. Only triggers session auto-save. */
 export function setCanvasLayout(
   id: TerminalId,
   layout: { x: number; y: number; w: number; h: number },
 ): void {
-  canvasLayouts.set(id, layout);
+  const entry = terminals.get(id);
+  if (!entry) return;
+  entry.info.meta.canvasLayout = layout;
   emitChanged();
 }
 
-// Sub-panel state — client-reported, used only for session snapshots.
-const subPanelStates = new Map<
-  TerminalId,
-  { collapsed: boolean; panelSize: number }
->();
-
-/** Store a terminal's sub-panel state (reported by the client). */
+/** Store a terminal's sub-panel state (client-reported).
+ *  Same approach: mutate metadata directly, session auto-save only. */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
-  subPanelStates.set(id, state);
+  const entry = terminals.get(id);
+  if (!entry) return;
+  entry.info.meta.subPanel = state;
   emitChanged();
 }
 

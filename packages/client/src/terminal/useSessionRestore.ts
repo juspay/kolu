@@ -43,6 +43,16 @@ export function useSessionRestore(deps: {
   });
 
   function hydrateFromTerminals(existing: TerminalInfo[]) {
+    // Seed canvas layouts and sub-panel state from server metadata
+    for (const t of existing) {
+      if (t.meta.canvasLayout) {
+        setLayouts(t.id, t.meta.canvasLayout);
+      }
+      if (t.meta.subPanel) {
+        subPanel.seedPanel(t.id, t.meta.subPanel);
+      }
+    }
+
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
@@ -135,8 +145,7 @@ export function useSessionRestore(deps: {
           reportLayout(newId);
         }
         if (t.subPanel) {
-          subPanel.setPanelSize(newId, t.subPanel.panelSize);
-          if (t.subPanel.collapsed) subPanel.collapsePanel(newId);
+          subPanel.seedPanel(newId, t.subPanel);
         }
       }
       // Restore active terminal
