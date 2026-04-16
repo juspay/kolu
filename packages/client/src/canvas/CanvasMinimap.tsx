@@ -34,7 +34,6 @@ const CanvasMinimap: Component<{
   layouts: Record<string, TileLayout>;
   getTileTheme: (id: string) => TileTheme;
   onFitAll: () => void;
-  onTileClick: (id: string) => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
 
@@ -142,7 +141,7 @@ const CanvasMinimap: Component<{
                 <Show when={pos()}>
                   {(p) => (
                     <div
-                      class="absolute rounded-sm transition-all z-[2] cursor-pointer hover:brightness-125 hover:scale-110"
+                      class="absolute rounded-sm transition-opacity pointer-events-none"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
                           props.activeId === id,
@@ -156,10 +155,6 @@ const CanvasMinimap: Component<{
                         "background-color": theme().bg,
                         border: `1px solid color-mix(in oklch, ${theme().fg} 25%, ${theme().bg})`,
                       }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        props.onTileClick(id);
-                      }}
                       title={id}
                     />
                   )}
@@ -170,7 +165,7 @@ const CanvasMinimap: Component<{
 
           {/* Viewport rectangle */}
           <div
-            class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing z-[1]"
+            class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing"
             style={{
               left: `${viewportRect().x}px`,
               top: `${viewportRect().y}px`,

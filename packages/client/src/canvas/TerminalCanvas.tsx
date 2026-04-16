@@ -238,11 +238,6 @@ const TerminalCanvas: Component<{
             }
             viewport.fitAll(allLayouts);
           }}
-          onTileClick={(id) => {
-            const l = layouts[id];
-            if (l) viewport.centerOnTile(l);
-            props.onSelect(id);
-          }}
         />
       </div>
     </DragDropProvider>
