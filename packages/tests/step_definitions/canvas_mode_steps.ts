@@ -1,5 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import * as assert from "node:assert";
 
 const TOGGLE_SELECTOR = '[data-testid="canvas-mode-toggle"]';
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
@@ -494,3 +495,101 @@ Then(
 );
 
 // "the close confirmation should be visible" is defined in worktree_steps.ts
+
+// ── Canvas layout persistence ──
+
+/** Read the position (style.left/top) of the first visible canvas tile. */
+async function readFirstTilePosition(
+  world: KoluWorld,
+): Promise<{ id: string; left: number; top: number }> {
+  const result = await world.page.evaluate((sel: string) => {
+    const container = document.querySelector(sel);
+    const inner = container?.querySelector(
+      "[data-terminal-id][data-visible]",
+    ) as HTMLElement | null;
+    if (!inner) return null;
+    const id = inner.getAttribute("data-terminal-id");
+    const tile = inner.closest("[style*='left']") as HTMLElement | null;
+    if (!tile || !id) return null;
+    return {
+      id,
+      left: parseFloat(tile.style.left),
+      top: parseFloat(tile.style.top),
+    };
+  }, CANVAS_SELECTOR);
+  if (!result) throw new Error("No visible canvas tile found");
+  return result;
+}
+
+When(
+  "I move the canvas tile to x={int} y={int}",
+  async function (this: KoluWorld, x: number, y: number) {
+    const { id } = await readFirstTilePosition(this);
+    const layout = { x, y, w: 700, h: 500 };
+    const resp = await this.page.request.fetch(
+      "/rpc/terminal/setCanvasLayout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({ json: { id, layout } }),
+      },
+    );
+    assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+    // Wait for the tile to render at the new position — proves the metadata
+    // subscription delivered the update (the mechanism that must survive refresh).
+    await this.page.waitForFunction(
+      ({
+        sel,
+        tileId,
+        wantX,
+        wantY,
+      }: {
+        sel: string;
+        tileId: string;
+        wantX: number;
+        wantY: number;
+      }) => {
+        const tile = document
+          .querySelector(`${sel} [data-terminal-id="${tileId}"]`)
+          ?.closest("[style*='left']") as HTMLElement | null;
+        if (!tile) return false;
+        return (
+          Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
+          Math.abs(parseFloat(tile.style.top) - wantY) < 1
+        );
+      },
+      { sel: CANVAS_SELECTOR, tileId: id, wantX: x, wantY: y },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the canvas tile should be at x={int} y={int}",
+  async function (this: KoluWorld, x: number, y: number) {
+    await this.page.waitForFunction(
+      ({
+        sel,
+        wantX,
+        wantY,
+      }: {
+        sel: string;
+        wantX: number;
+        wantY: number;
+      }) => {
+        const container = document.querySelector(sel);
+        const inner = container?.querySelector(
+          "[data-terminal-id][data-visible]",
+        );
+        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        if (!tile) return false;
+        return (
+          Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
+          Math.abs(parseFloat(tile.style.top) - wantY) < 1
+        );
+      },
+      { sel: CANVAS_SELECTOR, wantX: x, wantY: y },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

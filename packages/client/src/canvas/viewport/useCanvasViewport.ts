@@ -5,7 +5,7 @@
  *  (gestures, transforms, coordinates) are implementation details. */
 
 import { createSignal, type Accessor } from "solid-js";
-import type { TileLayout } from "../useCanvasLayouts";
+import type { TileLayout } from "../TileLayout";
 import { installGestures } from "./gestures";
 import {
   clampZoom,

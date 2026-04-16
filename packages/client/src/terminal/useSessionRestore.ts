@@ -3,9 +3,8 @@
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
-import { useCanvasLayouts } from "../canvas/useCanvasLayouts";
 import { useServerState } from "../settings/useServerState";
-import { lifecycle } from "../rpc/rpc";
+import { client, lifecycle } from "../rpc/rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -20,7 +19,6 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
-  const { setLayouts, reportLayout } = useCanvasLayouts();
   const serverState = useServerState();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -39,15 +37,16 @@ export function useSessionRestore(deps: {
       setSavedSession(state.session);
       return;
     }
-    hydrateFromTerminals(existing);
+    hydrateFromTerminals(existing, state.session?.activeTerminalId ?? null);
   });
 
-  function hydrateFromTerminals(existing: TerminalInfo[]) {
-    // Seed canvas layouts and sub-panel state from server metadata
+  function hydrateFromTerminals(
+    existing: TerminalInfo[],
+    serverActiveId: string | null,
+  ) {
+    // Canvas layouts live on metadata — no client-side seeding needed.
+    // Seed sub-panel state from server metadata.
     for (const t of existing) {
-      if (t.meta.canvasLayout) {
-        setLayouts(t.id, t.meta.canvasLayout);
-      }
       if (t.meta.subPanel) {
         subPanel.seedPanel(t.id, t.meta.subPanel);
       }
@@ -67,15 +66,19 @@ export function useSessionRestore(deps: {
       }
     }
 
-    // Keep persisted active terminal if it still exists; otherwise pick first
-    const persisted = store.activeId();
+    // Prefer the server-persisted active terminal; fall back to first in order.
+    // `store.activeId()` starts as null after refresh (lost makePersisted in
+    // #554), so on refresh the server snapshot is the only source of truth
+    // for "which terminal was active".
     const topLevel = existing
       .filter((t) => !t.meta.parentId)
       .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
     const topIds = topLevel.map((t) => t.id);
-    if (persisted === null || !topIds.includes(persisted)) {
-      store.setActiveId(topIds[0] ?? null);
-    }
+    const picked =
+      serverActiveId && topIds.includes(serverActiveId as TerminalId)
+        ? (serverActiveId as TerminalId)
+        : (topIds[0] ?? null);
+    store.setActiveId(picked);
 
     // Seed MRU with all top-level terminals (active first, rest in sidebar order).
     const active = store.activeId();
@@ -136,13 +139,18 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
-      // Restore canvas layouts and sub-panel state under the new terminal IDs
+      // Restore canvas layouts and sub-panel state under the new terminal IDs.
+      // Canvas layouts go straight to the server — the metadata subscription
+      // delivers them back to the canvas for rendering.
       for (const t of session.terminals) {
         const newId = oldToNew.get(t.id);
         if (!newId) continue;
         if (t.canvasLayout) {
-          setLayouts(newId, t.canvasLayout);
-          reportLayout(newId);
+          void client.terminal
+            .setCanvasLayout({ id: newId, layout: t.canvasLayout })
+            .catch((err: Error) =>
+              toast.error(`Failed to restore canvas layout: ${err.message}`),
+            );
         }
         if (t.subPanel) {
           subPanel.seedPanel(newId, t.subPanel);
