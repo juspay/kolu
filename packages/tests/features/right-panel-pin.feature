@@ -37,6 +37,14 @@ Feature: Right panel pin/unpin
     And the right panel resize handle should be visible
     And there should be no page errors
 
+  Scenario: Escape closes unpinned overlay panel
+    When I press the toggle inspector shortcut
+    When I click the right panel pin toggle
+    Then the right panel should be visible
+    When I press Escape
+    Then the right panel should not be visible
+    And there should be no page errors
+
   Scenario: Pin state persists across reload
     When I press the toggle inspector shortcut
     When I click the right panel pin toggle

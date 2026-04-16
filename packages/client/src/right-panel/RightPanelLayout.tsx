@@ -5,6 +5,7 @@
  *  toggle icon and the screen is too narrow for a useful side panel. */
 
 import { type Component, type JSX, Show } from "solid-js";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import Resizable from "@corvu/resizable";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
@@ -40,19 +41,10 @@ const RightPanelLayout: Component<{
           {props.children}
           {/* Overlay right panel — desktop + unpinned + expanded only */}
           <Show when={showPanel()}>
-            <>
-              <div
-                data-testid="right-panel-backdrop"
-                class="absolute inset-0 bg-black/20 z-20"
-                onClick={() => rightPanel.collapsePanel()}
-              />
-              <div
-                class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 shadow-2xl shadow-black/30"
-                style={{ "max-width": "50%" }}
-              >
-                <RightPanel {...rightPanelProps()} />
-              </div>
-            </>
+            <OverlayPanel
+              onDismiss={() => rightPanel.collapsePanel()}
+              rightPanelProps={rightPanelProps()}
+            />
           </Show>
         </div>
       }
@@ -99,6 +91,48 @@ const RightPanelLayout: Component<{
         </Resizable>
       </div>
     </Show>
+  );
+};
+
+/** Overlay panel — separated so makeEventListener gets its own reactive owner
+ *  (created by the parent Show). Escape dismisses the overlay. */
+const OverlayPanel: Component<{
+  onDismiss: () => void;
+  rightPanelProps: {
+    meta: TerminalMetadata | null;
+    onToggle: () => void;
+    themeName?: string;
+    onThemeClick?: () => void;
+  };
+}> = (props) => {
+  // Capture phase — intercept Escape before xterm's textarea handler swallows it
+  makeEventListener(
+    document,
+    "keydown",
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        props.onDismiss();
+      }
+    },
+    { capture: true },
+  );
+
+  return (
+    <>
+      <div
+        data-testid="right-panel-backdrop"
+        class="absolute inset-0 bg-black/20 z-20"
+        onClick={props.onDismiss}
+      />
+      <div
+        class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 shadow-2xl shadow-black/30"
+        style={{ "max-width": "50%" }}
+      >
+        <RightPanel {...props.rightPanelProps} />
+      </div>
+    </>
   );
 };
 
