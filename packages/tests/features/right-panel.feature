@@ -94,3 +94,10 @@ Feature: Right panel (inspector)
     And I press Enter
     Then the right panel should not be visible
     And there should be no page errors
+
+  @mobile
+  Scenario: Right panel hidden on mobile even when expanded in preferences
+    # Server has collapsed=false (expanded) but mobile viewport should suppress it
+    When I press the toggle inspector shortcut
+    Then the right panel should not be visible
+    And there should be no page errors

@@ -1,11 +1,14 @@
 /** RightPanelLayout — wraps a content area with a right panel that can be
  *  pinned (docked via Resizable) or unpinned (overlay with backdrop).
- *  Encapsulates the pin/unpin layout decision so callers don't duplicate it. */
+ *  Encapsulates the pin/unpin layout decision so callers don't duplicate it.
+ *  On mobile viewports the right panel is disabled entirely — there's no
+ *  toggle icon and the screen is too narrow for a useful side panel. */
 
 import { type Component, type JSX, Show } from "solid-js";
 import Resizable from "@corvu/resizable";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
+import { isMobile } from "../useMobile";
 import type { TerminalMetadata } from "kolu-common";
 
 const RightPanelLayout: Component<{
@@ -24,16 +27,19 @@ const RightPanelLayout: Component<{
     onThemeClick: props.onThemeClick,
   });
 
+  /** Whether the right panel should render (desktop only, not collapsed). */
+  const showPanel = () => !isMobile() && !rightPanel.collapsed();
+
   return (
     <Show
-      when={rightPanel.pinned()}
+      when={!isMobile() && rightPanel.pinned()}
       fallback={
         <div
           class={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative ${props.contentClass ?? ""}`}
         >
           {props.children}
-          {/* Overlay right panel */}
-          <Show when={!rightPanel.collapsed()}>
+          {/* Overlay right panel — desktop + unpinned + expanded only */}
+          <Show when={showPanel()}>
             <>
               <div
                 data-testid="right-panel-backdrop"

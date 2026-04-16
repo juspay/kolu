@@ -37,6 +37,7 @@ import SearchBar from "./SearchBar";
 import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "../input/zoom";
 import { createScrollLock } from "../scrollLock";
+import { isTouch } from "../useMobile";
 import { useServerState } from "../settings/useServerState";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
@@ -262,7 +263,7 @@ const Terminal: Component<{
     // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
     // path works fine with a hardware keyboard and we don't want to risk
     // fighting its selection handling.
-    if (window.matchMedia("(pointer: coarse)").matches) {
+    if (isTouch()) {
       const screen = term.element?.querySelector(
         ".xterm-screen",
       ) as HTMLElement | null;

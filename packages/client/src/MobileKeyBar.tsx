@@ -8,7 +8,7 @@
  *  a 10ms haptic tick on devices that support navigator.vibrate. */
 
 import { type Component, For, Show } from "solid-js";
-import { createMediaQuery } from "@solid-primitives/media";
+import { isTouch } from "./useMobile";
 import { client } from "./rpc/rpc";
 import type { TerminalId } from "kolu-common";
 
@@ -34,7 +34,7 @@ const KEYS: readonly Key[] = [
 const MobileKeyBar: Component<{
   activeId: () => TerminalId | null;
 }> = (props) => {
-  const isCoarse = createMediaQuery("(pointer: coarse)");
+  const isCoarse = isTouch;
 
   function send(data: string) {
     const id = props.activeId();
