@@ -43,6 +43,13 @@ For every module boundary, service split, or new abstraction in the code under r
 
 What is likely to change behind this boundary? Be specific — not "requirements might change" but "the payment provider, the auth protocol, the notification channel." If you can't name concrete axes of change, the boundary may be arbitrary.
 
+**Consider project-declared areas of volatility.** If the project has enumerated its own areas of volatility — the term of art Lowy uses throughout *Righting Software* — those declarations surface as system-reminders when you read a matching file (Claude Code's `paths:`-scoped rule mechanism; it is wiring, not Lowy doctrine). The schema, loosely modeled on Lowy's TradeMe enumeration (*Righting Software*, Ch. 5), is:
+
+| Area of volatility | What changes | Why volatile (likelihood × effect) | Expected encapsulation |
+|--------------------|--------------|------------------------------------|------------------------|
+
+Rows in that table are **surviving candidates** after the project's own variable-vs-volatile screen (see §"Variable vs. Volatile" above). They are not findings, and they are not above review. Do two things with each row: (a) re-apply Lowy's bar — _"state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect"_ — and challenge any row that fails it (Lowy: _"It is important to discuss the volatility candidates this way and even challenge them"_); (b) audit whether the boundaries under review actually encapsulate the surviving volatilities in a single component, rather than spraying or leaking them across modules.
+
 **Speculative volatility is not volatility.** A change scenario counts only if it has happened before, is on a roadmap, or is a near-certain consequence of the domain (e.g. "payment providers change" in e-commerce). "What if we swap color spaces" in an app that has never swapped color spaces is speculation, not an axis of change. Lowy's framework is about *observed* or *plausible* volatility — designing for hypothetical change is over-engineering, not encapsulation.
 
 **Weak volatility may not deserve its own boundary.** Some volatilities are real but too minor to justify a separate component. Lowy's example: notification delivery might be volatile, but if the system already has a message bus utility, a dedicated NotificationManager adds complexity without containing meaningful additional change. Ask: does this volatility justify the cost of an additional boundary, or can it be folded into an existing one?
