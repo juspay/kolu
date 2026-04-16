@@ -92,6 +92,13 @@ Feature: Canvas mode
     Then the canvas transform should have changed
     And there should be no page errors
 
+  Scenario: Canvas-owned scroll does not leak into a terminal
+    When I click the canvas mode toggle
+    And I scroll the wheel over the canvas background
+    And I scroll the wheel over the terminal tile within the idle window
+    Then xterm should not have received a wheel event
+    And there should be no page errors
+
   Scenario: Minimap shows zoom bar in canvas mode
     When I click the canvas mode toggle
     Then the minimap should be visible

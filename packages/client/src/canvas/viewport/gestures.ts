@@ -21,7 +21,13 @@ export interface GestureCallbacks {
  *  gesture; returning true lets the target scroll natively (no pan, no
  *  preventDefault). Ownership holds until ~150ms of wheel idle so cursor drift
  *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
- *  canvas regardless. */
+ *  canvas regardless.
+ *
+ *  The wheel listener runs in capture phase so that when the canvas owns the
+ *  gesture we can `stopPropagation()` before xterm (or any deeper listener)
+ *  sees the event — otherwise a canvas-owned pan that drifts over a terminal
+ *  would still scroll the terminal's buffer. The yielded path does not stop
+ *  propagation, so the deeper listener runs naturally. */
 export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
@@ -39,6 +45,7 @@ export function installGestures(
     (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();
+        e.stopPropagation();
         const rect = el.getBoundingClientRect();
         const factor = 1 - e.deltaY * ZOOM_SPEED;
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
@@ -46,9 +53,10 @@ export function installGestures(
       }
       if (ownership?.resolve(e) === "yielded") return;
       e.preventDefault();
+      e.stopPropagation();
       callbacks.onPan(e.deltaX, e.deltaY);
     },
-    { passive: false, signal },
+    { passive: false, capture: true, signal },
   );
 
   // Middle-mouse drag pan
