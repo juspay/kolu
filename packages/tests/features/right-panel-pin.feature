@@ -45,6 +45,19 @@ Feature: Right panel pin/unpin
     Then the right panel should not be visible
     And there should be no page errors
 
+  Scenario: Active tab survives pin/unpin toggle
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the Code tab
+    Then the Code tab should be active
+    When I click the right panel pin toggle
+    Then the right panel pin button should show unpinned
+    And the Code tab should be active
+    When I click the right panel pin toggle
+    Then the right panel pin button should show pinned
+    And the Code tab should be active
+    And there should be no page errors
+
   Scenario: Pin state persists across reload
     When I press the toggle inspector shortcut
     When I click the right panel pin toggle

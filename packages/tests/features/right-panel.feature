@@ -95,6 +95,18 @@ Feature: Right panel (inspector)
     Then the right panel should not be visible
     And there should be no page errors
 
+  Scenario: Active tab survives close and reopen
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the Code tab
+    Then the Code tab should be active
+    When I press the toggle inspector shortcut
+    Then the right panel should not be visible
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    And the Code tab should be active
+    And there should be no page errors
+
   @mobile
   Scenario: Right panel hidden on mobile even when expanded in preferences
     # Server has collapsed=false (expanded) but mobile viewport should suppress it

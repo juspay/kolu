@@ -53,7 +53,7 @@ Integration code (under `packages/integrations/`) runs in a long-lived Node proc
 
 ### no-preference-prop-drilling
 
-Components must read preferences from `useServerState()` directly, not receive them as props from a parent. The singleton store guarantees shared reactivity — all callers share one `createStore` instance.
+Components must read preferences from `useServerState()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance.
 Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` in child
 Good: `const { preferences } = useServerState();` inside the child component
 _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.

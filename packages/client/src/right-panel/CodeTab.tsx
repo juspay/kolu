@@ -34,6 +34,7 @@ import "@git-diff-view/solid/styles/diff-view-pure.css";
 // Order matters: this overrides the library CSS imported just above.
 import "./code-tab.css";
 import type {
+  CodeTabView,
   GitChangeStatus,
   GitDiffMode,
   FsListDirOutput,
@@ -41,6 +42,7 @@ import type {
 } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useServerState } from "../settings/useServerState";
+import { useRightPanel } from "./useRightPanel";
 import {
   DiffLocalIcon,
   DiffBranchIcon,
@@ -68,9 +70,6 @@ const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
   branch: "No changes vs base",
 };
-
-/** Active view in the Code tab: local/branch diff modes, or file browser. */
-type CodeTabView = GitDiffMode | "browse";
 
 /** Sub-tab config. Icons double as the tab's visual affordance;
  *  the tooltip spells out what the mode means. */
@@ -120,8 +119,18 @@ function entriesToNodes(entries: FsListDirOutput["entries"]): TreeNode[] {
 
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
+  const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const [view, setView] = createSignal<CodeTabView>("local");
+  // Active sub-view lives inside the `code` variant of rightPanel.tab, so
+  // it survives panel close/reopen, pin/unpin, and page reload. CodeTab
+  // only mounts when the Code tab is active (RightPanel.tsx dispatches on
+  // tab.kind), so the non-"code" branch below is unreachable — the fallback
+  // exists only to satisfy the type narrower.
+  const view = (): CodeTabView => {
+    const tab = rightPanel.activeTab();
+    return tab.kind === "code" ? tab.mode : "local";
+  };
+  const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 

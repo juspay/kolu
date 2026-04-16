@@ -4,7 +4,7 @@ import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
-  const tab = this.page.locator('[data-testid="right-panel-tab-diff"]');
+  const tab = this.page.locator('[data-testid="right-panel-tab-code"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await tab.click();
   await this.waitForFrame();
@@ -48,7 +48,7 @@ Then("the Code tab should be active", async function (this: KoluWorld) {
   // The Code tab button exposes data-active reflecting the active
   // tab, which is independent of in-repo vs no-repo content.
   const btn = this.page.locator(
-    '[data-testid="right-panel-tab-diff"][data-active="true"]',
+    '[data-testid="right-panel-tab-code"][data-active="true"]',
   );
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
