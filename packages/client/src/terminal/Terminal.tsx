@@ -289,9 +289,13 @@ const Terminal: Component<{
 
     scrollLock.attachToTerminal(term);
 
-    // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
+    // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep).
+    // preserveDrawingBuffer keeps the rendered pixels readable after the
+    // browser compositor swaps buffers — load-bearing for the screenshot
+    // feature (src/screenshot.ts), which reads the canvas via drawImage.
+    // Disabling this silently produces blank screenshots.
     try {
-      const w = new WebglAddon();
+      const w = new WebglAddon(true);
       w.onContextLoss(() => {
         w.dispose();
         webgl = null;

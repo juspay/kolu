@@ -7,6 +7,21 @@
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+export const CameraIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M2.5 5h2L6 3.5h4L11.5 5h2a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+    <circle cx="8" cy="9" r="2.5" />
+  </svg>
+);
+
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

@@ -51,6 +51,7 @@ const TerminalCanvas: Component<{
   getTileTheme: (id: string) => TileTheme;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onScreenshot?: (id: string) => void;
   renderTileTitle: (id: string) => JSX.Element;
   renderTileBody: (id: string, active: boolean) => JSX.Element;
 }> = (props) => {
@@ -220,6 +221,9 @@ const TerminalCanvas: Component<{
                 theme={props.getTileTheme(id)}
                 onSelect={() => props.onSelect(id)}
                 onClose={() => props.onClose(id)}
+                onScreenshot={
+                  props.onScreenshot ? () => props.onScreenshot!(id) : undefined
+                }
                 renderTitle={() => props.renderTileTitle(id)}
                 renderBody={() =>
                   props.renderTileBody(id, props.activeId === id)

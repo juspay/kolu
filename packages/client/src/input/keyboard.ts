@@ -154,6 +154,10 @@ export const SHORTCUTS = {
     keybind: { key: "2", code: "Digit2", mod: true, shift: true },
     label: "Center on active tile",
   },
+  screenshotTerminal: {
+    keybind: { key: "s", code: "KeyS", mod: true, shift: true },
+    label: "Copy terminal screenshot",
+  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

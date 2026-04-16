@@ -27,6 +27,7 @@ import RightPanelLayout from "./right-panel/RightPanelLayout";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
+import { copyTerminalScreenshot } from "./screenshot";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
@@ -134,6 +135,12 @@ const App: Component = () => {
     exportSessionAsPdf(id, store.getMetadata(id));
   }
 
+  function handleScreenshotTerminal(id?: TerminalId) {
+    const target = id ?? store.activeId();
+    if (target === null) return;
+    void copyTerminalScreenshot(target);
+  }
+
   function handleCanvasFitAll() {
     if (!canvasMode()) return;
     const tiles = store
@@ -174,6 +181,7 @@ const App: Component = () => {
     handleShuffleTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
+    handleScreenshotTerminal,
     toggleRightPanel: rightPanel.togglePanel,
     canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
@@ -223,6 +231,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
+    handleScreenshotTerminal,
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
@@ -524,6 +533,9 @@ const App: Component = () => {
                   }}
                   onSelect={(id) => store.setActiveId(id as TerminalId)}
                   onClose={(id) => closeTerminal(id as TerminalId)}
+                  onScreenshot={(id) =>
+                    handleScreenshotTerminal(id as TerminalId)
+                  }
                   renderTileTitle={(id) => (
                     <TerminalMeta
                       info={store.getDisplayInfo(id as TerminalId)}

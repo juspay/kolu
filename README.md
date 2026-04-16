@@ -49,6 +49,7 @@ An alternative to the default single-terminal focus layout — all terminals flo
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
 - **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+1</kbd> zoom to fit all tiles, <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
 - **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
+- **Screenshot to clipboard** — a camera button in each tile's title bar (or <kbd>Cmd/Ctrl+Shift+S</kbd>) copies the terminal's rendered pixels to the clipboard as PNG
 - **Desktop-only** — mobile devices always use focus mode; canvas mode preference is persisted server-side
 
 ### Git & GitHub

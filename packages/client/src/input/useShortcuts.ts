@@ -24,6 +24,7 @@ interface ShortcutDeps {
   handleShuffleTheme: () => void;
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
+  handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   canvasFitAll: () => void;
   canvasCenterActive: () => void;
@@ -177,6 +178,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.exportSessionAsPdf.keybind)) {
     deps.handleExportSessionAsPdf();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.screenshotTerminal.keybind)) {
+    deps.handleScreenshotTerminal();
     return true;
   }
 
