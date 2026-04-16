@@ -41,6 +41,16 @@ nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 - Sidebar agent previews — when an agent is waiting on you (or has finished with an unread completion), its sidebar card expands with a live xterm preview so you can peek without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
+### Canvas mode
+
+An alternative to the default single-terminal focus layout — all terminals float as draggable, resizable windows on an infinite 2D canvas. Toggle via the grid icon in the header.
+
+- **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
+- **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
+- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+1</kbd> zoom to fit all tiles, <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
+- **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
+- **Desktop-only** — mobile devices always use focus mode; canvas mode preference is persisted server-side
+
 ### Git & GitHub
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)

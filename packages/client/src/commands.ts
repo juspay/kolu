@@ -58,6 +58,10 @@ export interface CommandDeps {
   setAboutOpen: (open: boolean) => void;
   // Right panel
   toggleRightPanel: () => void;
+  // Canvas
+  canvasFitAll: () => void;
+  canvasCenterActive: () => void;
+  isCanvasMode: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -156,6 +160,20 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       keybind: SHORTCUTS.toggleRightPanel.keybind,
       onSelect: () => deps.toggleRightPanel(),
     },
+    ...(deps.isCanvasMode()
+      ? [
+          {
+            name: "Zoom to fit",
+            keybind: SHORTCUTS.canvasFitAll.keybind,
+            onSelect: () => deps.canvasFitAll(),
+          },
+          {
+            name: "Center on active tile",
+            keybind: SHORTCUTS.canvasCenterActive.keybind,
+            onSelect: () => deps.canvasCenterActive(),
+          },
+        ]
+      : []),
     ...(deps.terminalIds().length > 0
       ? [
           {

@@ -25,6 +25,8 @@ interface ShortcutDeps {
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
   toggleRightPanel: () => void;
+  canvasFitAll: () => void;
+  canvasCenterActive: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -180,6 +182,16 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
     deps.toggleRightPanel();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.canvasFitAll.keybind)) {
+    deps.canvasFitAll();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
+    deps.canvasCenterActive();
     return true;
   }
 
