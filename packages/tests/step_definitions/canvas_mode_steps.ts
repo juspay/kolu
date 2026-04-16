@@ -130,10 +130,10 @@ Then(
         if (!tile) return false;
         const cRect = container.getBoundingClientRect();
         const tRect = tile.getBoundingClientRect();
-        // Tile's top-left corner should be within the visible container area
+        // Tile should overlap with the visible container area (transformed canvas)
         return (
-          tRect.left >= cRect.left &&
-          tRect.top >= cRect.top &&
+          tRect.right > cRect.left &&
+          tRect.bottom > cRect.top &&
           tRect.left < cRect.right &&
           tRect.top < cRect.bottom
         );
@@ -143,5 +143,74 @@ Then(
     );
   },
 );
+
+Then(
+  "the canvas container should have zoom level {int}",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, level }: { sel: string; level: number }) => {
+        const container = document.querySelector(sel);
+        if (!container) return false;
+        const zoom = parseFloat(container.getAttribute("data-zoom") ?? "1");
+        return Math.abs(zoom - level) < 0.01;
+      },
+      { sel: CANVAS_SELECTOR, level: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the canvas container should have zoom level greater than {int}",
+  async function (this: KoluWorld, threshold: number) {
+    await this.page.waitForFunction(
+      ({ sel, min }: { sel: string; min: number }) => {
+        const container = document.querySelector(sel);
+        if (!container) return false;
+        const zoom = parseFloat(container.getAttribute("data-zoom") ?? "1");
+        return zoom > min;
+      },
+      { sel: CANVAS_SELECTOR, min: threshold },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When("I zoom the canvas in", async function (this: KoluWorld) {
+  const container = this.page.locator(CANVAS_SELECTOR);
+  await container.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // Dispatch a ctrl+wheel event to trigger zoom (negative deltaY = zoom in).
+  // Playwright's mouse.wheel doesn't support modifier keys, so we dispatch
+  // the WheelEvent directly from the page context.
+  await this.page.evaluate(
+    ({ sel }: { sel: string }) => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      el.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY: -300,
+          ctrlKey: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+        }),
+      );
+    },
+    { sel: CANVAS_SELECTOR },
+  );
+  await this.waitForFrame();
+});
+
+When("I press the fit-all shortcut", async function (this: KoluWorld) {
+  // Mod+Shift+1 = fit all tiles in viewport
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await this.page.keyboard.down(modifier);
+  await this.page.keyboard.down("Shift");
+  await this.page.keyboard.press("Digit1");
+  await this.page.keyboard.up("Shift");
+  await this.page.keyboard.up(modifier);
+  await this.waitForFrame();
+});
 
 // "the close confirmation should be visible" is defined in worktree_steps.ts

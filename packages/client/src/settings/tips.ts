@@ -62,4 +62,12 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-canvas",
     text: "Click the grid icon in the header to switch to Canvas mode — drag and resize terminals freely",
   },
+  {
+    id: "amb-canvas-zoom",
+    text: "In Canvas mode, pinch or Ctrl+scroll to zoom. Two-finger scroll to pan.",
+  },
+  {
+    id: "amb-canvas-fit",
+    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.canvasFitAll.keybind)} fits all tiles in the viewport`,
+  },
 ];

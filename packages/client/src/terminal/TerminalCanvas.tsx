@@ -1,10 +1,15 @@
 /** TerminalCanvas — freeform 2D canvas where terminals can be dragged
- *  and resized like desktop windows. Two-finger scroll pans the canvas.
+ *  and resized like desktop windows. Pan via two-finger scroll / trackpad,
+ *  zoom via Ctrl+scroll / pinch. Tiles snap to the visual grid on drag end.
  *
  *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
  *  gesture handling — decouples sensing from position application.
  *  Resize uses raw pointer events with AbortController for cleanup
- *  (resize is not a drag-to-position gesture, so solid-dnd doesn't fit). */
+ *  (resize is not a drag-to-position gesture, so solid-dnd doesn't fit).
+ *
+ *  Pan/zoom viewport logic lives in useCanvasViewport — extracted so the
+ *  navigation mechanism (CSS transforms) can evolve independently of tile
+ *  layout state (useCanvasLayouts). */
 
 import {
   type Component,
@@ -25,6 +30,7 @@ import TerminalContent from "./TerminalContent";
 import TerminalMeta from "./TerminalMeta";
 import { ResizeGripIcon } from "../ui/Icons";
 import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
+import { useCanvasViewport } from "./useCanvasViewport";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
@@ -49,6 +55,7 @@ const TerminalCanvas: Component<{
   subTerminalIds: (id: TerminalId) => TerminalId[];
 }> = (props) => {
   const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
+  const viewport = useCanvasViewport();
 
   // Auto-assign layout for new terminals and clean up removed ones
   createEffect(
@@ -87,21 +94,28 @@ const TerminalCanvas: Component<{
       setDragDelta({ x: draggable.transform.x, y: draggable.transform.y });
   }
 
-  /** Apply captured drag delta to the tile's persisted position. */
+  /** Apply captured drag delta to the tile's persisted position.
+   *  Delta is in screen-space — normalize by zoom for canvas-space. */
   function handleDragEnd({ draggable }: DragEvent) {
     if (!draggable) return;
     const id = draggable.id as string;
     const l = layouts[id];
     if (!l) return;
-    const { x: dx, y: dy } = dragDelta();
-    if (dx !== 0 || dy !== 0) {
-      setLayouts(id, { ...l, x: l.x + dx, y: l.y + dy });
+    const { x: sdx, y: sdy } = dragDelta();
+    if (sdx !== 0 || sdy !== 0) {
+      const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
+      setLayouts(id, {
+        ...l,
+        x: viewport.snapToGrid(l.x + dx),
+        y: viewport.snapToGrid(l.y + dy),
+      });
       reportLayout(id as TerminalId);
     }
     setDragDelta({ x: 0, y: 0 });
   }
 
-  /** Start resizing a tile from the bottom-right corner. */
+  /** Start resizing a tile from the bottom-right corner.
+   *  Pointer deltas are in screen-space — normalize by zoom. */
   let resizeAbort: AbortController | null = null;
   function startResize(id: TerminalId, e: PointerEvent) {
     e.preventDefault();
@@ -122,11 +136,15 @@ const TerminalCanvas: Component<{
     window.addEventListener(
       "pointermove",
       (ev) => {
+        const { dx, dy } = viewport.normalizeDelta(
+          ev.clientX - startX,
+          ev.clientY - startY,
+        );
         setLayouts(id, {
           x: origX,
           y: origY,
-          w: Math.max(MIN_W, origW + (ev.clientX - startX)),
-          h: Math.max(MIN_H, origH + (ev.clientY - startY)),
+          w: Math.max(MIN_W, origW + dx),
+          h: Math.max(MIN_H, origH + dy),
         });
       },
       { signal },
@@ -135,58 +153,36 @@ const TerminalCanvas: Component<{
       "pointerup",
       () => {
         resizeAbort?.abort();
+        // Snap size to grid
+        const cur = layouts[id];
+        if (cur) {
+          setLayouts(id, {
+            ...cur,
+            w: viewport.snapToGrid(cur.w),
+            h: viewport.snapToGrid(cur.h),
+          });
+        }
         reportLayout(id);
       },
       { signal },
     );
   }
 
-  // Canvas extends well beyond the tiles so it feels infinite —
-  // always at least one full viewport of empty space past the furthest tile.
-  const CANVAS_PAD = 1000;
-  const canvasSize = () => {
-    let maxX = 0;
-    let maxY = 0;
-    for (const id of props.terminalIds) {
-      const l = layouts[id];
-      if (!l) continue;
-      maxX = Math.max(maxX, l.x + l.w);
-      maxY = Math.max(maxY, l.y + l.h);
-    }
-    return {
-      width: maxX + CANVAS_PAD,
-      height: maxY + CANVAS_PAD,
-    };
-  };
-
-  // On mount, scroll the container so the bounding box of all terminals
-  // is centered in the viewport (fixes #562 — canvas opening at 0,0).
+  // On mount, center the viewport on all terminals.
   let containerRef!: HTMLDivElement;
   let hasScrolled = false;
   createEffect(() => {
     const ids = props.terminalIds;
     if (ids.length === 0 || hasScrolled) return;
-    let minX = Infinity,
-      minY = Infinity,
-      maxX = -Infinity,
-      maxY = -Infinity;
+    const allLayouts: TileLayout[] = [];
     for (const id of ids) {
       const l = layouts[id];
-      if (!l) continue;
-      minX = Math.min(minX, l.x);
-      minY = Math.min(minY, l.y);
-      maxX = Math.max(maxX, l.x + l.w);
-      maxY = Math.max(maxY, l.y + l.h);
+      if (l) allLayouts.push(l);
     }
-    if (!isFinite(minX)) return;
+    if (allLayouts.length === 0) return;
     hasScrolled = true;
-    // Center of the bounding box, offset by the canvas padding.
-    // Defer to next frame so the container has layout dimensions.
-    const centerX = CANVAS_PAD + (minX + maxX) / 2;
-    const centerY = CANVAS_PAD + (minY + maxY) / 2;
     requestAnimationFrame(() => {
-      containerRef.scrollLeft = centerX - containerRef.clientWidth / 2;
-      containerRef.scrollTop = centerY - containerRef.clientHeight / 2;
+      viewport.fitAll(allLayouts);
     });
   });
 
@@ -194,17 +190,22 @@ const TerminalCanvas: Component<{
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
       <div
-        ref={containerRef}
+        ref={(el) => {
+          containerRef = el;
+          viewport.setContainerRef(el);
+        }}
         data-testid="canvas-container"
-        class="flex-1 min-h-0 overflow-auto relative canvas-grid-bg"
+        data-zoom={viewport.zoom()}
+        class="flex-1 min-h-0 overflow-hidden relative canvas-grid-bg"
+        style={{
+          "background-position": viewport.gridBgPosition(),
+          "background-size": viewport.gridBgSize(),
+        }}
       >
         <div
           style={{
-            position: "relative",
-            "min-width": `${canvasSize().width}px`,
-            "min-height": `${canvasSize().height}px`,
-            "margin-top": `${CANVAS_PAD}px`,
-            "margin-left": `${CANVAS_PAD}px`,
+            "transform-origin": "0 0",
+            transform: viewport.canvasTransform(),
           }}
         >
           <For each={props.terminalIds}>
@@ -214,6 +215,7 @@ const TerminalCanvas: Component<{
                 parent={props}
                 layouts={layouts}
                 startResize={startResize}
+                zoom={viewport.zoom}
               />
             )}
           </For>
@@ -243,6 +245,7 @@ const CanvasTile: Component<{
   };
   layouts: Record<string, TileLayout>;
   startResize: (id: TerminalId, e: PointerEvent) => void;
+  zoom: () => number;
 }> = (props) => {
   const { id } = props;
   const draggable = createDraggable(id);
@@ -273,7 +276,9 @@ const CanvasTile: Component<{
         "box-shadow": isActive()
           ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
           : `0 2px 8px rgba(0,0,0,0.2)`,
-        transform: `translate(${draggable.transform.x}px, ${draggable.transform.y}px)`,
+        // Drag transform is screen-space — divide by zoom so the tile
+        // moves at the correct rate in the scaled canvas coordinate system.
+        transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
       }}
       onMouseDown={() => props.parent.onSelect(id)}
     >

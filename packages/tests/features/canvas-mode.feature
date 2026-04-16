@@ -56,6 +56,23 @@ Feature: Canvas mode
     Then the canvas tiles should be visible in the viewport
     And there should be no page errors
 
+  Scenario: Canvas supports zoom via Ctrl+scroll
+    When I click the canvas mode toggle
+    Then the canvas container should have zoom level 1
+    When I zoom the canvas in
+    Then the canvas container should have zoom level greater than 1
+    And the canvas tiles should be visible in the viewport
+    And there should be no page errors
+
+  Scenario: Canvas fit-all keyboard shortcut
+    Given I create a terminal
+    When I click the canvas mode toggle
+    Then there should be 2 canvas tiles
+    When I zoom the canvas in
+    When I press the fit-all shortcut
+    Then the canvas tiles should be visible in the viewport
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible

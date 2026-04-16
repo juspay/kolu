@@ -35,6 +35,8 @@ import { useThemeManager } from "./useThemeManager";
 import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
+import { useCanvasViewport } from "./terminal/useCanvasViewport";
+import { useCanvasLayouts, type TileLayout } from "./terminal/useCanvasLayouts";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useServerState } from "./settings/useServerState";
@@ -71,6 +73,9 @@ const App: Component = () => {
   const canvasMode = () => !isMobile() && preferences().canvasMode;
   const toggleCanvasMode = () =>
     updatePreferences({ canvasMode: !canvasMode() });
+
+  const canvasViewport = useCanvasViewport();
+  const { layouts: canvasLayouts } = useCanvasLayouts();
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -127,6 +132,23 @@ const App: Component = () => {
     exportSessionAsPdf(id, store.getMetadata(id));
   }
 
+  function handleCanvasFitAll() {
+    if (!canvasMode()) return;
+    const tiles = store
+      .terminalIds()
+      .map((id) => canvasLayouts[id])
+      .filter((t): t is TileLayout => t !== undefined);
+    canvasViewport.fitAll(tiles);
+  }
+
+  function handleCanvasCenterActive() {
+    if (!canvasMode()) return;
+    const id = store.activeId();
+    if (!id) return;
+    const tile = canvasLayouts[id];
+    if (tile) canvasViewport.centerOnTile(tile);
+  }
+
   useShortcuts({
     terminalIds: store.terminalIds,
     activeId: store.activeId,
@@ -151,6 +173,8 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     toggleRightPanel: rightPanel.togglePanel,
+    canvasFitAll: handleCanvasFitAll,
+    canvasCenterActive: handleCanvasCenterActive,
   });
 
   function openPalette() {
@@ -213,6 +237,9 @@ const App: Component = () => {
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
     toggleRightPanel: rightPanel.togglePanel,
+    canvasFitAll: handleCanvasFitAll,
+    canvasCenterActive: handleCanvasCenterActive,
+    isCanvasMode: canvasMode,
   });
 
   // Reset state on close and return focus to terminal
