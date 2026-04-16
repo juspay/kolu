@@ -146,10 +146,6 @@ export const SHORTCUTS = {
     keybind: { key: "b", code: "KeyB", mod: true },
     label: "Toggle inspector panel",
   },
-  canvasFitAll: {
-    keybind: { key: "1", code: "Digit1", mod: true, shift: true },
-    label: "Zoom to fit",
-  },
   canvasCenterActive: {
     keybind: { key: "2", code: "Digit2", mod: true, shift: true },
     label: "Center on active tile",

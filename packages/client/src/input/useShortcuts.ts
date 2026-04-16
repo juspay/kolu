@@ -25,7 +25,6 @@ interface ShortcutDeps {
   handleCopyTerminalText: () => void;
   handleExportSessionAsPdf: () => void;
   toggleRightPanel: () => void;
-  canvasFitAll: () => void;
   canvasCenterActive: () => void;
 }
 
@@ -182,11 +181,6 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
     deps.toggleRightPanel();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.canvasFitAll.keybind)) {
-    deps.canvasFitAll();
     return true;
   }
 

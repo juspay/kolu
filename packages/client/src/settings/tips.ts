@@ -71,10 +71,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "In Canvas mode, pinch or Ctrl+scroll to zoom. Two-finger scroll to pan.",
   },
   {
-    id: "amb-canvas-fit",
-    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.canvasFitAll.keybind)} zooms to fit all tiles`,
-  },
-  {
     id: "amb-canvas-hand",
     text: "In Canvas mode, middle-click and drag to pan freely in any direction",
   },

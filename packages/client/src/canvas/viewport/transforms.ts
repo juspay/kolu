@@ -2,8 +2,6 @@
  *  Encapsulates the zoom/pan algorithm so it can evolve (easing, constraints,
  *  undo) without touching gesture input or CSS generation. */
 
-import type { TileLayout } from "../TileLayout";
-
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 3;
 export const GRID_SIZE = 24;
@@ -44,38 +42,6 @@ export function computeCenterPan(
     panX: centerX - viewportW / (2 * zoom),
     panY: centerY - viewportH / (2 * zoom),
   };
-}
-
-/** Compute pan+zoom that fits all tiles in the viewport with padding.
- *  Caps zoom at 1.0 — never magnifies beyond native size. */
-export function computeFitAll(
-  tiles: TileLayout[],
-  viewportW: number,
-  viewportH: number,
-): { panX: number; panY: number; zoom: number } {
-  if (tiles.length === 0) return { panX: 0, panY: 0, zoom: 1 };
-
-  let minX = Infinity,
-    minY = Infinity,
-    maxX = -Infinity,
-    maxY = -Infinity;
-  for (const t of tiles) {
-    minX = Math.min(minX, t.x);
-    minY = Math.min(minY, t.y);
-    maxX = Math.max(maxX, t.x + t.w);
-    maxY = Math.max(maxY, t.y + t.h);
-  }
-  if (!isFinite(minX)) return { panX: 0, panY: 0, zoom: 1 };
-
-  const PAD = 80;
-  const contentW = maxX - minX + PAD * 2;
-  const contentH = maxY - minY + PAD * 2;
-  const z = Math.min(
-    Math.max(Math.min(viewportW / contentW, viewportH / contentH), MIN_ZOOM),
-    1,
-  );
-  const pan = computeCenterPan(minX, minY, maxX, maxY, viewportW, viewportH, z);
-  return { panX: pan.panX, panY: pan.panY, zoom: z };
 }
 
 /** Compute new pan+zoom after zooming by a factor toward a point.

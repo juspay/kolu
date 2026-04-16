@@ -38,7 +38,6 @@ import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
-import type { TileLayout } from "./canvas/TileLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useServerState } from "./settings/useServerState";
@@ -137,15 +136,6 @@ const App: Component = () => {
     exportSessionAsPdf(id, store.getMetadata(id));
   }
 
-  function handleCanvasFitAll() {
-    if (!canvasMode()) return;
-    const tiles = store
-      .terminalIds()
-      .map((id) => store.getMetadata(id)?.canvasLayout)
-      .filter((t): t is TileLayout => t !== undefined);
-    canvasViewport.fitAll(tiles);
-  }
-
   function handleCanvasCenterActive() {
     if (!canvasMode()) return;
     const id = store.activeId();
@@ -178,7 +168,6 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     toggleRightPanel: rightPanel.togglePanel,
-    canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
   });
 
@@ -243,7 +232,6 @@ const App: Component = () => {
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
     toggleRightPanel: rightPanel.togglePanel,
-    canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
     toggleMinimap,
     isCanvasMode: canvasMode,
