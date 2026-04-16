@@ -142,6 +142,8 @@ export async function readFile(
   try {
     const buf = await fsReadFile(resolved.value.abs);
     if (buf.length > MAX_READ_BYTES) {
+      // May split a multi-byte UTF-8 sequence at the boundary; Node
+      // replaces the incomplete trailing character with U+FFFD.
       return ok({
         content: buf.subarray(0, MAX_READ_BYTES).toString("utf-8"),
         truncated: true,
