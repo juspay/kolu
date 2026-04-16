@@ -80,27 +80,27 @@ Rules:
 
 ### sync
 
-Run: `git fetch origin && git remote set-head origin --auto`
+Run the `scripts/steps/sync` script in this skill's directory, passing `true` or `false` for `--no-git`:
 
-**If `--no-git` is NOT set**: if current branch is behind origin, fast-forward with `git pull --ff-only`.
+```
+.../skills/do/scripts/steps/sync <noGit>
+```
 
-**If `--no-git` is set**: do **not** pull. Fetching the remote is harmless and useful context, but modifying the working tree could conflict with the user's uncommitted work. Leave the branch where it is.
+The script:
 
-**Dirty-tree hint**: run `git status --porcelain`. If it is non-empty and `--no-git` was NOT passed, print a one-line hint to the terminal:
+- Fetches `origin` and pins `origin/HEAD`
+- If `--no-git` is **not** set and the branch is behind origin (ahead-count 0), fast-forwards with `git pull --ff-only`. Under `--no-git`, fetching happens but the working tree is not touched — uncommitted work is preserved.
+- Prints the dirty-tree hint to stderr (no pause) when the tree is dirty and `--no-git` is not set:
 
-> _Dirty tree detected. Continuing will create a fresh branch on top of these changes. If you wanted the agent to extend your WIP in place without touching git, re-run with `--no-git`._
+  > _Dirty tree detected. Continuing will create a fresh branch on top of these changes. If you wanted the agent to extend your WIP in place without touching git, re-run with `--no-git`._
 
-Do **not** pause or ask — just print and continue. The user's default-mode invocation is respected.
+- Classifies the forge from `git remote get-url origin` — `github.com` → `github`, `bitbucket.` (covers `bitbucket.org` and self-hosted servers like `bitbucket.juspay.net`) → `bitbucket`, otherwise `unknown`.
+- Calls `do-results init <forge> <noGit>` then `do-results step sync passed ...`.
+- Prints `forge=<value>`, `branch=<value>`, `defaultBranch=<value>` on stdout for downstream steps.
 
-**Forge detection**: Inspect `git remote get-url origin` and classify:
+**Only `github` has an active code path today.** Both `bitbucket` and `unknown` cause forge-dependent steps (PR creation, PR comments, PR edits, CI status) to skip gracefully. Bitbucket support is planned — see [srid/agency#10](https://github.com/srid/agency/issues/10).
 
-- URL contains `github.com` → `github`
-- URL contains `bitbucket.` (covers `bitbucket.org` and self-hosted Bitbucket Server, e.g. `bitbucket.juspay.net`) → `bitbucket`
-- Otherwise → `unknown`
-
-Record the result via `do-results set forge <value>`. Subsequent steps branch on this value. **Only `github` has an active code path today.** Both `bitbucket` and `unknown` cause forge-dependent steps (PR creation, PR comments, PR edits, CI status) to skip gracefully. Bitbucket support is planned — see [srid/agency#10](https://github.com/srid/agency/issues/10).
-
-**Verify**: git fetch ran without error, `forge` is recorded, and `noGit` is recorded.
+**Verify**: Script exited 0 and printed a `forge=` line. `.do-results.json` exists and its `forge`/`noGit` fields match.
 
 ---
 
@@ -149,7 +149,7 @@ After the user confirms, continue autonomously from **hickey+lowy** (or the next
 Invoke `hickey` and `lowy` as two **parallel Claude Code sub-agents** via the `Agent` tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). Do NOT use the `Skill` tool for this step — `Skill` invocations serialize on the main conversation loop, so two back-to-back `Skill` calls run one after the other even when issued in the same response. Dedicated sub-agents run in isolated contexts and genuinely execute concurrently, cutting this step's wall-clock time roughly in half. Offloading their analysis into forked contexts also keeps the main context lean for the downstream implement/police/ci steps.
 
 <use_parallel_tool_calls>
-In a single response, make exactly two `Agent` tool calls — one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`. Do not include any other tool calls or text in that response.
+For maximum efficiency, invoke the `hickey` and `lowy` Agent tools **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both `Agent` tool_use blocks (one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`) in a single response, with no other tool calls or text in that response.
 </use_parallel_tool_calls>
 
 Each `Agent` prompt must be self-contained (sub-agents do not inherit this conversation's context). Brief each one with:
@@ -338,11 +338,18 @@ A `failed` step always blocks `"completed"`. No redefining "passed," no footnote
 
 #### Timing summary
 
-Compute duration for each step from its `startedAt`/`completedAt` timestamps. Print a table to the user showing each step's duration and the total wall-clock time (`startedAt` of first step → `completedAt` of last step). Highlight the **slowest step** and any step that took >30% of total time.
+Run `scripts/steps/done` in this skill's directory. The script reads `.do-results.json` and emits:
+
+1. A markdown timing table (step, status, duration, verification), with any step that took ≥30% of total time shown in **bold**.
+2. A total wall-clock line (`startedAt` of first step → `completedAt` of last step).
+3. A `**Slowest step**:` line.
+4. A `<<<FACTS ... FACTS` block with machine-readable summary data (`totalSeconds`, `slowestStep`, `slowestSeconds`, `dominantSteps`, `skippedSteps`, `failedSteps`) — use this to compose optimization suggestions below.
+
+Do not compute durations yourself — the script handles all timestamp arithmetic.
 
 #### Optimization suggestions
 
-After the timing table, print 2–4 concrete suggestions for reducing time-to-completion in future runs. Base these on the actual timing data — for example:
+Read the `FACTS` block the `done` script emitted and generate 2–4 concrete suggestions for reducing time-to-completion in future runs. Base these on the actual timing data — for example:
 
 - If **ci** dominates: suggest `--from ci-only` for re-runs, or note which CI sub-step was slowest
 - If **research** was slow: suggest pre-reading relevant code before invoking `/do`
@@ -358,7 +365,7 @@ Be specific to this run's data, not generic advice.
 
 **If `forge != github`**: Report the branch name (and remote URL, if available via `git remote get-url origin`) instead of a PR URL. Print the timing table and optimization suggestions to the terminal only — do **not** attempt to post a PR comment. (Bitbucket `bkt pr comment` wiring is tracked in #10.)
 
-**If `forge == github`**: Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment` with a markdown table including durations. Format:
+**If `forge == github`**: Report the PR URL. Then post the final step status table as a **PR comment** using `gh pr comment`. Use the markdown table and slowest-step line emitted by `scripts/steps/done` verbatim (strip the trailing `<<<FACTS ... FACTS` block — that's internal). Format:
 
 ```
 gh pr comment --body "$(cat <<'COMMENT'
