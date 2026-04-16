@@ -1,21 +1,21 @@
-/** Reusable pointer gesture lifecycle — captures pointer move/up events on
- *  `window` with automatic AbortController cleanup. Used by both tile resize
- *  and middle-mouse pan to avoid duplicating the same plumbing. */
+/** Reusable pointer gesture lifecycle — wires pointermove/pointerup on
+ *  `window` against the caller-supplied `AbortController`. Used by tile
+ *  resize, middle-mouse pan, and minimap drag.
+ *
+ *  Caller owns the controller: pass a fresh one per gesture and call
+ *  `.abort()` to cancel mid-gesture. Pointerup also auto-aborts so
+ *  listeners unwire as soon as the user releases. */
 
 export interface PointerGestureHandlers {
   onMove: (e: PointerEvent) => void;
   onEnd: (e: PointerEvent) => void;
 }
 
-/** Start capturing pointer events globally. Returns an abort function that
- *  removes all listeners. Calling `capture` again from the same call-site
- *  should abort the previous gesture first (caller's responsibility). */
 export function capturePointerGesture(
   handlers: PointerGestureHandlers,
-): () => void {
-  const abort = new AbortController();
+  abort: AbortController,
+): void {
   const { signal } = abort;
-
   window.addEventListener("pointermove", handlers.onMove, { signal });
   window.addEventListener(
     "pointerup",
@@ -25,6 +25,4 @@ export function capturePointerGesture(
     },
     { signal },
   );
-
-  return () => abort.abort();
 }
