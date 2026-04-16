@@ -19,6 +19,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
     ...SHORTCUTS.createTerminal,
     altKeybind: SHORTCUTS.createTerminalAlt.keybind,
   },
+  SHORTCUTS.newTerminalMenu,
   SHORTCUTS.cycleTerminalMru,
   { ...SHORTCUTS.switchTo1, label: "Switch to terminal 1–9" },
   SHORTCUTS.findInTerminal,
