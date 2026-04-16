@@ -51,11 +51,11 @@ const TerminalContent: Component<{
     focusTarget() === "sub";
 
   function handleSizesChange(sizes: number[]) {
-    if (sizes[1] === undefined) return;
-    // Collapse when dragged below threshold instead of silently discarding
-    if (sizes[1] < 0.02) {
-      subPanel.collapsePanel(props.terminalId);
-    } else {
+    // Persist the bottom panel size when user drags the handle.
+    // Ignore tiny values — the Resizable fires onSizesChange with [1, 0]
+    // during programmatic transitions (e.g. expand from collapsed), which
+    // would immediately re-collapse the panel.
+    if (sizes[1] !== undefined && sizes[1] > 0.02) {
       subPanel.setPanelSize(props.terminalId, sizes[1]);
     }
   }
