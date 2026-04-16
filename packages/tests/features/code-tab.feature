@@ -82,3 +82,34 @@ Feature: Code tab (diff review)
     Then the Code tab should not list a changed file "pkg/a.ts"
     When I click the directory node "pkg" in the Code tab
     Then the Code tab should list a changed file "pkg/a.ts"
+
+  # --- File browser (phase 4) ---
+
+  Scenario: File browser shows the repo file tree
+    When I run "git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
+    And I run "mkdir -p src && printf 'a\n' > README.md && printf 'b\n' > src/index.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab mode should be "browse"
+    And the file browser should show a directory "src"
+    And the file browser should show a file "README.md"
+
+  Scenario: File browser shows file content on click
+    When I run "git init /tmp/kolu-browse-content && cd /tmp/kolu-browse-content"
+    And I run "printf 'hello world\n' > greeting.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "greeting.txt" in the file browser
+    Then the file content should contain "hello world"
+
+  Scenario: File browser expands directories lazily
+    When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
+    And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a directory "lib"
+    When I click the directory "lib" in the file browser
+    Then the file browser should show a file "lib/util.ts"
