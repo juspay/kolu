@@ -1,0 +1,18 @@
+lockfile_version: '1'
+generated_at: '2026-04-16T00:45:36.418011+00:00'
+dependencies: []
+local_deployed_files:
+- .github/instructions/apm-workflow.instructions.md
+- .github/instructions/architecture.instructions.md
+- .github/instructions/code-police-rules.instructions.md
+- .github/instructions/e2e-testing.instructions.md
+- .github/instructions/hickey-catalog.instructions.md
+- .github/instructions/nix.instructions.md
+- .github/instructions/solidjs.instructions.md
+- .github/instructions/state.instructions.md
+- .github/instructions/streaming.instructions.md
+- .github/instructions/toast-conventions.instructions.md
+- .github/instructions/workflow.instructions.md
+- .github/prompts/whatchanged.prompt.md
+- .github/skills/ci
+- .github/skills/test
