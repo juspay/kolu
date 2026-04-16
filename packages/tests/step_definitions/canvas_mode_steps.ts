@@ -235,4 +235,15 @@ Then(
   },
 );
 
+When(
+  "I create a terminal with keyboard shortcut",
+  async function (this: KoluWorld) {
+    const modifier = process.platform === "darwin" ? "Meta" : "Control";
+    await this.page.keyboard.down(modifier);
+    await this.page.keyboard.press("t");
+    await this.page.keyboard.up(modifier);
+    await this.waitForFrame();
+  },
+);
+
 // "the close confirmation should be visible" is defined in worktree_steps.ts

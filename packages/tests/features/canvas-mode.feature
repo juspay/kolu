@@ -74,8 +74,9 @@ Feature: Canvas mode
 
   Scenario: New terminal opens at viewport center
     When I click the canvas mode toggle
-    And I create a terminal
-    Then the newest canvas tile should be centered in the viewport
+    And I create a terminal with keyboard shortcut
+    Then there should be 2 canvas tiles
+    And the newest canvas tile should be centered in the viewport
 
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
