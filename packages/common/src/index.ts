@@ -20,6 +20,11 @@ import {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
+  FsListDirInputSchema,
+  FsDirEntrySchema,
+  FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
 } from "kolu-git";
 
 // Re-export integration schemas so consumers import from kolu-common only.
@@ -39,6 +44,11 @@ export {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
+  FsListDirInputSchema,
+  FsDirEntrySchema,
+  FsListDirOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
 };
 export type {
   GitInfo,
@@ -48,6 +58,7 @@ export type {
   GitBaseRef,
   GitStatusOutput,
   GitDiffOutput,
+  FsListDirOutput,
 } from "kolu-git";
 
 // --- Zod schemas ---

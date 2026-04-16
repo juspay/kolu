@@ -146,6 +146,68 @@ Then(
   },
 );
 
+// ── File browser actions ──
+
+When(
+  "I click the file {string} in the file browser",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(
+      `[data-testid="file-browser"] [data-testid="diff-file-item"][data-path="${path}"]`,
+    );
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await item.click();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I click the directory {string} in the file browser",
+  async function (this: KoluWorld, path: string) {
+    const dir = this.page.locator(
+      `[data-testid="file-browser"] [data-testid="file-tree-dir"][data-path="${path}"]`,
+    );
+    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await dir.click();
+    await this.waitForFrame();
+  },
+);
+
+// ── File browser assertions ──
+
+Then(
+  "the file browser should show a directory {string}",
+  async function (this: KoluWorld, path: string) {
+    const dir = this.page.locator(
+      `[data-testid="file-browser"] [data-testid="file-tree-dir"][data-path="${path}"]`,
+    );
+    await dir.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file browser should show a file {string}",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(
+      `[data-testid="file-browser"] [data-testid="diff-file-item"][data-path="${path}"]`,
+    );
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file content should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp: string) => {
+        const el = document.querySelector('[data-testid="file-content"]');
+        return el?.textContent?.includes(exp) ?? false;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the Code tab should show a missing-origin error",
   async function (this: KoluWorld) {
