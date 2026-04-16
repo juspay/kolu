@@ -444,9 +444,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       const highlighted = createMemo(() => {
                         const path = selectedPath() ?? "";
                         const ext = path.split(".").pop() ?? "";
-                        const lang = hljs.getLanguage(ext)
-                          ? ext
-                          : undefined;
+                        const lang = hljs.getLanguage(ext) ? ext : undefined;
                         return lang
                           ? hljs.highlight(fc().content, { language: lang })
                           : hljs.highlightAuto(fc().content);

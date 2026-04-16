@@ -61,17 +61,22 @@ const FileTree: Component<FileTreeProps> = (props) => {
     });
 
     // Lazy-load children on first expand when loadChildren is provided.
-    if (isExpanding && props.loadChildren && !childrenCache().has(path) && !loading().has(path)) {
+    if (
+      isExpanding &&
+      props.loadChildren &&
+      !childrenCache().has(path) &&
+      !loading().has(path)
+    ) {
       setLoading((prev) => new Set(prev).add(path));
       props.loadChildren(path).then(
         (children) => {
           setChildrenCache((prev) => {
-          const next = new Map(prev).set(path, children);
-          while (next.size > MAX_CACHE_ENTRIES) {
-            next.delete(next.keys().next().value!);
-          }
-          return next;
-        });
+            const next = new Map(prev).set(path, children);
+            while (next.size > MAX_CACHE_ENTRIES) {
+              next.delete(next.keys().next().value!);
+            }
+            return next;
+          });
           setLoading((prev) => {
             const next = new Set(prev);
             next.delete(path);
