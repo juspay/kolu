@@ -1,19 +1,19 @@
 /**
- * Unified server state — live subscription for server sync, local store for instant UI reactivity.
+ * Unified server state — single reactive source backed by one subscription.
  *
- * Architecture:
- * - createSubscription: server pushes state changes over WebSocket
- * - Singleton SolidJS store: synchronous UI updates for preferences
- * - reconcile effect: syncs subscription → local store on every server push
- * - updatePreferences: instant local store update + async server mutation
+ * Every caller shares the same module-level subscription. Preferences,
+ * recent repos/agents, and saved session are all read through `sub()`,
+ * which `createSubscription` backs with a `reconcile`'d store for
+ * fine-grained reactivity per nested field.
  *
- * Why both? The server round-trip (even on localhost) takes a few ms.
- * For instant toggle feedback, the local store handles the synchronous update;
- * the subscription pushes authoritative state back via reconcile.
+ * Mutations flow one direction: `updatePreferences` fires an RPC, the
+ * server merges and persists, then echoes the merged state back via the
+ * subscription. No separate local store is needed — and eliminating it
+ * removes the race where a subscription push could overwrite a locally
+ * applied change before the RPC round-tripped (issue #561).
  */
 
-import { createEffect, on } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
@@ -27,37 +27,18 @@ import type {
   SavedSession,
 } from "kolu-common";
 
-// Singleton store — all callers share one reactive source of truth for preferences.
-const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
-let storeInitialized = false;
+// Module-level singleton. createRoot detaches the subscription's internal
+// effect graph from any transient caller owner so it lives for the app.
+const sub = createRoot(() =>
+  createSubscription(() => stream.state(), {
+    onError: (err) => toast.error(`Server state error: ${err.message}`),
+  }),
+);
 
 export function useServerState() {
-  const sub = createSubscription(() => stream.state(), {
-    onError: (err) => toast.error(`Server state error: ${err.message}`),
-  });
-
-  // Sync singleton store from subscription — only the first caller wires this up.
-  if (!storeInitialized) {
-    storeInitialized = true;
-    createEffect(
-      on(
-        () => sub()?.preferences,
-        (serverPrefs) => {
-          if (serverPrefs) setPrefs(reconcile(serverPrefs));
-        },
-      ),
-    );
-  }
-
-  /** Update one or more preferences. Instant local update + async server persist.
-   *  Nested objects (rightPanel) are deep-merged both locally and on the server. */
+  /** Update one or more preferences. The server is authoritative; the
+   *  merged result flows back through the subscription. */
   function updatePreferences(patch: PreferencesPatch) {
-    // Synchronous local update — UI reacts immediately (singleton store).
-    // SolidJS store setter supports path-based deep updates.
-    const { rightPanel: rpPatch, ...rest } = patch;
-    if (Object.keys(rest).length > 0) setPrefs(rest);
-    if (rpPatch) setPrefs("rightPanel", rpPatch);
-    // Server persist — live stream will push authoritative state back via reconcile
     void client.state
       .update({ preferences: patch })
       .catch((err: Error) =>
@@ -69,8 +50,8 @@ export function useServerState() {
     sub,
     /** Full server state (undefined while loading). */
     state: () => sub() as ServerState | undefined,
-    /** Preferences — singleton store, synced from subscription on every server push. */
-    preferences: () => prefs,
+    /** Preferences — falls back to defaults until the first server push. */
+    preferences: (): Preferences => sub()?.preferences ?? DEFAULT_PREFERENCES,
     recentRepos: () => (sub()?.recentRepos ?? []) as RecentRepo[],
     recentAgents: () => (sub()?.recentAgents ?? []) as RecentAgent[],
     savedSession: () => (sub()?.session ?? null) as SavedSession | null,
