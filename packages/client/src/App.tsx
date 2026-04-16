@@ -455,10 +455,12 @@ const App: Component = () => {
             <Show
               when={store.terminalIds().length > 0}
               fallback={
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
-                />
+                <div class="flex-1 min-h-0">
+                  <EmptyState
+                    savedSession={session.savedSession() ?? undefined}
+                    onRestore={() => void session.handleRestoreSession()}
+                  />
+                </div>
               }
             >
               <RightPanelLayout
