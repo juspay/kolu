@@ -111,6 +111,20 @@ const TerminalCanvas: Component<{
     setDragDelta({ x: 0, y: 0 });
   }
 
+  /** Snap size to grid and report to server. Separated from the pointerup
+   *  listener so state application isn't tangled with event cleanup. */
+  function commitResize(id: TerminalId) {
+    const cur = layouts[id];
+    if (cur) {
+      setLayouts(id, {
+        ...cur,
+        w: viewport.snapToGrid(cur.w),
+        h: viewport.snapToGrid(cur.h),
+      });
+    }
+    reportLayout(id);
+  }
+
   /** Start resizing a tile from the bottom-right corner.
    *  Pointer deltas are in screen-space — normalize by zoom. */
   let resizeAbort: AbortController | null = null;
@@ -150,34 +164,28 @@ const TerminalCanvas: Component<{
       "pointerup",
       () => {
         resizeAbort?.abort();
-        // Snap size to grid
-        const cur = layouts[id];
-        if (cur) {
-          setLayouts(id, {
-            ...cur,
-            w: viewport.snapToGrid(cur.w),
-            h: viewport.snapToGrid(cur.h),
-          });
-        }
-        reportLayout(id);
+        commitResize(id);
       },
       { signal },
     );
   }
 
-  // On mount, center the viewport on all terminals.
+  // Auto-center when viewport is at the default origin (pan=0, zoom=1)
+  // and tiles exist. Derived from actual state, so it survives remounts
+  // and re-centers if the user resets zoom via the toolbar.
   let containerRef!: HTMLDivElement;
-  let hasScrolled = false;
+  const isDefaultViewport = () =>
+    viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
+
   createEffect(() => {
     const ids = props.terminalIds;
-    if (ids.length === 0 || hasScrolled) return;
+    if (ids.length === 0 || !isDefaultViewport()) return;
     const allLayouts: TileLayout[] = [];
     for (const id of ids) {
       const l = layouts[id];
       if (l) allLayouts.push(l);
     }
     if (allLayouts.length === 0) return;
-    hasScrolled = true;
     requestAnimationFrame(() => {
       viewport.fitAll(allLayouts);
     });
