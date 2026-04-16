@@ -233,9 +233,8 @@ Before(async function (this: KoluWorld, scenario) {
           rightPanel: {
             collapsed: true,
             size: 0.25,
-            tab: "inspector",
+            tab: { kind: "inspector" },
             pinned: true,
-            codeMode: "local",
           },
         },
       },

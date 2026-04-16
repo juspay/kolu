@@ -130,32 +130,39 @@ export const store = new Conf<PersistedState>({
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
     // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    // Cast through `string` because the historical enum values are no longer in the live type.
+    // Cast through `unknown` because on-disk tab predates both the current
+    // union and the older enum shape.
     "1.8.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
-      const tab = current.rightPanel.tab as string;
+      const tab = current.rightPanel.tab as unknown as string;
       const staleTab = tab !== "inspector" && tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
-          rightPanel: { ...current.rightPanel, tab: "inspector" },
+          rightPanel: {
+            ...current.rightPanel,
+            tab: "inspector" as unknown as typeof current.rightPanel.tab,
+          },
         });
       }
     },
     // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
     // signal forge/VCS-agnostic intent. Anything other than "inspector" or
-    // "diff" coerces to "inspector". Cast through `string` because "review"
-    // is no longer in the live `RightPanelTab` enum.
+    // "diff" coerces to "inspector". Cast through `unknown` because the
+    // on-disk value at this migration point is still a flat string, not
+    // the discriminated union introduced in 1.13.0.
     "1.9.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
-      const tab = current.rightPanel.tab as string;
+      const tab = current.rightPanel.tab as unknown as string;
       const next = tab === "review" ? "diff" : tab;
       const valid = next === "inspector" || next === "diff";
       store.set("preferences", {
         ...current,
         rightPanel: {
           ...current.rightPanel,
-          tab: valid ? next : "inspector",
+          tab: (valid
+            ? next
+            : "inspector") as unknown as typeof current.rightPanel.tab,
         },
       });
     },
@@ -197,18 +204,26 @@ export const store = new Conf<PersistedState>({
         store.set("preferences", { ...current, canvasMode: false });
       }
     },
-    // rightPanel.codeMode added — default to "local" so existing users land on
-    // the same view they used to (local diff was the only option pre-#555).
+    // rightPanel.tab reshaped into a discriminated union so illegal
+    // combinations ("inspector + codeMode") are unrepresentable. Old shape:
+    //   { tab: "inspector" | "diff" }
+    // New shape:
+    //   { tab: { kind: "inspector" } | { kind: "code", mode: "local"|"branch"|"browse" } }
+    // Any transient flat `codeMode` field from an in-flight build of #576 is
+    // discarded — the mode now lives inside the `code` variant of the tab.
     "1.13.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
-      if (
-        (current.rightPanel as Record<string, unknown>).codeMode === undefined
-      ) {
-        store.set("preferences", {
-          ...current,
-          rightPanel: { ...current.rightPanel, codeMode: "local" },
-        });
-      }
+      const rp = current.rightPanel as Record<string, unknown>;
+      if (rp.tab !== null && typeof rp.tab === "object") return;
+      const tab =
+        rp.tab === "diff"
+          ? { kind: "code" as const, mode: "local" as const }
+          : { kind: "inspector" as const };
+      const { codeMode: _codeMode, tab: _tab, ...rest } = rp;
+      store.set("preferences", {
+        ...current,
+        rightPanel: { ...rest, tab } as typeof current.rightPanel,
+      });
     },
   },
 });

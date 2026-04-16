@@ -121,9 +121,15 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { preferences } = useServerState();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  // Active sub-view is persisted via server preferences so it survives
-  // panel close/reopen, pin/unpin, and page reload.
-  const view = rightPanel.codeMode;
+  // Active sub-view lives inside the `code` variant of rightPanel.tab, so
+  // it survives panel close/reopen, pin/unpin, and page reload. CodeTab
+  // only mounts when the Code tab is active (RightPanel.tsx dispatches on
+  // tab.kind), so the non-"code" branch below is unreachable — the fallback
+  // exists only to satisfy the type narrower.
+  const view = (): CodeTabView => {
+    const tab = rightPanel.activeTab();
+    return tab.kind === "code" ? tab.mode : "local";
+  };
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;

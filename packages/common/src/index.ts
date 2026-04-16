@@ -308,12 +308,19 @@ export const SidebarAgentPreviewsSchema = z.enum([
 ]);
 export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
 
-export const RightPanelTabSchema = z.enum(["inspector", "diff"]);
-export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
-
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+
+/** Active tab of the right panel. A discriminated union so illegal pairings
+ *  ("inspector with a code mode attached") can't be represented. The Inspector
+ *  tab carries no sub-state; the Code tab carries its current mode. */
+export const RightPanelTabSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("inspector") }),
+  z.object({ kind: z.literal("code"), mode: CodeTabViewSchema }),
+]);
+export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
+export type RightPanelTabKind = RightPanelTab["kind"];
 
 export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
@@ -321,8 +328,6 @@ export const RightPanelPrefsSchema = z.object({
   tab: RightPanelTabSchema,
   /** Whether the right panel is pinned (docked) vs floating overlay. */
   pinned: z.boolean(),
-  /** Active sub-view within the Code tab (local/branch/browse). */
-  codeMode: CodeTabViewSchema,
 });
 
 export const PreferencesSchema = z.object({

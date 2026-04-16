@@ -42,8 +42,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   rightPanel: {
     collapsed: true,
     size: 0.25,
-    tab: "inspector",
+    tab: { kind: "inspector" },
     pinned: true,
-    codeMode: "local",
   },
 };
