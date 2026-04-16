@@ -183,7 +183,7 @@ const TerminalCanvas: Component<{
 
   /** Start resizing a tile from the bottom-right corner.
    *  Pointer deltas are in screen-space — normalize by zoom. */
-  let abortResize: (() => void) | null = null;
+  let abortResize: AbortController | null = null;
   function startResize(id: string, e: PointerEvent) {
     e.preventDefault();
     e.stopPropagation();
@@ -196,35 +196,39 @@ const TerminalCanvas: Component<{
     const origX = l.x;
     const origY = l.y;
 
-    abortResize?.();
-    abortResize = capturePointerGesture({
-      onMove: (ev) => {
-        const { dx, dy } = viewport.normalizeDelta(
-          ev.clientX - startX,
-          ev.clientY - startY,
-        );
-        setPendingLayout(id, {
-          x: origX,
-          y: origY,
-          w: Math.max(MIN_W, origW + dx),
-          h: Math.max(MIN_H, origH + dy),
-        });
+    abortResize?.abort();
+    abortResize = new AbortController();
+    capturePointerGesture(
+      {
+        onMove: (ev) => {
+          const { dx, dy } = viewport.normalizeDelta(
+            ev.clientX - startX,
+            ev.clientY - startY,
+          );
+          setPendingLayout(id, {
+            x: origX,
+            y: origY,
+            w: Math.max(MIN_W, origW + dx),
+            h: Math.max(MIN_H, origH + dy),
+          });
+        },
+        onEnd: () => {
+          abortResize = null;
+          const live = pending()[id];
+          if (live) {
+            const snapped: TileLayout = {
+              x: live.x,
+              y: live.y,
+              w: viewport.snapToGrid(live.w),
+              h: viewport.snapToGrid(live.h),
+            };
+            setPendingLayout(id, snapped);
+            props.onLayoutChange(id, snapped);
+          }
+        },
       },
-      onEnd: () => {
-        abortResize = null;
-        const live = pending()[id];
-        if (live) {
-          const snapped: TileLayout = {
-            x: live.x,
-            y: live.y,
-            w: viewport.snapToGrid(live.w),
-            h: viewport.snapToGrid(live.h),
-          };
-          setPendingLayout(id, snapped);
-          props.onLayoutChange(id, snapped);
-        }
-      },
-    });
+      abortResize,
+    );
   }
 
   // Auto-center when viewport is at the default origin (pan=0, zoom=1)

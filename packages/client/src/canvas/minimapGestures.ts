@@ -18,14 +18,15 @@ const DRAG_THRESHOLD = 3;
 /** Start dragging the viewport rectangle to pan the canvas.
  *  Captures scale at gesture start to avoid stale values mid-drag.
  *  Sets `didDrag` flag so click handlers can distinguish drag-end from click.
- *  Returns an abort function (caller must store and call on re-entry). */
+ *  Returns the gesture's AbortController — caller stores it and calls
+ *  `.abort()` on re-entry to cancel any in-flight gesture. */
 export function startViewportDrag(
   e: PointerEvent,
   viewport: CanvasViewport,
   minimapScale: number,
-  abortPrevious: (() => void) | null,
+  abortPrevious: AbortController | null,
   onDragStateChange: (dragging: boolean) => void,
-): () => void {
+): AbortController {
   e.preventDefault();
   const startX = e.clientX;
   const startY = e.clientY;
@@ -33,25 +34,30 @@ export function startViewportDrag(
   const startPanY = viewport.panY();
   let dragging = false;
 
-  abortPrevious?.();
-  return capturePointerGesture({
-    onMove: (ev) => {
-      const px = ev.clientX - startX;
-      const py = ev.clientY - startY;
-      if (!dragging && Math.abs(px) + Math.abs(py) < DRAG_THRESHOLD) return;
-      if (!dragging) {
-        dragging = true;
-        onDragStateChange(true);
-      }
-      viewport.setPan(
-        startPanX + px / minimapScale,
-        startPanY + py / minimapScale,
-      );
+  abortPrevious?.abort();
+  const abort = new AbortController();
+  capturePointerGesture(
+    {
+      onMove: (ev) => {
+        const px = ev.clientX - startX;
+        const py = ev.clientY - startY;
+        if (!dragging && Math.abs(px) + Math.abs(py) < DRAG_THRESHOLD) return;
+        if (!dragging) {
+          dragging = true;
+          onDragStateChange(true);
+        }
+        viewport.setPan(
+          startPanX + px / minimapScale,
+          startPanY + py / minimapScale,
+        );
+      },
+      onEnd: () => {
+        if (dragging) onDragStateChange(false);
+      },
     },
-    onEnd: () => {
-      if (dragging) onDragStateChange(false);
-    },
-  });
+    abort,
+  );
+  return abort;
 }
 
 /** Click on the minimap background to pan the canvas to that point.

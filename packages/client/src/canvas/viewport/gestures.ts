@@ -75,36 +75,40 @@ export function installGestures(
   );
 
   // Middle-mouse drag pan
-  let abortPanDrag: (() => void) | null = null;
+  let abortPanDrag: AbortController | null = null;
 
   el.addEventListener(
     "pointerdown",
     (e) => {
       if (e.button !== 1) return;
       e.preventDefault();
-      abortPanDrag?.();
+      abortPanDrag?.abort();
       el.style.cursor = "grabbing";
 
       let lastX = e.clientX;
       let lastY = e.clientY;
 
-      abortPanDrag = capturePointerGesture({
-        onMove: (ev) => {
-          callbacks.onPan(-(ev.clientX - lastX), -(ev.clientY - lastY));
-          lastX = ev.clientX;
-          lastY = ev.clientY;
+      abortPanDrag = new AbortController();
+      capturePointerGesture(
+        {
+          onMove: (ev) => {
+            callbacks.onPan(-(ev.clientX - lastX), -(ev.clientY - lastY));
+            lastX = ev.clientX;
+            lastY = ev.clientY;
+          },
+          onEnd: () => {
+            abortPanDrag = null;
+            el.style.cursor = "";
+          },
         },
-        onEnd: () => {
-          abortPanDrag = null;
-          el.style.cursor = "";
-        },
-      });
+        abortPanDrag,
+      );
     },
     { signal },
   );
 
   return () => {
-    abortPanDrag?.();
+    abortPanDrag?.abort();
     abort.abort();
   };
 }
