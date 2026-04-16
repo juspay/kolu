@@ -30,7 +30,7 @@ The first token that looks like `#N` or `owner/repo#N` identifies the target nod
 
 ## Operations
 
-All three are *inferred* from the prompt — never ask the user to pick one.
+All three are _inferred_ from the prompt — never ask the user to pick one.
 
 ### Mutate an existing node (`/hk #N …`)
 
@@ -79,15 +79,15 @@ gh api 'search/issues?q=repo:<owner>/<repo>+<terms>+in:body,title'
 
 ## Heuristics for inferring intent
 
-| Prompt shape | Likely op |
-|---|---|
-| `/hk #N <bug description>` and #N has a `## Known bugs` section | Append bug item under that section |
-| `/hk #N mark phase 4 done` | Toggle checkboxes in `### Phase 4` section |
-| `/hk #N add a phase for X` | Insert new `### Phase N+1: X` after the last phase |
-| `/hk #N show me the current state` | Just print the body (no edit) |
-| `/hk create a TIL about X` | New issue, short prose, maybe a code block |
-| `/hk what links to #N` | Backlinks query, no edit |
-| `/hk search <terms>` | `search/issues`, no edit |
+| Prompt shape                                                    | Likely op                                          |
+| --------------------------------------------------------------- | -------------------------------------------------- |
+| `/hk #N <bug description>` and #N has a `## Known bugs` section | Append bug item under that section                 |
+| `/hk #N mark phase 4 done`                                      | Toggle checkboxes in `### Phase 4` section         |
+| `/hk #N add a phase for X`                                      | Insert new `### Phase N+1: X` after the last phase |
+| `/hk #N show me the current state`                              | Just print the body (no edit)                      |
+| `/hk create a TIL about X`                                      | New issue, short prose, maybe a code block         |
+| `/hk what links to #N`                                          | Backlinks query, no edit                           |
+| `/hk search <terms>`                                            | `search/issues`, no edit                           |
 
 When a prompt doesn't fit any of these, read the node's structure and improvise — that's the whole point of using an LLM here. A "roadmap" node tells you how to operate on it by the sections it already has.
 
@@ -104,7 +104,7 @@ User: `/hk #559 canvas scroll bug — terminal & canvas both react to two-finger
 ## What this skill is not
 
 - Not a label/taxonomy system — `#N` references are the only structure.
-- Not a hardcoded schema — the markdown *is* the schema, per node.
+- Not a hardcoded schema — the markdown _is_ the schema, per node.
 - Not a confirmation wizard — always mutate directly.
 - Not a cache — always fetch fresh.
 
