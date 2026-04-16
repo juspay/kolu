@@ -122,9 +122,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <div class="space-y-0.5">
               <For each={getDiagnostics()}>
                 {(d) => (
-                  <div class="grid grid-cols-[6ch_6ch_1fr_auto] items-baseline gap-3 text-[11px] font-mono">
+                  <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3 text-[11px] font-mono">
                     <span class="text-fg-3/70">{d.id.slice(0, 8)}</span>
-                    <span class="text-fg-2">
+                    <span class="text-fg-2 tabular-nums">
                       {d.cols}×{d.rows}
                     </span>
                     <span
