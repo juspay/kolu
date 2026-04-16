@@ -44,5 +44,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
     size: 0.25,
     tab: "inspector",
     pinned: true,
+    codeMode: "local",
   },
 };

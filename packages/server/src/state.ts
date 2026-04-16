@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.12.0";
+const SCHEMA_VERSION = "1.13.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -195,6 +195,19 @@ export const store = new Conf<PersistedState>({
       const current = store.get("preferences");
       if ((current as Record<string, unknown>).canvasMode === undefined) {
         store.set("preferences", { ...current, canvasMode: false });
+      }
+    },
+    // rightPanel.codeMode added — default to "local" so existing users land on
+    // the same view they used to (local diff was the only option pre-#555).
+    "1.13.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      if (
+        (current.rightPanel as Record<string, unknown>).codeMode === undefined
+      ) {
+        store.set("preferences", {
+          ...current,
+          rightPanel: { ...current.rightPanel, codeMode: "local" },
+        });
       }
     },
   },

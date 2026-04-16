@@ -2,7 +2,7 @@
  *  persisted via server preferences under `preferences.rightPanel`.
  *  Defaults to collapsed with the Inspector tab active. */
 
-import type { RightPanelTab } from "kolu-common";
+import type { CodeTabView, RightPanelTab } from "kolu-common";
 import { useServerState } from "../settings/useServerState";
 
 const MIN_PANEL_SIZE = 0.05;
@@ -19,8 +19,11 @@ export function useRightPanel() {
     /** Whether the right panel is pinned (docked) vs floating overlay.
      *  Defaults to true (pinned) for backwards compat with classic mode. */
     pinned: () => rp().pinned !== false,
+    codeMode: (): CodeTabView => rp().codeMode,
     setActiveTab: (tab: RightPanelTab) =>
       updatePreferences({ rightPanel: { tab } }),
+    setCodeMode: (codeMode: CodeTabView) =>
+      updatePreferences({ rightPanel: { codeMode } }),
     togglePanel: () =>
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),

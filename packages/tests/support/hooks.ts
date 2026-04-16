@@ -235,6 +235,7 @@ Before(async function (this: KoluWorld, scenario) {
             size: 0.25,
             tab: "inspector",
             pinned: true,
+            codeMode: "local",
           },
         },
       },

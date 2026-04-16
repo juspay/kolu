@@ -311,12 +311,18 @@ export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
 export const RightPanelTabSchema = z.enum(["inspector", "diff"]);
 export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
 
+/** Sub-view of the Code tab: local/branch diff modes or the file browser. */
+export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
+export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+
 export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
   size: z.number(),
   tab: RightPanelTabSchema,
   /** Whether the right panel is pinned (docked) vs floating overlay. */
   pinned: z.boolean(),
+  /** Active sub-view within the Code tab (local/branch/browse). */
+  codeMode: CodeTabViewSchema,
 });
 
 export const PreferencesSchema = z.object({
