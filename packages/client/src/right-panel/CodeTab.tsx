@@ -100,6 +100,14 @@ const VIEW_TABS: {
   },
 ];
 
+/** Empty-state placeholder shown when no file is selected. */
+const FileSelectHint: Component<{ label: string }> = (props) => (
+  <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
+    <FileDiffIcon class="w-8 h-8 opacity-40" />
+    <span class="text-[11px]">{props.label}</span>
+  </div>
+);
+
 /** Convert fs.listDir entries to TreeNode[]. */
 function entriesToNodes(entries: FsListDirOutput["entries"]): TreeNode[] {
   return entries.map(
@@ -322,12 +330,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               <Show
                 when={selectedPath()}
                 fallback={
-                  <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
-                    <FileDiffIcon class="w-8 h-8 opacity-40" />
-                    <span class="text-[11px]">
-                      Select a file to view its diff
-                    </span>
-                  </div>
+                  <FileSelectHint label="Select a file to view its diff" />
                 }
               >
                 <Switch
@@ -425,12 +428,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               <Show
                 when={selectedPath()}
                 fallback={
-                  <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
-                    <FileDiffIcon class="w-8 h-8 opacity-40" />
-                    <span class="text-[11px]">
-                      Select a file to view its content
-                    </span>
-                  </div>
+                  <FileSelectHint label="Select a file to view its content" />
                 }
               >
                 <Switch
