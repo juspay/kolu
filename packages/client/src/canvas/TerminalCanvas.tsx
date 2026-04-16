@@ -60,18 +60,23 @@ const TerminalCanvas: Component<{
           for (const key of Object.keys(layouts)) {
             if (!idSet.has(key)) setLayouts(key, undefined!);
           }
-          let nextIndex = 0;
+          // Viewport center in canvas-space — stable within this batch
+          const cx =
+            viewport.panX() + containerRef.clientWidth / (2 * viewport.zoom());
+          const cy =
+            viewport.panY() + containerRef.clientHeight / (2 * viewport.zoom());
+          let newIndex = 0;
           for (const id of ids) {
             if (!layouts[id]) {
-              const offset = nextIndex * CASCADE_OFFSET;
+              const offset = newIndex * CASCADE_OFFSET;
               setLayouts(id, {
-                x: 20 + offset,
-                y: 20 + offset,
+                x: viewport.snapToGrid(cx - DEFAULT_W / 2 + offset),
+                y: viewport.snapToGrid(cy - DEFAULT_H / 2 + offset),
                 w: DEFAULT_W,
                 h: DEFAULT_H,
               });
+              newIndex++;
             }
-            nextIndex++;
           }
         });
       },
