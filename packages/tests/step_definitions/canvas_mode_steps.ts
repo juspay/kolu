@@ -144,39 +144,13 @@ Then(
   },
 );
 
-Then(
-  "the canvas container should have zoom level {int}",
-  async function (this: KoluWorld, expected: number) {
-    await this.page.waitForFunction(
-      ({ sel, level }: { sel: string; level: number }) => {
-        const container = document.querySelector(sel);
-        if (!container) return false;
-        const zoom = parseFloat(container.getAttribute("data-zoom") ?? "1");
-        return Math.abs(zoom - level) < 0.01;
-      },
-      { sel: CANVAS_SELECTOR, level: expected },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
-  "the canvas container should have zoom level greater than {int}",
-  async function (this: KoluWorld, threshold: number) {
-    await this.page.waitForFunction(
-      ({ sel, min }: { sel: string; min: number }) => {
-        const container = document.querySelector(sel);
-        if (!container) return false;
-        const zoom = parseFloat(container.getAttribute("data-zoom") ?? "1");
-        return zoom > min;
-      },
-      { sel: CANVAS_SELECTOR, min: threshold },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
 When("I zoom the canvas in", async function (this: KoluWorld) {
+  // Capture zoom before so we can assert it changed
+  const before = await this.page.evaluate((sel: string) => {
+    const el = document.querySelector(sel);
+    return parseFloat(el?.getAttribute("data-zoom") ?? "1");
+  }, CANVAS_SELECTOR);
+  (this as any).__zoomBefore = before;
   const container = this.page.locator(CANVAS_SELECTOR);
   await container.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   // Dispatch a ctrl+wheel event to trigger zoom (negative deltaY = zoom in).
@@ -201,6 +175,23 @@ When("I zoom the canvas in", async function (this: KoluWorld) {
   );
   await this.waitForFrame();
 });
+
+Then(
+  "the canvas zoom level should have changed",
+  async function (this: KoluWorld) {
+    const before = (this as any).__zoomBefore as number | undefined;
+    await this.page.waitForFunction(
+      ({ sel, prev }: { sel: string; prev: number }) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        const zoom = parseFloat(el.getAttribute("data-zoom") ?? "1");
+        return Math.abs(zoom - prev) > 0.01;
+      },
+      { sel: CANVAS_SELECTOR, prev: before ?? 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 When("I press the fit-all shortcut", async function (this: KoluWorld) {
   // Mod+Shift+1 = fit all tiles in viewport

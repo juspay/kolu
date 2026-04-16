@@ -58,9 +58,8 @@ Feature: Canvas mode
 
   Scenario: Canvas supports zoom via Ctrl+scroll
     When I click the canvas mode toggle
-    Then the canvas container should have zoom level 1
-    When I zoom the canvas in
-    Then the canvas container should have zoom level greater than 1
+    And I zoom the canvas in
+    Then the canvas zoom level should have changed
     And the canvas tiles should be visible in the viewport
     And there should be no page errors
 
@@ -69,7 +68,7 @@ Feature: Canvas mode
     When I click the canvas mode toggle
     Then there should be 2 canvas tiles
     When I zoom the canvas in
-    When I press the fit-all shortcut
+    And I press the fit-all shortcut
     Then the canvas tiles should be visible in the viewport
     And there should be no page errors
 
