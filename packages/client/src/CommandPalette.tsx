@@ -216,6 +216,10 @@ const CommandPalette: Component<{
         }
         return;
       case "Enter": {
+        // Ignore Enter while modifier keys are held — the chord that opened
+        // the palette (e.g. Cmd+Shift+Enter) would otherwise auto-repeat
+        // and immediately confirm the first item.
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
         const selected = items[selectedIndex()];
         if (selected) execute(selected);
         break;
