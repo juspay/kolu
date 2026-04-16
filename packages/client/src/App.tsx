@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
+import { createMediaQuery } from "@solid-primitives/media";
 import Header from "./Header";
 import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
@@ -66,7 +67,9 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
   const { preferences, updatePreferences } = useServerState();
-  const canvasMode = () => preferences().canvasMode;
+  const isMobile = createMediaQuery("(max-width: 639px)");
+  // Canvas mode is desktop-only — force focus mode on mobile
+  const canvasMode = () => !isMobile() && preferences().canvasMode;
   const toggleCanvasMode = () =>
     updatePreferences({ canvasMode: !canvasMode() });
 
