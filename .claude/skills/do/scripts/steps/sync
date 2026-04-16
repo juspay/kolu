@@ -21,8 +21,7 @@ case "$noGit" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DO_RESULTS="$SKILL_DIR/do-results"
+DO_RESULTS="$SCRIPT_DIR/../do-results"
 
 startedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
