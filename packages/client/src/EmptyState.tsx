@@ -7,6 +7,7 @@ import Kbd from "./ui/Kbd";
 
 const features = [
   { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
+  { label: "New terminal menu", shortcut: SHORTCUTS.newTerminalMenu.keybind },
   { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
   { label: "Cycle terminals", shortcut: SHORTCUTS.cycleTerminalMru.keybind },
   { label: "Split view", shortcut: SHORTCUTS.toggleSubPanel.keybind },
