@@ -63,7 +63,10 @@ const TerminalCanvas: Component<{
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   renderTileTitle: (id: string) => JSX.Element;
-  renderTileBody: (id: string, active: boolean) => JSX.Element;
+  /** `active` is passed as an accessor so the subtree doesn't remount on
+   *  every focus change — reads happen inside the returned JSX's props
+   *  (fine-grained reactivity), not around the render-prop effect. */
+  renderTileBody: (id: string, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
 
@@ -286,7 +289,7 @@ const TerminalCanvas: Component<{
                 onClose={() => props.onClose(id)}
                 renderTitle={() => props.renderTileTitle(id)}
                 renderBody={() =>
-                  props.renderTileBody(id, props.activeId === id)
+                  props.renderTileBody(id, () => props.activeId === id)
                 }
                 layouts={layouts()}
                 startResize={startResize}

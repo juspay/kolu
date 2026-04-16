@@ -20,6 +20,7 @@ import TerminalCanvas from "./canvas/TerminalCanvas";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
+import DiagnosticInfo from "./DiagnosticInfo";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
@@ -102,6 +103,9 @@ const App: Component = () => {
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
+
+  // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
+  const [diagnosticInfoOpen, setDiagnosticInfoOpen] = createSignal(false);
 
   // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
@@ -229,6 +233,7 @@ const App: Component = () => {
     handleShuffleTheme,
     setShortcutsHelpOpen,
     setAboutOpen,
+    setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, initialCommand),
     handleClose: () => {
@@ -299,6 +304,11 @@ const App: Component = () => {
       <ShortcutsHelp
         open={shortcutsHelpOpen()}
         onOpenChange={withRefocus(setShortcutsHelpOpen)}
+      />
+      <DiagnosticInfo
+        open={diagnosticInfoOpen()}
+        onOpenChange={setDiagnosticInfoOpen}
+        activeId={store.activeId()}
       />
       <ModalDialog
         open={aboutOpen()}
@@ -538,9 +548,9 @@ const App: Component = () => {
                     <TerminalContent
                       terminalId={id as TerminalId}
                       visible={true}
-                      focused={active}
+                      focused={active()}
                       theme={getTerminalTheme(id as TerminalId)}
-                      searchOpen={active && searchOpen()}
+                      searchOpen={active() && searchOpen()}
                       onSearchOpenChange={setSearchOpen}
                       subTerminalIds={store.getSubTerminalIds(id as TerminalId)}
                       getMetadata={store.getMetadata}
