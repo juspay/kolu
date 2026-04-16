@@ -1,11 +1,13 @@
-/** TerminalCanvas — freeform 2D canvas where terminals can be dragged
- *  and resized like desktop windows. Pan via two-finger scroll / trackpad,
- *  zoom via Ctrl+scroll / pinch. Tiles snap to the visual grid on drag end.
+/** TerminalCanvas — freeform 2D canvas where tiles can be dragged and resized
+ *  like desktop windows. Pan via two-finger scroll / trackpad, zoom via
+ *  Ctrl+scroll / pinch. Tiles snap to the visual grid on drag end.
+ *
+ *  The canvas is domain-agnostic — it manages tile positioning, drag, resize,
+ *  pan, and zoom. What renders inside each tile (title bar content, body) is
+ *  injected via render props by the caller.
  *
  *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
  *  gesture handling — decouples sensing from position application.
- *  Resize uses raw pointer events with AbortController for cleanup
- *  (resize is not a drag-to-position gesture, so solid-dnd doesn't fit).
  *
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
@@ -17,19 +19,18 @@ import {
   createSignal,
   on,
   batch,
+  type JSX,
 } from "solid-js";
 import {
   DragDropProvider,
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { ITheme } from "@xterm/xterm";
 import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import CanvasTile from "./CanvasTile";
+import { capturePointerGesture } from "./viewport/capturePointerGesture";
+import CanvasTile, { type TileTheme } from "./CanvasTile";
 import CanvasZoomToolbar from "./CanvasZoomToolbar";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const DEFAULT_W = 700;
 const DEFAULT_H = 500;
@@ -38,28 +39,23 @@ const MIN_W = 300;
 const MIN_H = 200;
 
 const TerminalCanvas: Component<{
-  terminalIds: TerminalId[];
-  activeId: TerminalId | null;
-  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  getTerminalTheme: (id: TerminalId) => ITheme;
-  onSelect: (id: TerminalId) => void;
-  onCloseTerminal: (id: TerminalId) => void;
-  onCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  activeMeta: TerminalMetadata | null;
-  searchOpen: boolean;
-  onSearchOpenChange: (open: boolean) => void;
-  subTerminalIds: (id: TerminalId) => TerminalId[];
+  tileIds: string[];
+  activeId: string | null;
+  getTileTheme: (id: string) => TileTheme;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  renderTileTitle: (id: string) => JSX.Element;
+  renderTileBody: (id: string, active: boolean) => JSX.Element;
 }> = (props) => {
   const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
   const viewport = useCanvasViewport();
 
-  // Auto-assign layout for new terminals and clean up removed ones
+  // Auto-assign layout for new tiles and clean up removed ones
   createEffect(
     on(
-      () => props.terminalIds,
+      () => props.tileIds,
       (ids) => {
-        const idSet = new Set(ids as string[]);
+        const idSet = new Set(ids);
         batch(() => {
           for (const key of Object.keys(layouts)) {
             if (!idSet.has(key)) setLayouts(key, undefined!);
@@ -106,14 +102,14 @@ const TerminalCanvas: Component<{
         x: viewport.snapToGrid(l.x + dx),
         y: viewport.snapToGrid(l.y + dy),
       });
-      reportLayout(id as TerminalId);
+      reportLayout(id);
     }
     setDragDelta({ x: 0, y: 0 });
   }
 
   /** Snap size to grid and report to server. Separated from the pointerup
    *  listener so state application isn't tangled with event cleanup. */
-  function commitResize(id: TerminalId) {
+  function commitResize(id: string) {
     const cur = layouts[id];
     if (cur) {
       setLayouts(id, {
@@ -127,8 +123,8 @@ const TerminalCanvas: Component<{
 
   /** Start resizing a tile from the bottom-right corner.
    *  Pointer deltas are in screen-space — normalize by zoom. */
-  let resizeAbort: AbortController | null = null;
-  function startResize(id: TerminalId, e: PointerEvent) {
+  let abortResize: (() => void) | null = null;
+  function startResize(id: string, e: PointerEvent) {
     e.preventDefault();
     e.stopPropagation();
     const l = layouts[id];
@@ -140,13 +136,9 @@ const TerminalCanvas: Component<{
     const origX = l.x;
     const origY = l.y;
 
-    resizeAbort?.abort();
-    resizeAbort = new AbortController();
-    const { signal } = resizeAbort;
-
-    window.addEventListener(
-      "pointermove",
-      (ev) => {
+    abortResize?.();
+    abortResize = capturePointerGesture({
+      onMove: (ev) => {
         const { dx, dy } = viewport.normalizeDelta(
           ev.clientX - startX,
           ev.clientY - startY,
@@ -158,16 +150,11 @@ const TerminalCanvas: Component<{
           h: Math.max(MIN_H, origH + dy),
         });
       },
-      { signal },
-    );
-    window.addEventListener(
-      "pointerup",
-      () => {
-        resizeAbort?.abort();
+      onEnd: () => {
+        abortResize = null;
         commitResize(id);
       },
-      { signal },
-    );
+    });
   }
 
   // Auto-center when viewport is at the default origin (pan=0, zoom=1)
@@ -178,7 +165,7 @@ const TerminalCanvas: Component<{
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
 
   createEffect(() => {
-    const ids = props.terminalIds;
+    const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
     const allLayouts: TileLayout[] = [];
     for (const id of ids) {
@@ -213,11 +200,18 @@ const TerminalCanvas: Component<{
             transform: viewport.canvasTransform(),
           }}
         >
-          <For each={props.terminalIds}>
+          <For each={props.tileIds}>
             {(id) => (
               <CanvasTile
                 id={id}
-                parent={props}
+                active={props.activeId === id}
+                theme={props.getTileTheme(id)}
+                onSelect={() => props.onSelect(id)}
+                onClose={() => props.onClose(id)}
+                renderTitle={() => props.renderTileTitle(id)}
+                renderBody={() =>
+                  props.renderTileBody(id, props.activeId === id)
+                }
                 layouts={layouts}
                 startResize={startResize}
                 zoom={viewport.zoom}
@@ -229,7 +223,7 @@ const TerminalCanvas: Component<{
         <CanvasZoomToolbar
           onFitAll={() => {
             const allLayouts: TileLayout[] = [];
-            for (const id of props.terminalIds) {
+            for (const id of props.tileIds) {
               const l = layouts[id];
               if (l) allLayouts.push(l);
             }

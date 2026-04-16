@@ -3,7 +3,7 @@
  *  Shared between TerminalCanvas (rendering) and useSessionRestore (seeding). */
 
 import { createStore } from "solid-js/store";
-import type { CanvasLayout, TerminalId } from "kolu-common";
+import type { CanvasLayout } from "kolu-common";
 import { client } from "../rpc/rpc";
 
 export type TileLayout = CanvasLayout;
@@ -11,7 +11,7 @@ export type TileLayout = CanvasLayout;
 const [layouts, setLayouts] = createStore<Record<string, TileLayout>>({});
 
 /** Report a tile's layout to the server for session persistence. */
-function reportLayout(id: TerminalId) {
+function reportLayout(id: string) {
   const l = layouts[id];
   if (!l) return;
   void client.terminal.setCanvasLayout({ id, layout: l }).catch(() => {
