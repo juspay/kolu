@@ -236,9 +236,9 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // Auto-center when viewport is at the default origin (pan=0, zoom=1)
-  // and tiles exist. Derived from actual state, so it survives remounts
-  // and re-centers if the user resets zoom via the toolbar.
+  // On first mount at the default origin, pan so the tile bounding box is
+  // centered — prevents restored sessions (whose tiles may live far from
+  // (0,0)) from opening with the viewport empty.
   let containerRef!: HTMLDivElement;
   const isDefaultViewport = () =>
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
@@ -246,14 +246,21 @@ const TerminalCanvas: Component<{
   createEffect(() => {
     const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
-    const allLayouts: TileLayout[] = [];
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (const id of ids) {
       const l = layoutOf(id);
-      if (l) allLayouts.push(l);
+      if (!l) continue;
+      minX = Math.min(minX, l.x);
+      minY = Math.min(minY, l.y);
+      maxX = Math.max(maxX, l.x + l.w);
+      maxY = Math.max(maxY, l.y + l.h);
     }
-    if (allLayouts.length === 0) return;
+    if (!isFinite(minX)) return;
     requestAnimationFrame(() => {
-      viewport.fitAll(allLayouts);
+      viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
     });
   });
 
@@ -304,14 +311,6 @@ const TerminalCanvas: Component<{
           activeId={props.activeId}
           layouts={layouts()}
           getTileTheme={props.getTileTheme}
-          onFitAll={() => {
-            const allLayouts: TileLayout[] = [];
-            for (const id of props.tileIds) {
-              const l = layoutOf(id);
-              if (l) allLayouts.push(l);
-            }
-            viewport.fitAll(allLayouts);
-          }}
         />
       </div>
     </DragDropProvider>

@@ -198,17 +198,6 @@ Then(
   },
 );
 
-When("I press the fit-all shortcut", async function (this: KoluWorld) {
-  // Mod+Shift+1 = fit all tiles in viewport
-  const modifier = process.platform === "darwin" ? "Meta" : "Control";
-  await this.page.keyboard.down(modifier);
-  await this.page.keyboard.down("Shift");
-  await this.page.keyboard.press("Digit1");
-  await this.page.keyboard.up("Shift");
-  await this.page.keyboard.up(modifier);
-  await this.waitForFrame();
-});
-
 Then(
   "the newest canvas tile should be centered in the viewport",
   async function (this: KoluWorld) {

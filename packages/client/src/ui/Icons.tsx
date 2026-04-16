@@ -291,22 +291,6 @@ export const MinimapIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** File tree browser: folder icon — browse the full repo structure. */
-export const ZoomToFitIcon: Component<{ class?: string }> = (props) => (
-  <svg
-    class={props.class ?? "w-4 h-4"}
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    viewBox="0 0 24 24"
-  >
-    {/* Corner brackets — viewfinder/crop marks, "fit content in frame" */}
-    <path d="M2 7V2h5M17 2h5v5M22 17v5h-5M7 22H2v-5" />
-  </svg>
-);
-
 export const FileBrowseIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

@@ -60,7 +60,6 @@ export interface CommandDeps {
   // Right panel
   toggleRightPanel: () => void;
   // Canvas
-  canvasFitAll: () => void;
   canvasCenterActive: () => void;
   toggleMinimap: () => void;
   isCanvasMode: () => boolean;
@@ -164,11 +163,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     },
     ...(deps.isCanvasMode()
       ? [
-          {
-            name: "Zoom to fit",
-            keybind: SHORTCUTS.canvasFitAll.keybind,
-            onSelect: () => deps.canvasFitAll(),
-          },
           {
             name: "Center on active tile",
             keybind: SHORTCUTS.canvasCenterActive.keybind,

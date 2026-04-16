@@ -10,7 +10,6 @@ import { installGestures } from "./gestures";
 import {
   clampZoom,
   computeCenterPan,
-  computeFitAll,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   zoomToCenter as zoomToCenterPure,
@@ -48,8 +47,6 @@ export interface CanvasViewport {
   ) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
-  /** Set pan+zoom so all tiles are centered in the viewport. */
-  fitAll: (tiles: TileLayout[]) => void;
   /** Set pan so a specific tile is centered. */
   centerOnTile: (tile: TileLayout) => void;
   /** Pan so canvas-space point (x, y) is centered in the viewport. */
@@ -101,18 +98,6 @@ function setContainerRef(
 
 function normalizeDelta(dx: number, dy: number) {
   return normalizeDeltaPure(dx, dy, zoom());
-}
-
-function fitAll(tiles: TileLayout[]) {
-  if (!containerEl) return;
-  const result = computeFitAll(
-    tiles,
-    containerEl.clientWidth,
-    containerEl.clientHeight,
-  );
-  setPanX(result.panX);
-  setPanY(result.panY);
-  setZoom(result.zoom);
 }
 
 function centerOnTile(tile: TileLayout) {
@@ -180,7 +165,6 @@ const viewport: CanvasViewport = {
   zoom,
   setContainerRef,
   normalizeDelta,
-  fitAll,
   centerOnTile,
   panTo,
   setPan,

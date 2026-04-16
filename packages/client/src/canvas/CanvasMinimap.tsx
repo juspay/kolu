@@ -4,8 +4,7 @@
 
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
-import { MinimapIcon, ZoomToFitIcon } from "../ui/Icons";
-import { SHORTCUTS, formatKeybind } from "../input/keyboard";
+import { MinimapIcon } from "../ui/Icons";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
@@ -33,7 +32,6 @@ const CanvasMinimap: Component<{
   activeId: string | null;
   layouts: Record<string, TileLayout>;
   getTileTheme: (id: string) => TileTheme;
-  onFitAll: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
 
@@ -217,14 +215,6 @@ const CanvasMinimap: Component<{
           onClick={() => toggleMinimap()}
         >
           <MinimapIcon class="w-3.5 h-3.5" />
-        </button>
-        <div class="w-px h-5 bg-edge/30" />
-        <button
-          class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
-          title={`Zoom to fit (${formatKeybind(SHORTCUTS.canvasFitAll.keybind)})`}
-          onClick={() => props.onFitAll()}
-        >
-          <ZoomToFitIcon class="w-3.5 h-3.5" />
         </button>
         <div class="w-px h-5 bg-edge/30" />
         <button
