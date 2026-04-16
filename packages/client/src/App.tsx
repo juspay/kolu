@@ -14,7 +14,7 @@ import { createMediaQuery } from "@solid-primitives/media";
 import Header from "./Header";
 import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
-import TerminalPane from "./terminal/TerminalPane";
+import TerminalContent from "./terminal/TerminalContent";
 import TerminalCanvas from "./terminal/TerminalCanvas";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
@@ -422,22 +422,31 @@ const App: Component = () => {
                       />
                     </Show>
                     <For each={store.terminalIds()}>
-                      {(id) => (
-                        <TerminalPane
-                          terminalId={id}
-                          visible={store.activeId() === id}
-                          theme={getTerminalTheme(id)}
-                          searchOpen={searchOpen()}
-                          onSearchOpenChange={setSearchOpen}
-                          subTerminalIds={store.getSubTerminalIds(id)}
-                          getMetadata={store.getMetadata}
-                          onCreateSubTerminal={(parentId, cwd) =>
-                            void crud.handleCreateSubTerminal(parentId, cwd)
-                          }
-                          onCloseTerminal={closeTerminal}
-                          activeMeta={store.activeMeta()}
-                        />
-                      )}
+                      {(id) => {
+                        const visible = () => store.activeId() === id;
+                        return (
+                          <div
+                            class="w-full h-full relative flex flex-col"
+                            classList={{ hidden: !visible() }}
+                          >
+                            <TerminalContent
+                              terminalId={id}
+                              visible={visible()}
+                              focused={visible()}
+                              theme={getTerminalTheme(id)}
+                              searchOpen={searchOpen()}
+                              onSearchOpenChange={setSearchOpen}
+                              subTerminalIds={store.getSubTerminalIds(id)}
+                              getMetadata={store.getMetadata}
+                              onCreateSubTerminal={(parentId, cwd) =>
+                                void crud.handleCreateSubTerminal(parentId, cwd)
+                              }
+                              onCloseTerminal={closeTerminal}
+                              activeMeta={store.activeMeta()}
+                            />
+                          </div>
+                        );
+                      }}
                     </For>
                   </Show>
                 </div>
