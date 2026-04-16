@@ -497,11 +497,26 @@ Then(
 When(
   "I click canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    const tile = this.page
-      .locator(`${CANVAS_SELECTOR} [data-terminal-id][data-visible]`)
-      .nth(index - 1);
-    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await tile.click();
+    // Dispatch mousedown directly: Playwright's .click() stalls on xterm's
+    // event-intercepting machinery, but CanvasTile only needs mousedown to
+    // bubble up to its onSelect handler.
+    await this.page.evaluate(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        const rect = tile.getBoundingClientRect();
+        tile.dispatchEvent(
+          new MouseEvent("mousedown", {
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+            bubbles: true,
+          }),
+        );
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+    );
     await this.waitForFrame();
   },
 );
