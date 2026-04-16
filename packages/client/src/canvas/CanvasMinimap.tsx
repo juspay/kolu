@@ -142,7 +142,7 @@ const CanvasMinimap: Component<{
                 <Show when={pos()}>
                   {(p) => (
                     <div
-                      class="absolute rounded-sm transition-opacity"
+                      class="absolute rounded-sm transition-opacity z-[2]"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
                           props.activeId === id,
@@ -170,7 +170,7 @@ const CanvasMinimap: Component<{
 
           {/* Viewport rectangle */}
           <div
-            class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing"
+            class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing z-[1]"
             style={{
               left: `${viewportRect().x}px`,
               top: `${viewportRect().y}px`,
