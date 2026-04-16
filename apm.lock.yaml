@@ -50,7 +50,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: dc4db75329e5465073f3d289b5970a6501a1d1fa
+  resolved_commit: d5c5f280e435b209fcbe58cf2a0f9fbe1128a217
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -65,4 +65,4 @@ dependencies:
   - .claude/skills/hickey
   - .claude/skills/lowy
   - .claude/skills/ralph
-  content_hash: sha256:74a1e5f453ed12fcef899984cd940bf0bbe6382cc5f9a826a6635a8f0707edb4
+  content_hash: sha256:80fdf8837730b1f2188829472e0a3b904594039d20235ed4eec5b5da186cddb3
