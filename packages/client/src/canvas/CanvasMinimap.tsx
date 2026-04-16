@@ -142,7 +142,7 @@ const CanvasMinimap: Component<{
                 <Show when={pos()}>
                   {(p) => (
                     <div
-                      class="absolute rounded-sm transition-opacity z-[2]"
+                      class="absolute rounded-sm transition-all z-[2] cursor-pointer hover:brightness-125 hover:scale-110"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
                           props.activeId === id,
