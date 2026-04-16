@@ -6,7 +6,7 @@
 import type { Component, JSX } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import { ResizeGripIcon } from "../ui/Icons";
-import type { TileLayout } from "./useCanvasLayouts";
+import type { TileLayout } from "./TileLayout";
 
 /** Minimal theme info for tile chrome (title bar, border, resize handle). */
 export interface TileTheme {

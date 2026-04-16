@@ -274,16 +274,17 @@ export function setTerminalParent(
 }
 
 /** Store a terminal's canvas layout position (client-reported).
- *  Mutates metadata directly — no metadata publish to avoid over-broadcasting
- *  on every drag-end. Only triggers session auto-save. */
+ *  Publishes via metadata so canvas tiles read their position from the
+ *  same source as other metadata — no client-side dual store required. */
 export function setCanvasLayout(
   id: TerminalId,
   layout: { x: number; y: number; w: number; h: number },
 ): void {
   const entry = terminals.get(id);
   if (!entry) return;
-  entry.info.meta.canvasLayout = layout;
-  emitChanged();
+  updateMetadata(entry, id, (m) => {
+    m.canvasLayout = layout;
+  });
 }
 
 /** Store a terminal's sub-panel state (client-reported).

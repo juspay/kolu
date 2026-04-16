@@ -29,3 +29,13 @@ Feature: Session restore
     Then there should be 1 sidebar entries
     And the header should show theme "Dracula"
     And there should be no page errors
+
+  Scenario: Active terminal persists across refresh
+    When I open the app
+    And I create a terminal
+    And I create a terminal
+    And I select terminal 2 in the sidebar
+    And I wait for the session auto-save
+    And I reload the page and wait for ready
+    Then sidebar entry 2 should be active
+    And there should be no page errors

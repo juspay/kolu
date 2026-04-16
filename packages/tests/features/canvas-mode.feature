@@ -132,6 +132,13 @@ Feature: Canvas mode
     Then the canvas viewport state should have changed
     And there should be no page errors
 
+  Scenario: Canvas tile positions persist across refresh
+    When I click the canvas mode toggle
+    And I move the canvas tile to x=320 y=420
+    When I reload the page and wait for ready
+    Then the canvas tile should be at x=320 y=420
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible

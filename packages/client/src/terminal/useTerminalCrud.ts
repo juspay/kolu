@@ -11,7 +11,7 @@ import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { useServerState } from "../settings/useServerState";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId, CanvasLayout } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -51,6 +51,15 @@ export function useTerminalCrud(deps: {
       .reorder({ ids })
       .catch((err: Error) =>
         toast.error(`Failed to reorder terminals: ${err.message}`),
+      );
+  }
+
+  /** Persist a terminal's canvas tile position/size on the server. */
+  function setCanvasLayout(id: TerminalId, layout: CanvasLayout) {
+    void client.terminal
+      .setCanvasLayout({ id, layout })
+      .catch((err: Error) =>
+        toast.error(`Failed to save canvas layout: ${err.message}`),
       );
   }
 
@@ -193,6 +202,7 @@ export function useTerminalCrud(deps: {
   return {
     setThemeName,
     reorderTerminals,
+    setCanvasLayout,
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,
