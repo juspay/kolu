@@ -256,10 +256,11 @@ const CanvasTile: Component<{
           <TerminalMeta info={props.parent.getDisplayInfo(id)} />
         </div>
         <button
-          class="flex items-center justify-center w-5 h-5 rounded-full transition-colors cursor-pointer shrink-0 pointer-events-auto"
+          class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
           style={{
             color: `color-mix(in oklch, ${themeFg()} 50%, ${themeBg()})`,
           }}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             props.parent.onCloseTerminal(id);
