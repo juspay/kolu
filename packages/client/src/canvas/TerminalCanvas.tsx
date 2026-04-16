@@ -38,6 +38,13 @@ const CASCADE_OFFSET = 30;
 const MIN_W = 300;
 const MIN_H = 200;
 
+/** Wheel gestures that start inside an xterm tile should scroll the terminal,
+ *  not pan the canvas. The viewport's ownership tracker holds this decision
+ *  for ~150ms so mid-gesture cursor drift doesn't hand off. */
+function isWheelTargetTerminal(e: WheelEvent): boolean {
+  return e.target instanceof Element && e.target.closest(".xterm") !== null;
+}
+
 const TerminalCanvas: Component<{
   tileIds: string[];
   activeId: string | null;
@@ -189,7 +196,7 @@ const TerminalCanvas: Component<{
       <div
         ref={(el) => {
           containerRef = el;
-          viewport.setContainerRef(el);
+          viewport.setContainerRef(el, isWheelTargetTerminal);
         }}
         data-testid="canvas-container"
         data-zoom={viewport.zoom()}

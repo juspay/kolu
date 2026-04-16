@@ -250,6 +250,157 @@ When(
   },
 );
 
+// ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
+
+/** Read the inner canvas div's transform (scale(z) translate(x, y)). Stable
+ *  string identity is enough to prove pan/zoom did or didn't change. */
+async function readCanvasTransform(world: KoluWorld): Promise<string> {
+  return await world.page.evaluate((sel: string) => {
+    const container = document.querySelector(sel);
+    const inner = container?.firstElementChild as HTMLElement | null;
+    return inner?.style.transform ?? "";
+  }, CANVAS_SELECTOR);
+}
+
+When("I record the canvas transform", async function (this: KoluWorld) {
+  (this as unknown as { __canvasTransform?: string }).__canvasTransform =
+    await readCanvasTransform(this);
+});
+
+When(
+  "I scroll the wheel over the terminal tile",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      const rect = xterm.getBoundingClientRect();
+      xterm.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I scroll the wheel over the canvas background",
+  async function (this: KoluWorld) {
+    await this.page.evaluate((sel: string) => {
+      const container = document.querySelector(sel) as HTMLElement | null;
+      if (!container) throw new Error("canvas-container not found");
+      const rect = container.getBoundingClientRect();
+      // Dispatch at a corner of the container — outside any tile.
+      container.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          clientX: rect.left + 8,
+          clientY: rect.top + 8,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, CANVAS_SELECTOR);
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I scroll the wheel over the terminal tile within the idle window",
+  async function (this: KoluWorld) {
+    // Install a one-shot probe on the xterm element before dispatching. Canvas
+    // owns the gesture from the previous background scroll; stopPropagation at
+    // the canvas's capture-phase listener should prevent this event from ever
+    // reaching the xterm probe.
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      (
+        window as unknown as { __xtermWheelReceived?: boolean }
+      ).__xtermWheelReceived = false;
+      xterm.addEventListener(
+        "wheel",
+        () => {
+          (
+            window as unknown as { __xtermWheelReceived?: boolean }
+          ).__xtermWheelReceived = true;
+        },
+        { once: true },
+      );
+      const rect = xterm.getBoundingClientRect();
+      xterm.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "xterm should not have received a wheel event",
+  async function (this: KoluWorld) {
+    const received = await this.page.evaluate(
+      () =>
+        (window as unknown as { __xtermWheelReceived?: boolean })
+          .__xtermWheelReceived === true,
+    );
+    if (received) {
+      throw new Error(
+        "xterm received a wheel event — canvas ownership failed to suppress it",
+      );
+    }
+  },
+);
+
+Then(
+  "the canvas transform should not have changed",
+  async function (this: KoluWorld) {
+    const before = (this as unknown as { __canvasTransform?: string })
+      .__canvasTransform;
+    const after = await readCanvasTransform(this);
+    if (before !== after) {
+      throw new Error(
+        `Canvas transform changed unexpectedly: ${before} → ${after}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the canvas transform should have changed",
+  async function (this: KoluWorld) {
+    const before = (this as unknown as { __canvasTransform?: string })
+      .__canvasTransform;
+    await this.page.waitForFunction(
+      ({ sel, prev }: { sel: string; prev: string }) => {
+        const container = document.querySelector(sel);
+        const inner = container?.firstElementChild as HTMLElement | null;
+        return inner !== null && inner.style.transform !== prev;
+      },
+      { sel: CANVAS_SELECTOR, prev: before ?? "" },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Minimap steps ──
 
 Then("the minimap should be visible", async function (this: KoluWorld) {

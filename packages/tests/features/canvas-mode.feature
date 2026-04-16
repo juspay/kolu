@@ -78,6 +78,27 @@ Feature: Canvas mode
     Then there should be 2 canvas tiles
     And the newest canvas tile should be centered in the viewport
 
+  Scenario: Scroll on terminal does not pan the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I scroll the wheel over the terminal tile
+    Then the canvas transform should not have changed
+    And there should be no page errors
+
+  Scenario: Scroll on canvas background pans the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I scroll the wheel over the canvas background
+    Then the canvas transform should have changed
+    And there should be no page errors
+
+  Scenario: Canvas-owned scroll does not leak into a terminal
+    When I click the canvas mode toggle
+    And I scroll the wheel over the canvas background
+    And I scroll the wheel over the terminal tile within the idle window
+    Then xterm should not have received a wheel event
+    And there should be no page errors
+
   Scenario: Minimap shows zoom bar in canvas mode
     When I click the canvas mode toggle
     Then the minimap should be visible

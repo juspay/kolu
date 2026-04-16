@@ -39,8 +39,13 @@ export interface CanvasViewport {
   panX: Accessor<number>;
   panY: Accessor<number>;
   zoom: Accessor<number>;
-  /** Set container ref — installs gesture listeners. */
-  setContainerRef: (el: HTMLDivElement) => void;
+  /** Set container ref — installs gesture listeners. `shouldYieldWheel`, if
+   *  provided, lets callers opt specific wheel targets out of canvas pan so
+   *  scrollable tile content (e.g. a terminal) owns its own scroll gesture. */
+  setContainerRef: (
+    el: HTMLDivElement,
+    shouldYieldWheel?: (e: WheelEvent) => boolean,
+  ) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
   /** Set pan+zoom so all tiles are centered in the viewport. */
@@ -69,22 +74,29 @@ export interface CanvasViewport {
   resetZoom: () => void;
 }
 
-function setContainerRef(el: HTMLDivElement) {
+function setContainerRef(
+  el: HTMLDivElement,
+  shouldYieldWheel?: (e: WheelEvent) => boolean,
+) {
   cleanupGestures?.();
   containerEl = el;
-  cleanupGestures = installGestures(el, {
-    onPan: (dx, dy) => {
-      const z = zoom();
-      setPanX(panX() + dx / z);
-      setPanY(panY() + dy / z);
+  cleanupGestures = installGestures(
+    el,
+    {
+      onPan: (dx, dy) => {
+        const z = zoom();
+        setPanX(panX() + dx / z);
+        setPanY(panY() + dy / z);
+      },
+      onZoom: (factor, sx, sy) => {
+        const result = zoomTowardPoint(panX(), panY(), zoom(), factor, sx, sy);
+        setPanX(result.panX);
+        setPanY(result.panY);
+        setZoom(result.zoom);
+      },
     },
-    onZoom: (factor, sx, sy) => {
-      const result = zoomTowardPoint(panX(), panY(), zoom(), factor, sx, sy);
-      setPanX(result.panX);
-      setPanY(result.panY);
-      setZoom(result.zoom);
-    },
-  });
+    shouldYieldWheel,
+  );
 }
 
 function normalizeDelta(dx: number, dy: number) {
