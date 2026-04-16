@@ -17,6 +17,7 @@ import Sidebar from "./sidebar/Sidebar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import TerminalCanvas from "./canvas/TerminalCanvas";
+import CanvasTileScreenshotButton from "./canvas/CanvasTileScreenshotButton";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -533,12 +534,14 @@ const App: Component = () => {
                   }}
                   onSelect={(id) => store.setActiveId(id as TerminalId)}
                   onClose={(id) => closeTerminal(id as TerminalId)}
-                  onScreenshot={(id) =>
-                    handleScreenshotTerminal(id as TerminalId)
-                  }
                   renderTileTitle={(id) => (
                     <TerminalMeta
                       info={store.getDisplayInfo(id as TerminalId)}
+                    />
+                  )}
+                  renderTileActions={(id) => (
+                    <CanvasTileScreenshotButton
+                      onClick={() => handleScreenshotTerminal(id as TerminalId)}
                     />
                   )}
                   renderTileBody={(id, active) => (

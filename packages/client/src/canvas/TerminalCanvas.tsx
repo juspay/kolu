@@ -51,8 +51,10 @@ const TerminalCanvas: Component<{
   getTileTheme: (id: string) => TileTheme;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onScreenshot?: (id: string) => void;
   renderTileTitle: (id: string) => JSX.Element;
+  /** Optional per-tile chrome actions (screenshot, future: pin, duplicate…).
+   *  Rendered in the title bar between title and close button. */
+  renderTileActions?: (id: string) => JSX.Element;
   renderTileBody: (id: string, active: boolean) => JSX.Element;
 }> = (props) => {
   const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
@@ -221,10 +223,12 @@ const TerminalCanvas: Component<{
                 theme={props.getTileTheme(id)}
                 onSelect={() => props.onSelect(id)}
                 onClose={() => props.onClose(id)}
-                onScreenshot={
-                  props.onScreenshot ? () => props.onScreenshot!(id) : undefined
-                }
                 renderTitle={() => props.renderTileTitle(id)}
+                renderTitleActions={
+                  props.renderTileActions
+                    ? () => props.renderTileActions!(id)
+                    : undefined
+                }
                 renderBody={() =>
                   props.renderTileBody(id, props.activeId === id)
                 }

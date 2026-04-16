@@ -3,9 +3,9 @@
  *  title bar, resize handle. Content is injected via render props — the
  *  canvas module has no knowledge of what renders inside a tile. */
 
-import { Show, type Component, type JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { CameraIcon, ResizeGripIcon } from "../ui/Icons";
+import { ResizeGripIcon } from "../ui/Icons";
 import type { TileLayout } from "./useCanvasLayouts";
 
 /** Minimal theme info for tile chrome (title bar, border, resize handle). */
@@ -23,8 +23,12 @@ const CanvasTile: Component<{
   theme: TileTheme;
   onSelect: () => void;
   onClose: () => void;
-  onScreenshot?: () => void;
   renderTitle: () => JSX.Element;
+  /** Optional chrome actions rendered between the title and the close
+   *  button. Render-prop so the tile stays domain-agnostic — it doesn't
+   *  know what the action does, only that the caller has something to
+   *  put there. `--color-fg-3` is the recommended foreground color. */
+  renderTitleActions?: () => JSX.Element;
   renderBody: () => JSX.Element;
   layouts: Record<string, TileLayout>;
   startResize: (id: string, e: PointerEvent) => void;
@@ -77,23 +81,7 @@ const CanvasTile: Component<{
         {...draggable.dragActivators}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
-        <Show when={props.onScreenshot}>
-          <button
-            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20"
-            style={{
-              color: `color-mix(in oklch, ${fg()} 50%, ${bg()})`,
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              props.onScreenshot?.();
-            }}
-            title="Copy screenshot to clipboard"
-            data-testid="canvas-tile-screenshot"
-          >
-            <CameraIcon />
-          </button>
-        </Show>
+        {props.renderTitleActions?.()}
         <button
           class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
           style={{
