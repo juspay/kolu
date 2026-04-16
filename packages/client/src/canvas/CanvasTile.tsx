@@ -40,6 +40,7 @@ const CanvasTile: Component<{
   return (
     <div
       ref={draggable.ref}
+      data-active={props.active ? "true" : undefined}
       class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
         "border-accent/60 shadow-xl": props.active,

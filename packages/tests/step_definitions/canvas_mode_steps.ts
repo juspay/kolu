@@ -494,6 +494,52 @@ Then(
   },
 );
 
+When(
+  "I click canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    const tile = this.page
+      .locator(`${CANVAS_SELECTOR} [data-terminal-id][data-visible]`)
+      .nth(index - 1);
+    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await tile.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "exactly {int} canvas tile(s) should use the webgl renderer",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-renderer="webgl"]`,
+        );
+        return tiles.length === want;
+      },
+      { sel: CANVAS_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the focused canvas tile should use the webgl renderer",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        // The active tile is rendered inside a CanvasTile wrapper that flags
+        // itself via data-active="true" (see CanvasTile.tsx).
+        const active = document.querySelector(`${sel} [data-active="true"]`);
+        if (!active) return false;
+        const terminal = active.querySelector("[data-terminal-id]");
+        return terminal?.getAttribute("data-renderer") === "webgl";
+      },
+      CANVAS_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // "the close confirmation should be visible" is defined in worktree_steps.ts
 
 // ── Canvas layout persistence ──

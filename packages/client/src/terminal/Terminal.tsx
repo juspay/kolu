@@ -43,10 +43,6 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 
-export type RendererType = "webgl" | "canvas";
-const [renderer, setRenderer] = createSignal<RendererType>("canvas");
-export { renderer };
-
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
@@ -104,10 +100,39 @@ const Terminal: Component<{
 
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
+  const [hasWebgl, setHasWebgl] = createSignal(false);
 
   /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
   function clearTextureAtlas() {
     webgl?.clearTextureAtlas();
+  }
+
+  /** Only the focused+visible tile holds a WebGL context — Chrome's per-tab
+   *  limit (~16) is quickly exhausted in canvas mode where every tile renders
+   *  simultaneously (issue #575). Non-focused tiles fall back to xterm's
+   *  built-in DOM renderer via `WebglAddon.dispose()`. */
+  const shouldUseWebgl = () => props.visible && props.focused !== false;
+
+  function loadWebgl() {
+    if (!terminal || webgl) return;
+    try {
+      // Single owner of WebglAddon lifetime — any future construction-time
+      // flag (e.g. preserveDrawingBuffer for screenshots, #574) must be
+      // routed through this effect, not a parallel dispose/reconstruct path.
+      const w = new WebglAddon();
+      w.onContextLoss(() => unloadWebgl());
+      terminal.loadAddon(w);
+      webgl = w;
+      setHasWebgl(true);
+    } catch {
+      // WebGL unavailable — xterm's DOM renderer is the fallback
+    }
+  }
+
+  function unloadWebgl() {
+    webgl?.dispose();
+    webgl = null;
+    setHasWebgl(false);
   }
 
   // Main terminals inherit the viewport grid while they're hidden.
@@ -152,6 +177,20 @@ const Terminal: Component<{
         if (focused && props.visible && terminal) {
           terminal.focus();
         }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Hand the single WebGL context to whichever tile is focused+visible.
+  // defer: true — onMount handles the initial load before xterm is constructed.
+  createEffect(
+    on(
+      shouldUseWebgl,
+      (should) => {
+        if (!terminal) return;
+        if (should) loadWebgl();
+        else unloadWebgl();
       },
       { defer: true },
     ),
@@ -289,20 +328,7 @@ const Terminal: Component<{
 
     scrollLock.attachToTerminal(term);
 
-    // WebGL for performance; auto-fallback to canvas on context loss (e.g. after system sleep)
-    try {
-      const w = new WebglAddon();
-      w.onContextLoss(() => {
-        w.dispose();
-        webgl = null;
-        setRenderer("canvas");
-      });
-      term.loadAddon(w);
-      webgl = w;
-      setRenderer("webgl");
-    } catch {
-      // WebGL unavailable — canvas renderer is the default
-    }
+    if (shouldUseWebgl()) loadWebgl();
 
     // xterm.js has attachCustomKeyEventHandler for intercepting keys.
     // Return false to prevent xterm from handling the key.
@@ -538,6 +564,7 @@ const Terminal: Component<{
         data-visible={props.visible ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
+        data-renderer={hasWebgl() ? "webgl" : "dom"}
         onClick={() => terminal?.focus()}
       />
     </div>
