@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-16T00:46:28.228672+00:00'
+generated_at: '2026-04-16T00:42:33.047344+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -23,7 +23,7 @@ dependencies:
   local_path: ./agents
 - repo_url: anthropics/skills
   host: github.com
-  resolved_commit: 0f7c287eaf0d4fa511cb871bb55e2a7862251fbb
+  resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
   virtual_path: skills/frontend-design
   is_virtual: true
   package_type: claude_skill
@@ -65,4 +65,4 @@ dependencies:
   - .claude/skills/hickey
   - .claude/skills/lowy
   - .claude/skills/ralph
-  content_hash: sha256:74a1e5f453ed12fcef899984cd940bf0bbe6382cc5f9a826a6635a8f0707edb4
+  content_hash: sha256:9a38729f5cab4ecf83b23f974eb6c19c848e7bc9c63738b57be4ce2318a54435
