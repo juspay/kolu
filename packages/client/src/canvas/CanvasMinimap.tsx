@@ -122,7 +122,7 @@ const CanvasMinimap: Component<{
       {/* Minimap visualization */}
       <Show when={shouldShowMap()}>
         <div
-          class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden cursor-crosshair"
+          class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden cursor-default"
           style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
           onClick={handleMapClick}
         >
