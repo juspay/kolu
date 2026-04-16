@@ -159,10 +159,42 @@ const TerminalCanvas: Component<{
     };
   };
 
+  // On mount, scroll the container so the bounding box of all terminals
+  // is centered in the viewport (fixes #562 — canvas opening at 0,0).
+  let containerRef!: HTMLDivElement;
+  let hasScrolled = false;
+  createEffect(() => {
+    const ids = props.terminalIds;
+    if (ids.length === 0 || hasScrolled) return;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    for (const id of ids) {
+      const l = layouts[id];
+      if (!l) continue;
+      minX = Math.min(minX, l.x);
+      minY = Math.min(minY, l.y);
+      maxX = Math.max(maxX, l.x + l.w);
+      maxY = Math.max(maxY, l.y + l.h);
+    }
+    if (!isFinite(minX)) return;
+    hasScrolled = true;
+    // Center of the bounding box, offset by the canvas padding.
+    // Defer to next frame so the container has layout dimensions.
+    const centerX = CANVAS_PAD + (minX + maxX) / 2;
+    const centerY = CANVAS_PAD + (minY + maxY) / 2;
+    requestAnimationFrame(() => {
+      containerRef.scrollLeft = centerX - containerRef.clientWidth / 2;
+      containerRef.scrollTop = centerY - containerRef.clientHeight / 2;
+    });
+  });
+
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
       <div
+        ref={containerRef}
         data-testid="canvas-container"
         class="flex-1 min-h-0 overflow-auto relative canvas-grid-bg"
       >

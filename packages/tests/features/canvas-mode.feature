@@ -51,6 +51,11 @@ Feature: Canvas mode
     And the canvas grid background should be visible
     And there should be no page errors
 
+  Scenario: Canvas opens scrolled to terminals
+    When I click the canvas mode toggle
+    Then the canvas tiles should be visible in the viewport
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible
