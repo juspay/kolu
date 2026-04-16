@@ -4,7 +4,9 @@
  *
  *  The canvas is domain-agnostic — it manages tile positioning, drag, resize,
  *  pan, and zoom. What renders inside each tile (title bar content, body) is
- *  injected via render props by the caller.
+ *  injected via render props by the caller. Positions are read via `getLayout`
+ *  and changes are reported via `onLayoutChange` — the caller owns the
+ *  source of truth (today: server metadata via subscription).
  *
  *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
  *  gesture handling — decouples sensing from position application.
@@ -16,9 +18,9 @@ import {
   type Component,
   For,
   createEffect,
+  createMemo,
   createSignal,
   on,
-  batch,
   type JSX,
 } from "solid-js";
 import {
@@ -26,7 +28,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
+import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
@@ -45,47 +47,103 @@ function isWheelTargetTerminal(e: WheelEvent): boolean {
   return e.target instanceof Element && e.target.closest(".xterm") !== null;
 }
 
+function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
 const TerminalCanvas: Component<{
   tileIds: string[];
   activeId: string | null;
   getTileTheme: (id: string) => TileTheme;
+  /** Saved layout for a tile, or undefined if none exists yet. */
+  getLayout: (id: string) => TileLayout | undefined;
+  /** Report a layout change (drag commit, resize commit, default assignment). */
+  onLayoutChange: (id: string, layout: TileLayout) => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   renderTileTitle: (id: string) => JSX.Element;
   renderTileBody: (id: string, active: boolean) => JSX.Element;
 }> = (props) => {
-  const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
   const viewport = useCanvasViewport();
 
-  // Auto-assign layout for new tiles and clean up removed ones
+  /** Pending per-tile layout overrides — used for three cases, all bridging
+   *  a gap until the server's metadata echo arrives:
+   *    1. Default-position seed: a new tile's cascade layout, so the first
+   *       paint isn't at (0,0) before the echo.
+   *    2. Drag commit: hold the drop position until getLayout catches up —
+   *       solid-dnd has already reset its transform to 0 by then.
+   *    3. Resize preview: live width/height during pointer-move; snapped
+   *       value on pointer-up until the server echoes the committed size.
+   *  Entries auto-clear when the echoed layout matches (effect below). */
+  const [pending, setPending] = createSignal<Record<string, TileLayout>>({});
+
+  function setPendingLayout(id: string, layout: TileLayout) {
+    setPending((prev) => ({ ...prev, [id]: layout }));
+  }
+
+  createEffect(() => {
+    const p = pending();
+    const alive = new Set(props.tileIds);
+    let changed = false;
+    const next: Record<string, TileLayout> = {};
+    for (const [id, layout] of Object.entries(p)) {
+      // Drop entries for removed tiles — metadata never arrives for them.
+      if (!alive.has(id)) {
+        changed = true;
+        continue;
+      }
+      const current = props.getLayout(id);
+      if (current && layoutsEqual(current, layout)) {
+        changed = true;
+      } else {
+        next[id] = layout;
+      }
+    }
+    if (changed) setPending(next);
+  });
+
+  /** Effective layout for a tile (pending override wins over saved). */
+  function layoutOf(id: string): TileLayout | undefined {
+    return pending()[id] ?? props.getLayout(id);
+  }
+
+  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
+  const layouts = createMemo<Record<string, TileLayout>>(() => {
+    const result: Record<string, TileLayout> = {};
+    for (const id of props.tileIds) {
+      const l = layoutOf(id);
+      if (l) result[id] = l;
+    }
+    return result;
+  });
+
+  // Auto-assign a default layout for tiles with no saved position.
+  // The pending seed makes the tile paint at the cascade position on its
+  // first render — without it, there would be a (0,0) frame while waiting
+  // for the server's metadata echo.
   createEffect(
     on(
       () => props.tileIds,
       (ids) => {
-        const idSet = new Set(ids);
-        batch(() => {
-          for (const key of Object.keys(layouts)) {
-            if (!idSet.has(key)) setLayouts(key, undefined!);
-          }
-          // Viewport center in canvas-space — stable within this batch
-          const cx =
-            viewport.panX() + containerRef.clientWidth / (2 * viewport.zoom());
-          const cy =
-            viewport.panY() + containerRef.clientHeight / (2 * viewport.zoom());
-          let newIndex = 0;
-          for (const id of ids) {
-            if (!layouts[id]) {
-              const offset = newIndex * CASCADE_OFFSET;
-              setLayouts(id, {
-                x: viewport.snapToGrid(cx - DEFAULT_W / 2 + offset),
-                y: viewport.snapToGrid(cy - DEFAULT_H / 2 + offset),
-                w: DEFAULT_W,
-                h: DEFAULT_H,
-              });
-              newIndex++;
-            }
-          }
-        });
+        // Viewport center in canvas-space — stable within this batch
+        const cx =
+          viewport.panX() + containerRef.clientWidth / (2 * viewport.zoom());
+        const cy =
+          viewport.panY() + containerRef.clientHeight / (2 * viewport.zoom());
+        let newIndex = 0;
+        for (const id of ids) {
+          if (layoutOf(id)) continue;
+          const offset = newIndex * CASCADE_OFFSET;
+          const defaultLayout: TileLayout = {
+            x: viewport.snapToGrid(cx - DEFAULT_W / 2 + offset),
+            y: viewport.snapToGrid(cy - DEFAULT_H / 2 + offset),
+            w: DEFAULT_W,
+            h: DEFAULT_H,
+          };
+          setPendingLayout(id, defaultLayout);
+          props.onLayoutChange(id, defaultLayout);
+          newIndex++;
+        }
       },
     ),
   );
@@ -104,33 +162,23 @@ const TerminalCanvas: Component<{
   function handleDragEnd({ draggable }: DragEvent) {
     if (!draggable) return;
     const id = draggable.id as string;
-    const l = layouts[id];
+    const l = layoutOf(id);
     if (!l) return;
     const { x: sdx, y: sdy } = dragDelta();
     if (sdx !== 0 || sdy !== 0) {
       const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
-      setLayouts(id, {
+      const next: TileLayout = {
         ...l,
         x: viewport.snapToGrid(l.x + dx),
         y: viewport.snapToGrid(l.y + dy),
-      });
-      reportLayout(id);
+      };
+      // Hold pending until metadata echo arrives — avoids a frame where
+      // solid-dnd's transform has reset to 0 but getLayout still returns
+      // the pre-drag position.
+      setPendingLayout(id, next);
+      props.onLayoutChange(id, next);
     }
     setDragDelta({ x: 0, y: 0 });
-  }
-
-  /** Snap size to grid and report to server. Separated from the pointerup
-   *  listener so state application isn't tangled with event cleanup. */
-  function commitResize(id: string) {
-    const cur = layouts[id];
-    if (cur) {
-      setLayouts(id, {
-        ...cur,
-        w: viewport.snapToGrid(cur.w),
-        h: viewport.snapToGrid(cur.h),
-      });
-    }
-    reportLayout(id);
   }
 
   /** Start resizing a tile from the bottom-right corner.
@@ -139,7 +187,7 @@ const TerminalCanvas: Component<{
   function startResize(id: string, e: PointerEvent) {
     e.preventDefault();
     e.stopPropagation();
-    const l = layouts[id];
+    const l = layoutOf(id);
     if (!l) return;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -155,7 +203,7 @@ const TerminalCanvas: Component<{
           ev.clientX - startX,
           ev.clientY - startY,
         );
-        setLayouts(id, {
+        setPendingLayout(id, {
           x: origX,
           y: origY,
           w: Math.max(MIN_W, origW + dx),
@@ -164,7 +212,17 @@ const TerminalCanvas: Component<{
       },
       onEnd: () => {
         abortResize = null;
-        commitResize(id);
+        const live = pending()[id];
+        if (live) {
+          const snapped: TileLayout = {
+            x: live.x,
+            y: live.y,
+            w: viewport.snapToGrid(live.w),
+            h: viewport.snapToGrid(live.h),
+          };
+          setPendingLayout(id, snapped);
+          props.onLayoutChange(id, snapped);
+        }
       },
     });
   }
@@ -181,7 +239,7 @@ const TerminalCanvas: Component<{
     if (ids.length === 0 || !isDefaultViewport()) return;
     const allLayouts: TileLayout[] = [];
     for (const id of ids) {
-      const l = layouts[id];
+      const l = layoutOf(id);
       if (l) allLayouts.push(l);
     }
     if (allLayouts.length === 0) return;
@@ -224,7 +282,7 @@ const TerminalCanvas: Component<{
                 renderBody={() =>
                   props.renderTileBody(id, props.activeId === id)
                 }
-                layouts={layouts}
+                layouts={layouts()}
                 startResize={startResize}
                 zoom={viewport.zoom}
               />
@@ -235,12 +293,12 @@ const TerminalCanvas: Component<{
         <CanvasMinimap
           tileIds={props.tileIds}
           activeId={props.activeId}
-          layouts={layouts}
+          layouts={layouts()}
           getTileTheme={props.getTileTheme}
           onFitAll={() => {
             const allLayouts: TileLayout[] = [];
             for (const id of props.tileIds) {
-              const l = layouts[id];
+              const l = layoutOf(id);
               if (l) allLayouts.push(l);
             }
             viewport.fitAll(allLayouts);

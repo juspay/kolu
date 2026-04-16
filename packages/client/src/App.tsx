@@ -37,7 +37,7 @@ import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
-import { useCanvasLayouts, type TileLayout } from "./canvas/useCanvasLayouts";
+import type { TileLayout } from "./canvas/TileLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useServerState } from "./settings/useServerState";
@@ -77,7 +77,6 @@ const App: Component = () => {
     updatePreferences({ canvasMode: !canvasMode() });
 
   const canvasViewport = useCanvasViewport();
-  const { layouts: canvasLayouts } = useCanvasLayouts();
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -138,7 +137,7 @@ const App: Component = () => {
     if (!canvasMode()) return;
     const tiles = store
       .terminalIds()
-      .map((id) => canvasLayouts[id])
+      .map((id) => store.getMetadata(id)?.canvasLayout)
       .filter((t): t is TileLayout => t !== undefined);
     canvasViewport.fitAll(tiles);
   }
@@ -147,7 +146,7 @@ const App: Component = () => {
     if (!canvasMode()) return;
     const id = store.activeId();
     if (!id) return;
-    const tile = canvasLayouts[id];
+    const tile = store.getMetadata(id)?.canvasLayout;
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
@@ -522,6 +521,12 @@ const App: Component = () => {
                       fg: t.foreground ?? "var(--color-fg)",
                     };
                   }}
+                  getLayout={(id) =>
+                    store.getMetadata(id as TerminalId)?.canvasLayout
+                  }
+                  onLayoutChange={(id, layout) =>
+                    crud.setCanvasLayout(id as TerminalId, layout)
+                  }
                   onSelect={(id) => store.setActiveId(id as TerminalId)}
                   onClose={(id) => closeTerminal(id as TerminalId)}
                   renderTileTitle={(id) => (

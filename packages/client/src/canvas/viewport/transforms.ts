@@ -2,7 +2,7 @@
  *  Encapsulates the zoom/pan algorithm so it can evolve (easing, constraints,
  *  undo) without touching gesture input or CSS generation. */
 
-import type { TileLayout } from "../useCanvasLayouts";
+import type { TileLayout } from "../TileLayout";
 
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 3;

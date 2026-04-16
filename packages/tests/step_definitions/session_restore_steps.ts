@@ -182,3 +182,31 @@ Given(
     await postSavedSessionPayload(this.page, terminals);
   },
 );
+
+// --- Refresh preserves the active terminal ---
+
+/** The server debounces session auto-save by 500ms after the last change
+ *  (see `initSessionAutoSave`). Tests that refresh after selecting a
+ *  terminal must wait for the save to land; otherwise the server's
+ *  `state.session.activeTerminalId` is stale and hydrate picks wrong. */
+When("I wait for the session auto-save", async function (this: KoluWorld) {
+  await new Promise((r) => setTimeout(r, 800));
+});
+
+Then(
+  "sidebar entry {int} should be active",
+  async function (this: KoluWorld, index: number) {
+    const id = this.createdTerminalIds[index - 1];
+    assert.ok(id, `No terminal created at index ${index} in this scenario`);
+    await this.page.waitForFunction(
+      (tid: string) => {
+        const entry = document.querySelector(
+          `[data-testid="sidebar"] [data-terminal-id="${tid}"]`,
+        );
+        return entry?.hasAttribute("data-active") ?? false;
+      },
+      id,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

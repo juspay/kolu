@@ -8,7 +8,7 @@ import { MinimapIcon, ZoomToFitIcon } from "../ui/Icons";
 import { SHORTCUTS, formatKeybind } from "../input/keyboard";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
-import type { TileLayout } from "./useCanvasLayouts";
+import type { TileLayout } from "./TileLayout";
 import type { TileTheme } from "./CanvasTile";
 
 /** Minimap target dimensions in pixels. */
