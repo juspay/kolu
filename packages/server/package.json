@@ -23,7 +23,7 @@
     "anyagent": "workspace:*",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
-    "hono": "^4.12.12",
+    "hono": "^4.12.14",
     "hono-pino": "^0.10.3",
     "kolu-claude-code": "workspace:*",
     "kolu-common": "workspace:*",
