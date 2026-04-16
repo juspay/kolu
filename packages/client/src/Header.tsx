@@ -131,7 +131,11 @@ const Header: Component<{
       {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
         {/* Canvas/Focus mode toggle — desktop only (canvas is unusable on mobile) */}
-        <Tip label={props.canvasMode ? "Switch to Focus mode" : "Switch to Canvas mode"}>
+        <Tip
+          label={
+            props.canvasMode ? "Switch to Focus mode" : "Switch to Canvas mode"
+          }
+        >
           <button
             data-testid="canvas-mode-toggle"
             class="hidden sm:flex h-7 px-2 items-center gap-1.5 text-xs rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
