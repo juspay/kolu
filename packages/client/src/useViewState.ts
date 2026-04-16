@@ -7,6 +7,7 @@ import { createSignal, createEffect, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
+import { client } from "./rpc/rpc";
 
 const ACTIVE_TERMINAL_KEY = "kolu-active-terminal";
 
@@ -29,6 +30,8 @@ export function useViewState() {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
       if (unread[id]) setUnread(produce((s) => delete s[id]));
+      // Report active terminal to server for session snapshots
+      void client.terminal.setActive({ id }).catch(() => {});
     }),
   );
 

@@ -101,10 +101,15 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 }
 
 /** Build a session snapshot from current terminal state. */
-export function snapshotSession(): SavedTerminal[] {
-  return [...terminals.entries()].map(([id, entry]) => {
+/** Build a session snapshot from current terminal + client-reported state. */
+export function snapshotSession(): {
+  terminals: SavedTerminal[];
+  activeTerminalId: string | null;
+} {
+  const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
     const layout = canvasLayouts.get(id);
+    const sp = subPanelStates.get(id);
     return {
       id,
       cwd: m.cwd,
@@ -113,8 +118,10 @@ export function snapshotSession(): SavedTerminal[] {
       sortOrder: m.sortOrder,
       ...(m.themeName && { themeName: m.themeName }),
       ...(layout && { canvasLayout: layout }),
+      ...(sp && { subPanel: sp }),
     };
   });
+  return { terminals: snappedTerminals, activeTerminalId };
 }
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
@@ -249,6 +256,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
   canvasLayouts.delete(id);
+  subPanelStates.delete(id);
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -285,11 +293,28 @@ export function setCanvasLayout(
   emitChanged();
 }
 
-/** Get a terminal's canvas layout (for session snapshot). */
-export function getCanvasLayout(
+// Sub-panel state — client-reported, used only for session snapshots.
+const subPanelStates = new Map<
+  TerminalId,
+  { collapsed: boolean; panelSize: number }
+>();
+
+/** Store a terminal's sub-panel state (reported by the client). */
+export function setSubPanelState(
   id: TerminalId,
-): { x: number; y: number; w: number; h: number } | undefined {
-  return canvasLayouts.get(id);
+  state: { collapsed: boolean; panelSize: number },
+): void {
+  subPanelStates.set(id, state);
+  emitChanged();
+}
+
+// Active terminal ID — client-reported, used only for session snapshots.
+let activeTerminalId: TerminalId | null = null;
+
+/** Store which terminal is active (reported by the client). */
+export function setActiveTerminalId(id: TerminalId | null): void {
+  activeTerminalId = id;
+  emitChanged();
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

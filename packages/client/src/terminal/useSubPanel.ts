@@ -3,6 +3,7 @@
 import { createStore, produce } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
+import { client } from "../rpc/rpc";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -32,6 +33,19 @@ function ensureState(parentId: TerminalId): SubPanelState {
   return state[parentId]!;
 }
 
+/** Report sub-panel state to server for session persistence. */
+function reportToServer(parentId: TerminalId) {
+  const s = state[parentId];
+  if (!s) return;
+  void client.terminal
+    .setSubPanel({
+      id: parentId,
+      collapsed: s.collapsed,
+      panelSize: s.panelSize,
+    })
+    .catch(() => {});
+}
+
 export function useSubPanel() {
   return {
     getSubPanel(parentId: TerminalId): SubPanelState {
@@ -41,18 +55,21 @@ export function useSubPanel() {
     togglePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", (v) => !v);
+      reportToServer(parentId);
     },
 
     expandPanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", false);
       setState(parentId, "focusTarget", "sub");
+      reportToServer(parentId);
     },
 
     collapsePanel(parentId: TerminalId) {
       ensureState(parentId);
       setState(parentId, "collapsed", true);
       setState(parentId, "focusTarget", "main");
+      reportToServer(parentId);
     },
 
     setActiveSubTab(parentId: TerminalId, subId: TerminalId | null) {
@@ -63,6 +80,7 @@ export function useSubPanel() {
     setPanelSize(parentId: TerminalId, size: number) {
       ensureState(parentId);
       setState(parentId, "panelSize", size);
+      reportToServer(parentId);
     },
 
     /** Cycle to the next/previous sub-tab within a parent's sub-panel. */

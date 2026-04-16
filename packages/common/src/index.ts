@@ -167,6 +167,16 @@ export const TerminalSetCanvasLayoutInputSchema = z.object({
   layout: CanvasLayoutSchema,
 });
 
+export const TerminalSetSubPanelInputSchema = z.object({
+  id: TerminalIdSchema,
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
+export const SetActiveTerminalInputSchema = z.object({
+  id: TerminalIdSchema.nullable(),
+});
+
 export const TerminalCreateInputSchema = z.object({
   cwd: z.string().optional(),
   parentId: TerminalIdSchema.optional(),
@@ -245,10 +255,19 @@ export const SavedTerminalSchema = z.object({
   themeName: z.string().optional(),
   /** Canvas tile position and size at save time. */
   canvasLayout: CanvasLayoutSchema.optional(),
+  /** Sub-panel state at save time (collapsed, size). */
+  subPanel: z
+    .object({
+      collapsed: z.boolean(),
+      panelSize: z.number(),
+    })
+    .optional(),
 });
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
+  /** Which terminal was active at save time. */
+  activeTerminalId: z.string().nullable().optional(),
   savedAt: z.number(),
 });
 

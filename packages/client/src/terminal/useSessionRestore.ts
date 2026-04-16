@@ -126,14 +126,23 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
-      // Restore canvas tile positions under the new terminal IDs
+      // Restore canvas layouts and sub-panel state under the new terminal IDs
       for (const t of session.terminals) {
-        if (!t.canvasLayout) continue;
         const newId = oldToNew.get(t.id);
-        if (newId) {
+        if (!newId) continue;
+        if (t.canvasLayout) {
           setLayouts(newId, t.canvasLayout);
           reportLayout(newId);
         }
+        if (t.subPanel) {
+          subPanel.setPanelSize(newId, t.subPanel.panelSize);
+          if (t.subPanel.collapsed) subPanel.collapsePanel(newId);
+        }
+      }
+      // Restore active terminal
+      if (session.activeTerminalId) {
+        const newActiveId = oldToNew.get(session.activeTerminalId);
+        if (newActiveId) store.setActiveId(newActiveId);
       }
       toast.success("Session restored", { id });
     } catch (err) {

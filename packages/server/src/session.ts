@@ -10,12 +10,19 @@ import { publisher } from "./publisher.ts";
 import { log } from "./log.ts";
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
-export function saveSession(terminals: SavedTerminal[]): void {
-  if (terminals.length === 0) {
+export function saveSession(snapshot: {
+  terminals: SavedTerminal[];
+  activeTerminalId: string | null;
+}): void {
+  if (snapshot.terminals.length === 0) {
     store.set("session", null);
     return;
   }
-  store.set("session", { terminals, savedAt: Date.now() });
+  store.set("session", {
+    terminals: snapshot.terminals,
+    activeTerminalId: snapshot.activeTerminalId,
+    savedAt: Date.now(),
+  });
 }
 
 /** Get the saved session, or null if none exists. */
@@ -40,7 +47,12 @@ export function setSavedSession(session: SavedSession): void {
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Wire up debounced session save from terminal change events. Called once at startup. */
-export function initSessionAutoSave(snapshot: () => SavedTerminal[]): void {
+export function initSessionAutoSave(
+  snapshot: () => {
+    terminals: SavedTerminal[];
+    activeTerminalId: string | null;
+  },
+): void {
   void (async () => {
     try {
       for await (const _ of publisher.subscribe("session:changed")) {

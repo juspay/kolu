@@ -16,6 +16,8 @@ import {
   killAllTerminals,
   setTerminalTheme,
   setCanvasLayout,
+  setSubPanelState,
+  setActiveTerminalId,
   setTerminalParent,
   reorderTerminals,
   type TerminalProcess,
@@ -100,6 +102,18 @@ export const appRouter = t.router({
     setCanvasLayout: t.terminal.setCanvasLayout.handler(async ({ input }) => {
       requireTerminal(input.id);
       setCanvasLayout(input.id, input.layout);
+    }),
+
+    setSubPanel: t.terminal.setSubPanel.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      setSubPanelState(input.id, {
+        collapsed: input.collapsed,
+        panelSize: input.panelSize,
+      });
+    }),
+
+    setActive: t.terminal.setActive.handler(async ({ input }) => {
+      setActiveTerminalId(input.id);
     }),
 
     /**
