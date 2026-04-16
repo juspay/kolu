@@ -103,6 +103,12 @@ export interface CanvasViewport {
   gridBgSize: Accessor<string>;
   /** CSS transform for the inner canvas div. */
   canvasTransform: Accessor<string>;
+  /** Step zoom in toward viewport center. */
+  zoomIn: () => void;
+  /** Step zoom out from viewport center. */
+  zoomOut: () => void;
+  /** Reset zoom to 100%, keeping the same center point. */
+  resetZoom: () => void;
 }
 
 function setContainerRef(el: HTMLDivElement) {
@@ -173,6 +179,39 @@ function snapToGrid(value: number): number {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
 }
 
+const ZOOM_STEP = 1.25; // each click multiplies/divides by this factor
+
+/** Zoom toward the center of the viewport by the given factor. */
+function zoomToCenter(factor: number) {
+  if (!containerEl) return;
+  const cx = containerEl.clientWidth / 2;
+  const cy = containerEl.clientHeight / 2;
+  const oldZoom = zoom();
+  const newZoom = clampZoom(oldZoom * factor);
+  setPanX(panX() + cx / oldZoom - cx / newZoom);
+  setPanY(panY() + cy / oldZoom - cy / newZoom);
+  setZoom(newZoom);
+}
+
+function zoomIn() {
+  zoomToCenter(ZOOM_STEP);
+}
+
+function zoomOut() {
+  zoomToCenter(1 / ZOOM_STEP);
+}
+
+function resetZoom() {
+  if (!containerEl) return;
+  const cx = containerEl.clientWidth / 2;
+  const cy = containerEl.clientHeight / 2;
+  const oldZoom = zoom();
+  // Keep the center point fixed while resetting to 100%
+  setPanX(panX() + cx / oldZoom - cx);
+  setPanY(panY() + cy / oldZoom - cy);
+  setZoom(1);
+}
+
 const gridBgPosition = () => `${-panX() * zoom()}px ${-panY() * zoom()}px`;
 
 const gridBgSize = () => {
@@ -197,6 +236,9 @@ const viewport: CanvasViewport = {
   gridBgPosition,
   gridBgSize,
   canvasTransform,
+  zoomIn,
+  zoomOut,
+  resetZoom,
 };
 
 export function useCanvasViewport(): CanvasViewport {
