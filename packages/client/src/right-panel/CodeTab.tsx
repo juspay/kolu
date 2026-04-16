@@ -488,6 +488,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                             class="px-2 py-1 font-mono text-[11px] text-fg whitespace-pre-wrap break-all leading-relaxed"
                             style={{ "tab-size": "2" }}
                           >
+                            {/* Safe: highlight.js escapes HTML entities before
+                                wrapping tokens in <span> tags. The input is file
+                                content read from the user's own repo. */}
                             <code
                               class="hljs"
                               innerHTML={highlighted().value}
