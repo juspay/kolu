@@ -7,7 +7,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import { MinimapIcon, ZoomToFitIcon } from "../ui/Icons";
 import { SHORTCUTS, formatKeybind } from "../input/keyboard";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
+import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
 import type { TileLayout } from "./useCanvasLayouts";
 import type { TileTheme } from "./CanvasTile";
 
@@ -108,38 +108,13 @@ const CanvasMinimap: Component<{
 
   // ── Viewport rect drag ──
   let abortDrag: (() => void) | null = null;
-  function startViewportDrag(e: PointerEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    // Capture scale at gesture start to avoid stale values mid-drag
-    const capturedScale = minimapScale();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startPanX = viewport.panX();
-    const startPanY = viewport.panY();
-
-    abortDrag?.();
-    abortDrag = capturePointerGesture({
-      onMove: (ev) => {
-        const dx = (ev.clientX - startX) / capturedScale;
-        const dy = (ev.clientY - startY) / capturedScale;
-        viewport.setPan(startPanX + dx, startPanY + dy);
-      },
-      onEnd: () => {
-        abortDrag = null;
-      },
-    });
+  function handleViewportDrag(e: PointerEvent) {
+    abortDrag = startViewportDrag(e, viewport, minimapScale(), abortDrag);
   }
 
   // ── Click on minimap background → pan to that point ──
   function handleMapClick(e: MouseEvent) {
-    const target = e.currentTarget as HTMLDivElement;
-    const rect = target.getBoundingClientRect();
-    const s = minimapScale();
-    const b = bounds();
-    const cx = (e.clientX - rect.left) / s + b.minX;
-    const cy = (e.clientY - rect.top) / s + b.minY;
-    viewport.panTo(cx, cy);
+    handleMinimapClick(e, viewport, minimapScale(), bounds());
   }
 
   return (
@@ -204,7 +179,7 @@ const CanvasMinimap: Component<{
               "background-color":
                 "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
             }}
-            onPointerDown={startViewportDrag}
+            onPointerDown={handleViewportDrag}
             onClick={(e) => e.stopPropagation()}
           />
         </div>
