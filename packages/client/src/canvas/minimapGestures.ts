@@ -12,31 +12,41 @@ export interface MinimapBounds {
   h: number;
 }
 
+/** Minimum pixel distance before a pointerdown is considered a drag. */
+const DRAG_THRESHOLD = 3;
+
 /** Start dragging the viewport rectangle to pan the canvas.
  *  Captures scale at gesture start to avoid stale values mid-drag.
+ *  Sets `didDrag` flag so click handlers can distinguish drag-end from click.
  *  Returns an abort function (caller must store and call on re-entry). */
 export function startViewportDrag(
   e: PointerEvent,
   viewport: CanvasViewport,
   minimapScale: number,
   abortPrevious: (() => void) | null,
+  onDragStateChange: (dragging: boolean) => void,
 ): () => void {
   e.preventDefault();
-  e.stopPropagation();
   const startX = e.clientX;
   const startY = e.clientY;
   const startPanX = viewport.panX();
   const startPanY = viewport.panY();
+  let dragging = false;
 
   abortPrevious?.();
   return capturePointerGesture({
     onMove: (ev) => {
-      const dx = (ev.clientX - startX) / minimapScale;
-      const dy = (ev.clientY - startY) / minimapScale;
-      viewport.setPan(startPanX + dx, startPanY + dy);
+      const px = ev.clientX - startX;
+      const py = ev.clientY - startY;
+      if (!dragging && Math.abs(px) + Math.abs(py) < DRAG_THRESHOLD) return;
+      if (!dragging) {
+        dragging = true;
+        onDragStateChange(true);
+      }
+      viewport.setPan(startPanX + px / minimapScale, startPanY + py / minimapScale);
     },
     onEnd: () => {
-      // Caller nulls its stored abort ref via the returned cleanup
+      if (dragging) onDragStateChange(false);
     },
   });
 }

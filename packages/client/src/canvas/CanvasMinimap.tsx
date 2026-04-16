@@ -107,20 +107,39 @@ const CanvasMinimap: Component<{
 
   // ── Viewport rect drag ──
   let abortDrag: (() => void) | null = null;
+  // Suppress map click immediately after a drag ends
+  let suppressNextClick = false;
   function handleViewportDrag(e: PointerEvent) {
-    abortDrag = startViewportDrag(e, viewport, minimapScale(), abortDrag);
+    abortDrag = startViewportDrag(
+      e,
+      viewport,
+      minimapScale(),
+      abortDrag,
+      (dragging) => {
+        if (!dragging) suppressNextClick = true;
+      },
+    );
   }
 
   // ── Click on minimap background → pan to that point ──
   function handleMapClick(e: MouseEvent) {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
     handleMinimapClick(e, viewport, minimapScale(), bounds());
   }
 
   return (
-    <div class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px">
+    <div
+      data-testid="canvas-minimap"
+      data-expanded={shouldShowMap() ? "" : undefined}
+      class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px"
+    >
       {/* Minimap visualization */}
       <Show when={shouldShowMap()}>
         <div
+          data-testid="minimap-map"
           class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden cursor-default"
           style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
           onClick={handleMapClick}
@@ -165,6 +184,7 @@ const CanvasMinimap: Component<{
 
           {/* Viewport rectangle */}
           <div
+            data-testid="minimap-viewport-rect"
             class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing"
             style={{
               left: `${viewportRect().x}px`,
@@ -175,7 +195,6 @@ const CanvasMinimap: Component<{
                 "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
             }}
             onPointerDown={handleViewportDrag}
-            onClick={(e) => e.stopPropagation()}
           />
         </div>
       </Show>
@@ -191,6 +210,7 @@ const CanvasMinimap: Component<{
       >
         {/* Minimap toggle */}
         <button
+          data-testid="minimap-toggle"
           class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
           classList={{ "text-accent": expanded() }}
           title="Toggle minimap"
