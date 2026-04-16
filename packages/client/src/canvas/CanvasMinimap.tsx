@@ -193,7 +193,7 @@ const CanvasMinimap: Component<{
         <button
           class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
           classList={{ "text-accent": expanded() }}
-          title={`Toggle minimap (${formatKeybind(SHORTCUTS.toggleMinimap.keybind)})`}
+          title="Toggle minimap"
           onClick={() => toggleMinimap()}
         >
           <MinimapIcon class="w-3.5 h-3.5" />

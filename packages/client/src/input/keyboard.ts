@@ -154,10 +154,6 @@ export const SHORTCUTS = {
     keybind: { key: "2", code: "Digit2", mod: true, shift: true },
     label: "Center on active tile",
   },
-  toggleMinimap: {
-    keybind: { key: "m", code: "KeyM", mod: true, shift: true },
-    label: "Toggle minimap",
-  },
 } as const satisfies Record<string, Shortcut>;
 
 /**

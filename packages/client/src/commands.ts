@@ -175,7 +175,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           {
             name: "Toggle minimap",
-            keybind: SHORTCUTS.toggleMinimap.keybind,
             onSelect: () => deps.toggleMinimap(),
           },
         ]

@@ -177,7 +177,6 @@ const App: Component = () => {
     toggleRightPanel: rightPanel.togglePanel,
     canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
-    toggleMinimap,
   });
 
   function openPalette() {

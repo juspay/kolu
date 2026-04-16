@@ -80,6 +80,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-canvas-minimap",
-    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.toggleMinimap.keybind)} toggles the minimap for a bird's-eye view`,
+    text: "In Canvas mode, toggle the minimap via the grid icon for a bird's-eye view",
   },
 ];
