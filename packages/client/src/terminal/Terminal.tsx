@@ -42,6 +42,7 @@ import { useServerState } from "../settings/useServerState";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
+import { registerDiagnostics } from "./useTerminalDiagnostics";
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -101,6 +102,7 @@ const Terminal: Component<{
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
   let webglCanvas: HTMLCanvasElement | null = null;
+  let disposeDiagnostics: (() => void) | null = null;
   const [hasWebgl, setHasWebgl] = createSignal(false);
 
   /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
@@ -350,6 +352,12 @@ const Terminal: Component<{
       xterm: term,
       serialize: serializeAddon,
     });
+    // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
+    // the single source of truth, no imperative updater to forget.
+    disposeDiagnostics = registerDiagnostics(props.terminalId, {
+      xterm: term,
+      renderer: () => (hasWebgl() ? "webgl" : "dom"),
+    });
 
     scrollLock.attachToTerminal(term);
 
@@ -558,6 +566,7 @@ const Terminal: Component<{
     onCleanup(() => {
       streamAbort?.abort();
       unregisterTerminalRefs(props.terminalId);
+      disposeDiagnostics?.();
       terminal?.dispose();
     });
   });

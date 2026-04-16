@@ -1,38 +1,14 @@
 /** MetadataInspector — live view of the active terminal's full context.
  *  Pure rendering: receives metadata, renders sections. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata } from "kolu-common";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import ChecksIndicator from "../sidebar/ChecksIndicator";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
-import Section from "./Section";
-
-/** Label–value pair with dim label and bright value.
- *  `variant` codifies styling rules for special rows:
- *  - "badge": pill background for status indicators (CI, agent state)
- *  - "tag": mono accent background for identity values (branch name) */
-const Row: Component<{
-  label: string;
-  variant?: "default" | "badge" | "tag";
-  children: JSX.Element;
-}> = (props) => (
-  <div class="flex items-baseline gap-3 text-[11px] leading-snug py-0.5">
-    <span class="text-fg-3/70 shrink-0 w-14 text-right">{props.label}</span>
-    <span
-      class={`min-w-0 break-words ${
-        props.variant === "badge"
-          ? "text-fg-2 inline-flex items-center gap-1.5 bg-surface-2/60 px-1.5 py-px rounded-full text-[10px]"
-          : props.variant === "tag"
-            ? "text-fg font-mono bg-accent/10 px-1.5 py-px rounded-sm text-[10px]"
-            : "text-fg-2"
-      }`}
-    >
-      {props.children}
-    </span>
-  </div>
-);
+import Section from "../ui/Section";
+import Row from "../ui/Row";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;
