@@ -141,17 +141,22 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // Compute canvas size to fit all tiles + padding
+  // Canvas extends well beyond the tiles so it feels infinite —
+  // always at least one full viewport of empty space past the furthest tile.
+  const CANVAS_PAD = 1000;
   const canvasSize = () => {
     let maxX = 0;
     let maxY = 0;
     for (const id of props.terminalIds) {
       const l = layouts[id];
       if (!l) continue;
-      maxX = Math.max(maxX, l.x + l.w + 40);
-      maxY = Math.max(maxY, l.y + l.h + 40);
+      maxX = Math.max(maxX, l.x + l.w);
+      maxY = Math.max(maxY, l.y + l.h);
     }
-    return { width: Math.max(maxX, 800), height: Math.max(maxY, 600) };
+    return {
+      width: maxX + CANVAS_PAD,
+      height: maxY + CANVAS_PAD,
+    };
   };
 
   return (
@@ -166,6 +171,8 @@ const TerminalCanvas: Component<{
             position: "relative",
             "min-width": `${canvasSize().width}px`,
             "min-height": `${canvasSize().height}px`,
+            "margin-top": `${CANVAS_PAD}px`,
+            "margin-left": `${CANVAS_PAD}px`,
           }}
         >
           <For each={props.terminalIds}>
