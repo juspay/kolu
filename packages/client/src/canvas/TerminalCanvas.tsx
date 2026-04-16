@@ -30,7 +30,7 @@ import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
-import CanvasZoomToolbar from "./CanvasZoomToolbar";
+import CanvasMinimap from "./CanvasMinimap";
 
 const DEFAULT_W = 700;
 const DEFAULT_H = 500;
@@ -225,7 +225,11 @@ const TerminalCanvas: Component<{
           </For>
         </div>
 
-        <CanvasZoomToolbar
+        <CanvasMinimap
+          tileIds={props.tileIds}
+          activeId={props.activeId}
+          layouts={layouts}
+          getTileTheme={props.getTileTheme}
           onFitAll={() => {
             const allLayouts: TileLayout[] = [];
             for (const id of props.tileIds) {
@@ -233,6 +237,11 @@ const TerminalCanvas: Component<{
               if (l) allLayouts.push(l);
             }
             viewport.fitAll(allLayouts);
+          }}
+          onTileClick={(id) => {
+            const l = layouts[id];
+            if (l) viewport.centerOnTile(l);
+            props.onSelect(id);
           }}
         />
       </div>

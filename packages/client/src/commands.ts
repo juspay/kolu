@@ -61,6 +61,7 @@ export interface CommandDeps {
   // Canvas
   canvasFitAll: () => void;
   canvasCenterActive: () => void;
+  toggleMinimap: () => void;
   isCanvasMode: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
@@ -171,6 +172,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Center on active tile",
             keybind: SHORTCUTS.canvasCenterActive.keybind,
             onSelect: () => deps.canvasCenterActive(),
+          },
+          {
+            name: "Toggle minimap",
+            keybind: SHORTCUTS.toggleMinimap.keybind,
+            onSelect: () => deps.toggleMinimap(),
           },
         ]
       : []),

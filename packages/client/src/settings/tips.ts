@@ -78,4 +78,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-canvas-hand",
     text: "In Canvas mode, middle-click and drag to pan freely in any direction",
   },
+  {
+    id: "amb-canvas-minimap",
+    text: `In Canvas mode, ${formatKeybind(SHORTCUTS.toggleMinimap.keybind)} toggles the minimap for a bird's-eye view`,
+  },
 ];

@@ -27,6 +27,7 @@ interface ShortcutDeps {
   toggleRightPanel: () => void;
   canvasFitAll: () => void;
   canvasCenterActive: () => void;
+  toggleMinimap: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -192,6 +193,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
     deps.canvasCenterActive();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleMinimap.keybind)) {
+    deps.toggleMinimap();
     return true;
   }
 

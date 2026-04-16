@@ -47,6 +47,12 @@ export interface CanvasViewport {
   fitAll: (tiles: TileLayout[]) => void;
   /** Set pan so a specific tile is centered. */
   centerOnTile: (tile: TileLayout) => void;
+  /** Pan so canvas-space point (x, y) is centered in the viewport. */
+  panTo: (x: number, y: number) => void;
+  /** Set pan offset directly (canvas-space coordinates). */
+  setPan: (x: number, y: number) => void;
+  /** Current viewport dimensions in pixels (0×0 before mount). */
+  viewportSize: () => { width: number; height: number };
   /** Snap a value to the canvas grid. */
   snapToGrid: (value: number) => number;
   /** CSS background-position for the grid, tracking pan+zoom. */
@@ -112,6 +118,35 @@ function centerOnTile(tile: TileLayout) {
   setPanY(pan.panY);
 }
 
+function panTo(x: number, y: number) {
+  if (!containerEl) return;
+  const pan = computeCenterPan(
+    x,
+    y,
+    x,
+    y,
+    containerEl.clientWidth,
+    containerEl.clientHeight,
+    zoom(),
+  );
+  setPanX(pan.panX);
+  setPanY(pan.panY);
+}
+
+function setPan(x: number, y: number) {
+  setPanX(x);
+  setPanY(y);
+}
+
+// Not reactive on container resize — reads DOM directly. Pan/zoom signals
+// trigger dependents often enough that stale dimensions are short-lived.
+function viewportSize() {
+  return {
+    width: containerEl?.clientWidth ?? 0,
+    height: containerEl?.clientHeight ?? 0,
+  };
+}
+
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
   const result = zoomToCenterPure(
@@ -135,6 +170,9 @@ const viewport: CanvasViewport = {
   normalizeDelta,
   fitAll,
   centerOnTile,
+  panTo,
+  setPan,
+  viewportSize,
   snapToGrid: snapToGridPure,
   gridBgPosition: () => gridBgPositionCSS(panX(), panY(), zoom()),
   gridBgSize: () => gridBgSizeCSS(zoom()),
