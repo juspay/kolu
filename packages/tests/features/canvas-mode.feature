@@ -92,6 +92,39 @@ Feature: Canvas mode
     Then the canvas transform should have changed
     And there should be no page errors
 
+  Scenario: Minimap shows zoom bar in canvas mode
+    When I click the canvas mode toggle
+    Then the minimap should be visible
+    And the minimap toggle button should be visible
+    And there should be no page errors
+
+  Scenario: Minimap expands with multiple terminals
+    Given I create a terminal
+    And I create a terminal
+    When I click the canvas mode toggle
+    Then the minimap map should be visible
+    And there should be no page errors
+
+  Scenario: Minimap toggle collapses and expands the map
+    Given I create a terminal
+    And I create a terminal
+    When I click the canvas mode toggle
+    Then the minimap map should be visible
+    When I click the minimap toggle
+    Then the minimap map should not be visible
+    When I click the minimap toggle
+    Then the minimap map should be visible
+    And there should be no page errors
+
+  Scenario: Minimap viewport rect drag pans the canvas
+    Given I create a terminal
+    And I create a terminal
+    When I click the canvas mode toggle
+    And I save the canvas viewport state
+    And I drag the minimap viewport rect
+    Then the canvas viewport state should have changed
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible

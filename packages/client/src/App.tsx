@@ -42,6 +42,7 @@ import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useServerState } from "./settings/useServerState";
 import { useTips } from "./settings/useTips";
+import { toggleMinimap } from "./canvas/CanvasMinimap";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -240,6 +241,7 @@ const App: Component = () => {
     toggleRightPanel: rightPanel.togglePanel,
     canvasFitAll: handleCanvasFitAll,
     canvasCenterActive: handleCanvasCenterActive,
+    toggleMinimap,
     isCanvasMode: canvasMode,
   });
 
