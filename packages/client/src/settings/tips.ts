@@ -58,4 +58,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-inspector",
     text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
   },
+  {
+    id: "amb-canvas",
+    text: "Click the grid icon in the header to switch to Canvas mode — drag and resize terminals freely",
+  },
 ];
