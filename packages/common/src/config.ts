@@ -39,6 +39,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   colorScheme: "dark",
   sidebarAgentPreviews: "attention",
   canvasMode: false,
+  terminalRenderer: "auto",
   rightPanel: {
     collapsed: true,
     size: 0.25,

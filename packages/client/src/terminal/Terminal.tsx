@@ -110,11 +110,16 @@ const Terminal: Component<{
     webgl?.clearTextureAtlas();
   }
 
-  /** Only the focused+visible tile holds a WebGL context — Chrome's per-tab
-   *  limit (~16) is quickly exhausted in canvas mode where every tile renders
-   *  simultaneously (issue #575). Non-focused tiles fall back to xterm's
-   *  built-in DOM renderer via `WebglAddon.dispose()`. */
-  const shouldUseWebgl = () => props.visible && props.focused !== false;
+  /** Capability: only the focused+visible tile is allowed to hold a WebGL
+   *  context — Chrome's per-tab limit (~16) is quickly exhausted in canvas
+   *  mode where every tile renders simultaneously (issue #575). Non-focused
+   *  tiles fall back to xterm's built-in DOM renderer via `WebglAddon.dispose()`. */
+  const canUseWebgl = () => props.visible && props.focused !== false;
+  /** Policy: user can opt out of WebGL entirely from settings. DOM-everywhere
+   *  trades scrolling throughput for a stable font on focus swap (the WebGL
+   *  atlas and the DOM renderer rasterize text differently). */
+  const wantsWebgl = () => preferences().terminalRenderer === "auto";
+  const shouldUseWebgl = () => canUseWebgl() && wantsWebgl();
 
   function loadWebgl() {
     if (!terminal || webgl) return;
