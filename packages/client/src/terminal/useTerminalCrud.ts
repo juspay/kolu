@@ -122,6 +122,7 @@ export function useTerminalCrud(deps: {
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     if (theme) setThemeName(info.id, theme);
+    showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
     return info.id;
   }
 
