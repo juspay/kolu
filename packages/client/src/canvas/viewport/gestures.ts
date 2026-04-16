@@ -3,6 +3,7 @@
  *  Emits pan/zoom deltas via callbacks; knows nothing about state or CSS. */
 
 import { capturePointerGesture } from "./capturePointerGesture";
+import { createWheelOwnership } from "./wheelOwnership";
 
 const ZOOM_SPEED = 0.002;
 
@@ -14,26 +15,38 @@ export interface GestureCallbacks {
 }
 
 /** Install wheel and middle-mouse gesture listeners on a container element.
- *  Returns a cleanup function that removes all listeners. */
+ *  Returns a cleanup function that removes all listeners.
+ *
+ *  `shouldYieldWheel`, if provided, is called on the first event of a wheel
+ *  gesture; returning true lets the target scroll natively (no pan, no
+ *  preventDefault). Ownership holds until ~150ms of wheel idle so cursor drift
+ *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
+ *  canvas regardless. */
 export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
+  shouldYieldWheel?: (e: WheelEvent) => boolean,
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
+  const ownership = shouldYieldWheel
+    ? createWheelOwnership(shouldYieldWheel)
+    : null;
 
-  // Wheel: unmodified = pan, ctrl/meta = zoom
+  // Wheel: unmodified = pan (subject to ownership), ctrl/meta = zoom
   el.addEventListener(
     "wheel",
     (e) => {
-      e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
         const rect = el.getBoundingClientRect();
         const factor = 1 - e.deltaY * ZOOM_SPEED;
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
-      } else {
-        callbacks.onPan(e.deltaX, e.deltaY);
+        return;
       }
+      if (ownership?.resolve(e) === "yielded") return;
+      e.preventDefault();
+      callbacks.onPan(e.deltaX, e.deltaY);
     },
     { passive: false, signal },
   );
@@ -69,6 +82,7 @@ export function installGestures(
 
   return () => {
     abortPanDrag?.();
+    ownership?.dispose();
     abort.abort();
   };
 }

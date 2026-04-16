@@ -78,6 +78,20 @@ Feature: Canvas mode
     Then there should be 2 canvas tiles
     And the newest canvas tile should be centered in the viewport
 
+  Scenario: Scroll on terminal does not pan the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I scroll the wheel over the terminal tile
+    Then the canvas transform should not have changed
+    And there should be no page errors
+
+  Scenario: Scroll on canvas background pans the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I scroll the wheel over the canvas background
+    Then the canvas transform should have changed
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas mode toggle is hidden on mobile
     Then the canvas mode toggle should not be visible
