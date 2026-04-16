@@ -211,6 +211,13 @@ export const store = new Conf<PersistedState>({
     //   { tab: { kind: "inspector" } | { kind: "code", mode: "local"|"branch"|"browse" } }
     // Any transient flat `codeMode` field from an in-flight build of #576 is
     // discarded — the mode now lives inside the `code` variant of the tab.
+    // Users on such a build with `codeMode: "branch"` or `"browse"` are
+    // reset to `"local"`; no release ever shipped that intermediate shape,
+    // and "local" matches the pre-#555 default so it's a safe fallback.
+    // The `typeof === "object"` guard is a belt-and-suspenders no-op for
+    // the already-migrated case (conf won't re-run this key once seen);
+    // `null` slips through and falls into the inspector default, which is
+    // the right recovery for a corrupt tab value.
     "1.13.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
       const rp = current.rightPanel as Record<string, unknown>;
