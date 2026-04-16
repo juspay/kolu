@@ -281,7 +281,7 @@ Check whether a PR already exists for this branch (`gh pr view`).
 
    **MANDATORY**: Load the `forge-pr` skill (via Skill tool) BEFORE writing the PR title/body.
 
-2. **Post hickey/lowy results**: If the hickey or lowy steps produced findings with suggestions, post the analysis as a PR comment using `gh pr comment`. Use a `## Hickey/Lowy Analysis` header. Skip this if neither found issues.
+2. **Post hickey/lowy results**: Post the hickey and lowy analysis as a PR comment using `gh pr comment` with a `## Hickey/Lowy Analysis` header. Always post when the steps ran, even if all findings are deferred or out of scope — reviewers should see the structural analysis.
 
 **If PR already exists** (followup runs, `--from` entry points):
 
