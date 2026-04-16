@@ -3,13 +3,12 @@
  *
  *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
  *  gesture handling — decouples sensing from position application.
- *  Resize uses raw pointer events (resize is not a drag-to-position
- *  gesture, so solid-dnd's model doesn't fit). */
+ *  Resize uses raw pointer events with AbortController for cleanup
+ *  (resize is not a drag-to-position gesture, so solid-dnd doesn't fit). */
 
 import {
   type Component,
   For,
-  Show,
   createEffect,
   createSignal,
   on,
@@ -22,10 +21,8 @@ import {
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import type { ITheme } from "@xterm/xterm";
-import Terminal from "./Terminal";
+import TerminalContent from "./TerminalContent";
 import TerminalMeta from "./TerminalMeta";
-import SubPanelTabBar from "./SubPanelTabBar";
-import { useSubPanel } from "./useSubPanel";
 import { useCanvasLayouts, type TileLayout } from "./useCanvasLayouts";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
@@ -50,7 +47,6 @@ const TerminalCanvas: Component<{
   onSearchOpenChange: (open: boolean) => void;
   subTerminalIds: (id: TerminalId) => TerminalId[];
 }> = (props) => {
-  const subPanel = useSubPanel();
   const { layouts, setLayouts, reportLayout } = useCanvasLayouts();
 
   // Auto-assign layout for new terminals and clean up removed ones
@@ -104,10 +100,7 @@ const TerminalCanvas: Component<{
     setDragDelta({ x: 0, y: 0 });
   }
 
-  /** Start resizing a tile from the bottom-right corner.
-   *  Resize is not a drag-to-position gesture, so solid-dnd doesn't fit.
-   *  Raw pointer events are the right tool here — but we capture the
-   *  abort controller for cleanup if the component unmounts mid-resize. */
+  /** Start resizing a tile from the bottom-right corner. */
   let resizeAbort: AbortController | null = null;
   function startResize(id: TerminalId, e: PointerEvent) {
     e.preventDefault();
@@ -177,8 +170,6 @@ const TerminalCanvas: Component<{
                 id={id}
                 parent={props}
                 layouts={layouts}
-                setLayouts={setLayouts}
-                subPanel={subPanel}
                 startResize={startResize}
               />
             )}
@@ -190,7 +181,8 @@ const TerminalCanvas: Component<{
 };
 
 /** Single tile on the canvas — separated so createDraggable gets its own
- *  reactive owner per tile (required by solid-dnd). */
+ *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
+ *  title bar, resize handle. Terminal rendering delegated to TerminalContent. */
 const CanvasTile: Component<{
   id: TerminalId;
   parent: {
@@ -207,20 +199,12 @@ const CanvasTile: Component<{
     subTerminalIds: (id: TerminalId) => TerminalId[];
   };
   layouts: Record<string, TileLayout>;
-  setLayouts: any;
-  subPanel: ReturnType<typeof useSubPanel>;
   startResize: (id: TerminalId, e: PointerEvent) => void;
 }> = (props) => {
   const { id } = props;
   const draggable = createDraggable(id);
   const isActive = () => props.parent.activeId === id;
   const theme = () => props.parent.getTerminalTheme(id);
-  const subIds = () => props.parent.subTerminalIds(id);
-  const panelState = () => props.subPanel.getSubPanel(id);
-  const hasSubs = () => subIds().length > 0;
-  const isExpanded = () => hasSubs() && !panelState().collapsed;
-  const activeSubTab = () => panelState().activeSubTab;
-  const focusTarget = () => panelState().focusTarget;
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
 
@@ -278,64 +262,21 @@ const CanvasTile: Component<{
         </button>
       </div>
 
-      {/* Terminal body */}
-      <div class="flex-1 min-h-0 flex flex-col">
-        <div class="flex-1 min-h-0">
-          <Terminal
-            terminalId={id}
-            visible={true}
-            focused={isActive() && (!isExpanded() || focusTarget() === "main")}
-            theme={theme()}
-            searchOpen={isActive() && props.parent.searchOpen}
-            onSearchOpenChange={props.parent.onSearchOpenChange}
-            onFocus={() => {
-              props.parent.onSelect(id);
-              props.subPanel.setFocusTarget(id, "main");
-            }}
-          />
-        </div>
-
-        {/* Sub-panel */}
-        <Show when={isExpanded()}>
-          <div class="border-t border-edge/30">
-            <SubPanelTabBar
-              subIds={subIds()}
-              activeSubTab={activeSubTab()}
-              getMetadata={props.parent.getMetadata}
-              onSelect={(subId) => props.subPanel.setActiveSubTab(id, subId)}
-              onClose={props.parent.onCloseTerminal}
-              onCollapse={() => props.subPanel.collapsePanel(id)}
-              onCreate={() =>
-                props.parent.onCreateSubTerminal(
-                  id,
-                  props.parent.activeMeta?.cwd,
-                )
-              }
-            />
-            <div class="h-40">
-              <For each={subIds()}>
-                {(subId) => (
-                  <Terminal
-                    terminalId={subId}
-                    visible={activeSubTab() === subId}
-                    focused={
-                      isActive() &&
-                      isExpanded() &&
-                      activeSubTab() === subId &&
-                      focusTarget() === "sub"
-                    }
-                    theme={theme()}
-                    searchOpen={false}
-                    onSearchOpenChange={() => {}}
-                    onFocus={() => props.subPanel.setFocusTarget(id, "sub")}
-                    isSub
-                  />
-                )}
-              </For>
-            </div>
-          </div>
-        </Show>
-      </div>
+      {/* Terminal content — shared with focus mode */}
+      <TerminalContent
+        terminalId={id}
+        visible={true}
+        focused={isActive()}
+        theme={theme()}
+        searchOpen={isActive() && props.parent.searchOpen}
+        onSearchOpenChange={props.parent.onSearchOpenChange}
+        subTerminalIds={props.parent.subTerminalIds(id)}
+        getMetadata={props.parent.getMetadata}
+        onCreateSubTerminal={props.parent.onCreateSubTerminal}
+        onCloseTerminal={props.parent.onCloseTerminal}
+        activeMeta={props.parent.activeMeta}
+        onFocus={() => props.parent.onSelect(id)}
+      />
 
       {/* Resize handle — bottom-right corner, larger hit area */}
       <div

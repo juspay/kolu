@@ -166,7 +166,15 @@ body {
    Lines use the edge color at low opacity so they adapt to light/dark themes. */
 .canvas-grid-bg {
   background-image:
-    linear-gradient(to right, color-mix(in oklch, var(--color-edge) 40%, transparent) 1px, transparent 1px),
-    linear-gradient(to bottom, color-mix(in oklch, var(--color-edge) 40%, transparent) 1px, transparent 1px);
+    linear-gradient(
+      to right,
+      color-mix(in oklch, var(--color-edge) 40%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--color-edge) 40%, transparent) 1px,
+      transparent 1px
+    );
   background-size: 24px 24px;
 }
