@@ -86,7 +86,7 @@ const CanvasTile: Component<{
             e.stopPropagation();
             props.onClose();
           }}
-          title="Close"
+          title="Close terminal"
         >
           ×
         </button>
