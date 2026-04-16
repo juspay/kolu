@@ -284,14 +284,13 @@ const canvasLayouts = new Map<
   { x: number; y: number; w: number; h: number }
 >();
 
-/** Store a terminal's canvas layout position (reported by the client).
- *  Does NOT emit session:changed — layout is cosmetic metadata included
- *  in the next snapshot triggered by a real terminal lifecycle event. */
+/** Store a terminal's canvas layout position (reported by the client). */
 export function setCanvasLayout(
   id: TerminalId,
   layout: { x: number; y: number; w: number; h: number },
 ): void {
   canvasLayouts.set(id, layout);
+  emitChanged();
 }
 
 // Sub-panel state — client-reported, used only for session snapshots.
@@ -300,22 +299,26 @@ const subPanelStates = new Map<
   { collapsed: boolean; panelSize: number }
 >();
 
-/** Store a terminal's sub-panel state (reported by the client).
- *  Does NOT emit session:changed — sub-panel state is cosmetic metadata. */
+/** Store a terminal's sub-panel state (reported by the client). */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
   subPanelStates.set(id, state);
+  emitChanged();
 }
 
 // Active terminal ID — client-reported, used only for session snapshots.
 let activeTerminalId: TerminalId | null = null;
 
 /** Store which terminal is active (reported by the client).
- *  Does NOT emit session:changed — active terminal is cosmetic metadata. */
+ *  Only emits session:changed when a terminal is actually selected —
+ *  null (no selection, e.g. client reconnect) must not trigger auto-save
+ *  because snapshotSession() may return an empty terminal list at that
+ *  point, which would clear the saved session. */
 export function setActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
+  if (id !== null) emitChanged();
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */
