@@ -71,15 +71,18 @@ export function useServerState() {
     const { rightPanel: rpPatch, ...rest } = patch;
     if (Object.keys(rest).length > 0) setPrefs(rest);
     if (rpPatch) {
-      // tab is a discriminated union — use the 3-arg path form to REPLACE
-      // the value wholesale. Shallow-merging `{ tab: newTab }` into the
-      // rightPanel object would carry stale fields (e.g. a lingering `mode`
-      // from {kind:"code"} when switching to {kind:"inspector"}).
       const { tab, ...rpRest } = rpPatch;
+      // Scalar fields of rightPanel (collapsed, size, pinned) go through
+      // the normal merge — any path form works for primitives.
       if (Object.keys(rpRest).length > 0) {
         setPrefs("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);
       }
-      if (tab !== undefined) setPrefs("rightPanel", "tab", tab);
+      // `tab` is a discriminated-union object. The 3-arg path form
+      // deep-merges an object value (leaving stale fields from the old
+      // variant), and the 2-arg merge form doesn't trigger fine-grained
+      // reactivity on nested readers like `tab.mode` — verified empirically.
+      // `reconcile` both REPLACES wholesale and fires proper reactivity.
+      if (tab !== undefined) setPrefs("rightPanel", "tab", reconcile(tab));
     }
     void client.state
       .update({ preferences: patch })
