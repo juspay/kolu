@@ -26,7 +26,7 @@ import { log } from "./log.ts";
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.13.0";
+const SCHEMA_VERSION = "1.14.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -231,6 +231,14 @@ export const store = new Conf<PersistedState>({
         ...current,
         rightPanel: { ...rest, tab } as typeof current.rightPanel,
       });
+    },
+    // terminalRenderer preference added — default to "auto" (existing behavior:
+    // WebGL on focused+visible tile, DOM elsewhere).
+    "1.14.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      if ((current as Record<string, unknown>).terminalRenderer === undefined) {
+        store.set("preferences", { ...current, terminalRenderer: "auto" });
+      }
     },
   },
 });

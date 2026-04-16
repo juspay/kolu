@@ -35,3 +35,25 @@ Then(
     );
   },
 );
+
+When(
+  "I click the {string} renderer button",
+  async function (this: KoluWorld, value: string) {
+    await this.page.click(`[data-testid="terminal-renderer-${value}"]`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the terminal renderer should be {string}",
+  async function (this: KoluWorld, renderer: string) {
+    await this.page.waitForFunction(
+      (expected) =>
+        document
+          .querySelector("[data-visible][data-terminal-id]")
+          ?.getAttribute("data-renderer") === expected,
+      renderer,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

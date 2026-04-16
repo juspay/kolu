@@ -10,7 +10,7 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { useServerState } from "./useServerState";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
-import type { SidebarAgentPreviews } from "kolu-common";
+import type { Preferences, SidebarAgentPreviews } from "kolu-common";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },
@@ -29,6 +29,15 @@ const PREVIEW_OPTIONS: readonly SegmentedControlOption<SidebarAgentPreviews>[] =
     { value: "agents", label: "Agents" },
     { value: "all", label: "All" },
   ];
+
+/** WebGL = system chooses per tile (WebGL on focused, DOM on others).
+ *  DOM = force DOM everywhere; no font shift on focus swap. */
+const RENDERER_OPTIONS: readonly SegmentedControlOption<
+  Preferences["terminalRenderer"]
+>[] = [
+  { value: "auto", label: "WebGL" },
+  { value: "dom", label: "DOM" },
+];
 
 const SettingsPopover: Component<{
   open: boolean;
@@ -130,6 +139,16 @@ const SettingsPopover: Component<{
               value={preferences().sidebarAgentPreviews}
               onChange={(v) => updatePreferences({ sidebarAgentPreviews: v })}
               testIdPrefix="sidebar-agent-previews"
+            />
+          </div>
+          {/* Terminal renderer — WebGL (focused tile) vs DOM everywhere */}
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-fg-2">Renderer</span>
+            <SegmentedControl
+              options={RENDERER_OPTIONS}
+              value={preferences().terminalRenderer}
+              onChange={(v) => updatePreferences({ terminalRenderer: v })}
+              testIdPrefix="terminal-renderer"
             />
           </div>
           {/* Startup tips */}

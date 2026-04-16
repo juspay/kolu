@@ -343,6 +343,11 @@ export const PreferencesSchema = z.object({
   /** Canvas mode shows all terminals as freeform draggable tiles.
    *  Focus mode shows one terminal at a time with a sidebar. */
   canvasMode: z.boolean(),
+  /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
+   *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
+   *  WebGL-everywhere unsafe). `dom` forces DOM everywhere, eliminating the
+   *  font-rendering shift on focus swap at the cost of WebGL throughput. */
+  terminalRenderer: z.enum(["auto", "dom"]),
   rightPanel: RightPanelPrefsSchema,
 });
 
