@@ -23,7 +23,7 @@ The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHu
 
 ## Results Tracking
 
-After each step's verification, record results via the `do-results` script. The script manages a JSON file with this schema:
+After each step's verification, record results via the `scripts/do-results` script (in this skill's directory). The script manages a JSON file with this schema:
 
 ```json
 {
@@ -51,12 +51,12 @@ After each step's verification, record results via the `do-results` script. The 
 
 - `active` is a state enum, not a boolean. Set it to `"working"` when the workflow starts (**sync**), `"waiting"` when the agent is idle waiting for an external process (e.g., background CI), back to `"working"` when the external process returns, and `false` when the workflow ends (**done**). The stop hook uses this field: `"working"` blocks exits, `"waiting"` allows them (with a resume hint), `false` allows them.
 - Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
-- **Always use the `do-results` script** (in this skill's directory) — never write the JSON file directly. Commands:
-  - **Initialize**: `do-results init <forge> <noGit>` — creates the skeleton with a timestamp
-  - **Record a step**: `do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — pass `now` for either timestamp to auto-generate the current UTC time
-  - **Update top-level field**: `do-results set <field> <value>` (e.g., `set active waiting`, `set status completed`)
-  - **Patch last step**: `do-results patch-last <field> <value>` (e.g., `patch-last completedAt "2026-..."`)
-- Pass `now` as a timestamp argument to `do-results step` — the script resolves it to UTC internally. Do not run `date` yourself or guess timestamps.
+- **Always use the `scripts/do-results` script** (in this skill's directory, alongside `scripts/steps/`) — never write the JSON file directly. Invoke with the full path (e.g. `.../skills/do/scripts/do-results ...`). Commands:
+  - **Initialize**: `scripts/do-results init <forge> <noGit>` — creates the skeleton with a timestamp
+  - **Record a step**: `scripts/do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — pass `now` for either timestamp to auto-generate the current UTC time
+  - **Update top-level field**: `scripts/do-results set <field> <value>` (e.g., `set active waiting`, `set status completed`)
+  - **Patch last step**: `scripts/do-results patch-last <field> <value>` (e.g., `patch-last completedAt "2026-..."`)
+- Pass `now` as a timestamp argument to `scripts/do-results step` — the script resolves it to UTC internally. Do not run `date` yourself or guess timestamps.
 
 ## Progress tracking
 
@@ -66,15 +66,15 @@ Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a 
 sync, research, hickey+lowy, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
 ```
 
-At each step boundary, update task state **alongside** the `do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
+At each step boundary, update task state **alongside** the `scripts/do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
 
 Rules:
 
 - **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
 - **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
 - **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
-- **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason is recorded via `do-results step <name> skipped ... "<reason>"`; the task list just shows the step as done.
-- **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `do-results set status failed`.
+- **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason is recorded via `scripts/do-results step <name> skipped ... "<reason>"`; the task list just shows the step as done.
+- **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `scripts/do-results set status failed`.
 
 ## Steps
 
@@ -95,7 +95,7 @@ The script:
   > _Dirty tree detected. Continuing will create a fresh branch on top of these changes. If you wanted the agent to extend your WIP in place without touching git, re-run with `--no-git`._
 
 - Classifies the forge from `git remote get-url origin` — `github.com` → `github`, `bitbucket.` (covers `bitbucket.org` and self-hosted servers like `bitbucket.juspay.net`) → `bitbucket`, otherwise `unknown`.
-- Calls `do-results init <forge> <noGit>` then `do-results step sync passed ...`.
+- Calls `scripts/do-results init <forge> <noGit>` then `scripts/do-results step sync passed ...`.
 - Prints `forge=<value>`, `branch=<value>`, `defaultBranch=<value>` on stdout for downstream steps.
 
 **Only `github` has an active code path today.** Both `bitbucket` and `unknown` cause forge-dependent steps (PR creation, PR comments, PR edits, CI status) to skip gracefully. Bitbucket support is planned — see [srid/agency#10](https://github.com/srid/agency/issues/10).
@@ -136,7 +136,7 @@ The question should explain the rationale briefly, e.g.:
 
 > "This looks like a docs-only change. Which steps should run? (Pre-selected = recommended)"
 
-Steps the user leaves deselected are skipped throughout the workflow with status `skipped` and reason `"--setup: user skipped"`. Steps the user selects proceed normally. The `--setup` flag is recorded in the results JSON via `do-results set setup true`.
+Steps the user leaves deselected are skipped throughout the workflow with status `skipped` and reason `"--setup: user skipped"`. Steps the user selects proceed normally. The `--setup` flag is recorded in the results JSON via `scripts/do-results set setup true`.
 
 **Interaction with other flags**: `--setup` composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that *would* normally run are presented for user selection.
 
@@ -308,7 +308,7 @@ Read the project's instructions to find the CI command and verification method. 
 
 **Never pipe CI to `tail`/`head`**, and **never append `2>&1`** — background mode captures both streams.
 
-**Active state**: Before waiting for background CI, run `do-results set active waiting`. When CI returns (success or failure), run `do-results set active working` before proceeding. This lets the stop hook allow graceful exits while the agent is idle.
+**Active state**: Before waiting for background CI, run `scripts/do-results set active waiting`. When CI returns (success or failure), run `scripts/do-results set active working` before proceeding. This lets the stop hook allow graceful exits while the agent is idle.
 
 CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
@@ -334,7 +334,7 @@ Present a summary of all steps with their verification status. If any step has a
 2. A step `skipped` with `reason` `"--no-git"` (user opted out of git operations).
 3. A step `skipped` with `reason` `"--setup: user skipped"` (user chose to skip during setup).
 
-A `failed` step always blocks `"completed"`. No redefining "passed," no footnote caveats. Update via `do-results set status completed` or `do-results set status failed` accordingly.
+A `failed` step always blocks `"completed"`. No redefining "passed," no footnote caveats. Update via `scripts/do-results set status completed` or `scripts/do-results set status failed` accordingly.
 
 #### Timing summary
 
