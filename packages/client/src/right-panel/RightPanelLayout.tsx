@@ -4,7 +4,7 @@
  *  On mobile viewports the right panel is disabled entirely — there's no
  *  toggle icon and the screen is too narrow for a useful side panel. */
 
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, type JSX, Show, createMemo } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import Resizable from "@corvu/resizable";
 import RightPanel from "./RightPanel";
@@ -31,6 +31,20 @@ const RightPanelLayout: Component<{
   /** Whether the right panel should render (desktop only, not collapsed). */
   const showPanel = () => !isMobile() && !rightPanel.collapsed();
 
+  /** Hoisted to avoid Solid's JSX-inline-ternary compiler transform:
+   *  writing `sizes={cond ? a : b}` inline compiles the condition into a
+   *  FRESH `_$memo(() => cond)()` call on every prop read. `@corvu/resizable`
+   *  reads `props.sizes` inside `untrack`, which nulls the reactive Owner —
+   *  every one of those freshly-created memos becomes an orphan that never
+   *  disposes and permanently subscribes to the preferences signal
+   *  (Kolu #610 Part 2 root cause). Keeping the ternary inside a hoisted
+   *  `createMemo` makes it a single owned memo, not a per-read factory. */
+  const sizes = createMemo(() =>
+    rightPanel.collapsed()
+      ? [1, 0]
+      : [1 - rightPanel.panelSize(), rightPanel.panelSize()],
+  );
+
   return (
     <Show
       when={!isMobile() && rightPanel.pinned()}
@@ -55,11 +69,7 @@ const RightPanelLayout: Component<{
       <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
         <Resizable
           orientation="horizontal"
-          sizes={
-            rightPanel.collapsed()
-              ? [1, 0]
-              : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-          }
+          sizes={sizes()}
           onSizesChange={(sizes) => {
             if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
           }}

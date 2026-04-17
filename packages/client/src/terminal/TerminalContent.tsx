@@ -4,7 +4,7 @@
  *  Used by both TerminalPane (focus mode) and CanvasTile (canvas mode).
  *  Owns sub-panel state internally — callers provide only the shell. */
 
-import { type Component, Show, For } from "solid-js";
+import { type Component, Show, For, createMemo } from "solid-js";
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
@@ -50,6 +50,16 @@ const TerminalContent: Component<{
     activeSubTab() === subId &&
     focusTarget() === "sub";
 
+  /** Hoisted to avoid Solid's JSX-inline-ternary compiler transform — see
+   *  `RightPanelLayout.tsx` for the full explanation. `@corvu/resizable`
+   *  reads `props.sizes` inside `untrack`, so an inline ternary here leaks
+   *  a fresh memo on every read. */
+  const sizes = createMemo(() =>
+    isExpanded()
+      ? [1 - panelState().panelSize, panelState().panelSize]
+      : [1, 0],
+  );
+
   function handleSizesChange(sizes: number[]) {
     // Persist the bottom panel size when user drags the handle.
     // Ignore tiny values — the Resizable fires onSizesChange with [1, 0]
@@ -73,11 +83,7 @@ const TerminalContent: Component<{
   return (
     <Resizable
       orientation="vertical"
-      sizes={
-        isExpanded()
-          ? [1 - panelState().panelSize, panelState().panelSize]
-          : [1, 0]
-      }
+      sizes={sizes()}
       onSizesChange={handleSizesChange}
       class="flex-1 min-h-0"
     >
