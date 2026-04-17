@@ -121,6 +121,22 @@ export function trackDispose(id: number): void {
   pushEvent(e, { ts: now, kind: "dispose" });
 }
 
+/** One alive canvas (in DOM or detached) with its backing-store dimensions.
+ *  `bytesEst = width × height × 4` — the RGBA8 pixel buffer the browser
+ *  holds for the 2D/WebGL canvas bitmap. `loseContext()` frees the GPU-side
+ *  resources but leaves the HTMLCanvasElement's JS-visible bitmap intact
+ *  until the element is GC'd, so this tells us how much memory each
+ *  still-retained canvas is pinning independent of GPU state. */
+export interface CanvasSizeEntry {
+  canvasId: number;
+  terminalId: TerminalId;
+  width: number;
+  height: number;
+  bytesEst: number;
+  isConnected: boolean;
+  contextLost: boolean;
+}
+
 export interface WebglLifecycleSnapshot {
   totalCreated: number;
   disposed: number;
@@ -133,6 +149,9 @@ export interface WebglLifecycleSnapshot {
   gced: number;
   /** Canvas exists AND `gl.isContextLost()` returns true. */
   contextsLost: number;
+  /** Every still-alive canvas with its pixel-buffer footprint. Attached
+   *  canvases come first so the zombie ones stand out at the bottom. */
+  aliveCanvases: CanvasSizeEntry[];
   /** Flattened, time-sorted tail across all entries. */
   recentEvents: (WebglEvent & { canvasId: number; terminalId: TerminalId })[];
 }
@@ -149,6 +168,7 @@ export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
     canvasId: number;
     terminalId: TerminalId;
   })[] = [];
+  const aliveCanvases: CanvasSizeEntry[] = [];
 
   for (const e of entries) {
     for (const ev of e.events) {
@@ -164,10 +184,24 @@ export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
     // Second `getContext("webgl2")` on an established canvas returns the
     // existing context object without creating a new one — safe to probe.
     const gl = canvas.getContext("webgl2");
-    if (gl && gl.isContextLost()) contextsLost++;
+    const lost = !!(gl && gl.isContextLost());
+    if (lost) contextsLost++;
+    aliveCanvases.push({
+      canvasId: e.id,
+      terminalId: e.terminalId,
+      width: canvas.width,
+      height: canvas.height,
+      bytesEst: canvas.width * canvas.height * 4,
+      isConnected: canvas.isConnected,
+      contextLost: lost,
+    });
   }
 
   allEvents.sort((a, b) => a.ts - b.ts);
+  aliveCanvases.sort((a, b) => {
+    if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
+    return a.canvasId - b.canvasId;
+  });
 
   return {
     totalCreated: entries.length,
@@ -176,6 +210,7 @@ export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
     aliveDetached,
     gced,
     contextsLost,
+    aliveCanvases,
     recentEvents: allEvents.slice(-RECENT_EVENTS_VIEW),
   };
 }

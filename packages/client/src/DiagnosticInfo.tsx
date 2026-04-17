@@ -37,6 +37,14 @@ function browserFacts() {
   };
 }
 
+/** Render a byte count as MB with one decimal; small values get KB for
+ *  readability — a fresh primary buffer at 80×24 is only ~23 KB, and showing
+ *  "0.0 MB" there obscures more than it communicates. */
+function formatMB(bytes: number): string {
+  if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
  *  definitions — isolate the narrow cast and the MB rounding here so the
  *  snapshot memo stays free of both. Returns null on non-Chromium browsers. */
@@ -92,6 +100,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         bufferLen,
         scrollback: bufferLen !== null ? bufferLen - d.rows : null,
         atlas: refs?.probes.webglAtlas() ?? null,
+        bufferBytes: refs?.probes.bufferBytes() ?? null,
       };
     }),
     webgl: webglLifecycleSnapshot(),
@@ -233,6 +242,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                             </span>
                           )}
                         </Show>
+                        <Show when={d.bufferBytes}>
+                          {(bb) => (
+                            <span>
+                              {" "}
+                              · buf: {formatMB(bb().primary)}
+                              <Show when={bb().alternate > 0}>
+                                {" "}
+                                (+alt {formatMB(bb().alternate)})
+                              </Show>
+                            </span>
+                          )}
+                        </Show>
                       </div>
                     </Show>
                   </div>
@@ -283,17 +304,55 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               </span>
             </Row>
           </div>
+          <Show when={snapshot().webgl.aliveCanvases.length > 0}>
+            <div class="mt-2 pt-2 border-t border-edge/50">
+              <div class="text-[10px] text-fg-3/70 mb-1">Alive canvases</div>
+              <div class="space-y-0.5 text-[10px] font-mono">
+                <For each={snapshot().webgl.aliveCanvases}>
+                  {(c) => (
+                    <div class="flex items-baseline gap-2 whitespace-nowrap">
+                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                        #{c.canvasId}
+                      </span>
+                      <span
+                        class={
+                          c.isConnected
+                            ? "text-fg-2 w-[9ch] shrink-0"
+                            : "text-danger w-[9ch] shrink-0"
+                        }
+                      >
+                        {c.isConnected ? "in-dom" : "detached"}
+                      </span>
+                      <span class="text-fg-2 tabular-nums">
+                        {c.width}×{c.height}
+                      </span>
+                      <span class="text-fg-3">·</span>
+                      <span class="text-fg-2 tabular-nums">
+                        {formatMB(c.bytesEst)}
+                      </span>
+                      <Show when={c.contextLost}>
+                        <span class="text-fg-3">·</span>
+                        <span class="text-fg-3/70">ctx-lost</span>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
             <div class="mt-2 pt-2 border-t border-edge/50">
               <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
               <div class="space-y-0.5 text-[10px] font-mono">
                 <For each={snapshot().webgl.recentEvents}>
                   {(ev) => (
-                    <div class="grid grid-cols-[8ch_5ch_1fr] items-baseline gap-2">
-                      <span class="text-fg-3/60 tabular-nums">
+                    <div class="flex items-baseline gap-2 whitespace-nowrap">
+                      <span class="text-fg-3/60 tabular-nums shrink-0">
                         {new Date(ev.ts).toISOString().slice(11, 23)}
                       </span>
-                      <span class="text-fg-3">#{ev.canvasId}</span>
+                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                        #{ev.canvasId}
+                      </span>
                       <span class="text-fg-2">
                         {ev.kind}
                         {ev.kind === "contextlost" && (

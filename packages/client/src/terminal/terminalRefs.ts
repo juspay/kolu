@@ -21,6 +21,12 @@ export interface TerminalProbes {
   /** Dimensions of the live WebGL texture atlas canvas, or null if the
    *  terminal currently has no WebGL addon. */
   webglAtlas: () => { w: number; h: number } | null;
+  /** Summed `Uint32Array.byteLength` of every BufferLine in xterm's primary
+   *  and alternate buffers — the literal bytes held by xterm's cell grid.
+   *  Reads through a private `_core._bufferService` path; returns null if
+   *  that shape has changed under us so callers fall back to "unknown"
+   *  instead of crashing. */
+  bufferBytes: () => { primary: number; alternate: number } | null;
 }
 
 export interface TerminalRefs {
