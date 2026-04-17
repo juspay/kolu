@@ -25,6 +25,7 @@ Feature: Terminal screenshot
     And the screen state should contain "screenshot-shortcut-test"
     And I press the screenshot terminal shortcut
     Then a toast should appear with text "Screenshot copied"
+    And the clipboard image should not be blank
     And there should be no page errors
 
   Scenario: Command palette entry copies terminal screenshot
