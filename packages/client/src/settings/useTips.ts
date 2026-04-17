@@ -7,7 +7,7 @@ import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
 import type { TerminalId } from "kolu-common";
-import { useServerState } from "./useServerState";
+import { usePreferences } from "./usePreferences";
 import { isMobile } from "../useMobile";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
@@ -16,13 +16,13 @@ const ambientPool = AMBIENT_TIPS.filter(
 );
 
 // Module-level references, set on first useTips() call.
-let _prefs: ReturnType<typeof useServerState>;
+let _prefs: ReturnType<typeof usePreferences>;
 let _initialized = false;
 
 function ensureInit() {
   if (_initialized) return;
   _initialized = true;
-  _prefs = useServerState();
+  _prefs = usePreferences();
 }
 
 function seen(): Set<TipId> {

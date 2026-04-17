@@ -38,7 +38,7 @@ import ScrollToBottom from "./ScrollToBottom";
 import { createZoom } from "../input/zoom";
 import { createScrollLock } from "../scrollLock";
 import { isTouch } from "../useMobile";
-import { useServerState } from "../settings/useServerState";
+import { usePreferences } from "../settings/usePreferences";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -87,7 +87,7 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   let fitRaf = 0;
 

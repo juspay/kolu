@@ -61,7 +61,7 @@ export function updateMetadata(
     "metadata publish",
   );
   publishForTerminal("metadata", terminalId, { ...m });
-  publishSystem("session:changed", {});
+  publishSystem("terminals:dirty", {});
 }
 
 /**

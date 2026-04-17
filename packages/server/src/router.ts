@@ -35,10 +35,12 @@ import {
   type GitResult,
 } from "kolu-git";
 import {
-  getServerState,
-  testSetServerState,
-  updateServerState,
-} from "./state.ts";
+  getPreferences,
+  updatePreferences,
+  setPreferencesForTest,
+} from "./preferences.ts";
+import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { getSavedSession, setSavedSession } from "./session.ts";
 import { log } from "./log.ts";
 
 const t = implement(contract);
@@ -265,29 +267,53 @@ export const appRouter = t.router({
       unwrapGit(await readFile(input.repoPath, input.filePath, log)),
     ),
   },
-  state: {
-    get: t.state.get.handler(async function* ({ signal }) {
-      yield getServerState();
-      for await (const state of subscribeSystem_("state:changed", signal)) {
-        yield state;
+  preferences: {
+    get: t.preferences.get.handler(async function* ({ signal }) {
+      yield getPreferences();
+      for await (const prefs of subscribeSystem_(
+        "preferences:changed",
+        signal,
+      )) {
+        yield prefs;
       }
     }),
-    update: t.state.update.handler(async ({ input }) => {
-      // Log only the keys being patched — values may carry session blobs,
-      // recent-repo paths, or other content not safe for the operator log.
+    update: t.preferences.update.handler(async ({ input }) => {
+      // Log only patched keys — values may carry user-identifying state.
       log.info(
         {
           keys: Object.keys(input),
-          preferences: input.preferences
-            ? Object.keys(input.preferences)
+          rightPanel: input.rightPanel
+            ? Object.keys(input.rightPanel)
             : undefined,
         },
-        "state update",
+        "preferences update",
       );
-      updateServerState(input);
+      updatePreferences(input);
     }),
-    test__set: t.state.test__set.handler(async ({ input }) => {
-      testSetServerState(input);
+    test__set: t.preferences.test__set.handler(async ({ input }) => {
+      setPreferencesForTest(input);
+    }),
+  },
+  activity: {
+    get: t.activity.get.handler(async function* ({ signal }) {
+      yield getActivityFeed();
+      for await (const feed of subscribeSystem_("activity:changed", signal)) {
+        yield feed;
+      }
+    }),
+    test__set: t.activity.test__set.handler(async ({ input }) => {
+      setActivityForTest(input);
+    }),
+  },
+  session: {
+    get: t.session.get.handler(async function* ({ signal }) {
+      yield getSavedSession();
+      for await (const session of subscribeSystem_("session:changed", signal)) {
+        yield session;
+      }
+    }),
+    test__set: t.session.test__set.handler(async ({ input }) => {
+      setSavedSession(input);
     }),
   },
 });

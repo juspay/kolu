@@ -1,13 +1,24 @@
 /**
- * Session persistence — save/restore terminal sessions across restarts.
+ * Saved-session persistence — save/restore terminal sessions across restarts.
  *
- * Reads and writes to the shared conf store (see state.ts).
+ * Owns the `session` key of the shared conf store. Writers publish on the
+ * `session:changed` channel so the client's `session.get` live query stays
+ * current. The autosave loop is driven by the `terminals:dirty` control-flow
+ * channel (distinct from the `session:changed` *content* channel) — every
+ * terminal/meta mutation fires `terminals:dirty`, this module debounces and
+ * then persists.
  */
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { store } from "./state.ts";
-import { publisher } from "./publisher.ts";
+import { publisher, publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
+
+/** Write the session blob (or clear it) and publish to subscribers. */
+function writeSession(next: SavedSession | null): void {
+  store.set("session", next);
+  publishSystem("session:changed", next);
+}
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
 export function saveSession(snapshot: {
@@ -15,10 +26,10 @@ export function saveSession(snapshot: {
   activeTerminalId: string | null;
 }): void {
   if (snapshot.terminals.length === 0) {
-    store.set("session", null);
+    writeSession(null);
     return;
   }
-  store.set("session", {
+  writeSession({
     terminals: snapshot.terminals,
     activeTerminalId: snapshot.activeTerminalId,
     savedAt: Date.now(),
@@ -34,12 +45,12 @@ export function getSavedSession(): SavedSession | null {
 
 /** Clear the saved session (e.g. after successful restore). */
 export function clearSavedSession(): void {
-  store.set("session", null);
+  writeSession(null);
 }
 
-/** Set the saved session directly (test-only). */
-export function setSavedSession(session: SavedSession): void {
-  store.set("session", session);
+/** Set the saved session directly (used by test harness and session tests). */
+export function setSavedSession(session: SavedSession | null): void {
+  writeSession(session);
 }
 
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
@@ -55,7 +66,7 @@ export function initSessionAutoSave(
 ): void {
   void (async () => {
     try {
-      for await (const _ of publisher.subscribe("session:changed")) {
+      for await (const _ of publisher.subscribe("terminals:dirty")) {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => saveSession(snapshot()), 500);
       }
