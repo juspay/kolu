@@ -653,9 +653,16 @@ Then(
 When(
   "I click minimap tile rect {int}",
   async function (this: KoluWorld, index: number) {
-    const rects = this.page.locator('[data-testid="minimap-tile-rect"]');
-    await rects.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await rects.nth(index - 1).click();
+    // Dispatch click directly on the rect element. Playwright's real-mouse
+    // click would land on the minimap viewport-rect overlay instead (it
+    // renders on top of tile rects so users can drag it to pan).
+    await this.page.evaluate((i: number) => {
+      const rect = document
+        .querySelectorAll('[data-testid="minimap-tile-rect"]')
+        .item(i) as HTMLElement | null;
+      if (!rect) throw new Error(`minimap tile rect ${i + 1} not found`);
+      rect.click();
+    }, index - 1);
     await this.waitForFrame();
   },
 );
@@ -665,13 +672,28 @@ Then(
   async function (this: KoluWorld, index: number) {
     await this.page.waitForFunction(
       ({ sel, i }: { sel: string; i: number }) => {
+        // The active tile is the one with `data-active="true"` on its
+        // CanvasTile wrapper. The wrapper also carries `data-terminal-id`
+        // via the terminal rendered inside it, but keyed by tile order in
+        // the canvas container.
+        const wrappers = document.querySelectorAll(
+          `${sel} > div > [data-terminal-id][data-visible]`,
+        );
+        // That won't match — the wrapper (CanvasTile) and terminal are
+        // separate elements. Use the tile-rect index instead: find all
+        // CanvasTile wrappers and check the nth one.
         const tiles = document.querySelectorAll(
           `${sel} [data-terminal-id][data-visible]`,
         );
         const tile = tiles.item(i) as HTMLElement | null;
         if (!tile) return false;
-        const wrapper = tile.closest('[data-active="true"]');
-        return wrapper !== null;
+        // Walk up to find the CanvasTile wrapper (nearest ancestor with
+        // a data-active attribute, truthy or not).
+        let node: HTMLElement | null = tile;
+        while (node && !node.hasAttribute("data-active")) {
+          node = node.parentElement;
+        }
+        return node?.getAttribute("data-active") === "true";
       },
       { sel: CANVAS_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },
