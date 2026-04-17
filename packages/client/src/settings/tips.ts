@@ -79,8 +79,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "In Canvas mode, middle-click and drag to pan freely in any direction",
   },
   {
-    id: "amb-canvas-space-pan",
-    text: "In Canvas mode, hold Space and drag (or scroll) to pan — even over a terminal tile",
+    id: "amb-canvas-shift-pan",
+    text: "In Canvas mode, hold Shift and drag (or scroll) to pan — even over a terminal tile",
   },
   {
     id: "amb-canvas-minimap",

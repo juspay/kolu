@@ -27,12 +27,10 @@ export interface GestureCallbacks {
  *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
  *  canvas regardless.
  *
- *  `isPanModifier`, if provided, is an opaque boolean accessor the caller
- *  uses to assert that the canvas owns all pan gestures right now — regardless
- *  of target or ownership state. While it returns true: wheel always pans
- *  (no yield), and primary-button drag starts a pan gesture (like middle-mouse).
- *  The gesture layer knows nothing about what triggers the modifier (today:
- *  Space key); that's the caller's concern.
+ *  Shift held on wheel or primary-button drag forces canvas pan ownership
+ *  regardless of target (Figma-style hand tool). Shift ships on every
+ *  WheelEvent/PointerEvent as `e.shiftKey`, so there's no caller-side
+ *  keyboard tracking to plumb through — the gesture layer just reads it.
  *
  *  The wheel listener runs in capture phase so that when the canvas owns the
  *  gesture we can `stopPropagation()` before xterm (or any deeper listener)
@@ -43,7 +41,6 @@ export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
   shouldYieldWheel?: (e: WheelEvent) => boolean,
-  isPanModifier?: () => boolean,
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
@@ -74,7 +71,7 @@ export function installGestures(
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
         return;
       }
-      if (!isPanModifier?.() && yieldsWheel(e)) return;
+      if (!e.shiftKey && yieldsWheel(e)) return;
       e.preventDefault();
       e.stopPropagation();
       callbacks.onPan(e.deltaX, e.deltaY);
@@ -82,15 +79,14 @@ export function installGestures(
     { passive: false, capture: true, signal },
   );
 
-  // Pan drag: middle-mouse, or primary-button while the caller's pan modifier
-  // is held (Space-to-pan).
+  // Pan drag: middle-mouse, or Shift+primary-button.
   let abortPanDrag: AbortController | null = null;
 
   el.addEventListener(
     "pointerdown",
     (e) => {
-      const isPrimaryPanModifier = e.button === 0 && isPanModifier?.() === true;
-      if (e.button !== 1 && !isPrimaryPanModifier) return;
+      const isShiftPrimary = e.button === 0 && e.shiftKey;
+      if (e.button !== 1 && !isShiftPrimary) return;
       e.preventDefault();
       e.stopPropagation();
       abortPanDrag?.abort();
@@ -116,7 +112,7 @@ export function installGestures(
       );
     },
     // Capture phase: pan claim fires before deeper listeners (tile onMouseDown,
-    // solid-dnd sensor) so Space+primary-drag pans instead of selecting or
+    // solid-dnd sensor) so Shift+primary-drag pans instead of selecting or
     // dragging a tile.
     { signal, capture: true },
   );

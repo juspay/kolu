@@ -369,44 +369,35 @@ When(
   },
 );
 
-// ── Space-to-pan modifier ──
-
-/** Dispatch a Space keydown/keyup on window, mirroring how the wheel-
- *  dispatch steps fake gestures. Real `page.keyboard.down("Space")` would
- *  route through the focused xterm textarea (covered by the isTyping guard)
- *  and never flip spaceHeld. We blur the active element first to model a
- *  user who has clicked outside the terminal before pressing Space. */
-When("I hold Space", async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    (document.activeElement as HTMLElement | null)?.blur();
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        code: "Space",
-        key: " ",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  await this.waitForFrame();
-});
-
-When("I release Space", async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    window.dispatchEvent(
-      new KeyboardEvent("keyup", {
-        code: "Space",
-        key: " ",
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  await this.waitForFrame();
-});
+// ── Shift-to-pan modifier ──
 
 When(
-  "I pan-drag from inside the terminal tile",
+  "I Shift+scroll the wheel over the terminal tile",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      const rect = xterm.getBoundingClientRect();
+      xterm.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          shiftKey: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I Shift+drag from inside the terminal tile",
   async function (this: KoluWorld) {
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
@@ -422,6 +413,7 @@ When(
           pointerType: "mouse",
           button: 0,
           buttons: 1,
+          shiftKey: true,
           clientX: cx,
           clientY: cy,
           bubbles: true,
@@ -434,6 +426,7 @@ When(
           pointerType: "mouse",
           button: 0,
           buttons: 1,
+          shiftKey: true,
           clientX: cx + 60,
           clientY: cy + 40,
           bubbles: true,
