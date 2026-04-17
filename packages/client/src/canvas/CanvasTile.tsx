@@ -6,7 +6,7 @@
 import { type Component, For, type JSX } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
-import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import { RESIZE_HANDLES } from "./resizeGeometry";
 
 /** Minimal theme info for tile chrome (title bar, border). */
 export interface TileTheme {
@@ -30,11 +30,6 @@ const CanvasTile: Component<{
   renderTitleActions?: () => JSX.Element;
   renderBody: () => JSX.Element;
   layouts: Record<string, TileLayout>;
-  startResize: (
-    id: string,
-    direction: ResizeDirection,
-    e: PointerEvent,
-  ) => void;
   zoom: () => number;
 }> = (props) => {
   const { id } = props;
@@ -49,6 +44,7 @@ const CanvasTile: Component<{
     <div
       ref={draggable.ref}
       data-active={props.active ? "true" : undefined}
+      data-tile-id={id}
       class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
         "border-accent/60 shadow-xl": props.active,
@@ -105,16 +101,19 @@ const CanvasTile: Component<{
       {/* Tile body — injected by caller */}
       {props.renderBody()}
 
-      {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
-       *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. */}
+      {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is
+       *  the affordance. Corners are declared after edges in the record so
+       *  DOM order paints them on top of the edge strips they overlap.
+       *  The onPointerDown handler lives on the parent <TerminalCanvas>
+       *  (event delegation) so per-handle closures don't share a V8 Context
+       *  chain with CanvasTile's component scope. Without this delegation,
+       *  each disposed tile's resize-handle closure was pinning ~1,450
+       *  Contexts per 30 toggles, verified via heap-snapshot byte-diff. */}
       <For each={Object.entries(RESIZE_HANDLES)}>
         {([direction, handle]) => (
           <div
             class={`absolute ${handle.position} ${handle.cursor}`}
-            onPointerDown={(e) =>
-              props.startResize(id, direction as ResizeDirection, e)
-            }
+            data-resize-dir={direction}
           />
         )}
       </For>

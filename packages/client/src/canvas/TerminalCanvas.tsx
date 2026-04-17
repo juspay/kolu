@@ -288,6 +288,26 @@ const TerminalCanvas: Component<{
             "transform-origin": "0 0",
             transform: viewport.canvasTransform(),
           }}
+          /* Resize-handle dispatch lives here (one listener) rather than
+           * per-handle inside CanvasTile. Per-handle onPointerDown closures
+           * retained ~1,450 SolidJS Contexts per 30 canvas/focus toggles —
+           * every closure in CanvasTile's body shares a V8 Context chain,
+           * so inline JSX handlers pin the whole component scope past
+           * disposal. Delegating keeps exactly one closure inside this
+           * mount, owned by TerminalCanvas's reactive owner. */
+          onPointerDown={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (!target) return;
+            const handle = target.closest<HTMLElement>("[data-resize-dir]");
+            if (!handle) return;
+            const direction = handle.dataset.resizeDir as
+              | ResizeDirection
+              | undefined;
+            const tileEl = handle.closest<HTMLElement>("[data-tile-id]");
+            const tileId = tileEl?.dataset.tileId;
+            if (!direction || !tileId) return;
+            startResize(tileId, direction, e);
+          }}
         >
           <For each={props.tileIds}>
             {(id) => (
@@ -307,7 +327,6 @@ const TerminalCanvas: Component<{
                   props.renderTileBody(id, () => props.activeId === id)
                 }
                 layouts={layouts()}
-                startResize={startResize}
                 zoom={viewport.zoom}
               />
             )}
