@@ -37,9 +37,23 @@ function browserFacts() {
   };
 }
 
+/** Single source of truth for byte-count display across the dialog.
+ *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
+ *  callers may parse programmatically). `formatMB` returns a display string
+ *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
+ *  "0.0 MB" obscures more than it communicates. Every byte render in this
+ *  module goes through these two; evolving the granularity is one edit. */
+function bytesToMB(bytes: number): number {
+  return Math.round((bytes / 1_048_576) * 10) / 10;
+}
+function formatMB(bytes: number): string {
+  if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytesToMB(bytes).toFixed(1)} MB`;
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
- *  definitions — isolate the narrow cast and the MB rounding here so the
- *  snapshot memo stays free of both. Returns null on non-Chromium browsers. */
+ *  definitions — isolate the narrow cast here so the snapshot memo stays
+ *  free of it. Returns null on non-Chromium browsers. */
 function readJsHeap(): {
   usedMB: number;
   totalMB: number;
@@ -55,11 +69,10 @@ function readJsHeap(): {
     }
   ).memory;
   if (!mem) return null;
-  const mb = (n: number) => Math.round((n / 1_048_576) * 10) / 10;
   return {
-    usedMB: mb(mem.usedJSHeapSize),
-    totalMB: mb(mem.totalJSHeapSize),
-    limitMB: mb(mem.jsHeapSizeLimit),
+    usedMB: bytesToMB(mem.usedJSHeapSize),
+    totalMB: bytesToMB(mem.totalJSHeapSize),
+    limitMB: bytesToMB(mem.jsHeapSizeLimit),
   };
 }
 
@@ -69,33 +82,37 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   const { preferences } = usePreferences();
   const browser = browserFacts();
 
-  const snapshot = createMemo(() => ({
-    browser,
-    session: {
-      mode: preferences().canvasMode ? "canvas" : "focus",
-      wsStatus: wsStatus(),
-      serverProcessId: serverProcessId(),
-      activeId: props.activeId,
-      terminalCount: getDiagnostics().length,
-      jsHeap: readJsHeap(),
-      domNodes: document.getElementsByTagName("*").length,
-      canvases: document.querySelectorAll("canvas").length,
-    },
-    terminals: getDiagnostics().map((d) => {
-      const refs = getTerminalRefs(d.id);
-      const bufferLen = refs?.xterm.buffer.active.length ?? null;
-      return {
-        id: d.id,
-        cols: d.cols,
-        rows: d.rows,
-        renderer: d.renderer,
-        bufferLen,
-        scrollback: bufferLen !== null ? bufferLen - d.rows : null,
-        atlas: refs?.probes.webglAtlas() ?? null,
-      };
-    }),
-    webgl: webglLifecycleSnapshot(),
-  }));
+  const snapshot = createMemo(() => {
+    const webgl = webglLifecycleSnapshot();
+    return {
+      browser,
+      session: {
+        mode: preferences().canvasMode ? "canvas" : "focus",
+        wsStatus: wsStatus(),
+        serverProcessId: serverProcessId(),
+        activeId: props.activeId,
+        terminalCount: getDiagnostics().length,
+        jsHeap: readJsHeap(),
+        domNodes: document.getElementsByTagName("*").length,
+        canvases: webgl.totalDomCanvases,
+      },
+      terminals: getDiagnostics().map((d) => {
+        const refs = getTerminalRefs(d.id);
+        const bufferLen = refs?.xterm.buffer.active.length ?? null;
+        return {
+          id: d.id,
+          cols: d.cols,
+          rows: d.rows,
+          renderer: d.renderer,
+          bufferLen,
+          scrollback: bufferLen !== null ? bufferLen - d.rows : null,
+          atlas: refs?.probes.webglAtlas() ?? null,
+          bufferBytes: refs?.probes.bufferBytes() ?? null,
+        };
+      }),
+      webgl,
+    };
+  });
 
   function copyJson() {
     void navigator.clipboard
@@ -233,6 +250,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                             </span>
                           )}
                         </Show>
+                        <Show when={d.bufferBytes}>
+                          {(bb) => (
+                            <span>
+                              {" "}
+                              · buf: {formatMB(bb().primary)}
+                              <Show when={bb().alternate > 0}>
+                                {" "}
+                                (+alt {formatMB(bb().alternate)})
+                              </Show>
+                            </span>
+                          )}
+                        </Show>
                       </div>
                     </Show>
                   </div>
@@ -283,17 +312,55 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               </span>
             </Row>
           </div>
+          <Show when={snapshot().webgl.aliveCanvases.length > 0}>
+            <div class="mt-2 pt-2 border-t border-edge/50">
+              <div class="text-[10px] text-fg-3/70 mb-1">Alive canvases</div>
+              <div class="space-y-0.5 text-[10px] font-mono">
+                <For each={snapshot().webgl.aliveCanvases}>
+                  {(c) => (
+                    <div class="flex items-baseline gap-2 whitespace-nowrap">
+                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                        #{c.canvasId}
+                      </span>
+                      <span
+                        class={
+                          c.isConnected
+                            ? "text-fg-2 w-[9ch] shrink-0"
+                            : "text-danger w-[9ch] shrink-0"
+                        }
+                      >
+                        {c.isConnected ? "in-dom" : "detached"}
+                      </span>
+                      <span class="text-fg-2 tabular-nums">
+                        {c.width}×{c.height}
+                      </span>
+                      <span class="text-fg-3">·</span>
+                      <span class="text-fg-2 tabular-nums">
+                        {formatMB(c.bytesEst)}
+                      </span>
+                      <Show when={c.contextLost}>
+                        <span class="text-fg-3">·</span>
+                        <span class="text-fg-3/70">ctx-lost</span>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </div>
+          </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
             <div class="mt-2 pt-2 border-t border-edge/50">
               <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
               <div class="space-y-0.5 text-[10px] font-mono">
                 <For each={snapshot().webgl.recentEvents}>
                   {(ev) => (
-                    <div class="grid grid-cols-[8ch_5ch_1fr] items-baseline gap-2">
-                      <span class="text-fg-3/60 tabular-nums">
+                    <div class="flex items-baseline gap-2 whitespace-nowrap">
+                      <span class="text-fg-3/60 tabular-nums shrink-0">
                         {new Date(ev.ts).toISOString().slice(11, 23)}
                       </span>
-                      <span class="text-fg-3">#{ev.canvasId}</span>
+                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                        #{ev.canvasId}
+                      </span>
                       <span class="text-fg-2">
                         {ev.kind}
                         {ev.kind === "contextlost" && (

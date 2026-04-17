@@ -172,7 +172,6 @@ const App: Component = () => {
         direction,
       ),
     handleShuffleTheme,
-    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
