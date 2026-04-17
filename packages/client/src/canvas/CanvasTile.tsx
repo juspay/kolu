@@ -24,6 +24,10 @@ const CanvasTile: Component<{
   onSelect: () => void;
   onClose: () => void;
   renderTitle: () => JSX.Element;
+  /** Optional actions rendered in the title bar between the title and the
+   *  close button. For domain-specific, tile-type-variable capabilities
+   *  (e.g. terminal screenshot). Structural actions (close) are hardcoded. */
+  renderTitleActions?: () => JSX.Element;
   renderBody: () => JSX.Element;
   layouts: Record<string, TileLayout>;
   startResize: (
@@ -81,6 +85,7 @@ const CanvasTile: Component<{
         {...draggable.dragActivators}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
+        {props.renderTitleActions?.()}
         <button
           class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
           style={{

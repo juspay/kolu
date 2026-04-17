@@ -180,6 +180,22 @@ export const MenuIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Camera icon — terminal screenshot button. */
+export const ScreenshotIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M3 7h3l2-2h8l2 2h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
 export const ScrollDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-5 h-5"}

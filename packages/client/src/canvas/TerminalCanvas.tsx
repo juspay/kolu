@@ -63,6 +63,9 @@ const TerminalCanvas: Component<{
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   renderTileTitle: (id: string) => JSX.Element;
+  /** Optional title-bar actions injected between the title and the close
+   *  button — e.g. the screenshot button. */
+  renderTileTitleActions?: (id: string) => JSX.Element;
   /** `active` is passed as an accessor so the subtree doesn't remount on
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
@@ -295,6 +298,11 @@ const TerminalCanvas: Component<{
                 onSelect={() => props.onSelect(id)}
                 onClose={() => props.onClose(id)}
                 renderTitle={() => props.renderTileTitle(id)}
+                renderTitleActions={
+                  props.renderTileTitleActions
+                    ? () => props.renderTileTitleActions!(id)
+                    : undefined
+                }
                 renderBody={() =>
                   props.renderTileBody(id, () => props.activeId === id)
                 }
