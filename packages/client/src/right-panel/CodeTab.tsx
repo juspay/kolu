@@ -41,7 +41,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common";
 import { client } from "../rpc/rpc";
-import { useServerState } from "../settings/useServerState";
+import { usePreferences } from "../settings/usePreferences";
 import { useRightPanel } from "./useRightPanel";
 import {
   DiffLocalIcon,
@@ -118,7 +118,7 @@ function entriesToNodes(entries: FsListDirOutput["entries"]): TreeNode[] {
 }
 
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   // Active sub-view lives inside the `code` variant of rightPanel.tab, so

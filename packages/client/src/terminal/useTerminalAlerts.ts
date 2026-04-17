@@ -3,7 +3,7 @@
 
 import { type Accessor, createEffect, on } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { useServerState } from "../settings/useServerState";
+import { usePreferences } from "../settings/usePreferences";
 import {
   fireActivityAlert,
   requestNotificationPermission,
@@ -17,7 +17,7 @@ export function useTerminalAlerts(deps: {
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
   const activityAlerts = () => preferences().activityAlerts;
 
   // Request browser notification permission eagerly when alerts are enabled

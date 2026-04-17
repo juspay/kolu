@@ -21,7 +21,7 @@ import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal, publishForTerminal } from "../publisher.ts";
 import { updateMetadata } from "./index.ts";
 import { log } from "../log.ts";
-import { trackRecentRepo } from "../state.ts";
+import { trackRecentRepo } from "../activity.ts";
 
 /**
  * Start the git metadata provider for a terminal entry.

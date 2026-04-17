@@ -3,7 +3,7 @@
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
-import { useServerState } from "../settings/useServerState";
+import { useSavedSession } from "../settings/useSavedSession";
 import { client, lifecycle } from "../rpc/rpc";
 import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
@@ -19,7 +19,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
-  const serverState = useServerState();
+  const serverSaved = useSavedSession();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -29,15 +29,19 @@ export function useSessionRestore(deps: {
   let hydrated = false;
   createEffect(() => {
     const existing = store.listSub();
-    const state = serverState.state();
-    if (existing === undefined || state === undefined) return;
+    const fromServer = serverSaved.savedSession();
+    // Gate on the subscription having yielded at least once — `sub.pending()`
+    // flips false after the first yield (which may be the initial `null`
+    // snapshot when no session is saved). Without this gate we'd hydrate
+    // with a null before the server snapshot arrives and miss a restore prompt.
+    if (existing === undefined || serverSaved.sub.pending()) return;
     if (hydrated) return;
     hydrated = true;
     if (existing.length === 0) {
-      setSavedSession(state.session);
+      setSavedSession(fromServer);
       return;
     }
-    hydrateFromTerminals(existing, state.session?.activeTerminalId ?? null);
+    hydrateFromTerminals(existing, fromServer?.activeTerminalId ?? null);
   });
 
   function hydrateFromTerminals(
@@ -93,7 +97,7 @@ export function useSessionRestore(deps: {
   // OR when the server pushes a fresh saved-session value while we're
   // already showing the empty state.
   //
-  // IMPORTANT: read `serverState.savedSession()` UNCONDITIONALLY so the
+  // IMPORTANT: read `serverSaved.savedSession()` UNCONDITIONALLY so the
   // reactive tracker subscribes to it on the effect's first run. Reading
   // it inside the `if` body would skip tracking when the gate fails on
   // the first run (initial mount before `hydrated` flips), and subsequent
@@ -106,7 +110,7 @@ export function useSessionRestore(deps: {
   // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
-    const fromServer = serverState.savedSession();
+    const fromServer = serverSaved.savedSession();
     if (store.terminalIds().length === 0 && hydrated) {
       setSavedSession(fromServer);
     }

@@ -9,7 +9,7 @@ import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
-import { useServerState } from "../settings/useServerState";
+import { usePreferences } from "../settings/usePreferences";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import type { TerminalId, CanvasLayout } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
@@ -21,7 +21,7 @@ export function useTerminalCrud(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
 
   /** The terminal the user is currently interacting with —
    *  the active sub-tab when a split has focus, otherwise the workspace root. */

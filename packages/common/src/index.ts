@@ -351,32 +351,21 @@ export const PreferencesSchema = z.object({
   rightPanel: RightPanelPrefsSchema,
 });
 
-// --- Server state ---
+// --- Activity feed (server-derived, append + MRU evict) ---
 
-/** What conf stores to disk — survives server restart. */
-export const PersistedStateSchema = z.object({
+/** Server-derived activity feed: recent repos cd'd into and recent agent
+ *  CLIs spotted via OSC 633;E. Server is sole writer; client is read-only. */
+export const ActivityFeedSchema = z.object({
   recentRepos: z.array(RecentRepoSchema),
   recentAgents: z.array(RecentAgentSchema),
-  session: SavedSessionSchema.nullable(),
-  preferences: PreferencesSchema,
 });
-
-/** What the client receives — currently same as persisted.
- *  #333 will extend with runtime fields (terminals, terminalMeta). */
-export const ServerStateSchema = PersistedStateSchema.extend({});
 
 /** Preference patch — top-level fields are optional; nested objects are deep-partial. */
-const PreferencesPatchSchema = PreferencesSchema.omit({ rightPanel: true })
+export const PreferencesPatchSchema = PreferencesSchema.omit({
+  rightPanel: true,
+})
   .partial()
   .extend({ rightPanel: RightPanelPrefsSchema.partial().optional() });
-
-/** Partial patch for state updates — all fields optional, preferences partially mergeable. */
-export const ServerStatePatchSchema = z.object({
-  recentRepos: z.array(RecentRepoSchema).optional(),
-  recentAgents: z.array(RecentAgentSchema).optional(),
-  session: SavedSessionSchema.nullable().optional(),
-  preferences: PreferencesPatchSchema.optional(),
-});
 
 // --- Derived types ---
 
@@ -397,7 +386,5 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
-export type PersistedState = z.infer<typeof PersistedStateSchema>;
-export type ServerState = z.infer<typeof ServerStateSchema>;
-export type ServerStatePatch = z.infer<typeof ServerStatePatchSchema>;
-export type PreferencesPatch = NonNullable<ServerStatePatch["preferences"]>;
+export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;
+export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
