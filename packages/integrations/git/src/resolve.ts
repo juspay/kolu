@@ -168,3 +168,79 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
     a.worktreePath === b.worktreePath
   );
 }
+
+/**
+ * Subscribe to the GitInfo stream for a cwd. Owns the full resolve + watch
+ * + re-resolve loop: initial resolve, `.git/HEAD` watcher, debounced re-
+ * resolve on HEAD change, dedup via `gitInfoEqual`, and `git init` detection
+ * (a same-cwd `setCwd` call on a not-yet-a-repo checks `.git` existence and
+ * re-resolves if it appeared since the last resolve).
+ *
+ * `onChange` fires once per actual change — never for a dedup miss. Initial
+ * resolve is best-effort: if the cwd isn't a git repo at start, the watcher
+ * sits idle (HEAD watch is a no-op on non-git dirs per `watchGitHead`) until
+ * `setCwd` tells it to re-check.
+ *
+ * Callers are the sole source of truth for current GitInfo — never re-read
+ * the value elsewhere to drive control flow. The returned handle's `stop()`
+ * tears down the HEAD watcher; `setCwd(next)` swaps the watched directory.
+ */
+export function subscribeGitInfo(
+  initialCwd: string,
+  onChange: (info: GitInfo | null) => void,
+  log?: Logger,
+): { setCwd(next: string): void; stop(): void } {
+  let currentCwd = initialCwd;
+  let currentInfo: GitInfo | null = null;
+  let stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+
+  function handleHeadChange(): void {
+    void resolve();
+  }
+
+  async function resolve(): Promise<void> {
+    const result = await resolveGitInfo(currentCwd, log);
+    const next: GitInfo | null = result.ok ? result.value : null;
+    if (!result.ok && result.error.code !== "NOT_A_REPO") {
+      log?.error(
+        { code: result.error.code, cwd: currentCwd },
+        "git resolution failed",
+      );
+    }
+    if (gitInfoEqual(next, currentInfo)) return;
+    // null → non-null: the HEAD watcher started as a no-op (missing `.git`);
+    // restart it so branch switches in the newly-appeared repo propagate.
+    if (currentInfo === null && next !== null) {
+      stopHead();
+      stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+    }
+    currentInfo = next;
+    onChange(next);
+  }
+
+  // Initial resolve — covers repos that exist at subscribe time.
+  void resolve();
+
+  return {
+    setCwd(next: string): void {
+      if (next === currentCwd) {
+        // Same cwd — only act if the repo state might have changed from
+        // outside. Today that's exactly one case: we thought this dir wasn't
+        // a repo and `.git` has since appeared (e.g. `git init`). The HEAD
+        // watcher was a no-op, so there's no other signal that would trigger
+        // a re-resolve on its own.
+        if (currentInfo === null && hasGitDir(next)) {
+          void resolve();
+        }
+        return;
+      }
+      currentCwd = next;
+      stopHead();
+      stopHead = watchGitHead(next, handleHeadChange, log);
+      void resolve();
+    },
+    stop(): void {
+      stopHead();
+    },
+  };
+}

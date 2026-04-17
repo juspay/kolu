@@ -41,6 +41,7 @@ export {
   watchGitHead,
   gitInfoEqual,
   hasGitDir,
+  subscribeGitInfo,
 } from "./resolve.ts";
 
 // Worktree operations
