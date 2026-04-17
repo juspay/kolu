@@ -109,6 +109,14 @@ const Terminal: Component<{
   let webglCanvas: HTMLCanvasElement | null = null;
   let webglTrackerId: number | null = null;
   let disposeDiagnostics: (() => void) | null = null;
+  /** True once this component's reactive owner has been disposed. Set by the
+   *  synchronously-registered `onCleanup` below. The async `onMount` body
+   *  checks this after each `await` and bails rather than creating xterm /
+   *  WebGL state that no cleanup path can reach — the root of the #591
+   *  orphan-canvas leak (SolidJS `onCleanup` registered inside a disposed
+   *  owner is a silent no-op, so onCleanup inside the async body would not
+   *  run when an `<Show>` toggle disposes the owner during a mode switch). */
+  let disposed = false;
   const [hasWebgl, setHasWebgl] = createSignal(false);
 
   /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
@@ -307,11 +315,30 @@ const Terminal: Component<{
     ),
   );
 
+  // Cleanup registered SYNCHRONOUSLY at component body top — NOT inside the
+  // async `onMount` below. If the reactive owner disposes during `onMount`'s
+  // `await document.fonts.load(...)` (e.g. an `<Show>` toggle swapping between
+  // canvas and focus modes), any `onCleanup` registered after the await is a
+  // silent no-op — the owner's cleanup list was already iterated at disposal.
+  // The `disposed` flag is the bail signal for the async body below. Without
+  // this, each mode-toggle race leaks a Terminal component instance
+  // (orphan xterm + WebGL canvas + scrollback buffer) — the residual #591
+  // leak after PRs #578/#596.
+  onCleanup(() => {
+    disposed = true;
+    streamAbort?.abort();
+    unregisterTerminalRefs(props.terminalId);
+    disposeDiagnostics?.();
+    unloadWebgl();
+    terminal?.dispose();
+  });
+
   onMount(async () => {
     // Wait for the terminal font to load before measuring cell dimensions.
     // Without this, the first terminal may mount before the font is available,
     // causing xterm to measure with the fallback monospace font — wrong metrics.
     await document.fonts.load(`1em ${FONT_FAMILY}`);
+    if (disposed) return;
 
     const term = new XTerm({
       fontFamily: FONT_FAMILY,
@@ -599,17 +626,10 @@ const Terminal: Component<{
       { capture: true },
     );
 
-    onCleanup(() => {
-      streamAbort?.abort();
-      unregisterTerminalRefs(props.terminalId);
-      disposeDiagnostics?.();
-      // Release GPU context explicitly on unmount too — xterm's dispose
-      // detaches the canvas but doesn't call WEBGL_lose_context, same as
-      // the load/unload path. Without this, closing a tile (or leaving
-      // canvas mode) leaks a context until Chrome GCs the detached canvas.
-      unloadWebgl();
-      terminal?.dispose();
-    });
+    // Cleanup is registered synchronously near the top of the component body
+    // (see comment there). It references `terminal`, `webgl`, and the local
+    // refs via closure, and handles null state if this onMount body never ran
+    // to completion.
   });
 
   return (
