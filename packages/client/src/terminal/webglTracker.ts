@@ -149,6 +149,11 @@ export interface WebglLifecycleSnapshot {
   gced: number;
   /** Canvas exists AND `gl.isContextLost()` returns true. */
   contextsLost: number;
+  /** Total `<canvas>` elements currently in the DOM — xterm-minted and
+   *  otherwise. Usually ≈ `aliveInDom`, but drifts above it when other UI
+   *  surfaces mount their own canvases. Kept here (not probed at the
+   *  consumer) so every canvas-related question has one source. */
+  totalDomCanvases: number;
   /** Every still-alive canvas with its pixel-buffer footprint. Attached
    *  canvases come first so the zombie ones stand out at the bottom. */
   aliveCanvases: CanvasSizeEntry[];
@@ -210,6 +215,7 @@ export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
     aliveDetached,
     gced,
     contextsLost,
+    totalDomCanvases: document.querySelectorAll("canvas").length,
     aliveCanvases,
     recentEvents: allEvents.slice(-RECENT_EVENTS_VIEW),
   };

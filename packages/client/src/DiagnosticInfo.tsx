@@ -82,34 +82,37 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   const { preferences } = usePreferences();
   const browser = browserFacts();
 
-  const snapshot = createMemo(() => ({
-    browser,
-    session: {
-      mode: preferences().canvasMode ? "canvas" : "focus",
-      wsStatus: wsStatus(),
-      serverProcessId: serverProcessId(),
-      activeId: props.activeId,
-      terminalCount: getDiagnostics().length,
-      jsHeap: readJsHeap(),
-      domNodes: document.getElementsByTagName("*").length,
-      canvases: document.querySelectorAll("canvas").length,
-    },
-    terminals: getDiagnostics().map((d) => {
-      const refs = getTerminalRefs(d.id);
-      const bufferLen = refs?.xterm.buffer.active.length ?? null;
-      return {
-        id: d.id,
-        cols: d.cols,
-        rows: d.rows,
-        renderer: d.renderer,
-        bufferLen,
-        scrollback: bufferLen !== null ? bufferLen - d.rows : null,
-        atlas: refs?.probes.webglAtlas() ?? null,
-        bufferBytes: refs?.probes.bufferBytes() ?? null,
-      };
-    }),
-    webgl: webglLifecycleSnapshot(),
-  }));
+  const snapshot = createMemo(() => {
+    const webgl = webglLifecycleSnapshot();
+    return {
+      browser,
+      session: {
+        mode: preferences().canvasMode ? "canvas" : "focus",
+        wsStatus: wsStatus(),
+        serverProcessId: serverProcessId(),
+        activeId: props.activeId,
+        terminalCount: getDiagnostics().length,
+        jsHeap: readJsHeap(),
+        domNodes: document.getElementsByTagName("*").length,
+        canvases: webgl.totalDomCanvases,
+      },
+      terminals: getDiagnostics().map((d) => {
+        const refs = getTerminalRefs(d.id);
+        const bufferLen = refs?.xterm.buffer.active.length ?? null;
+        return {
+          id: d.id,
+          cols: d.cols,
+          rows: d.rows,
+          renderer: d.renderer,
+          bufferLen,
+          scrollback: bufferLen !== null ? bufferLen - d.rows : null,
+          atlas: refs?.probes.webglAtlas() ?? null,
+          bufferBytes: refs?.probes.bufferBytes() ?? null,
+        };
+      }),
+      webgl,
+    };
+  });
 
   function copyJson() {
     void navigator.clipboard
