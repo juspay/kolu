@@ -234,9 +234,7 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         sidebarAgentPreviews: "attention",
-        layoutPin: scenario.pickle.tags.some(
-          (t) => t.name === "@layout-canvas",
-        )
+        layoutPin: scenario.pickle.tags.some((t) => t.name === "@layout-canvas")
           ? "canvas"
           : "compact",
         terminalRenderer: "auto",
