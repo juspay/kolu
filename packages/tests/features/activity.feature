@@ -1,4 +1,3 @@
-@layout-compact
 Feature: Terminal activity indicator
   Compact dock shows active (green) vs sleeping (grey) status for each terminal.
 

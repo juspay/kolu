@@ -1,7 +1,5 @@
-@layout-compact
 Feature: Keyboard Shortcuts
   Global keyboard shortcuts for terminal switching and help overlay.
-  Pinned compact so sidebar-related selectors resolve at 1280×720.
 
   Background:
     Given the terminal is ready

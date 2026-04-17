@@ -1,8 +1,5 @@
-@layout-compact
 Feature: Sidebar
   Multi-terminal creation and switching via the compact dock (sidebar).
-  `@layout-compact` pins compact layout so the sidebar renders at the
-  default 1280×720 viewport — without it, auto-resolution would pick canvas.
 
   # Empty state is verified visually — requires a fresh server with no terminals.
   # Tested implicitly: waitForReady() creates a terminal only if empty state is shown.

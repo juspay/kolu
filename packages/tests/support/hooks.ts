@@ -221,8 +221,12 @@ Before(async function (this: KoluWorld, scenario) {
     postJSON(`${baseUrl}/rpc/preferences/test__set`, {
       json: {
         // Reset all preferences to defaults (shuffleTheme off for deterministic tests).
-        // layoutPin is computed from the scenario's @layout-compact tag below
-        // so feature files that need compact rendering at 1280×720 can opt in.
+        //
+        // `layoutPin` defaults to "compact" in tests so the create-terminal
+        // button (in the compact dock) is on screen for createTerminal()
+        // helpers and `[data-testid="sidebar"]` selectors resolve. The
+        // production default is "auto"; tests opt into canvas explicitly via
+        // the `@layout-canvas` tag for scenarios that need canvas rendering.
         seenTips: [],
         startupTips: true,
         shuffleTheme: false,
@@ -231,10 +235,10 @@ Before(async function (this: KoluWorld, scenario) {
         colorScheme: "dark",
         sidebarAgentPreviews: "attention",
         layoutPin: scenario.pickle.tags.some(
-          (t) => t.name === "@layout-compact",
+          (t) => t.name === "@layout-canvas",
         )
-          ? "compact"
-          : "auto",
+          ? "canvas"
+          : "compact",
         terminalRenderer: "auto",
         rightPanel: {
           collapsed: true,

@@ -39,7 +39,7 @@ import type {
 } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "../useViewport";
-import { closeDock } from "../layout/useLayout";
+import { closeDock, dockVisible } from "../layout/useLayout";
 
 type CardTier = "waiting" | "active" | "idle";
 
@@ -366,16 +366,27 @@ const CompactDock: Component<{
 
   return (
     <>
-      {/* Backdrop — only meaningful on mobile where the dock is an overlay. */}
-      <div
-        data-testid="sidebar-backdrop"
-        class="absolute inset-0 bg-black/50 z-30 sm:hidden"
-        onClick={() => closeDock()}
-      />
+      {/* Backdrop — only meaningful on mobile where the dock is an overlay.
+       *  Hidden when the dock is closed so it doesn't intercept clicks. */}
+      <Show when={dockVisible()}>
+        <div
+          data-testid="sidebar-backdrop"
+          class="absolute inset-0 bg-black/50 z-30 sm:hidden"
+          onClick={() => closeDock()}
+        />
+      </Show>
 
+      {/* Aside is always in the DOM (so e2e helpers can find selectors)
+       *  but slides off-screen when `dockVisible()` is false. On desktop
+       *  (sm+) it collapses to `display: none` instead of translating so
+       *  it doesn't claim layout space when hidden. */}
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 z-40 absolute inset-y-0 left-0 sm:relative sm:inset-auto"
+        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 transition-transform duration-200 ease-out z-40 absolute inset-y-0 left-0 sm:relative sm:inset-auto"
+        classList={{
+          "-translate-x-full sm:hidden": !dockVisible(),
+          "translate-x-0": dockVisible(),
+        }}
       >
         <Tip label="New terminal" class="w-full">
           <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">

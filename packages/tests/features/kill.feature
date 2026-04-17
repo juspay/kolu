@@ -1,4 +1,3 @@
-@layout-compact
 Feature: Kill terminal
   Closing terminals via the compact dock and auto-switching.
 

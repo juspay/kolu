@@ -60,56 +60,87 @@ export class KoluWorld extends World {
     return this.page.locator("[data-visible] .xterm-screen");
   }
 
-  /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
+  /** Create a terminal and wait for its canvas + focus. Returns the new ID.
+   *  Uses the sidebar "+" button when available; falls back to the keyboard
+   *  shortcut in canvas layout (where no sidebar is rendered). */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
     // Wait for app to settle (onMount may still be restoring terminals from server)
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
-    // On mobile (@mobile tag) the sidebar starts collapsed (`-translate-x-full`)
-    // so the create button sits at a negative x. `isVisible()` doesn't catch
-    // this — translated-offscreen elements still have a non-empty bounding box.
-    // Check the actual x coordinate and click the hamburger if needed.
-    const createBtn = this.page.locator('[data-testid="create-terminal"]');
-    const box = await createBtn.boundingBox();
-    if (!box || box.x < 0) {
-      // Mobile: header burger, desktop: status bar button
-      const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
-      const toggle = (await mobile.isVisible())
-        ? mobile
-        : this.page.locator('[data-testid="sidebar-toggle-desktop"]');
-      await toggle.click();
-      await this.page.waitForFunction(
-        () => {
-          const btn = document.querySelector('[data-testid="create-terminal"]');
-          if (!btn) return false;
-          const r = btn.getBoundingClientRect();
-          return r.x >= 0;
-        },
-        { timeout },
+    // Count any existing terminal tiles so we can identify the new one
+    // whether it appears in the sidebar (compact) or the canvas (canvas).
+    const anyTileSelector = "[data-terminal-id]";
+    const idsBefore = await this.page
+      .locator(anyTileSelector)
+      .evaluateAll((els) =>
+        els.map((e) => (e as HTMLElement).dataset.terminalId ?? ""),
       );
+    const beforeSet = new Set(idsBefore);
+
+    const createBtn = this.page.locator('[data-testid="create-terminal"]');
+    const btnCount = await createBtn.count();
+    if (btnCount === 0) {
+      // Canvas layout — no compact dock rendered. Use the keyboard shortcut
+      // which works in any layout (both Cmd+T and Cmd+Enter are registered).
+      const mod = process.platform === "darwin" ? "Meta" : "Control";
+      await this.page.keyboard.press(`${mod}+KeyT`);
+    } else {
+      // On mobile (@mobile tag) the sidebar starts collapsed (`-translate-x-full`)
+      // so the create button sits at a negative x. `isVisible()` doesn't catch
+      // this — translated-offscreen elements still have a non-empty bounding box.
+      // Check the actual x coordinate and click the hamburger if needed.
+      const box = await createBtn.boundingBox();
+      if (!box || box.x < 0) {
+        // Mobile: header burger, desktop: status bar button
+        const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
+        const toggle = (await mobile.isVisible())
+          ? mobile
+          : this.page.locator('[data-testid="sidebar-toggle-desktop"]');
+        await toggle.click();
+        await this.page.waitForFunction(
+          () => {
+            const btn = document.querySelector(
+              '[data-testid="create-terminal"]',
+            );
+            if (!btn) return false;
+            const r = btn.getBoundingClientRect();
+            return r.x >= 0;
+          },
+          { timeout },
+        );
+      }
+      await createBtn.click();
     }
 
-    // Note the last sidebar entry before creating, so we can identify the new one
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    const countBefore = await entries.count();
+    // Wait for a new [data-terminal-id] to appear — works in either layout
+    // (sidebar entry in compact, canvas tile in canvas).
+    const rawId = await this.page.waitForFunction(
+      ({ before }: { before: string[] }) => {
+        const seen = new Set(before);
+        const els = document.querySelectorAll("[data-terminal-id]");
+        for (const el of els) {
+          const id = (el as HTMLElement).dataset.terminalId;
+          if (id && !seen.has(id)) return id;
+        }
+        return null;
+      },
+      { before: [...beforeSet] },
+      { timeout },
+    );
+    const id = await rawId.jsonValue();
+    if (!id || typeof id !== "string")
+      throw new Error("Created terminal has no data-terminal-id");
 
-    await createBtn.click();
-
-    // Wait for the new entry to appear in the sidebar
-    await entries.nth(countBefore).waitFor({ state: "visible", timeout });
-    const rawId = await entries
-      .nth(countBefore)
-      .getAttribute("data-terminal-id");
-    if (!rawId) throw new Error("Created terminal has no data-terminal-id");
-
-    await this.canvas.waitFor({ state: "visible", timeout });
+    // In canvas layout multiple tiles are `[data-visible]` at once, so the
+    // locator resolves to many — `.first()` picks any visible xterm screen.
+    await this.canvas.first().waitFor({ state: "visible", timeout });
     // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout },
     );
-    return rawId;
+    return id;
   }
 
   /** Wait for the app to reach a stable state (restored terminals or empty state). */

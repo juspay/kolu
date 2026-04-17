@@ -66,7 +66,10 @@ Then(
   "the layout pin should be {string}",
   async function (this: KoluWorld, expected: string) {
     const toggle = this.page.locator(PIN_TOGGLE_SELECTOR);
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `state: "attached"` (not "visible") so we can read data attributes
+    // even on mobile where the toggle is `sm:flex`-hidden — the data is
+    // still in the DOM, just not displayed.
+    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       ({ sel, exp }: { sel: string; exp: string }) => {
         const el = document.querySelector(sel);
@@ -82,7 +85,10 @@ Then(
   "the current layout should be {string}",
   async function (this: KoluWorld, expected: string) {
     const toggle = this.page.locator(PIN_TOGGLE_SELECTOR);
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `state: "attached"` (not "visible") so we can read data attributes
+    // even on mobile where the toggle is `sm:flex`-hidden — the data is
+    // still in the DOM, just not displayed.
+    await toggle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       ({ sel, exp }: { sel: string; exp: string }) => {
         const el = document.querySelector(sel);
