@@ -162,7 +162,7 @@ const CanvasMinimap: Component<{
                 const l = layout();
                 if (!l) return;
                 props.onSelect(id);
-                viewport.centerOnTileAnimated(l);
+                viewport.centerOnTile(l);
               };
               return (
                 <Show when={pos()}>

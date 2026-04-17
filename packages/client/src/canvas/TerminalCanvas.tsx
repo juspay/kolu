@@ -263,7 +263,7 @@ const TerminalCanvas: Component<{
     }
     if (!isFinite(minX)) return;
     requestAnimationFrame(() => {
-      viewport.panToAnimated((minX + maxX) / 2, (minY + maxY) / 2);
+      viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
     });
   });
 
