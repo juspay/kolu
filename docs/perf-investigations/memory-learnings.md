@@ -294,13 +294,182 @@ Catalogued under "Async-initialization cleanup registration" in
 
 ---
 
+## Chapter 3 — [#617](https://github.com/juspay/kolu/pull/617): the leak that wasn't in any `Context`
+
+Post-#609 production still grew ~1 GB/hour. WebGL ledger was clean.
+Heap snapshots showed lots of SolidJS `system/Context` objects accumulating
+across canvas↔focus mode toggles — looked like the residual disposal
+retention Chapter 2 didn't catch. The fix turned out to be one WeakRef
+in xterm.js core. Everything in between was a three-day false trail.
+
+### The wrong turn — [#614](https://github.com/juspay/kolu/pull/614) (closed without merge)
+
+Symptom was +55 MB `usedJSHeapSize` per 30 canvas↔focus toggles on
+dev. I ran `orphan-paths.mjs`-style retainer walks from a dev heap
+snapshot, kept finding `system/Context` growth traced to inline JSX
+handlers (`$$click`, `$$pointerdown`) sharing V8 Contexts with
+component locals. Six incremental commits landed on the branch:
+
+| Commit    | Intervention                                               | Context Δ / 30 toggles |
+| --------- | ---------------------------------------------------------- | ---------------------- |
+| `ed28a5a` | Terminal container `onClick` moved to module-level handler | +11,025 → —            |
+| `83a2b40` | `@corvu/resizable` → 140-line custom `Splitter`            | +11,025 → +4,896       |
+| `cf2de56` | CanvasTile resize handles → delegation                     | +4,896 → +3,462        |
+| `ae015da` | SubPanelTabBar inline handlers → delegation                | +3,462 → +2,308        |
+| `c71bca5` | `@thisbeyond/solid-dnd` → 70-line `createDrag`             | +2,308 → +1,651        |
+| `16c3c50` | CanvasTile pure render, all events delegated to parent     | +1,651 → +1,208        |
+
+Cumulative: `system/Context` growth down 89%. `closure:native_bind`
+out of the top-25. Looked like a clear staircase of wins.
+
+Deploy to production. Chrome Task Manager Memory Footprint: **unchanged**.
++367 MB / 30 toggles on a fresh `pureintent` tab, essentially the same
+as before the first commit. The whole refactoring was a proxy chase —
+none of the six commits moved the metric that mattered.
+
+### The right turn — byte-delta heap diff, not Context count
+
+Started over with a clean master + a fresh production heap-snapshot
+pair (before / after 30 toggles). First call wasn't `count-rn.mjs` or
+`orphan-paths.mjs` — it was `diff-heap.mjs`, aggregated by **self-size
+bytes**, not count. One line of output:
+
+```
+Δcount = 175,594   Δbytes = 220,963,752 (220 MB)   native:system / JSArrayBufferData
+Δcount = 175,594   Δbytes =  10,535,640            object:Uint32Array
+Δcount = 175,594   Δbytes =   9,130,888            object:ArrayBuffer
+Δcount = 175,594   Δbytes =   5,619,008            object:Z1     ← xterm BufferLine
+```
+
+175,594 `Uint32Array` over 30 toggles = 30 × 7 terminals × ~830 lines
+per terminal. Basically every disposed xterm `Terminal`'s full
+scrollback was being held past `terminal.dispose()`. At 1.3 KB per
+BufferLine this was the entire +367 MB right there.
+
+`find-retainers.mjs` on the target `Uint32Array` class — every single
+instance traced through the same chain:
+
+```
+Window.IntersectionObserver (registry)
+  → callback closure
+  → Context → RenderService (minified ep)
+  → _coreService → _bufferService
+  → buffers._normal.lines._array
+  → BufferLine → Uint32Array
+```
+
+[xterm core's `RenderService`](https://github.com/xtermjs/xterm.js/blob/master/src/browser/services/RenderService.ts)
+wires an `IntersectionObserver` to pause rendering when the terminal
+is off-screen. The callback `e => this._handleIntersectionChange(...)`
+closes over `this`. `_observerDisposable.value = toDisposable(() =>
+observer.disconnect())` and `_observerDisposable` is `_register`'d —
+so on `RenderService.dispose()` the disposable chain should call
+`disconnect()` and the whole thing should GC.
+
+In practice the callback closure lived past `disconnect()`. Unclear
+exactly why — possibly a DevTools Recorder or extension patching
+`window.IntersectionObserver` with a polling Map wrapper; possibly a
+Chromium native-registry quirk; possibly something else entirely.
+Whatever held onto the callback kept `this` (RenderService) reachable,
+which kept the whole service graph alive.
+
+### The fix
+
+Wrap `this` in a `WeakRef` so the callback holds only a weak
+reference ([xtermjs/xterm.js#5820](https://github.com/xtermjs/xterm.js/issues/5820),
+[PR #5821](https://github.com/xtermjs/xterm.js/pull/5821)):
+
+```diff
+ private _registerIntersectionObserver(w, screenElement): void {
+   if ('IntersectionObserver' in w) {
+-    const observer = new w.IntersectionObserver(
+-      e => this._handleIntersectionChange(e[e.length - 1]),
+-      { threshold: 0 }
+-    );
++    const weakSelf = new WeakRef(this);
++    const observer = new w.IntersectionObserver(
++      e => weakSelf.deref()?._handleIntersectionChange(e[e.length - 1]),
++      { threshold: 0 }
++    );
+     observer.observe(screenElement);
+     this._observerDisposable.value = toDisposable(() => observer.disconnect());
+   }
+ }
+```
+
+While RenderService has live strong refs (which it does for any open
+Terminal), `deref()` returns it and the handler runs. Once no strong
+refs remain, the callback is a no-op and the BufferService graph is
+free to GC — which is what the explicit `disconnect()` was supposed
+to guarantee but doesn't in practice.
+
+Delivered downstream via the juspay/xterm.js fork pattern from #609,
+stacked on top of `fix/dispose-leaks` as
+`fix/kolu-xterm-fixes-built`. Kolu's `pnpm.overrides` points at the
+combined branch until the upstream WeakRef PR lands.
+
+### Post-fix numbers
+
+Production `pureintent`, fresh tab, 7 terminals restored from session:
+
+| Metric                          | Pre-#617    | Post-#617  |
+| ------------------------------- | ----------- | ---------- |
+| Memory Footprint Δ / 30 toggles | **+367 MB** | **+69 MB** |
+| `BufferLine` instances retained | +175,594    | ~0         |
+
+The residual +69 MB was isolated to legitimate activity (agents
+streaming output during the measurement window) via a quiet-session
+A/B on [#618](https://github.com/juspay/kolu/issues/618): on a
+fully-idle session, Task Manager is completely flat across 30
+toggles.
+
+### Lessons (the reason this chapter exists)
+
+The whole #614 branch was the cautionary tale. Five things worth
+internalising:
+
+1. **Chrome Task Manager `Memory Footprint` is the ground truth.
+   `system/Context` count, `closure` count, `performance.memory.
+usedJSHeapSize` — these are all proxies.** Proxies can diverge
+   from the truth by a factor of 100× or more: #614 reduced Contexts
+   by 89% with zero effect on Footprint. Never claim a fix works
+   until a fresh-tab Task Manager A/B confirms it.
+
+2. **Start with `diff-heap.mjs` sorted by `dBytes`, not by count.**
+   The class that leaks `N` instances of a 1.3 KB object drowns out
+   the class that leaks 1000 instances of a 40-byte Context. Count
+   histograms (`count-rn.mjs`) are useful once you already know which
+   class matters; they're a bad first look.
+
+3. **Native-side classes (`JSArrayBufferData`, `Uint32Array`, SVG\*,
+   HTMLElement) hide from `performance.memory` but show up in Task
+   Manager.** If the retainer chain ends at a native class, the
+   proxies won't tell you.
+
+4. **Quiet-session A/B to isolate leaks from legitimate activity.**
+   On kolu, agent terminals streaming output continuously grow
+   scrollback — that's not a leak, that's the program doing its job.
+   A +69 MB / 30-toggle measurement on an active session looked like
+   remaining retention; with agents idle it dropped to flat. Always
+   take the baseline on a quiet session.
+
+5. **`disconnect()` / `dispose()` aren't always enough.** Callbacks
+   registered with `IntersectionObserver`, `MutationObserver`,
+   `ResizeObserver`, `EventTarget.addEventListener`, etc., can be
+   retained past their explicit teardown by something you don't
+   control — DevTools instrumentation, extensions, native registries.
+   For callbacks that close over heavy state, wrap `this` in `WeakRef`
+   defensively. Function behaviour is preserved; retention is not.
+
+---
+
 ## Part 2 — next chapter (after #609 deploy)
 
 Production data from the #607-only build showed footprint still
 climbing ~1 GB/hour with the WebGL ledger clean (`aliveDetached: 0,
-gced: 99/99`). Remaining growth is not a disposal-leak signature —
-it's V8 heap retention + native backing stores + possibly xterm glyph
-atlas accumulation. Tracked in [#610](https://github.com/juspay/kolu/issues/610).
+gced: 99/99`). **Resolved by #617** — the remaining growth was the
+xterm IntersectionObserver retention described in Chapter 3. Tracked
+in [#610](https://github.com/juspay/kolu/issues/610).
 
 ---
 
