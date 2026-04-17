@@ -90,6 +90,20 @@ Feature: Canvas mode
     Then xterm should not have received a wheel event
     And there should be no page errors
 
+  Scenario: Shift + wheel over terminal pans the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I Shift+scroll the wheel over the terminal tile
+    Then the canvas transform should have changed
+    And there should be no page errors
+
+  Scenario: Shift + primary drag over terminal pans the canvas
+    When I click the canvas mode toggle
+    And I record the canvas transform
+    And I Shift+drag from inside the terminal tile
+    Then the canvas transform should have changed
+    And there should be no page errors
+
   Scenario: Minimap shows zoom bar in canvas mode
     When I click the canvas mode toggle
     Then the minimap should be visible

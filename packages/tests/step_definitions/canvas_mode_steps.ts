@@ -369,6 +369,87 @@ When(
   },
 );
 
+// ── Shift-to-pan modifier ──
+
+When(
+  "I Shift+scroll the wheel over the terminal tile",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      const rect = xterm.getBoundingClientRect();
+      xterm.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          shiftKey: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I Shift+drag from inside the terminal tile",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      const rect = xterm.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      xterm.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          shiftKey: true,
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          shiftKey: true,
+          clientX: cx + 60,
+          clientY: cy + 40,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 0,
+          clientX: cx + 60,
+          clientY: cy + 40,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "xterm should not have received a wheel event",
   async function (this: KoluWorld) {
