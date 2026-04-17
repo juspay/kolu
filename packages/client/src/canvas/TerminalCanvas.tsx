@@ -8,9 +8,11 @@
  *  and changes are reported via `onLayoutChange` — the caller owns the
  *  source of truth (today: server metadata via subscription).
  *
- *  Drag uses the in-tree `createDrag` primitive — a thin pointer-based
- *  replacement for solid-dnd that owns its own lifecycle (no provider,
- *  no global drag context). The sidebar still uses solid-dnd.
+ *  Drag + resize + select + close are all delegated here via data
+ *  attributes on the tile chrome (data-drag-handle, data-resize-dir,
+ *  data-tile-action, data-tile-id). CanvasTile attaches no inline
+ *  handler closures so its component scope can GC cleanly across mode
+ *  toggles. The sidebar still uses solid-dnd for its own reorder.
  *
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
@@ -25,7 +27,7 @@ import {
   type JSX,
 } from "solid-js";
 import type { TileLayout } from "./TileLayout";
-import type { DragDelta } from "./createDrag";
+import { setCanvasDragState } from "./dragState";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -152,26 +154,50 @@ const TerminalCanvas: Component<{
     ),
   );
 
-  /** Apply captured drag delta to the tile's persisted position.
-   *  Delta is in screen-space — normalize by zoom for canvas-space.
-   *  `createDrag` delivers the final delta on pointerup; no need to
-   *  shadow it in a separate signal the way the solid-dnd integration
-   *  did. */
-  function handleDragEnd(id: string, { x: sdx, y: sdy }: DragDelta) {
-    const l = layoutOf(id);
-    if (!l) return;
-    if (sdx === 0 && sdy === 0) return;
-    const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
-    const next: TileLayout = {
-      ...l,
-      x: viewport.snapToGrid(l.x + dx),
-      y: viewport.snapToGrid(l.y + dy),
+  /** Start a tile drag from the title-bar pointerdown. Tracks the delta
+   *  in the singleton `canvasDragState` signal (which CanvasTile reads
+   *  for its CSS transform) and commits the final position on pointerup.
+   *  Delta is screen-space — normalized by zoom for canvas-space. */
+  let abortDrag: AbortController | null = null;
+  function startDrag(id: string, e: PointerEvent) {
+    e.preventDefault();
+    const origin = layoutOf(id);
+    if (!origin) return;
+    abortDrag?.abort();
+    const controller = new AbortController();
+    abortDrag = controller;
+    const { signal } = controller;
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const move = (ev: Event) => {
+      const pv = ev as PointerEvent;
+      setCanvasDragState({
+        tileId: id,
+        dx: pv.clientX - startX,
+        dy: pv.clientY - startY,
+      });
     };
-    // Hold pending until metadata echo arrives — avoids a frame where
-    // the drag transform has reset to 0 but getLayout still returns
-    // the pre-drag position.
-    setPendingLayout(id, next);
-    props.onLayoutChange(id, next);
+    const end = (ev: Event) => {
+      const pv = ev as PointerEvent;
+      const sdx = pv.clientX - startX;
+      const sdy = pv.clientY - startY;
+      setCanvasDragState(null);
+      controller.abort();
+      if (sdx === 0 && sdy === 0) return;
+      const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
+      const next: TileLayout = {
+        ...origin,
+        x: viewport.snapToGrid(origin.x + dx),
+        y: viewport.snapToGrid(origin.y + dy),
+      };
+      // Hold pending until metadata echo arrives.
+      setPendingLayout(id, next);
+      props.onLayoutChange(id, next);
+    };
+    window.addEventListener("pointermove", move, { signal });
+    window.addEventListener("pointerup", end, { signal });
+    window.addEventListener("pointercancel", end, { signal });
   }
 
   /** Start resizing a tile from the given edge or corner.
@@ -273,25 +299,58 @@ const TerminalCanvas: Component<{
             "transform-origin": "0 0",
             transform: viewport.canvasTransform(),
           }}
-          /* Resize-handle dispatch lives here (one listener) rather than
-           * per-handle inside CanvasTile. Per-handle onPointerDown closures
-           * retained ~1,450 SolidJS Contexts per 30 canvas/focus toggles —
-           * every closure in CanvasTile's body shares a V8 Context chain,
-           * so inline JSX handlers pin the whole component scope past
-           * disposal. Delegating keeps exactly one closure inside this
-           * mount, owned by TerminalCanvas's reactive owner. */
+          /* All tile-chrome event dispatch lives here. Per-tile inline
+           * closures (resize-handle onPointerDown, drag-handle
+           * onPointerDown, select onMouseDown, close onClick) would each
+           * share a V8 Context chain with CanvasTile's body and pin the
+           * whole scope past dispose — heap-snapshot retainer walks
+           * confirmed ~1,450+ leaked Contexts per 30 toggles attributable
+           * to inline handlers in CanvasTile. Delegation collapses to
+           * exactly 2 handlers here, owned by TerminalCanvas's owner. */
           onPointerDown={(e) => {
             const target = e.target as HTMLElement | null;
             if (!target) return;
-            const handle = target.closest<HTMLElement>("[data-resize-dir]");
-            if (!handle) return;
-            const direction = handle.dataset.resizeDir as
-              | ResizeDirection
-              | undefined;
-            const tileEl = handle.closest<HTMLElement>("[data-tile-id]");
+            const resizeHandle =
+              target.closest<HTMLElement>("[data-resize-dir]");
+            if (resizeHandle) {
+              const direction = resizeHandle.dataset.resizeDir as
+                | ResizeDirection
+                | undefined;
+              const tileEl =
+                resizeHandle.closest<HTMLElement>("[data-tile-id]");
+              const tileId = tileEl?.dataset.tileId;
+              if (direction && tileId) startResize(tileId, direction, e);
+              return;
+            }
+            const dragHandle =
+              target.closest<HTMLElement>("[data-drag-handle]");
+            if (dragHandle) {
+              const tileEl = dragHandle.closest<HTMLElement>("[data-tile-id]");
+              const tileId = tileEl?.dataset.tileId;
+              if (tileId) {
+                props.onSelect(tileId);
+                startDrag(tileId, e);
+              }
+            }
+          }}
+          onClick={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (!target) return;
+            const closeBtn = target.closest<HTMLElement>(
+              '[data-tile-action="close"]',
+            );
+            if (closeBtn) {
+              const tileEl = closeBtn.closest<HTMLElement>("[data-tile-id]");
+              const tileId = tileEl?.dataset.tileId;
+              if (tileId) {
+                e.stopPropagation();
+                props.onClose(tileId);
+              }
+              return;
+            }
+            const tileEl = target.closest<HTMLElement>("[data-tile-id]");
             const tileId = tileEl?.dataset.tileId;
-            if (!direction || !tileId) return;
-            startResize(tileId, direction, e);
+            if (tileId) props.onSelect(tileId);
           }}
         >
           <For each={props.tileIds}>
@@ -300,8 +359,6 @@ const TerminalCanvas: Component<{
                 id={id}
                 active={props.activeId === id}
                 theme={props.getTileTheme(id)}
-                onSelect={() => props.onSelect(id)}
-                onClose={() => props.onClose(id)}
                 renderTitle={() => props.renderTileTitle(id)}
                 renderTitleActions={
                   props.renderTileTitleActions
@@ -313,11 +370,6 @@ const TerminalCanvas: Component<{
                 }
                 layouts={layouts()}
                 zoom={viewport.zoom}
-                onDragMove={() => {
-                  /* no-op: CanvasTile's `drag.transform` already drives the
-                   * tile's CSS translate during drag. */
-                }}
-                onDragEnd={handleDragEnd}
               />
             )}
           </For>
