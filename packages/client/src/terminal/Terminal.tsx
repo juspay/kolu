@@ -43,6 +43,11 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
+import {
+  trackCreate,
+  trackDispose,
+  trackLoseContextCalled,
+} from "./webglTracker";
 
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
@@ -102,6 +107,7 @@ const Terminal: Component<{
   let streamAbort: AbortController | null = null;
   let webgl: WebglAddon | null = null;
   let webglCanvas: HTMLCanvasElement | null = null;
+  let webglTrackerId: number | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   const [hasWebgl, setHasWebgl] = createSignal(false);
 
@@ -137,6 +143,9 @@ const Terminal: Component<{
         terminal.element?.querySelector<HTMLCanvasElement>(
           ".xterm-screen canvas",
         ) ?? null;
+      // Register for lifecycle observation (#591 debug). No-op if no canvas.
+      if (webglCanvas)
+        webglTrackerId = trackCreate(props.terminalId, webglCanvas);
       setHasWebgl(true);
     } catch {
       // WebGL unavailable — xterm's DOM renderer is the fallback
@@ -159,12 +168,17 @@ const Terminal: Component<{
     // evicting live contexts — including the focused tile's — producing a
     // flicker across every tile. loseContext() releases GPU memory in the
     // current microtask, keeping the live set at 1.
+    if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
     webglCanvas
       ?.getContext("webgl2")
       ?.getExtension("WEBGL_lose_context")
       ?.loseContext();
     webglCanvas = null;
     w.dispose();
+    if (webglTrackerId !== null) {
+      trackDispose(webglTrackerId);
+      webglTrackerId = null;
+    }
   }
 
   // Main terminals inherit the viewport grid while they're hidden.
