@@ -28,6 +28,8 @@ import RightPanelLayout from "./right-panel/RightPanelLayout";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
+import { screenshotTerminal } from "./screenshotTerminal";
+import { ScreenshotIcon } from "./ui/Icons";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
@@ -136,6 +138,12 @@ const App: Component = () => {
     exportSessionAsPdf(id, store.getMetadata(id));
   }
 
+  function handleScreenshotTerminal(id?: TerminalId) {
+    const targetId = id ?? store.activeId();
+    if (targetId === null) return;
+    void screenshotTerminal(targetId);
+  }
+
   function handleCanvasCenterActive() {
     if (!canvasMode()) return;
     const id = store.activeId();
@@ -167,6 +175,7 @@ const App: Component = () => {
     handleShuffleTheme,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
+    handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
   });
@@ -215,6 +224,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
+    handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
@@ -531,6 +541,21 @@ const App: Component = () => {
                     <TerminalMeta
                       info={store.getDisplayInfo(id as TerminalId)}
                     />
+                  )}
+                  renderTileTitleActions={(id) => (
+                    <button
+                      class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
+                      style={{ color: "var(--color-fg-3, currentColor)" }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleScreenshotTerminal(id as TerminalId);
+                      }}
+                      title="Screenshot terminal"
+                      data-testid="screenshot-button"
+                    >
+                      <ScreenshotIcon />
+                    </button>
                   )}
                   renderTileBody={(id, active) => (
                     <TerminalContent

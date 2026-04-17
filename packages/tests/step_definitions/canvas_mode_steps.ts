@@ -123,6 +123,31 @@ When(
 );
 
 Then(
+  "the screenshot button should be visible on canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    const buttons = this.page.locator(
+      `${CANVAS_SELECTOR} [data-testid="screenshot-button"]`,
+    );
+    await buttons
+      .nth(index - 1)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I click the screenshot button on canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    const buttons = this.page.locator(
+      `${CANVAS_SELECTOR} [data-testid="screenshot-button"]`,
+    );
+    const btn = buttons.nth(index - 1);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
   "the canvas tiles should be visible in the viewport",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(

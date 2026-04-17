@@ -51,6 +51,14 @@ When("I press the create terminal shortcut", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
+When(
+  "I press the screenshot terminal shortcut",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press(`${MOD_KEY}+Shift+S`);
+    await this.waitForFrame();
+  },
+);
+
 When("I click outside the shortcuts help", async function (this: KoluWorld) {
   await this.page.mouse.click(10, 10);
 });

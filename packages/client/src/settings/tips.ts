@@ -59,6 +59,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.exportSessionAsPdf.keybind)} exports the current session as a PDF`,
   },
   {
+    id: "amb-screenshot",
+    text: `${formatKeybind(SHORTCUTS.screenshotTerminal.keybind)} copies a PNG screenshot of the active terminal to your clipboard`,
+  },
+  {
     id: "amb-inspector",
     text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
   },

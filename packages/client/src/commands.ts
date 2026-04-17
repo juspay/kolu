@@ -46,6 +46,7 @@ export interface CommandDeps {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportSessionAsPdf: () => void;
+  handleScreenshotTerminal: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
@@ -153,6 +154,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Export session as PDF",
             keybind: SHORTCUTS.exportSessionAsPdf.keybind,
             onSelect: () => deps.handleExportSessionAsPdf(),
+          },
+          {
+            name: "Screenshot terminal",
+            keybind: SHORTCUTS.screenshotTerminal.keybind,
+            onSelect: () => deps.handleScreenshotTerminal(),
           },
         ]
       : []),

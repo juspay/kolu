@@ -142,6 +142,10 @@ export const SHORTCUTS = {
     keybind: { key: "p", code: "KeyP", mod: true },
     label: "Export session as PDF",
   },
+  screenshotTerminal: {
+    keybind: { key: "S", code: "KeyS", mod: true, shift: true },
+    label: "Screenshot terminal",
+  },
   toggleRightPanel: {
     keybind: { key: "b", code: "KeyB", mod: true },
     label: "Toggle inspector panel",
