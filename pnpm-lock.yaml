@@ -12,6 +12,12 @@ overrides:
   '@anthropic-ai/sdk': ^0.81.0
 
 patchedDependencies:
+  '@xterm/addon-webgl@0.19.0':
+    hash: 1d24d393870d3e20b7a9aa449befbbf46b14f989c0597cd002c36a4c9800091f
+    path: patches/@xterm__addon-webgl@0.19.0.patch
+  '@xterm/xterm@6.0.0':
+    hash: 51b463f5062252b429d93eac81e51b057bd47f8cfa98be4f84fe134c12fda29a
+    path: patches/@xterm__xterm@6.0.0.patch
   node-pty@1.1.0:
     hash: 50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6
     path: patches/node-pty@1.1.0.patch
@@ -88,10 +94,10 @@ importers:
         version: 0.12.0
       '@xterm/addon-webgl':
         specifier: ^0.19.0
-        version: 0.19.0
+        version: 0.19.0(patch_hash=1d24d393870d3e20b7a9aa449befbbf46b14f989c0597cd002c36a4c9800091f)
       '@xterm/xterm':
         specifier: ^6.0.0
-        version: 6.0.0
+        version: 6.0.0(patch_hash=51b463f5062252b429d93eac81e51b057bd47f8cfa98be4f84fe134c12fda29a)
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -356,7 +362,7 @@ importers:
     dependencies:
       '@xterm/xterm':
         specifier: ^6.0.0
-        version: 6.0.0
+        version: 6.0.0(patch_hash=51b463f5062252b429d93eac81e51b057bd47f8cfa98be4f84fe134c12fda29a)
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -5849,11 +5855,11 @@ snapshots:
 
   '@xterm/addon-web-links@0.12.0': {}
 
-  '@xterm/addon-webgl@0.19.0': {}
+  '@xterm/addon-webgl@0.19.0(patch_hash=1d24d393870d3e20b7a9aa449befbbf46b14f989c0597cd002c36a4c9800091f)': {}
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@6.0.0': {}
+  '@xterm/xterm@6.0.0(patch_hash=51b463f5062252b429d93eac81e51b057bd47f8cfa98be4f84fe134c12fda29a)': {}
 
   accepts@2.0.0:
     dependencies:
