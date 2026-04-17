@@ -19,11 +19,6 @@ import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { terminalName } from "./terminal/terminalDisplay";
 
-/** xterm's color model: any other mode (0 = default) uses the theme's
- *  fg/bg; 1 = ANSI palette (0-255); 2 = 24-bit RGB packed into a single int. */
-const COLOR_MODE_PALETTE = 1;
-const COLOR_MODE_RGB = 2;
-
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */
 const CUBE_STEPS = [0, 95, 135, 175, 215, 255];
@@ -95,14 +90,18 @@ function rgbColor(packed: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-/** xterm.js IBufferCell subset we use. */
+/** xterm.js IBufferCell subset we use. Predicate methods are used instead
+ *  of raw `getFg/BgColorMode()` comparisons because the mode enum is not
+ *  part of the public API and differs between 16- and 256-color cells. */
 interface BufferCell {
   getChars: () => string;
   getWidth: () => number;
   getFgColor: () => number;
-  getFgColorMode: () => number;
   getBgColor: () => number;
-  getBgColorMode: () => number;
+  isFgRGB: () => boolean;
+  isBgRGB: () => boolean;
+  isFgPalette: () => boolean;
+  isBgPalette: () => boolean;
   isBold: () => number;
   isItalic: () => number;
   isInverse: () => number;
@@ -112,20 +111,16 @@ function cellColors(
   cell: BufferCell,
   t: ResolvedTheme,
 ): { fg: string; bg: string } {
-  const fgMode = cell.getFgColorMode();
-  const bgMode = cell.getBgColorMode();
-  let fg =
-    fgMode === COLOR_MODE_PALETTE
+  let fg = cell.isFgRGB()
+    ? rgbColor(cell.getFgColor())
+    : cell.isFgPalette()
       ? paletteColor(cell.getFgColor(), t)
-      : fgMode === COLOR_MODE_RGB
-        ? rgbColor(cell.getFgColor())
-        : t.fg;
-  let bg =
-    bgMode === COLOR_MODE_PALETTE
+      : t.fg;
+  let bg = cell.isBgRGB()
+    ? rgbColor(cell.getBgColor())
+    : cell.isBgPalette()
       ? paletteColor(cell.getBgColor(), t)
-      : bgMode === COLOR_MODE_RGB
-        ? rgbColor(cell.getBgColor())
-        : t.bg;
+      : t.bg;
   // ANSI inverse — swap fg and bg for the cell.
   if (cell.isInverse()) [fg, bg] = [bg, fg];
   return { fg, bg };
