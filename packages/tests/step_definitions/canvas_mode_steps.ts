@@ -374,9 +374,11 @@ When(
 /** Dispatch a Space keydown/keyup on window, mirroring how the wheel-
  *  dispatch steps fake gestures. Real `page.keyboard.down("Space")` would
  *  route through the focused xterm textarea (covered by the isTyping guard)
- *  and never flip spaceHeld. */
+ *  and never flip spaceHeld. We blur the active element first to model a
+ *  user who has clicked outside the terminal before pressing Space. */
 When("I hold Space", async function (this: KoluWorld) {
   await this.page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
         code: "Space",
