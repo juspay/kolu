@@ -6,7 +6,7 @@
 
 import { type Component, type JSX, Show } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import Resizable from "@corvu/resizable";
+import Splitter from "../ui/Splitter";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 import { isMobile } from "../useMobile";
@@ -49,46 +49,33 @@ const RightPanelLayout: Component<{
         </div>
       }
     >
-      {/* Pinned: always render Resizable (even when collapsed — sizes=[1,0]).
-       *  This keeps the handle in the DOM for e2e tests and allows the user
-       *  to drag-expand without toggling via the button. */}
+      {/* Pinned: render Splitter even when collapsed (sizes=[1,0]) so the
+       *  handle stays available for drag-expand without toggling via the
+       *  button. */}
       <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
-        <Resizable
+        <Splitter
           orientation="horizontal"
           sizes={
             rightPanel.collapsed()
               ? [1, 0]
               : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
           }
-          onSizesChange={(sizes) => {
-            if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
-          }}
+          onSizesChange={(sizes) => rightPanel.setPanelSize(sizes[1])}
+          minSizes={[0.3, 0]}
+          showHandle={!rightPanel.collapsed()}
           class="flex-1 min-h-0 overflow-hidden"
-        >
-          <Resizable.Panel
-            as="div"
-            class={`min-w-0 min-h-0 flex ${props.contentClass ?? ""}`}
-            minSize={0.3}
-          >
-            {props.children}
-          </Resizable.Panel>
-          <Show when={!rightPanel.collapsed()}>
-            <Resizable.Handle
-              data-testid="right-panel-handle"
-              class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-              aria-label="Resize inspector panel"
-            />
-          </Show>
-          <Resizable.Panel
-            as="div"
-            class="min-w-0 min-h-0 overflow-hidden"
-            minSize={0}
-          >
+          primaryClass={`min-w-0 min-h-0 flex ${props.contentClass ?? ""}`}
+          secondaryClass="min-w-0 min-h-0 overflow-hidden"
+          handleTestId="right-panel-handle"
+          handleAriaLabel="Resize inspector panel"
+          handleClass="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+          primary={props.children}
+          secondary={
             <Show when={!rightPanel.collapsed()}>
               <RightPanel {...rightPanelProps()} />
             </Show>
-          </Resizable.Panel>
-        </Resizable>
+          }
+        />
       </div>
     </Show>
   );

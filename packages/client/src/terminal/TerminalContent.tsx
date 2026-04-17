@@ -5,11 +5,11 @@
  *  Owns sub-panel state internally — callers provide only the shell. */
 
 import { type Component, Show, For } from "solid-js";
-import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
 import { useSubPanel } from "./useSubPanel";
+import Splitter from "../ui/Splitter";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const TerminalContent: Component<{
@@ -50,13 +50,17 @@ const TerminalContent: Component<{
     activeSubTab() === subId &&
     focusTarget() === "sub";
 
-  function handleSizesChange(sizes: number[]) {
+  const sizes = (): [number, number] =>
+    isExpanded()
+      ? [1 - panelState().panelSize, panelState().panelSize]
+      : [1, 0];
+
+  function handleSizesChange(next: readonly [number, number]) {
     // Persist the bottom panel size when user drags the handle.
-    // Ignore tiny values — the Resizable fires onSizesChange with [1, 0]
-    // during programmatic transitions (e.g. expand from collapsed), which
-    // would immediately re-collapse the panel.
-    if (sizes[1] !== undefined && sizes[1] > 0.02) {
-      subPanel.setPanelSize(props.terminalId, sizes[1]);
+    // Ignore tiny values — drag-to-zero should not overwrite the last
+    // meaningful size; users collapse via the explicit "▾ Hide" button.
+    if (next[1] > 0.02) {
+      subPanel.setPanelSize(props.terminalId, next[1]);
     }
   }
 
@@ -71,17 +75,19 @@ const TerminalContent: Component<{
   }
 
   return (
-    <Resizable
+    <Splitter
       orientation="vertical"
-      sizes={
-        isExpanded()
-          ? [1 - panelState().panelSize, panelState().panelSize]
-          : [1, 0]
-      }
+      sizes={sizes()}
       onSizesChange={handleSizesChange}
+      minSizes={[0.2, 0]}
+      showHandle={isExpanded()}
       class="flex-1 min-h-0"
-    >
-      <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+      primaryClass="min-h-0 overflow-hidden"
+      secondaryClass="min-h-0 overflow-hidden flex flex-col"
+      handleTestId="resize-handle"
+      handleAriaLabel="Resize terminal split"
+      handleClass="shrink-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors h-0"
+      primary={
         <Terminal
           terminalId={props.terminalId}
           visible={props.visible}
@@ -91,64 +97,46 @@ const TerminalContent: Component<{
           onSearchOpenChange={props.onSearchOpenChange}
           onFocus={handleMainFocus}
         />
-      </Resizable.Panel>
-
-      {/* Resize handle — invisible hit zone, visible on hover */}
-      <Show when={hasSubs()}>
-        <Resizable.Handle
-          data-testid="resize-handle"
-          class="shrink-0 transition-all"
-          classList={{
-            "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
-              isExpanded(),
-            "h-0": !isExpanded(),
-          }}
-          aria-label="Resize terminal split"
-        />
-      </Show>
-
-      <Resizable.Panel
-        as="div"
-        class="min-h-0 overflow-hidden flex flex-col"
-        minSize={0}
-        collapsible
-        collapsedSize={0}
-        onCollapse={() => subPanel.collapsePanel(props.terminalId)}
-        onExpand={() => subPanel.expandPanel(props.terminalId)}
-      >
-        <Show when={isExpanded()}>
-          <SubPanelTabBar
-            subIds={props.subTerminalIds}
-            activeSubTab={activeSubTab()}
-            getMetadata={props.getMetadata}
-            onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
-            onClose={props.onCloseTerminal}
-            onCollapse={() => subPanel.collapsePanel(props.terminalId)}
-            onCreate={() =>
-              props.onCreateSubTerminal(props.terminalId, props.activeMeta?.cwd)
-            }
-          />
-        </Show>
-        <div class="flex-1 min-h-0">
-          <For each={props.subTerminalIds}>
-            {(subId) => (
-              <Terminal
-                terminalId={subId}
-                visible={
-                  props.visible && isExpanded() && activeSubTab() === subId
-                }
-                focused={shouldFocusSub(subId)}
-                theme={props.theme}
-                searchOpen={false}
-                onSearchOpenChange={() => {}}
-                onFocus={handleSubFocus}
-                isSub
-              />
-            )}
-          </For>
-        </div>
-      </Resizable.Panel>
-    </Resizable>
+      }
+      secondary={
+        <>
+          <Show when={isExpanded()}>
+            <SubPanelTabBar
+              subIds={props.subTerminalIds}
+              activeSubTab={activeSubTab()}
+              getMetadata={props.getMetadata}
+              onSelect={(id) => subPanel.setActiveSubTab(props.terminalId, id)}
+              onClose={props.onCloseTerminal}
+              onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+              onCreate={() =>
+                props.onCreateSubTerminal(
+                  props.terminalId,
+                  props.activeMeta?.cwd,
+                )
+              }
+            />
+          </Show>
+          <div class="flex-1 min-h-0">
+            <For each={props.subTerminalIds}>
+              {(subId) => (
+                <Terminal
+                  terminalId={subId}
+                  visible={
+                    props.visible && isExpanded() && activeSubTab() === subId
+                  }
+                  focused={shouldFocusSub(subId)}
+                  theme={props.theme}
+                  searchOpen={false}
+                  onSearchOpenChange={() => {}}
+                  onFocus={handleSubFocus}
+                  isSub
+                />
+              )}
+            </For>
+          </div>
+        </>
+      }
+    />
   );
 };
 
