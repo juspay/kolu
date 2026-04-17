@@ -7,17 +7,22 @@ import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
 import type { TerminalId } from "kolu-common";
-import { useServerState } from "./useServerState";
+import { usePreferences } from "./usePreferences";
 import { isMobile } from "../useMobile";
 
+const isPWA = window.matchMedia("(display-mode: standalone)").matches;
+const ambientPool = AMBIENT_TIPS.filter(
+  (t) => !(isPWA && t.id === "amb-pwa-install"),
+);
+
 // Module-level references, set on first useTips() call.
-let _prefs: ReturnType<typeof useServerState>;
+let _prefs: ReturnType<typeof usePreferences>;
 let _initialized = false;
 
 function ensureInit() {
   if (_initialized) return;
   _initialized = true;
-  _prefs = useServerState();
+  _prefs = usePreferences();
 }
 
 function seen(): Set<TipId> {
@@ -44,8 +49,8 @@ function showTipOnce(tip: Tip) {
 /** Pick a random ambient tip (prefers unseen, falls back to any). */
 function randomAmbientTip(): string {
   if (isMobile()) return "";
-  const unseen = AMBIENT_TIPS.filter((t) => !seen().has(t.id));
-  const pool = unseen.length > 0 ? unseen : AMBIENT_TIPS;
+  const unseen = ambientPool.filter((t) => !seen().has(t.id));
+  const pool = unseen.length > 0 ? unseen : ambientPool;
   const pick = pool[Math.floor(Math.random() * pool.length)]!;
   if (!seen().has(pick.id)) markSeen(pick.id);
   return pick.text;

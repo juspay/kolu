@@ -12,7 +12,6 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import { isMobile } from "./useMobile";
 import Header from "./Header";
-import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
@@ -42,7 +41,7 @@ import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
-import { useServerState } from "./settings/useServerState";
+import { usePreferences } from "./settings/usePreferences";
 import { useTips } from "./settings/useTips";
 import { toggleMinimap } from "./canvas/CanvasMinimap";
 
@@ -72,7 +71,7 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
-  const { preferences, updatePreferences } = useServerState();
+  const { preferences, updatePreferences } = usePreferences();
   // Canvas mode is desktop-only — force focus mode on mobile
   const canvasMode = () => !isMobile() && preferences().canvasMode;
   const toggleCanvasMode = () =>
@@ -372,7 +371,6 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      <PwaInstallBar />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}

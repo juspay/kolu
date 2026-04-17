@@ -9,7 +9,7 @@ import { toast } from "solid-sonner";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Section from "./ui/Section";
 import Row from "./ui/Row";
-import { useServerState } from "./settings/useServerState";
+import { usePreferences } from "./settings/usePreferences";
 import { wsStatus, serverProcessId } from "./rpc/rpc";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import type { TerminalId } from "kolu-common";
@@ -26,7 +26,7 @@ function browserFacts() {
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
   const browser = browserFacts();
 
   const snapshot = createMemo(() => ({

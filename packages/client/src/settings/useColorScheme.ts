@@ -8,14 +8,14 @@
 import { createEffect } from "solid-js";
 import { usePrefersDark } from "@solid-primitives/media";
 import type { ColorScheme } from "kolu-common";
-import { useServerState } from "./useServerState";
+import { usePreferences } from "./usePreferences";
 
 export type { ColorScheme };
 
 let effectInitialized = false;
 
 export function useColorScheme() {
-  const { preferences, updatePreferences } = useServerState();
+  const { preferences, updatePreferences } = usePreferences();
   const colorScheme = () => preferences().colorScheme;
   const setColorScheme = (scheme: ColorScheme) =>
     updatePreferences({ colorScheme: scheme });

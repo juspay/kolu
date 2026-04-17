@@ -82,4 +82,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-canvas-minimap",
     text: "In Canvas mode, toggle the minimap via the grid icon for a bird's-eye view",
   },
+  {
+    id: "amb-pwa-install",
+    text: "Install kolu as a native app from your browser menu — unlocks ⌘T, ⌃Tab and friends",
+  },
 ];

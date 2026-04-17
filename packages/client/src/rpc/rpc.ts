@@ -66,13 +66,20 @@ const STREAM_RETRY: ClientRetryPluginContext = {
  * would double-paint onto a stale xterm buffer without an explicit reset.
  */
 export const stream = {
-  state: (signal?: AbortSignal) =>
-    client.state.get(undefined, { signal, context: STREAM_RETRY }),
+  preferences: (signal?: AbortSignal) =>
+    client.preferences.get(undefined, { signal, context: STREAM_RETRY }),
+  /** Server-derived activity feed (recent repos + recent agents). Distinct
+   *  from per-terminal activity (`terminalActivity` below) — that's a
+   *  high-frequency PTY-output sparkline tied to one terminal. */
+  activityFeed: (signal?: AbortSignal) =>
+    client.activity.get(undefined, { signal, context: STREAM_RETRY }),
+  session: (signal?: AbortSignal) =>
+    client.session.get(undefined, { signal, context: STREAM_RETRY }),
   terminalList: (signal?: AbortSignal) =>
     client.terminal.list(undefined, { signal, context: STREAM_RETRY }),
   metadata: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onMetadataChange({ id }, { signal, context: STREAM_RETRY }),
-  activity: (id: TerminalId, signal?: AbortSignal) =>
+  terminalActivity: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onActivityChange({ id }, { signal, context: STREAM_RETRY }),
   exit: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onExit({ id }, { signal, context: STREAM_RETRY }),

@@ -21,7 +21,7 @@ import Tip from "../ui/Tip";
 import Kbd from "../ui/Kbd";
 import TerminalMeta from "../terminal/TerminalMeta";
 import TerminalPreview from "../terminal/TerminalPreview";
-import { useServerState } from "../settings/useServerState";
+import { usePreferences } from "../settings/usePreferences";
 import { useTips } from "../settings/useTips";
 import { sidebarSwitchTip } from "../settings/tips";
 import { formatKeybind, SHORTCUTS } from "../input/keyboard";
@@ -97,7 +97,7 @@ const SidebarEntry: Component<{
    *  match the main terminal exactly. Returns the current viewport dims
    *  when the card should render, otherwise `undefined` — lets the JSX
    *  `Show` narrow the type in the rendered branch. */
-  const { preferences } = useServerState();
+  const { preferences } = usePreferences();
   const showPreview = () => {
     const vp = viewportDimensions();
     if (!vp) return undefined;

@@ -6,7 +6,7 @@ import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
 import { availableThemes } from "terminal-themes";
 import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
-import { useServerState } from "./settings/useServerState";
+import { useActivityFeed } from "./settings/useActivityFeed";
 import { client } from "./rpc/rpc";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
@@ -73,7 +73,7 @@ export interface CommandDeps {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos, recentAgents } = useServerState();
+  const { recentRepos, recentAgents } = useActivityFeed();
 
   return createMemo((): PaletteCommand[] => [
     {

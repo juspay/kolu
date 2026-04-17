@@ -66,7 +66,7 @@ export function useTerminalMetadata(deps: {
     // Snapshot replaces, delta appends — every re-subscribe begins with
     // a fresh snapshot, so reconnect-safety is structural (no dedupe).
     const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
-      () => stream.activity(id),
+      () => stream.terminalActivity(id),
       {
         reduce: (acc, event) => {
           const cutoff = Date.now() - ACTIVITY_WINDOW_MS;

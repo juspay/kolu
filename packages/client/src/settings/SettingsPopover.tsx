@@ -1,4 +1,4 @@
-/** Settings popover — reads and writes preferences via useServerState directly.
+/** Settings popover — reads and writes preferences via usePreferences directly.
  *  Only needs open/close state and trigger ref from the parent. */
 
 import { type Component, Show, createSignal } from "solid-js";
@@ -8,7 +8,7 @@ import Toggle from "../ui/Toggle";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
-import { useServerState } from "./useServerState";
+import { usePreferences } from "./usePreferences";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
 import type { Preferences, SidebarAgentPreviews } from "kolu-common";
 
@@ -44,7 +44,7 @@ const SettingsPopover: Component<{
   onOpenChange: (open: boolean) => void;
   triggerRef?: HTMLElement;
 }> = (props) => {
-  const { preferences, updatePreferences } = useServerState();
+  const { preferences, updatePreferences } = usePreferences();
   const { colorScheme, setColorScheme } = useColorScheme();
 
   let panelRef: HTMLDivElement | undefined;

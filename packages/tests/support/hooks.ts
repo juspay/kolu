@@ -212,33 +212,36 @@ AfterAll(async function () {
 });
 
 Before(async function (this: KoluWorld, scenario) {
-  // Kill leftover terminals and reset state so each scenario starts clean
+  // Kill leftover terminals and reset state so each scenario starts clean.
+  // After #577 each domain (preferences / activity / savedSession) owns its
+  // own reset endpoint — fired in parallel so the per-scenario setup cost
+  // stays the same.
   await Promise.all([
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
-    postJSON(`${baseUrl}/rpc/state/test__set`, {
+    postJSON(`${baseUrl}/rpc/preferences/test__set`, {
       json: {
-        session: null,
-        recentRepos: [],
-        recentAgents: [],
         // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
-        preferences: {
-          seenTips: [],
-          startupTips: true,
-          shuffleTheme: false,
-          scrollLock: true,
-          activityAlerts: true,
-          colorScheme: "dark",
-          sidebarAgentPreviews: "attention",
-          canvasMode: false,
-          rightPanel: {
-            collapsed: true,
-            size: 0.25,
-            tab: { kind: "inspector" },
-            pinned: true,
-          },
+        seenTips: [],
+        startupTips: true,
+        shuffleTheme: false,
+        scrollLock: true,
+        activityAlerts: true,
+        colorScheme: "dark",
+        sidebarAgentPreviews: "attention",
+        canvasMode: false,
+        terminalRenderer: "auto",
+        rightPanel: {
+          collapsed: true,
+          size: 0.25,
+          tab: { kind: "inspector" },
+          pinned: true,
         },
       },
     }),
+    postJSON(`${baseUrl}/rpc/activity/test__set`, {
+      json: { recentRepos: [], recentAgents: [] },
+    }),
+    postJSON(`${baseUrl}/rpc/session/test__set`, { json: null }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,

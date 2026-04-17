@@ -31,8 +31,10 @@ import {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
-  ServerStateSchema,
-  ServerStatePatchSchema,
+  PreferencesSchema,
+  PreferencesPatchSchema,
+  ActivityFeedSchema,
+  SavedSessionSchema,
   FsListDirInputSchema,
   FsListDirOutputSchema,
   FsReadFileInputSchema,
@@ -110,12 +112,26 @@ export const contract = oc.router({
     /** Read a file's UTF-8 content, path-traversal guarded. */
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
   },
-  state: {
-    // Stream server state changes (preferences, recent repos, session). Yields current state immediately.
-    get: oc.output(eventIterator(ServerStateSchema)),
-    // Partial update — merge into current state
-    update: oc.input(ServerStatePatchSchema).output(z.void()),
-    // Reset state (test-only: seed/clear state between scenarios)
-    test__set: oc.input(ServerStatePatchSchema).output(z.void()),
+  preferences: {
+    // Stream user preferences. Yields current value immediately, then on each change.
+    get: oc.output(eventIterator(PreferencesSchema)),
+    // Partial update — patch fields into current preferences. rightPanel is deep-merged.
+    update: oc.input(PreferencesPatchSchema).output(z.void()),
+    // Reset preferences (test-only: seed defaults between scenarios)
+    test__set: oc.input(PreferencesSchema).output(z.void()),
+  },
+  activity: {
+    // Stream the server-derived activity feed (recent repos + recent agents).
+    // Read-only for clients — server is the sole writer (trackRecentRepo / trackRecentAgent).
+    get: oc.output(eventIterator(ActivityFeedSchema)),
+    // Reset activity feed (test-only: clear MRU lists between scenarios)
+    test__set: oc.input(ActivityFeedSchema).output(z.void()),
+  },
+  session: {
+    // Stream the persisted saved-session blob (or null when none). Read-only —
+    // server writes via debounced autosave on terminal-list changes.
+    get: oc.output(eventIterator(SavedSessionSchema.nullable())),
+    // Reset saved session (test-only: seed/clear between scenarios)
+    test__set: oc.input(SavedSessionSchema.nullable()).output(z.void()),
   },
 });

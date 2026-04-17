@@ -3,7 +3,8 @@
  *  Terminal events use per-terminal channel names ("metadata:<id>", "data:<id>", etc.)
  *  so EventPublisher's Map dispatches directly to the right subscriber — no broadcast+filter.
  *
- *  System events ("session:changed") are broadcast channels with no terminal prefix. */
+ *  System events ("preferences:changed", "terminals:dirty", etc.) are broadcast
+ *  channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type {
@@ -11,7 +12,9 @@ import type {
   TerminalMetadata,
   GitInfo,
   ActivitySample,
-  ServerState,
+  Preferences,
+  ActivityFeed,
+  SavedSession,
 } from "kolu-common";
 import { log } from "./log.ts";
 
@@ -35,12 +38,21 @@ type TerminalChannels = {
 
 /** System-wide broadcast channels (no terminal prefix). */
 type SystemChannels = {
-  /** Terminal state changed — triggers debounced session auto-save */
-  "session:changed": Record<string, never>;
+  /** Terminal state changed — triggers debounced session auto-save.
+   *  Distinct from `session:changed`: this is the autosave *trigger*
+   *  (control flow), not the saved-session content. */
+  "terminals:dirty": Record<string, never>;
   /** Terminal list changed (create/kill/reorder) — drives live list query */
   "terminal-list": TerminalInfo[];
-  /** Server state changed (preferences, session, repos) — drives live state query */
-  "state:changed": ServerState;
+  /** User preferences changed — drives the preferences live query.
+   *  Fired on every `updatePreferences` write. */
+  "preferences:changed": Preferences;
+  /** Activity feed changed (recent repos / agents) — drives the activity live
+   *  query. Fired on every `trackRecentRepo` / `trackRecentAgent`. */
+  "activity:changed": ActivityFeed;
+  /** Saved-session content changed — drives the session live query.
+   *  Fired when the persisted session blob is written or cleared. */
+  "session:changed": SavedSession | null;
 };
 
 // The publisher accepts any string channel at runtime.

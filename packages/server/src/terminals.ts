@@ -26,7 +26,7 @@ import {
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
 import { parseAgentCommand } from "anyagent";
-import { trackRecentAgent } from "./state.ts";
+import { trackRecentAgent } from "./activity.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -124,7 +124,7 @@ export function snapshotSession(): {
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
 function emitChanged(): void {
-  publishSystem("session:changed", {});
+  publishSystem("terminals:dirty", {});
 }
 
 /** Notify that terminal membership changed (create/kill/reorder).

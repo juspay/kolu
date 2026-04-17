@@ -53,9 +53,9 @@ Integration code (under `packages/integrations/`) runs in a long-lived Node proc
 
 ### no-preference-prop-drilling
 
-Components must read preferences from `useServerState()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance.
+Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`) and saved session (`useSavedSession()`) — each domain has its own dedicated singleton hook.
 Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` in child
-Good: `const { preferences } = useServerState();` inside the child component
+Good: `const { preferences } = usePreferences();` inside the child component
 _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.
 
 ### errors-must-log-at-error
@@ -68,8 +68,8 @@ _Rationale_: Operators filter on `error` level for alerting. An actual failure l
 ### subscription-must-surface-errors
 
 Every `createSubscription` call must include an `onError` handler to surface failures to the user (typically via `toast.error()`). A subscription without `onError` silently swallows server-side failures — the stream dies and the user sees stale/missing data with no indication of what went wrong.
-Bad: `const sub = createSubscription(() => stream.state());`
-Good: `const sub = createSubscription(() => stream.state(), { onError: (err) => toast.error(\`Server state error: ${err.message}\`) });`
+Bad: `const sub = createSubscription(() => stream.preferences());`
+Good: `const sub = createSubscription(() => stream.preferences(), { onError: (err) => toast.error(\`Preferences subscription error: ${err.message}\`) });`
 _Rationale_: oRPC application errors (`ORPCError`) are not retried by `ClientRetryPlugin`, so the stream dies permanently. Without `onError`, the failure is invisible — the user gets a blank or stale UI with no toast, no console warning, nothing.
 
 ### e2e-poll-async-state
