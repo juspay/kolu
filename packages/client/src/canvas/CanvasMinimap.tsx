@@ -32,6 +32,8 @@ const CanvasMinimap: Component<{
   activeId: string | null;
   layouts: Record<string, TileLayout>;
   getTileTheme: (id: string) => TileTheme;
+  /** Activate a tile (make it the focused terminal). */
+  onSelect: (id: string) => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
 
@@ -154,11 +156,21 @@ const CanvasMinimap: Component<{
                 const p = toMinimap(l.x, l.y, s);
                 return { x: p.x, y: p.y, w: l.w * s, h: l.h * s };
               };
+              const handleTileClick = (e: MouseEvent) => {
+                // Don't let this also trigger the background pan-to-point.
+                e.stopPropagation();
+                const l = layout();
+                if (!l) return;
+                props.onSelect(id);
+                viewport.centerOnTile(l);
+              };
               return (
                 <Show when={pos()}>
                   {(p) => (
                     <div
-                      class="absolute rounded-sm transition-opacity pointer-events-none"
+                      data-testid="minimap-tile-rect"
+                      data-tile-id={id}
+                      class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
                           props.activeId === id,
@@ -173,6 +185,7 @@ const CanvasMinimap: Component<{
                         border: `1px solid color-mix(in oklch, ${theme().fg} 25%, ${theme().bg})`,
                       }}
                       title={id}
+                      onClick={handleTileClick}
                     />
                   )}
                 </Show>
