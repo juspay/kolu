@@ -12,6 +12,12 @@ if (import.meta.env.DEV && "serviceWorker" in navigator) {
   });
 }
 
+// Install `window.__kolu` debug hook (dev only) — one-line console access to
+// the same diagnostic probes DiagnosticInfo renders. See debug/consoleHooks.ts.
+if (import.meta.env.DEV) {
+  void import("./debug/consoleHooks").then((m) => m.installDebugHooks());
+}
+
 render(
   () => (
     <MetaProvider>

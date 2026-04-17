@@ -120,6 +120,13 @@ function consumeStream<T>(
   })();
 }
 
+/** Module-level counters for the #606 disposal audit. Exposed to window
+ *  via `debug/consoleHooks.ts`. `mounts` increments once per component
+ *  body execution; `cleanups` increments once per `onCleanup` firing.
+ *  If `mounts - cleanups > liveComponentCount` after a mode-toggle run,
+ *  some Terminal disposals are being skipped — that's the leak path. */
+export const lifecycleCounters = { mounts: 0, cleanups: 0 };
+
 /** ArrayBuffer → base64 without stack overflow (spread on large arrays blows the stack). */
 function bufferToBase64(buf: ArrayBuffer): string {
   return btoa(
@@ -142,6 +149,7 @@ const Terminal: Component<{
    *  the viewport signal. Also used for e2e test selectors. */
   isSub?: boolean;
 }> = (props) => {
+  lifecycleCounters.mounts++;
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
@@ -379,14 +387,24 @@ const Terminal: Component<{
   // (orphan xterm + WebGL canvas + scrollback buffer) — the residual #591
   // leak after PRs #578/#596.
   onCleanup(() => {
+    lifecycleCounters.cleanups++;
     disposed = true;
     streamAbort?.abort();
+    cancelAnimationFrame(fitRaf);
     unregisterTerminalRefs(props.terminalId);
     disposeDiagnostics?.();
     disposeDiagnostics = null;
     unloadWebgl();
     terminal?.dispose();
     terminal = null;
+    // Null out the other addon slots on this component's Context. xterm
+    // addons hold `_terminal` back-pointers; until their Context slot is
+    // cleared, the captured closures (e.g. `onClick={() => terminal?.focus()}`
+    // on the container div, whose closure shares this Context) keep the
+    // whole xterm graph reachable — verified via heap-snapshot BFS-from-root
+    // for issue #606. `terminal = null` above only clears one of those slots.
+    fitAddon = null;
+    setSearchAddon(null);
     // Break the containerRef → __xterm → xterm Terminal bridge. The
     // containerRef DIV may be retained by SolidJS closures (verified via
     // heap-snapshot retainer walk: `context containerRef` and `context _el$2`
