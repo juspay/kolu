@@ -148,7 +148,7 @@ const App: Component = () => {
     const id = store.activeId();
     if (!id) return;
     const tile = store.getMetadata(id)?.canvasLayout;
-    if (tile) canvasViewport.centerOnTile(tile);
+    if (tile) canvasViewport.centerOnTileAnimated(tile);
   }
 
   useShortcuts({
@@ -172,7 +172,6 @@ const App: Component = () => {
         direction,
       ),
     handleShuffleTheme,
-    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,

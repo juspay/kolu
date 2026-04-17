@@ -650,6 +650,35 @@ Then(
   },
 );
 
+When(
+  "I click minimap tile rect {int}",
+  async function (this: KoluWorld, index: number) {
+    const rects = this.page.locator('[data-testid="minimap-tile-rect"]');
+    await rects.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await rects.nth(index - 1).click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "canvas tile {int} should be the active tile",
+  async function (this: KoluWorld, index: number) {
+    await this.page.waitForFunction(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-visible]`,
+        );
+        const tile = tiles.item(i) as HTMLElement | null;
+        if (!tile) return false;
+        const wrapper = tile.closest('[data-active="true"]');
+        return wrapper !== null;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // "the close confirmation should be visible" is defined in worktree_steps.ts
 
 // ── Canvas layout persistence ──

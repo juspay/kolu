@@ -263,7 +263,7 @@ const TerminalCanvas: Component<{
     }
     if (!isFinite(minX)) return;
     requestAnimationFrame(() => {
-      viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
+      viewport.panToAnimated((minX + maxX) / 2, (minY + maxY) / 2);
     });
   });
 
@@ -319,6 +319,7 @@ const TerminalCanvas: Component<{
           activeId={props.activeId}
           layouts={layouts()}
           getTileTheme={props.getTileTheme}
+          onSelect={props.onSelect}
         />
       </div>
     </DragDropProvider>
