@@ -23,7 +23,7 @@ The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHu
 
 ## Results Tracking
 
-After each step's verification, record results via the `scripts/do-results` script (in this skill's directory). The script manages a JSON file with this schema:
+Each step is bookended by two calls to the `scripts/do-results` script (in this skill's directory): `step-start <name>` before the work begins, and `step-end <status> <verification> [reason]` after verification. This is what keeps per-step timing accurate — collapsing both into a single end-of-step call produces zero-second durations and worthless timing tables. The script manages a JSON file with this schema:
 
 ```json
 {
@@ -53,10 +53,13 @@ After each step's verification, record results via the `scripts/do-results` scri
 - Set `status` to `"completed"` when **done** is reached, or `"failed"` if halted. This field is informational only.
 - **Always use the `scripts/do-results` script** (in this skill's directory, alongside `scripts/steps/`) — never write the JSON file directly. Invoke with the full path (e.g. `.../skills/do/scripts/do-results ...`). Commands:
   - **Initialize**: `scripts/do-results init <forge> <noGit>` — creates the skeleton with a timestamp
-  - **Record a step**: `scripts/do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — pass `now` for either timestamp to auto-generate the current UTC time
+  - **Start a step**: `scripts/do-results step-start <name>` — stamps `pendingStep` with the current UTC time. Call this **before** doing the step's work.
+  - **End a step**: `scripts/do-results step-end <status> "<verification>" ["<reason>"]` — pops `pendingStep` and appends the completed step with `completedAt` set to the current UTC time.
+  - **Record a step in one call** (advanced): `scripts/do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — used by `scripts/steps/sync` where `startedAt` is captured in shell. Agent code should prefer `step-start` / `step-end`.
   - **Update top-level field**: `scripts/do-results set <field> <value>` (e.g., `set active waiting`, `set status completed`)
   - **Patch last step**: `scripts/do-results patch-last <field> <value>` (e.g., `patch-last completedAt "2026-..."`)
-- Pass `now` as a timestamp argument to `scripts/do-results step` — the script resolves it to UTC internally. Do not run `date` yourself or guess timestamps.
+- **Bookend every step with `step-start` at the top and `step-end` at the bottom.** Calling `step-end` without a prior `step-start` is an error, and calling `step` with `now` for both timestamps collapses duration to 0 — neither pattern is allowed. The only exceptions: `sync` is recorded by `scripts/steps/sync` itself, and skipped steps (where duration is always 0 by definition) may use `step-start` followed immediately by `step-end` with status `skipped`.
+- Do not run `date` yourself or guess timestamps — `do-results` resolves the current UTC time internally.
 
 ## Progress tracking
 
@@ -73,7 +76,7 @@ Rules:
 - **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
 - **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
 - **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
-- **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. The skip reason is recorded via `scripts/do-results step <name> skipped ... "<reason>"`; the task list just shows the step as done.
+- **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. Record the skip with a back-to-back `scripts/do-results step-start <name>` / `scripts/do-results step-end skipped ... "<reason>"`; the task list just shows the step as done.
 - **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `scripts/do-results set status failed`.
 
 ## Steps

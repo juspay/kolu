@@ -4,8 +4,12 @@
 #
 # Usage:
 #   do-results init <forge> <noGit>           — create initial skeleton
+#   do-results step-start <name>              — stamp pendingStep with now; call at step start
+#   do-results step-end <status> <verif> [reason]
+#                                             — pop pendingStep, append with completedAt=now
 #   do-results step <name> <status> <verif> <startedAt> <completedAt> [reason]
-#                                             — append a completed step
+#                                             — append a completed step with explicit timestamps
+#                                               (use when startedAt comes from a single-shell caller)
 #                                               pass "now" for startedAt/completedAt to auto-generate UTC timestamp
 #   do-results set <field> <value>            — update a top-level field (active, status)
 #   do-results patch-last <field> <value>     — patch a field on the last step
@@ -21,7 +25,7 @@ fi
 
 FILE=".do-results.json"
 
-cmd="${1:?Usage: do-results <init|step|set|patch-last> ...}"
+cmd="${1:?Usage: do-results <init|step-start|step-end|step|set|patch-last> ...}"
 shift
 
 case "$cmd" in
@@ -40,6 +44,44 @@ case "$cmd" in
   "steps": []
 }
 ENDJSON
+    ;;
+
+  step-start)
+    name="${1:?name required}"
+    startedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    existing="$($JQ -r '.pendingStep.name // empty' "$FILE")"
+    if [ -n "$existing" ]; then
+      echo "do-results: overwriting stale pendingStep '$existing' — step-end was not called" >&2
+    fi
+    $JQ --arg n "$name" --arg sa "$startedAt" \
+       '.pendingStep = {"name":$n,"startedAt":$sa}' \
+       "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+    ;;
+
+  step-end)
+    status="${1:?status required (passed|failed|skipped)}"
+    verif="${2:?verification required}"
+    reason="${3:-}"
+    completedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    name="$($JQ -r '.pendingStep.name // empty' "$FILE")"
+    startedAt="$($JQ -r '.pendingStep.startedAt // empty' "$FILE")"
+    if [ -z "$name" ] || [ -z "$startedAt" ]; then
+      echo "do-results: no pendingStep — call step-start first" >&2
+      exit 1
+    fi
+
+    if [ -n "$reason" ]; then
+      $JQ --arg n "$name" --arg s "$status" --arg v "$verif" \
+         --arg sa "$startedAt" --arg ca "$completedAt" --arg r "$reason" \
+         '.steps += [{"name":$n,"status":$s,"verification":$v,"startedAt":$sa,"completedAt":$ca,"reason":$r}] | del(.pendingStep)' \
+         "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+    else
+      $JQ --arg n "$name" --arg s "$status" --arg v "$verif" \
+         --arg sa "$startedAt" --arg ca "$completedAt" \
+         '.steps += [{"name":$n,"status":$s,"verification":$v,"startedAt":$sa,"completedAt":$ca}] | del(.pendingStep)' \
+         "$FILE" > "${FILE}.tmp" && mv "${FILE}.tmp" "$FILE"
+    fi
     ;;
 
   step)
@@ -86,7 +128,7 @@ ENDJSON
 
   *)
     echo "Unknown command: $cmd" >&2
-    echo "Usage: do-results <init|step|set|patch-last> ..." >&2
+    echo "Usage: do-results <init|step-start|step-end|step|set|patch-last> ..." >&2
     exit 1
     ;;
 esac
