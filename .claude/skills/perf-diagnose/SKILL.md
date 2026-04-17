@@ -1,96 +1,138 @@
 ---
 name: perf-diagnose
-description: Diagnose Kolu client-side performance issues (memory leaks, high GPU, slow interactions) using chrome-devtools MCP + the Debug → Diagnostic info dialog. Triggers on "memory leak", "GPU memory", "tab bloat", "why is kolu slow", "debug performance", "zombie canvas", "WebGL leak", or any #591-shaped issue.
+description: Diagnose Kolu client-side performance issues (memory leaks, high GPU, slow interactions) using chrome-devtools MCP + the Debug → Diagnostic info dialog + heap-snapshot analyzers. Triggers on "memory leak", "GPU memory", "tab bloat", "why is kolu slow", "debug performance", "zombie canvas", "WebGL leak", or any #591/#606-shaped issue.
 ---
 
 # Performance diagnosis
 
+Full historical context + fix details: `docs/perf-investigations/memory-learnings.md`. Master tracking issue: [#610](https://github.com/juspay/kolu/issues/610). This file is the runbook.
+
 ## Ground rule: facts over guesses
 
-**Every claim must cite evidence from a live measurement: Chrome Task Manager screenshot, Diagnostic-info JSON, or a parsed heap snapshot.** No reasoning from xterm source, no reasoning from WebGL spec, no "probably" or "I suspect". PR [#594](https://github.com/juspay/kolu/pull/594) regressed production to 1.1 GB GPU because its fix was reasoned from spec reading without runtime verification — the same code paths the author was reasoning about were silently no-ops. The [#595](https://github.com/juspay/kolu/pull/595) `webglTracker` exists so you can stop guessing.
+**Every claim must cite evidence from a live measurement: Chrome Task Manager screenshot, Diagnostic-info JSON, `window.__kolu` console reading, or a parsed heap snapshot.** No reasoning from xterm source, no reasoning from WebGL spec, no "probably" / "likely" / "should".
 
-If you find yourself about to write "probably", "likely", "should", or "I think", stop. Get the next measurement first. If you write a PR description based on a hypothesis, the reader can't tell which parts were observed vs invented; neither can you three days later.
+Prior art: [#594](https://github.com/juspay/kolu/pull/594) regressed production to 1.1 GB GPU because its fix was reasoned from spec reading without runtime verification — the code paths being reasoned about were silently no-ops. The corresponding measurement-based fix ([#596](https://github.com/juspay/kolu/pull/596)) landed in minutes once someone looked at `WeakRef.deref()`.
+
+If you find yourself about to write "probably" / "likely" / "I think", stop. Get the next measurement first. Hypothesis-based PR descriptions are indistinguishable from evidence-based ones three days later, including to yourself.
 
 ## Prerequisites
 
-Need chrome-devtools MCP and a running dev server on `http://localhost:5173`. If the dev server isn't running, **ask the user before continuing** (via `AskUserQuestion`): "Start `just dev` in a terminal? Required to reproduce memory pathologies with the tracker attached." Don't silently run it — it ties up a terminal.
+A running dev server on `http://localhost:5173` + chrome-devtools MCP. If the dev server isn't running, **ask the user before starting it** (`AskUserQuestion`): "Start `just dev` myself? Required to reproduce memory pathologies with the tracker attached." Don't silently run it — it ties up a terminal.
 
-## The three signals
+## The four signals (triangulate)
 
-Always triangulate with all three:
+1. **Chrome Task Manager** (user shares screenshot). Columns: `Memory Footprint`, `GPU Memory`, `JavaScript Memory total (N live)`. The `live` parenthetical is post-GC — use it, not `usedJSHeapSize`.
+2. **Debug → Diagnostic info dialog** (command palette → Debug → Diagnostic info → Copy JSON). Per-terminal state + WebGL lifecycle ledger + per-canvas sizes (#605) + per-terminal `bufferBytes` (#605).
+3. **`window.__kolu` console hook** (dev only; see `packages/client/src/debug/consoleHooks.ts`):
+   - `__kolu.webgl()` — WebGL lifecycle snapshot
+   - `__kolu.bufferBytes("id")` — xterm's primary + alt `Uint32Array.byteLength`
+   - `__kolu.atlas("id")` — WebGL atlas dimensions
+   - `__kolu.lifecycle()` — `{ mounts, cleanups }` for Terminal.tsx (disposal audit)
+4. **Heap snapshot** via `mcp__chrome-devtools__take_memory_snapshot` to `/tmp/kolu.heapsnapshot`. Chrome forces a major GC before capturing — snapshots reflect the live set.
 
-1. **Chrome Task Manager** (user shares screenshot). Three columns matter: `Memory Footprint`, `GPU Memory`, `JavaScript Memory live/total`. The "live" JS number is post-GC — use it, not `usedJSHeapSize`.
-2. **Debug → Diagnostic info dialog** (command palette → Debug → Diagnostic info → Copy JSON). Gives per-terminal state, JS heap, and the **WebGL lifecycle** section: `totalCreated`, `disposed`, `aliveInDom`, `aliveDetached`, `gced`, `contextsLost`. Events tape has the last 30 `create / loseContext-called / dispose / contextlost / contextrestored` events with `defaultPrevented` flags.
-3. **Heap snapshot** via `mcp__chrome-devtools__take_memory_snapshot` to `/tmp/kolu.heapsnapshot`. Chrome forces a major GC before capturing.
+## Two leak shapes — distinguish these first
 
-## WebGL invariants
+Before digging into any specific retention chain, figure out which shape you have. They have different fixes.
 
-If the Diagnostic dialog shows any of these, something is wrong:
+| Shape                                      | How to tell                                                                                                                                                  | Fix pattern                                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| **Cleanup doesn't run** (#598 class)       | `__kolu.lifecycle()` shows `mounts - cleanups > live`. Orphan entry's event tape has only `{kind: "create"}` — no `dispose` event ever fires.                | Register `onCleanup` synchronously before any `await`; bail with `if (disposed)` post-await. |
+| **Cleanup runs but memory retained** (#606 class) | `lifecycle()` math works. `scripts/check-yn-disposed.mjs` shows all retained `yn` have `_store._isDisposed=true`. `Rn` count > live count. | Null captured refs in component scope (#607) OR register disposables (#609).        |
 
-- `aliveDetached > 0 && contextsLost < aliveDetached` — canvases held alive with **live** WebGL contexts. This is the #591 leak shape.
-- `totalCreated - disposed > aliveInDom` — orphan entries whose `onCleanup` never fired. Events tape for an orphan contains only `{kind: "create"}`. Usually an async-onMount-cleanup-race (fixed in #598; if it resurfaces, look for another `await` before `onCleanup(...)` registers).
-- `contextlost` events with `defaultPrevented: true` but disposal happened seconds earlier — xterm's context-restoration listener is running and allocating new GL state on a detached canvas. That's a zombie-regen pattern.
+## WebGL lifecycle invariants
 
-Healthy steady-state: `contextsLost == aliveDetached` (every zombie's GPU released) and `totalCreated - disposed == aliveInDom` (only the active tile is undisposed).
+Healthy steady-state (`__kolu.webgl()` or Diagnostic dialog):
 
-## Reproduction recipe
+- `totalCreated - disposed == aliveInDom == 1` — only the focused tile.
+- `contextsLost == aliveDetached` — every detached canvas's GPU released.
+- Every `contextlost` event in tape has `defaultPrevented: false`.
+
+Violation patterns:
+
+| Violation                                                                          | Diagnosis                                                                          |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `totalCreated - disposed > 1` + orphan tape has only `{kind: "create"}`            | Async-onMount cleanup race. Look for a new `await` before `onCleanup(...)` registers. Fix pattern in #598. |
+| `aliveDetached > contextsLost`                                                     | `loseContext()` isn't firing. Check canvas selector (#596 pattern) or xterm preventDefault. |
+| Retained `yn._store._isDisposed=true`                                              | Cleanup runs, memory pinned externally. Run `orphan-paths.mjs` to find the pin.    |
+| `contextlost` with `defaultPrevented: true` time-adjacent to active use            | xterm's listener ran before disposal — schedules a 3 s restoration timer.          |
+
+## Heap-snapshot analyzers (three durable scripts)
+
+`docs/perf-investigations/scripts/`. Run as:
+
+```bash
+node --max-old-space-size=8192 script.mjs path/to/snapshot.heapsnapshot
+```
+
+Use in order:
+
+1. **`count-rn.mjs`** — instance-count histogram for xterm classes. If counts grossly exceed live terminal count → retention. Fastest first-check.
+2. **`check-yn-disposed.mjs`** — distribution of `yn._store._isDisposed`. This single output tells you which of the two leak shapes you have. If all retained are `true`, cleanup ran and the leak is post-dispose (go to #3). If some are `false`, cleanup didn't run (look for async-onMount race).
+3. **`orphan-paths.mjs`** — BFS from GC roots to every orphaned `Rn`, grouped by path signature. Prints the full retainer chain per path. This is the analyzer that definitively identifies the pin site.
+
+Minified class names shift between xterm versions (e.g. `Ht` in one build is `CursorBlinkStateManager` in addon-webgl). Verify by outgoing-edge shape:
+
+- `Rn` (xterm `Terminal`) — has only `_core` + `__proto__` edges; real state in `_core: yn`
+- `yn` (xterm `CoreBrowserTerminal`) — has `_store`, `element`, `_inputHandler`, many services
+- `CursorBlinkStateManager` — has `_renderCallback`, `isCursorVisible`, `_animationTimeRestarted`, `_animationFrame`
+- `TextureAtlasPage` — has a `canvas` property pointing at a 512×512 canvas
+
+## Reproduction recipes
 
 Focus swaps alone rarely leak. What does:
 
-1. **Canvas ↔ focus mode toggles** — `<Show>` re-creates all Terminal component subtrees. Rapid toggling during async-onMount was #591's dominant trigger.
-2. **Create + close churn** — `Ctrl+Enter` to create, click the × button + confirm OR `Ctrl+D` to close. Short cycles stress the onMount/onCleanup race window.
-3. **Rapid-focus across many tiles** — needs ~10+ tiles in canvas mode to expose context-budget pressure.
+| Scenario                                         | Triggers                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| **6× Focus↔Canvas mode toggle** with 4 terminals | The canonical Chapter-2 repro. Pre-#607+#609: 24 orphans. Post-fix: 0.                      |
+| Terminal close (`×` + confirm, or `Ctrl+D`)      | Server removal → `<For>` unmounts the tile → Terminal disposes.                             |
+| `Ctrl+Enter` + `Ctrl+D` rapid-fire               | Stresses the `await document.fonts.load` window in onMount.                                  |
+| 20× `Ctrl+Enter`+`Ctrl+D`                        | Regression test. Pre-#598: ~6 orphans per cycle. Post-#598: 0.                              |
 
-Combine all three over ~2 minutes of scripted churn before reading the dialog.
+Combine over ~1–2 minutes of scripted churn before reading the dialog.
 
-## Heap snapshot analysis (no Python on Nix devshell — use Node)
+## Interpreting the gap (footprint - JS - GPU)
 
-Heap snapshots are big JSON. Parse with Node:
-
-```js
-const data = JSON.parse(fs.readFileSync(path, "utf8"));
-const { nodes, edges, strings } = data;
-const nodeTypes = data.snapshot.meta.node_types[0]; // ['hidden','array','string','object','code','closure',...,'native',...]
-const edgeTypes = data.snapshot.meta.edge_types[0]; // ['context','element','property','internal','hidden','shortcut','weak']
-// node_fields: [type, name, id, self_size, edge_count, detachedness]
-// edge_fields: [type, name_or_index, to_node]
-```
-
-Useful queries:
-
-- **Detached canvases**: iterate nodes, filter `type === 'native'` and `name` starts with `<canvas`, bucket by `detachedness` (1=attached, 2=detached, 0=unknown).
-- **webglTracker entries**: iterate `type === 'object'` nodes whose properties include `canvasRef + disposedAt + loseContextCalledAt`. Check `disposedAt` type: `'hidden'` = null (undisposed), `'number'` = disposed. Follow `canvasRef`'s `weak` edge to the canvas target.
-- **Retainer chain**: build reverse-edge map (parent lookups), walk up from a leaked node. Filter out `synthetic` `(Traced handles)` and browser-internal `(Client heap)` edges — real retainers are `property` or `element` edges from `object`/`closure`/`array` nodes.
-
-Production bundles are minified; xterm class names appear as `yg`, `e3`, etc. Recognize by property shape (e.g. an object with a `canvas` property pointing to a 512×512 canvas is a `TextureAtlasPage`).
-
-## Interpreting the gap
-
-Tab `Memory Footprint` = JS live + GPU + renderer baseline + **detached DOM bitmap memory** (native). Last bucket is invisible to both JS heap and GPU counters. Rough budget for Kolu:
+Task Manager `Memory Footprint` includes JS live + GPU + renderer baseline + **detached DOM bitmap native memory** + V8 code cache. The last bucket is invisible to both JS heap and GPU counters. Rough budget for kolu:
 
 - 1 live WebGL context ≈ 30 MB GPU
-- Compositor layers for N canvas-mode tiles ≈ N × 20–30 MB GPU
+- Compositor layers for N canvas tiles ≈ N × 20–30 MB GPU
 - Chrome renderer baseline ≈ 100–150 MB
-- Everything else = detached DOM or V8 code/isolate
+- V8 "sticky" heap (`usedJSHeapSize - live`) often 300–500 MB on a long-running tab — this is V8 not returning unused heap to the OS, not a leak.
+- Large canvas bitmaps (the active WebGL canvas at DPR=2 is ~15 MB) linger past JS-side disposal until Chrome's compositor recycles — native-side, invisible to our tools.
 
-If JS heap is collectable (forced GC drops it) and WebGL invariants are clean, remaining footprint is either V8 lazy GC or detached-bitmap lag — benign unless it grows unbounded over hours.
+If JS heap collapses under forced GC and WebGL invariants are clean, remaining footprint is most likely benign V8/renderer retention. That's the **Part 2** territory (#610): post-disposal-leak-fixes investigation.
 
 ## Chrome Task Manager vs `performance.memory`
 
-- `performance.memory.usedJSHeapSize` = bytes allocated, includes uncollected garbage. Grows between GCs.
-- Task Manager `JavaScript Memory (N live)` = live set after last major GC. Use this for steady-state.
+- `performance.memory.usedJSHeapSize` (what the dialog shows) = bytes allocated, includes uncollected garbage.
+- Task Manager `JavaScript Memory (N live)` = live set after last major GC.
 
-The gap between them is collectable garbage, not a leak.
+The gap is collectable garbage, not a leak. Force a major GC (DevTools → Memory → trash icon, or take a heap snapshot) and compare.
 
-## Quick manual GC
+## When in doubt — fork xterm.js
 
-User can force a major GC from DevTools → Memory tab → trash-can icon, or by taking a heap snapshot (Chrome always GCs before capture). If `performance.memory.usedJSHeapSize` drops sharply after that, the "growth" was just lazy collection.
+If retention traces to an xterm-internal class (Chapter 2 pattern), the fix is likely a 1–3 line `this._register(...)` wrapper in xterm source. Pattern from #609:
 
-## Prior art
+1. Fork `xtermjs/xterm.js` → `juspay/xterm.js`.
+2. Apply fix to `.ts` source on a `fix/xxx` branch.
+3. Create a `fix/xxx-built` branch that also commits the built `.mjs` bundles (so pnpm can consume via `github:juspay/xterm.js#fix/xxx-built` without running xterm's install-time build toolchain).
+4. Use `pnpm.overrides` in kolu's `package.json` pointing at the built branch.
+5. Open upstream issue first, then upstream PR linking to it.
 
-- #591 — the original memory issue
-- #592 — diagnostic dialog (JS heap, DOM, per-terminal buffer/scrollback, WebGL atlas dims)
-- #594 — spec-reasoning fix that regressed; closed unmerged
-- #595 — webglTracker WeakRef-based lifecycle ledger
-- #596 — querySelector fix: target WebGL canvas, not xterm-link-layer
-- #598 — async-onMount cleanup race (the root cause after all the above)
+Once upstream merges + releases, the override collapses to a plain version bump in `package.json`.
+
+## Prior art (PRs / issues cited in this skill)
+
+- #591 — original WebGL-context accumulation report
+- #592 — diagnostic dialog foundation
+- #594 — spec-reasoning regression (closed unmerged); the "lesson" PR
+- #595 — `webglTracker` WeakRef ledger
+- #596 — wrong-canvas-selector fix (`:not(.xterm-link-layer)`)
+- #598 — async-onMount cleanup race
+- #600 — `runWithOwner` for `@solid-primitives/resize-observer`
+- #605 — per-terminal bufferBytes + aliveCanvases
+- #606 — Chapter 2 tracking issue (mode-toggle retention)
+- #607 — Kolu-side `fitAddon`/`searchAddon` null-out + `window.__kolu` hook
+- #609 — xterm-side patch via `juspay/xterm.js` fork
+- #610 — master tracking issue for all memory work
+- xtermjs/xterm.js#5817 + #5818 — upstream issue + PR
