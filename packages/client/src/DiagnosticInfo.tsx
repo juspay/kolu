@@ -13,6 +13,7 @@ import { usePreferences } from "./settings/usePreferences";
 import { wsStatus, serverProcessId } from "./rpc/rpc";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { getTerminalRefs } from "./terminal/terminalRefs";
+import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import type { TerminalId } from "kolu-common";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
@@ -93,6 +94,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         atlas: refs?.probes.webglAtlas() ?? null,
       };
     }),
+    webgl: webglLifecycleSnapshot(),
   }));
 
   function copyJson() {
@@ -236,6 +238,75 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   </div>
                 )}
               </For>
+            </div>
+          </Show>
+        </Section>
+
+        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
+            Remove this section when the leak is root-caused and fixed. */}
+        <Section title="WebGL lifecycle">
+          <div class="space-y-0.5">
+            <Row label="Created">
+              <span class="font-mono text-fg tabular-nums">
+                {snapshot().webgl.totalCreated}
+              </span>
+            </Row>
+            <Row label="Disposed">
+              <span class="font-mono text-fg tabular-nums">
+                {snapshot().webgl.disposed}
+              </span>
+            </Row>
+            <Row label="In DOM">
+              <span class="font-mono text-fg tabular-nums">
+                {snapshot().webgl.aliveInDom}
+              </span>
+            </Row>
+            <Row label="Zombies">
+              <span
+                class={`font-mono tabular-nums ${
+                  snapshot().webgl.aliveDetached > 0
+                    ? "text-danger font-semibold"
+                    : "text-fg"
+                }`}
+              >
+                {snapshot().webgl.aliveDetached}
+              </span>
+            </Row>
+            <Row label="GCed">
+              <span class="font-mono text-fg-3 tabular-nums">
+                {snapshot().webgl.gced}
+              </span>
+            </Row>
+            <Row label="Lost">
+              <span class="font-mono text-fg-3 tabular-nums">
+                {snapshot().webgl.contextsLost}
+              </span>
+            </Row>
+          </div>
+          <Show when={snapshot().webgl.recentEvents.length > 0}>
+            <div class="mt-2 pt-2 border-t border-edge/50">
+              <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
+              <div class="space-y-0.5 text-[10px] font-mono">
+                <For each={snapshot().webgl.recentEvents}>
+                  {(ev) => (
+                    <div class="grid grid-cols-[8ch_5ch_1fr] items-baseline gap-2">
+                      <span class="text-fg-3/60 tabular-nums">
+                        {new Date(ev.ts).toISOString().slice(11, 23)}
+                      </span>
+                      <span class="text-fg-3">#{ev.canvasId}</span>
+                      <span class="text-fg-2">
+                        {ev.kind}
+                        {ev.kind === "contextlost" && (
+                          <span class="text-fg-3/70">
+                            {" "}
+                            (defaultPrevented={String(ev.defaultPrevented)})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
         </Section>
