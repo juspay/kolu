@@ -27,11 +27,14 @@ import type { TaskProgress } from "./index.ts";
 export interface AgentTerminalState {
   /** Foreground process PID, or undefined if unknown. */
   foregroundPid: number | undefined;
-  /** Foreground process basename (e.g. "opencode", "claude", "vim"), or null
-   *  if the PTY process is unknown. */
-  foregroundBasename: string | null;
   /** Terminal's current working directory. */
   cwd: string;
+  /** Foreground process basename (e.g. "opencode", "claude", "vim"), or null
+   *  if the PTY process is unknown. Lazy: reading involves a kernel syscall
+   *  on darwin (sysctl), so providers that match by PID alone (e.g.
+   *  claude-code) avoid invoking it. Idempotent within one snapshot — the
+   *  second call returns the cached value without a second syscall. */
+  readForegroundBasename: () => string | null;
 }
 
 /** Handle returned by `createWatcher`. Callers invoke `destroy()` when the

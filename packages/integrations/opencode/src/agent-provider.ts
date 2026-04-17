@@ -20,7 +20,7 @@ export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
 
   resolveSession(state, log) {
-    if (state.foregroundBasename !== "opencode") return null;
+    if (state.readForegroundBasename() !== "opencode") return null;
     return findSessionByDirectory(state.cwd, log);
   },
 

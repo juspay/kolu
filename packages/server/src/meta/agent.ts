@@ -28,10 +28,11 @@ import { log } from "../log.ts";
  *  NixOS). Normalize to basename so providers can compare against known
  *  binary names. Mirrors `processBasename` in `process.ts`.
  *
- *  Reading `entry.handle.process` can throw if node-pty has already
- *  terminated the process; log and return null so the provider treats the
- *  terminal as having no foreground binary (session match will just fail). */
-function readForegroundBasename(
+ *  Reading `entry.handle.process` involves a kernel syscall on darwin
+ *  (sysctl) and can throw if node-pty has already terminated the process;
+ *  log and return null so the provider treats the terminal as having no
+ *  foreground binary (session match will just fail). */
+function readForegroundBasenameOnce(
   entry: TerminalProcess,
   plog: Logger,
 ): string | null {
@@ -44,14 +45,23 @@ function readForegroundBasename(
   }
 }
 
+/** Build a snapshot. `readForegroundBasename` is a lazy, memoized accessor
+ *  so providers that match by PID alone (e.g. claude-code) skip the darwin
+ *  sysctl entirely on every reconcile. The cache is scoped to this one
+ *  snapshot — a fresh snapshot on the next reconcile will re-read. */
 function snapshotTerminalState(
   entry: TerminalProcess,
   plog: Logger,
 ): AgentTerminalState {
+  let basename: string | null | undefined = undefined;
   return {
     foregroundPid: entry.handle.foregroundPid,
-    foregroundBasename: readForegroundBasename(entry, plog),
     cwd: entry.info.meta.cwd,
+    readForegroundBasename: () => {
+      if (basename === undefined)
+        basename = readForegroundBasenameOnce(entry, plog);
+      return basename;
+    },
   };
 }
 
