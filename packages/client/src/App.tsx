@@ -12,7 +12,6 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import { isMobile } from "./useMobile";
 import Header from "./Header";
-import PwaInstallBar from "./PwaInstallBar";
 import Sidebar from "./sidebar/Sidebar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
@@ -362,7 +361,6 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      <PwaInstallBar />
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
