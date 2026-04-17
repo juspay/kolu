@@ -139,9 +139,20 @@ const Terminal: Component<{
       webgl = w;
       // Capture the canvas the addon just appended so we can explicitly
       // release its GPU context on unload — see unloadWebgl.
+      //
+      // xterm's WebglRenderer constructor appends the LinkRenderLayer's 2D
+      // canvas (`class="xterm-link-layer"`) to `.xterm-screen` before it
+      // appends its own WebGL canvas (which has no class). A bare
+      // `querySelector(".xterm-screen canvas")` returns the first match in
+      // document order — the link layer — whose `getContext("webgl2")`
+      // returns null, silently short-circuiting the `loseContext()` chain in
+      // `unloadWebgl()`. Diagnosed via #595's `webglTracker`:
+      // `contextsLost` stayed at 0 despite `loseContext-called` events
+      // firing for every disposed canvas (#591). Exclude the link layer
+      // explicitly so we grab the real WebGL canvas.
       webglCanvas =
         terminal.element?.querySelector<HTMLCanvasElement>(
-          ".xterm-screen canvas",
+          ".xterm-screen canvas:not(.xterm-link-layer)",
         ) ?? null;
       // Register for lifecycle observation (#591 debug). No-op if no canvas.
       if (webglCanvas)
