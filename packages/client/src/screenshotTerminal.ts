@@ -31,6 +31,20 @@ const DOT_R = 6;
 const DOT_GAP = 8;
 const DOT_MARGIN_LEFT = 16;
 const DOT_MACOS = ["#ff5f57", "#febc2e", "#28c840"] as const;
+const BRAND_RIGHT_MARGIN = 14;
+
+/** kolu logo — the 5-step "கோலு" stack from /favicon.svg, normalized
+ *  to a 0..1 coordinate space. Each entry is [x, y, w, h, color] in the
+ *  source 32×32 viewBox; callers scale to whatever size they need. */
+const BRAND_STEPS: ReadonlyArray<
+  readonly [number, number, number, number, string]
+> = [
+  [1, 26, 30, 5, "#ef4444"],
+  [4, 20, 25, 5, "#f59e0b"],
+  [8, 14, 20, 5, "#22c55e"],
+  [12, 8, 15, 5, "#a855f7"],
+  [16, 2, 10, 5, "#3b82f6"],
+] as const;
 
 function cubeColor(i: number): string {
   const n = i - 16;
@@ -297,6 +311,33 @@ export async function screenshotTerminal(
   ctx.textAlign = "center";
   const label = titleLabel(meta);
   ctx.fillText(label, logicalW / 2, dotY + 1);
+
+  // Kolu branding — right-aligned wordmark + mini 5-step logo, matching
+  // /favicon.svg. The stamp is subtle (low-contrast text, saturated logo)
+  // so it reads as attribution rather than a watermark.
+  const brandText = "kolu";
+  const brandFontSize = Math.round(fontSize * 0.9);
+  ctx.font = `600 ${brandFontSize}px ${fontFamily}`;
+  const brandTextWidth = ctx.measureText(brandText).width;
+  const logoH = TITLE_H - 14;
+  const logoW = logoH; // square bounding box
+  const logoScale = logoH / 32;
+  const logoY = (TITLE_H - logoH) / 2;
+  const brandTextX = logicalW - BRAND_RIGHT_MARGIN;
+  const logoX = brandTextX - brandTextWidth - 6 - logoW;
+  ctx.textAlign = "end";
+  ctx.fillStyle = titleTextColor;
+  ctx.fillText(brandText, brandTextX, dotY + 1);
+  for (const [sx, sy, sw, sh, color] of BRAND_STEPS) {
+    ctx.fillStyle = color;
+    ctx.fillRect(
+      logoX + sx * logoScale,
+      logoY + sy * logoScale,
+      sw * logoScale,
+      sh * logoScale,
+    );
+  }
+
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
 
