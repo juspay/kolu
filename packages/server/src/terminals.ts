@@ -228,8 +228,9 @@ export function listTerminals(): TerminalInfo[] {
 export const terminalCount = (): number => terminals.size;
 
 /** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.info.meta.agent` — the claude provider sets it on session
- *  match and clears it on teardown (see `meta/claude.ts`). Exported for diagnostics. */
+ *  from `entry.info.meta.agent` — the generic agent orchestrator
+ *  (`meta/agent.ts`, driven by `claudeCodeProvider` from `kolu-claude-code`)
+ *  sets it on session match and clears it on teardown. Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {

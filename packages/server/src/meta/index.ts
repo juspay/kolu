@@ -5,19 +5,26 @@
  *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
  *                                                    ↓
  *   title:<id>  →  process provider  ────────→  metadata:<id>
- *   title:<id> + fs.watch  →  claude provider  →  metadata:<id>
+ *   title:<id> + agent external-change signal  →  agent provider (×N)  →  metadata:<id>
  *
  * Each provider calls updateMetadata() to atomically mutate+publish.
  * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
+ *
+ * Agent-detection providers (claude-code, opencode, future aider/codex/…)
+ * share a single generic orchestrator (`startAgentProvider`) that consumes
+ * an `AgentProvider` instance from the integration package. Adding a new
+ * agent is a new provider instance and one extra line below — not a new
+ * server-side adapter file.
  */
 
 import type { TerminalMetadata } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal, publishSystem } from "../publisher.ts";
+import { claudeCodeProvider } from "kolu-claude-code";
+import { opencodeProvider } from "kolu-opencode";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
-import { startClaudeCodeProvider } from "./claude.ts";
-import { startOpenCodeProvider } from "./opencode.ts";
+import { startAgentProvider } from "./agent.ts";
 import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
@@ -74,8 +81,8 @@ export function startProviders(
 ): () => void {
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
-  const stopClaude = startClaudeCodeProvider(entry, terminalId);
-  const stopOpenCode = startOpenCodeProvider(entry, terminalId);
+  const stopClaude = startAgentProvider(claudeCodeProvider, entry, terminalId);
+  const stopOpenCode = startAgentProvider(opencodeProvider, entry, terminalId);
   const stopProcess = startProcessProvider(entry, terminalId);
   return () => {
     stopGit();

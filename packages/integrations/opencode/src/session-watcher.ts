@@ -12,10 +12,10 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
+import { agentInfoEqual } from "anyagent";
 import {
   type OpenCodeInfo,
   type OpenCodeSession,
-  type TaskProgress,
   deriveSessionState,
   getSessionTitle,
   getSessionTaskProgress,
@@ -34,34 +34,6 @@ import type { Logger } from "anyagent";
  *  bursts into one handler run while keeping user-perceptible lag
  *  imperceptible. Matches TRANSCRIPT_DEBOUNCE_MS in kolu-claude-code. */
 const WAL_DEBOUNCE_MS = 150;
-
-// --- Equality ---
-
-/** Compare two TaskProgress values for equality. */
-function taskProgressEqual(
-  a: TaskProgress | null,
-  b: TaskProgress | null,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return a.total === b.total && a.completed === b.completed;
-}
-
-/** Compare two OpenCodeInfo values for equality. */
-export function infoEqual(
-  a: OpenCodeInfo | null,
-  b: OpenCodeInfo | null,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.state === b.state &&
-    a.sessionId === b.sessionId &&
-    a.model === b.model &&
-    a.summary === b.summary &&
-    taskProgressEqual(a.taskProgress, b.taskProgress)
-  );
-}
 
 // --- Watcher ---
 
@@ -133,7 +105,7 @@ export function createOpenCodeWatcher(
       taskProgress,
     };
 
-    if (infoEqual(lastInfo, info)) return;
+    if (agentInfoEqual(lastInfo, info)) return;
     lastInfo = info;
     log?.debug(
       { state: info.state, model: info.model, session: info.sessionId },

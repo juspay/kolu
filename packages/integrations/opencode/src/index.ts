@@ -311,10 +311,13 @@ export function parseMessageState(data: string): ParsedMessageState | null {
 
 export {
   createOpenCodeWatcher,
-  infoEqual,
   type OpenCodeWatcher,
 } from "./session-watcher.ts";
 
 // --- Shared WAL watcher ---
 
 export { subscribeOpenCodeDb } from "./wal-watcher.ts";
+
+// --- AgentProvider instance ---
+
+export { opencodeProvider } from "./agent-provider.ts";
