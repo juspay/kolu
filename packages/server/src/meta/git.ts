@@ -19,7 +19,7 @@ import {
 } from "kolu-git";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal, publishForTerminal } from "../publisher.ts";
-import { updateMetadata } from "./index.ts";
+import { updateServerMetadata } from "./index.ts";
 import { log } from "../log.ts";
 import { trackRecentRepo } from "../activity.ts";
 
@@ -78,10 +78,10 @@ export function startGitProvider(
     }
     // Track repo in persistent recent repos list
     if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
-    // Clear PR when git context changes (branch switch) — PR provider will re-resolve
-    updateMetadata(entry, terminalId, (m) => {
+    // Write git only — the pr slot is owned by the github provider, which
+    // subscribes to the `git:` channel below and clears/re-resolves on change.
+    updateServerMetadata(entry, terminalId, (m) => {
       m.git = git;
-      m.pr = null;
     });
     plog.debug(
       { repo: git?.repoName, branch: git?.branch },

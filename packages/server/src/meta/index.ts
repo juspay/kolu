@@ -7,7 +7,13 @@
  *   title:<id>  →  process provider  ────────→  metadata:<id>
  *   title:<id> + agent external-change signal  →  agent provider (×N)  →  metadata:<id>
  *
- * Each provider calls updateMetadata() to atomically mutate+publish.
+ * Providers publish server-derived fields via `updateServerMetadata`; client
+ * RPC handlers persist client-owned fields via `updateClientMetadata` (or
+ * direct mutation for paths that skip the metadata publish). Both functions
+ * share the same publish/auto-save path — the type difference is a
+ * compile-time fence so a provider cannot accidentally write canvasLayout
+ * and an RPC handler cannot accidentally write git.
+ *
  * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
  *
  * Agent-detection providers (claude-code, opencode, future aider/codex/…)
@@ -17,7 +23,11 @@
  * server-side adapter file.
  */
 
-import type { TerminalMetadata } from "kolu-common";
+import type {
+  TerminalMetadata,
+  TerminalServerMetadata,
+  TerminalClientMetadata,
+} from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { claudeCodeProvider } from "kolu-claude-code";
@@ -43,15 +53,11 @@ export function createMetadata(
   };
 }
 
-/** Atomically mutate metadata, publish the snapshot to subscribers, and
- *  trigger a debounced session auto-save. Single place to audit —
- *  impossible to forget either the client publish or the session save. */
-export function updateMetadata(
-  entry: TerminalProcess,
-  terminalId: string,
-  mutate: (meta: TerminalMetadata) => void,
-): void {
-  mutate(entry.info.meta);
+/** Log + publish the current metadata snapshot and trigger debounced
+ *  session auto-save. Shared tail for both `updateServerMetadata` and
+ *  `updateClientMetadata` so the publish/audit path is identical regardless
+ *  of who wrote the fields. */
+function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   const m = entry.info.meta;
   log.debug(
     {
@@ -69,6 +75,32 @@ export function updateMetadata(
   );
   publishForTerminal("metadata", terminalId, { ...m });
   publishSystem("terminals:dirty", {});
+}
+
+/** Atomically mutate server-derived metadata (cwd, git, pr, agent,
+ *  foreground) and publish. The mutator is narrowed to
+ *  `TerminalServerMetadata` so providers cannot accidentally write
+ *  client-owned fields. */
+export function updateServerMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  mutate: (meta: TerminalServerMetadata) => void,
+): void {
+  mutate(entry.info.meta);
+  publishMetadata(entry, terminalId);
+}
+
+/** Atomically mutate client-owned metadata (themeName, parentId, sortOrder,
+ *  canvasLayout, subPanel) and publish. The mutator is narrowed to
+ *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
+ *  provider-owned state. */
+export function updateClientMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  mutate: (meta: TerminalClientMetadata) => void,
+): void {
+  mutate(entry.info.meta);
+  publishMetadata(entry, terminalId);
 }
 
 /**

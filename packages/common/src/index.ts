@@ -115,7 +115,12 @@ export const SubPanelStateSchema = z.object({
   panelSize: z.number(),
 });
 
-export const TerminalMetadataSchema = z.object({
+/**
+ * Server-derived metadata — populated by providers from external state
+ * (git working tree, PTY foreground process, agent CLI transcripts).
+ * Write authority: server-side metadata providers, via `updateServerMetadata`.
+ */
+export const TerminalServerMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   pr: GitHubPrInfoSchema.nullable(),
@@ -123,6 +128,15 @@ export const TerminalMetadataSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+});
+
+/**
+ * Client-owned metadata — set by client RPC handlers, persisted server-side
+ * for session restore and multi-client sync. Write authority: client RPCs,
+ * via `updateClientMetadata` (or direct mutation for paths that intentionally
+ * skip the metadata publish, like sub-panel state).
+ */
+export const TerminalClientMetadataSchema = z.object({
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -133,6 +147,15 @@ export const TerminalMetadataSchema = z.object({
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
   subPanel: SubPanelStateSchema.optional(),
 });
+
+/**
+ * Unified wire shape — merge of the server-derived and client-owned halves.
+ * Flat for backwards-compat with existing consumers; code that only needs
+ * one half should import the sub-schema so the dependency is explicit.
+ */
+export const TerminalMetadataSchema = TerminalServerMetadataSchema.merge(
+  TerminalClientMetadataSchema,
+);
 
 // --- Activity ---
 
@@ -379,6 +402,12 @@ export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
+export type TerminalServerMetadata = z.infer<
+  typeof TerminalServerMetadataSchema
+>;
+export type TerminalClientMetadata = z.infer<
+  typeof TerminalClientMetadataSchema
+>;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;

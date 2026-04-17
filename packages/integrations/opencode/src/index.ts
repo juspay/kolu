@@ -2,7 +2,7 @@
  * OpenCode integration — pure functions and IO helpers for detecting
  * OpenCode sessions and deriving state from its SQLite database.
  *
- * No dependency on server internals (no updateMetadata, no TerminalProcess).
+ * No dependency on server internals (no updateServerMetadata, no TerminalProcess).
  * The server's provider imports these and wires them into the metadata system.
  *
  * Architecture: OpenCode (TUI mode) is a single process that owns

@@ -21,7 +21,8 @@ import {
 } from "./clipboard.ts";
 import {
   createMetadata,
-  updateMetadata,
+  updateServerMetadata,
+  updateClientMetadata,
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
@@ -181,7 +182,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       onCwd: (newCwd) => {
         const entry = terminals.get(id);
         if (entry) {
-          updateMetadata(entry, id, (m) => {
+          updateServerMetadata(entry, id, (m) => {
             m.cwd = newCwd;
           });
           publishForTerminal("cwd", id, newCwd);
@@ -267,7 +268,7 @@ export function setTerminalParent(
   const entry = terminals.get(id);
   if (entry) {
     const newParent = parentId ?? undefined;
-    updateMetadata(entry, id, (m) => {
+    updateClientMetadata(entry, id, (m) => {
       m.parentId = newParent;
       m.sortOrder = nextSortOrder(newParent);
     });
@@ -283,7 +284,7 @@ export function setCanvasLayout(
 ): void {
   const entry = terminals.get(id);
   if (!entry) return;
-  updateMetadata(entry, id, (m) => {
+  updateClientMetadata(entry, id, (m) => {
     m.canvasLayout = layout;
   });
 }
@@ -317,7 +318,7 @@ export function setActiveTerminalId(id: TerminalId | null): void {
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
   const entry = terminals.get(id);
   if (entry) {
-    updateMetadata(entry, id, (m) => {
+    updateClientMetadata(entry, id, (m) => {
       m.themeName = themeName;
     });
   }
@@ -328,7 +329,7 @@ export function reorderTerminals(ids: TerminalId[]): void {
   for (let i = 0; i < ids.length; i++) {
     const entry = terminals.get(ids[i]!);
     if (entry) {
-      updateMetadata(entry, ids[i]!, (m) => {
+      updateClientMetadata(entry, ids[i]!, (m) => {
         m.sortOrder = (i + 1) * SORT_GAP;
       });
     }
