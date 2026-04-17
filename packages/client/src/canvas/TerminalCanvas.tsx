@@ -8,8 +8,9 @@
  *  and changes are reported via `onLayoutChange` — the caller owns the
  *  source of truth (today: server metadata via subscription).
  *
- *  Drag uses @thisbeyond/solid-dnd (same library as the sidebar) for
- *  gesture handling — decouples sensing from position application.
+ *  Drag uses the in-tree `createDrag` primitive — a thin pointer-based
+ *  replacement for solid-dnd that owns its own lifecycle (no provider,
+ *  no global drag context). The sidebar still uses solid-dnd.
  *
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
@@ -23,12 +24,8 @@ import {
   on,
   type JSX,
 } from "solid-js";
-import {
-  DragDropProvider,
-  DragDropSensors,
-  type DragEvent,
-} from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
+import type { DragDelta } from "./createDrag";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -78,7 +75,7 @@ const TerminalCanvas: Component<{
    *    1. Default-position seed: a new tile's cascade layout, so the first
    *       paint isn't at (0,0) before the echo.
    *    2. Drag commit: hold the drop position until getLayout catches up —
-   *       solid-dnd has already reset its transform to 0 by then.
+   *       createDrag has already reset its transform to 0 by then.
    *    3. Resize preview: live width/height during pointer-move; snapped
    *       value on pointer-up until the server echoes the committed size.
    *  Entries auto-clear when the echoed layout matches (effect below). */
@@ -155,37 +152,26 @@ const TerminalCanvas: Component<{
     ),
   );
 
-  // solid-dnd resets the draggable transform before onDragEnd fires,
-  // so we capture the last known delta during onDragMove.
-  const [dragDelta, setDragDelta] = createSignal({ x: 0, y: 0 });
-
-  function handleDragMove({ draggable }: DragEvent) {
-    if (draggable)
-      setDragDelta({ x: draggable.transform.x, y: draggable.transform.y });
-  }
-
   /** Apply captured drag delta to the tile's persisted position.
-   *  Delta is in screen-space — normalize by zoom for canvas-space. */
-  function handleDragEnd({ draggable }: DragEvent) {
-    if (!draggable) return;
-    const id = draggable.id as string;
+   *  Delta is in screen-space — normalize by zoom for canvas-space.
+   *  `createDrag` delivers the final delta on pointerup; no need to
+   *  shadow it in a separate signal the way the solid-dnd integration
+   *  did. */
+  function handleDragEnd(id: string, { x: sdx, y: sdy }: DragDelta) {
     const l = layoutOf(id);
     if (!l) return;
-    const { x: sdx, y: sdy } = dragDelta();
-    if (sdx !== 0 || sdy !== 0) {
-      const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
-      const next: TileLayout = {
-        ...l,
-        x: viewport.snapToGrid(l.x + dx),
-        y: viewport.snapToGrid(l.y + dy),
-      };
-      // Hold pending until metadata echo arrives — avoids a frame where
-      // solid-dnd's transform has reset to 0 but getLayout still returns
-      // the pre-drag position.
-      setPendingLayout(id, next);
-      props.onLayoutChange(id, next);
-    }
-    setDragDelta({ x: 0, y: 0 });
+    if (sdx === 0 && sdy === 0) return;
+    const { dx, dy } = viewport.normalizeDelta(sdx, sdy);
+    const next: TileLayout = {
+      ...l,
+      x: viewport.snapToGrid(l.x + dx),
+      y: viewport.snapToGrid(l.y + dy),
+    };
+    // Hold pending until metadata echo arrives — avoids a frame where
+    // the drag transform has reset to 0 but getLayout still returns
+    // the pre-drag position.
+    setPendingLayout(id, next);
+    props.onLayoutChange(id, next);
   }
 
   /** Start resizing a tile from the given edge or corner.
@@ -268,8 +254,7 @@ const TerminalCanvas: Component<{
   });
 
   return (
-    <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
-      <DragDropSensors />
+    <>
       <div
         ref={(el) => {
           containerRef = el;
@@ -328,6 +313,11 @@ const TerminalCanvas: Component<{
                 }
                 layouts={layouts()}
                 zoom={viewport.zoom}
+                onDragMove={() => {
+                  /* no-op: CanvasTile's `drag.transform` already drives the
+                   * tile's CSS translate during drag. */
+                }}
+                onDragEnd={handleDragEnd}
               />
             )}
           </For>
@@ -341,7 +331,7 @@ const TerminalCanvas: Component<{
           onSelect={props.onSelect}
         />
       </div>
-    </DragDropProvider>
+    </>
   );
 };
 

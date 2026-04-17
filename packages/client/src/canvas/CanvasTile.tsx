@@ -1,12 +1,13 @@
-/** Single tile on the canvas — separated so createDraggable gets its own
- *  reactive owner per tile (required by solid-dnd). Shell only: positioning,
- *  title bar, resize handles. Content is injected via render props — the
- *  canvas module has no knowledge of what renders inside a tile. */
+/** Single tile on the canvas — shell only: positioning, title bar, resize
+ *  handles. Drag lifecycle is owned by `createDrag` (local pointer-based
+ *  primitive) — each tile's reactive owner scopes the drag's onCleanup so
+ *  in-flight drags abort on unmount. Content is injected via render props —
+ *  the canvas module has no knowledge of what renders inside a tile. */
 
 import { type Component, For, type JSX } from "solid-js";
-import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
 import { RESIZE_HANDLES } from "./resizeGeometry";
+import { createDrag, type DragDelta } from "./createDrag";
 
 /** Minimal theme info for tile chrome (title bar, border). */
 export interface TileTheme {
@@ -31,9 +32,18 @@ const CanvasTile: Component<{
   renderBody: () => JSX.Element;
   layouts: Record<string, TileLayout>;
   zoom: () => number;
+  /** Fired continuously while the title bar is being dragged. Screen-space
+   *  delta from pointer-down — caller normalizes by zoom. */
+  onDragMove: (id: string, delta: DragDelta) => void;
+  /** Fired once on pointerup. The final delta is passed so the caller
+   *  can commit atomically. */
+  onDragEnd: (id: string, delta: DragDelta) => void;
 }> = (props) => {
   const { id } = props;
-  const draggable = createDraggable(id);
+  const drag = createDrag({
+    onMove: (delta) => props.onDragMove(id, delta),
+    onEnd: (delta) => props.onDragEnd(id, delta),
+  });
   const layout = () =>
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
 
@@ -42,7 +52,6 @@ const CanvasTile: Component<{
 
   return (
     <div
-      ref={draggable.ref}
       data-active={props.active ? "true" : undefined}
       data-tile-id={id}
       class="absolute flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
@@ -63,7 +72,7 @@ const CanvasTile: Component<{
           : `0 2px 8px rgba(0,0,0,0.2)`,
         // Drag transform is screen-space — divide by zoom so the tile
         // moves at the correct rate in the scaled canvas coordinate system.
-        transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
+        transform: `translate(${drag.transform().x / props.zoom()}px, ${drag.transform().y / props.zoom()}px)`,
       }}
       onMouseDown={() => props.onSelect()}
     >
@@ -78,7 +87,7 @@ const CanvasTile: Component<{
           "--color-fg-2": `color-mix(in oklch, ${fg()} 75%, ${bg()})`,
           "--color-fg-3": `color-mix(in oklch, ${fg()} 55%, ${bg()})`,
         }}
-        {...draggable.dragActivators}
+        {...drag.dragActivators}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         {props.renderTitleActions?.()}
