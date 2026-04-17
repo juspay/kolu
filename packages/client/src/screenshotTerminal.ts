@@ -1,8 +1,10 @@
-/** Copy a terminal's contents to the clipboard as a PNG.
+/** Copy a terminal's contents to the clipboard as a polished PNG.
  *
- *  Reads xterm's buffer directly (scrollback + viewport), paints each cell
- *  onto an offscreen canvas with the theme's colors, and writes the PNG blob
- *  to the clipboard.
+ *  Reads `xterm.buffer.active` directly (scrollback + viewport), paints each
+ *  cell onto an offscreen canvas with the theme's colors, and wraps the whole
+ *  thing in a rounded-corner window chrome (border + title bar with traffic-
+ *  light dots and the terminal's repo/branch label). Writes the PNG blob to
+ *  the clipboard.
  *
  *  Renderer-independent by construction — we never touch xterm's live canvas
  *  or DOM. An earlier attempt routed `SerializeAddon.serializeAsHTML` through
@@ -12,9 +14,10 @@
  *  sidesteps that entire surface. */
 
 import { toast } from "solid-sonner";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
+import { terminalName } from "./terminal/terminalDisplay";
 
 /** xterm's color model: any other mode (0 = default) uses the theme's
  *  fg/bg; 1 = ANSI palette (0-255); 2 = 24-bit RGB packed into a single int. */
@@ -24,6 +27,15 @@ const COLOR_MODE_RGB = 2;
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */
 const CUBE_STEPS = [0, 95, 135, 175, 215, 255];
+
+/** Window chrome geometry (logical pixels). */
+const PAD = 16;
+const RADIUS = 12;
+const TITLE_H = 34;
+const DOT_R = 6;
+const DOT_GAP = 8;
+const DOT_MARGIN_LEFT = 16;
+const DOT_MACOS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 
 function cubeColor(i: number): string {
   const n = i - 16;
@@ -119,7 +131,64 @@ function cellColors(
   return { fg, bg };
 }
 
-export async function screenshotTerminal(id: TerminalId): Promise<void> {
+/** Compose terminal name + git branch for the title bar. Falls back to
+ *  a bare "terminal" label when metadata isn't available. */
+function titleLabel(meta: TerminalMetadata | undefined): string {
+  if (!meta) return "terminal";
+  const name = terminalName(meta);
+  return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
+}
+
+/** Mix two hex colors in sRGB. Used for subtle chrome tints derived from
+ *  the theme — the title-bar background and the window border. */
+function mix(a: string, b: string, ratio: number): string {
+  const pa = parseHex(a);
+  const pb = parseHex(b);
+  const r = Math.round(pa.r * (1 - ratio) + pb.r * ratio);
+  const g = Math.round(pa.g * (1 - ratio) + pb.g * ratio);
+  const bl = Math.round(pa.b * (1 - ratio) + pb.b * ratio);
+  return `rgb(${r},${g},${bl})`;
+}
+
+function parseHex(c: string): { r: number; g: number; b: number } {
+  const m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (m) {
+    const n = parseInt(m[1]!, 16);
+    return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+  }
+  const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(c);
+  if (rgb) {
+    return { r: +rgb[1]!, g: +rgb[2]!, b: +rgb[3]! };
+  }
+  // Unknown color string — return black; the mix result will just be `b`.
+  return { r: 0, g: 0, b: 0 };
+}
+
+function roundedRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+export async function screenshotTerminal(
+  id: TerminalId,
+  meta: TerminalMetadata | undefined,
+): Promise<void> {
   const refs = getTerminalRefs(id);
   if (!refs) {
     toast.error("Terminal not ready");
@@ -170,18 +239,79 @@ export async function screenshotTerminal(id: TerminalId): Promise<void> {
   // (g, y) don't get clipped by the next row's background.
   const cellH = Math.ceil(fontSize * 1.2);
 
+  const termW = Math.ceil(cellW * cols);
+  const termH = cellH * rows;
+  const logicalW = termW + PAD * 2;
+  const logicalH = termH + TITLE_H + PAD * 2;
+
+  // Upscale the backing store by devicePixelRatio so glyphs and chrome
+  // render at native resolution on HiDPI displays. All draw commands
+  // continue to operate in logical (CSS) pixels after ctx.scale.
+  const dpr = window.devicePixelRatio || 1;
   const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(cellW * cols);
-  canvas.height = cellH * rows;
+  canvas.width = Math.ceil(logicalW * dpr);
+  canvas.height = Math.ceil(logicalH * dpr);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     toast.error("Canvas unavailable");
     return;
   }
+  ctx.scale(dpr, dpr);
 
+  // Window shell — rounded bg, thin border, title bar.
+  const borderColor = mix(theme.bg, theme.fg, 0.22);
+  const titleBarBg = mix(theme.bg, theme.fg, 0.08);
+  const titleTextColor = mix(theme.bg, theme.fg, 0.7);
+
+  roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
   ctx.fillStyle = theme.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = borderColor;
+  ctx.stroke();
+
+  // Title bar: fill a rounded top strip.
+  ctx.save();
+  roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
+  ctx.clip();
+  ctx.fillStyle = titleBarBg;
+  ctx.fillRect(0, 0, logicalW, TITLE_H);
+  ctx.fillStyle = borderColor;
+  ctx.fillRect(0, TITLE_H, logicalW, 1);
+  ctx.restore();
+
+  // Traffic-light dots.
+  const dotY = TITLE_H / 2;
+  for (let i = 0; i < DOT_MACOS.length; i++) {
+    ctx.beginPath();
+    ctx.arc(
+      DOT_MARGIN_LEFT + i * (DOT_R * 2 + DOT_GAP),
+      dotY,
+      DOT_R,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = DOT_MACOS[i]!;
+    ctx.fill();
+  }
+
+  // Title text — centered, truncated to the available width.
+  ctx.font = `${Math.round(fontSize * 0.95)}px ${fontFamily}`;
+  ctx.fillStyle = titleTextColor;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  const label = titleLabel(meta);
+  ctx.fillText(label, logicalW / 2, dotY + 1);
+  ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
+
+  // Terminal content.
+  const termX = PAD;
+  const termY = TITLE_H + PAD;
+  ctx.save();
+  ctx.translate(termX, termY);
+  ctx.fillStyle = theme.bg;
+  ctx.fillRect(0, 0, termW, termH);
 
   const tempCell = buffer.getNullCell();
   for (let y = 0; y < rows; y++) {
@@ -211,6 +341,7 @@ export async function screenshotTerminal(id: TerminalId): Promise<void> {
       }
     }
   }
+  ctx.restore();
 
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/png"),

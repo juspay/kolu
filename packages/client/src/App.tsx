@@ -140,7 +140,7 @@ const App: Component = () => {
   function handleScreenshotTerminal(id?: TerminalId) {
     const targetId = id ?? store.activeId();
     if (targetId === null) return;
-    void screenshotTerminal(targetId);
+    void screenshotTerminal(targetId, store.getMetadata(targetId));
   }
 
   function handleCanvasCenterActive() {
