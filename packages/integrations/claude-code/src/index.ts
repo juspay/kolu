@@ -2,7 +2,7 @@
  * Claude Code integration — pure functions and IO helpers for detecting
  * Claude Code sessions and deriving state from JSONL transcripts.
  *
- * No dependency on server internals (no updateMetadata, no TerminalProcess).
+ * No dependency on server internals (no updateServerMetadata, no TerminalProcess).
  * The server's provider imports these and wires them into the metadata system.
  *
  * Detection: reads ~/.claude/sessions/{pid}.json to find sessions, then

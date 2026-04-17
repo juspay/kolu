@@ -2,7 +2,7 @@
  * GitHub PR metadata provider — resolves PR info for the current branch.
  *
  * Subscribes to "git:<id>" (not the aggregated "metadata" channel).
- * Publishes via updateMetadata() — no downstream providers depend on PR changes.
+ * Publishes via updateServerMetadata() — no downstream providers depend on PR changes.
  * Also polls periodically (PRs can be created/updated externally at any time).
  */
 
@@ -16,7 +16,7 @@ import {
 } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
-import { updateMetadata } from "./index.ts";
+import { updateServerMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 const execFileAsync = promisify(execFile);
@@ -157,23 +157,26 @@ export function prInfoEqual(
 
 /**
  * Start the GitHub PR metadata provider for a terminal entry.
- * Subscribes to "git" channel for branch changes, polls every 30s.
+ *
+ * Subscribes to the `git:` channel — the git provider publishes its
+ * current state (including the initial resolve) on that channel, so there
+ * is no need to peek at `entry.info.meta.git` at startup. Also polls
+ * every 30s to pick up PRs created/updated externally.
+ *
+ * This provider owns the `pr` slot end-to-end: it clears `pr` immediately
+ * on any branch change (so stale pr info doesn't linger while the async
+ * `gh pr view` is in flight) and writes the new value when the resolve
+ * completes.
  */
 export function startGitHubPrProvider(
   entry: TerminalProcess,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "github-pr", terminal: terminalId });
-  const meta = entry.info.meta;
-  let lastBranch: string | undefined = meta.git?.branch;
-  let lastRepoRoot: string | undefined = meta.git?.repoRoot;
+  let lastBranch: string | undefined;
+  let lastRepoRoot: string | undefined;
 
-  plog.debug({ branch: lastBranch }, "started");
-
-  // Resolve immediately if we have git context
-  if (lastBranch && lastRepoRoot) {
-    void resolve(lastRepoRoot);
-  }
+  plog.debug("started");
 
   function onGitChange(git: GitInfo | null) {
     const branch = git?.branch;
@@ -185,15 +188,17 @@ export function startGitHubPrProvider(
     );
     lastBranch = branch;
     lastRepoRoot = repoRoot;
+    // Clear pr first — the previous value is tied to the old branch and is
+    // now stale. If we still have a repo, the async resolve below will
+    // overwrite with the new branch's pr (or null). If we don't, the clear
+    // is the final state.
+    if (entry.info.meta.pr !== null) {
+      updateServerMetadata(entry, terminalId, (m) => {
+        m.pr = null;
+      });
+    }
     if (branch && repoRoot) {
       void resolve(repoRoot);
-    } else {
-      // No longer in a git repo
-      if (entry.info.meta.pr !== null) {
-        updateMetadata(entry, terminalId, (m) => {
-          m.pr = null;
-        });
-      }
     }
   }
 
@@ -206,7 +211,7 @@ export function startGitHubPrProvider(
         : { pr: null },
       "pr info updated",
     );
-    updateMetadata(entry, terminalId, (m) => {
+    updateServerMetadata(entry, terminalId, (m) => {
       m.pr = pr;
     });
   }

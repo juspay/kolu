@@ -34,5 +34,5 @@ Functions accept `log?: Logger` (from `anyagent`). Pass a pino child logger in p
 The server keeps a thin provider adapter in `meta/git.ts` that:
 
 1. Calls `resolveGitInfo()` / `watchGitHead()` from this package
-2. Bridges results into the metadata event system (`updateMetadata`, `publishForTerminal`)
+2. Bridges results into the metadata event system (`updateServerMetadata`, `publishForTerminal`)
 3. Distinguishes `NOT_A_REPO` (expected, debug) from `GIT_FAILED` (unexpected, error)

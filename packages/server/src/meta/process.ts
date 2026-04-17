@@ -11,7 +11,7 @@
 import path from "node:path";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
-import { updateMetadata } from "./index.ts";
+import { updateServerMetadata } from "./index.ts";
 import { log } from "../log.ts";
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on NixOS).
@@ -41,7 +41,7 @@ export function startProcessProvider(
     );
     lastName = name;
     lastTitle = newTitle;
-    updateMetadata(entry, terminalId, (m) => {
+    updateServerMetadata(entry, terminalId, (m) => {
       m.foreground = { name, title: newTitle };
     });
   }
