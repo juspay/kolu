@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-16T23:17:30.259556+00:00'
+generated_at: '2026-04-17T12:31:31.891315+00:00'
 apm_version: 0.8.11
 dependencies:
 - repo_url: _local/agents
@@ -20,6 +20,7 @@ dependencies:
   - .claude/rules/workflow.md
   - .claude/skills/ci
   - .claude/skills/hk
+  - .claude/skills/perf-diagnose
   - .claude/skills/test
   source: local
   local_path: ./agents
