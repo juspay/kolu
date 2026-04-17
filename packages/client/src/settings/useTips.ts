@@ -10,6 +10,11 @@ import type { TerminalId } from "kolu-common";
 import { useServerState } from "./useServerState";
 import { isMobile } from "../useMobile";
 
+const isPWA = window.matchMedia("(display-mode: standalone)").matches;
+const ambientPool = AMBIENT_TIPS.filter(
+  (t) => !(isPWA && t.id === "amb-pwa-install"),
+);
+
 // Module-level references, set on first useTips() call.
 let _prefs: ReturnType<typeof useServerState>;
 let _initialized = false;
@@ -44,8 +49,8 @@ function showTipOnce(tip: Tip) {
 /** Pick a random ambient tip (prefers unseen, falls back to any). */
 function randomAmbientTip(): string {
   if (isMobile()) return "";
-  const unseen = AMBIENT_TIPS.filter((t) => !seen().has(t.id));
-  const pool = unseen.length > 0 ? unseen : AMBIENT_TIPS;
+  const unseen = ambientPool.filter((t) => !seen().has(t.id));
+  const pool = unseen.length > 0 ? unseen : ambientPool;
   const pick = pool[Math.floor(Math.random() * pool.length)]!;
   if (!seen().has(pick.id)) markSeen(pick.id);
   return pick.text;
