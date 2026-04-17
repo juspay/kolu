@@ -2,6 +2,7 @@
   <img src="packages/client/favicon.svg" width="64" alt="kolu icon" />
 </p>
 
+
 # kolu
 
 A browser cockpit for coding agents. Bring your own CLI, run them anywhere.
