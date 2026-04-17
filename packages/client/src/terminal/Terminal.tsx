@@ -51,6 +51,58 @@ import {
   trackLoseContextCalled,
 } from "./webglTracker";
 
+/** Sum `byteLength` of every BufferLine's `Uint32Array` in xterm's primary
+ *  and alternate buffers. Reaches through private `_core._bufferService`,
+ *  so every access is null-guarded — if xterm renames these fields in a
+ *  future version, the probe reports `null` and the UI labels it "unknown"
+ *  instead of crashing. Uses `length` + `get(i)` rather than iterating the
+ *  private list array, because `CircularList.length` is the public view
+ *  into a ring buffer with an arbitrary internal start offset. */
+function readBufferBytes(
+  term: XTerm,
+): { primary: number; alternate: number } | null {
+  const bufSvc = (
+    term as unknown as {
+      _core?: {
+        _bufferService?: {
+          buffers?: {
+            normal?: {
+              lines?: {
+                length: number;
+                get(i: number): { _data?: Uint32Array } | undefined;
+              };
+            };
+            alt?: {
+              lines?: {
+                length: number;
+                get(i: number): { _data?: Uint32Array } | undefined;
+              };
+            };
+          };
+        };
+      };
+    }
+  )._core?._bufferService;
+  if (!bufSvc?.buffers) return null;
+
+  function sum(lines: {
+    length: number;
+    get(i: number): { _data?: Uint32Array } | undefined;
+  }) {
+    let total = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const data = lines.get(i)?._data;
+      if (data) total += data.byteLength;
+    }
+    return total;
+  }
+
+  const primary = bufSvc.buffers.normal?.lines;
+  const alternate = bufSvc.buffers.alt?.lines;
+  if (!primary || !alternate) return null;
+  return { primary: sum(primary), alternate: sum(alternate) };
+}
+
 /** Fire-and-forget an async iterable, silently swallowing AbortErrors (expected on unmount). */
 function consumeStream<T>(
   streamFn: () => Promise<AsyncIterable<T>>,
@@ -442,6 +494,7 @@ const Terminal: Component<{
             const a = webgl?.textureAtlas;
             return a ? { w: a.width, h: a.height } : null;
           },
+          bufferBytes: () => readBufferBytes(term),
         },
       });
       // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
