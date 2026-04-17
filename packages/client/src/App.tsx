@@ -4,6 +4,7 @@ import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   Show,
   For,
@@ -554,24 +555,37 @@ const App: Component = () => {
                       <ScreenshotIcon />
                     </button>
                   )}
-                  renderTileBody={(id, active) => (
-                    <TerminalContent
-                      terminalId={id as TerminalId}
-                      visible={true}
-                      focused={active()}
-                      theme={getTerminalTheme(id as TerminalId)}
-                      searchOpen={active() && searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                      subTerminalIds={store.getSubTerminalIds(id as TerminalId)}
-                      getMetadata={store.getMetadata}
-                      onCreateSubTerminal={(parentId, cwd) =>
-                        void crud.handleCreateSubTerminal(parentId, cwd)
-                      }
-                      onCloseTerminal={closeTerminal}
-                      activeMeta={store.activeMeta()}
-                      onFocus={() => store.setActiveId(id as TerminalId)}
-                    />
-                  )}
+                  renderTileBody={(id, active) => {
+                    // Hoisted to avoid the same per-read `_$memo` leak as
+                    // the `sizes` and sub-`visible` memos elsewhere. The
+                    // `searchOpen` prop eventually reaches SearchBar's
+                    // capture-phase `makeEventListener` handler — outside
+                    // any Solid owner — and each getter read under a null
+                    // owner orphans a fresh memo.
+                    const tileSearchOpen = createMemo(
+                      () => active() && searchOpen(),
+                    );
+                    return (
+                      <TerminalContent
+                        terminalId={id as TerminalId}
+                        visible={true}
+                        focused={active()}
+                        theme={getTerminalTheme(id as TerminalId)}
+                        searchOpen={tileSearchOpen()}
+                        onSearchOpenChange={setSearchOpen}
+                        subTerminalIds={store.getSubTerminalIds(
+                          id as TerminalId,
+                        )}
+                        getMetadata={store.getMetadata}
+                        onCreateSubTerminal={(parentId, cwd) =>
+                          void crud.handleCreateSubTerminal(parentId, cwd)
+                        }
+                        onCloseTerminal={closeTerminal}
+                        activeMeta={store.activeMeta()}
+                        onFocus={() => store.setActiveId(id as TerminalId)}
+                      />
+                    );
+                  }}
                 />
               </RightPanelLayout>
             </Show>

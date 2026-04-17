@@ -137,20 +137,29 @@ const TerminalContent: Component<{
         </Show>
         <div class="flex-1 min-h-0">
           <For each={props.subTerminalIds}>
-            {(subId) => (
-              <Terminal
-                terminalId={subId}
-                visible={
-                  props.visible && isExpanded() && activeSubTab() === subId
-                }
-                focused={shouldFocusSub(subId)}
-                theme={props.theme}
-                searchOpen={false}
-                onSearchOpenChange={() => {}}
-                onFocus={handleSubFocus}
-                isSub
-              />
-            )}
+            {(subId) => {
+              // Hoisted createMemo — same rationale as the `sizes` memo
+              // above. Inline `visible={a && b && c}` compiles to a JSX
+              // getter that calls `_$memo(() => expr)()` on every read,
+              // creating a fresh memo per access. `<Terminal>` reads this
+              // from a ResizeObserver callback (no Solid owner), so each
+              // read orphans a memo that never disposes.
+              const visible = createMemo(
+                () => props.visible && isExpanded() && activeSubTab() === subId,
+              );
+              return (
+                <Terminal
+                  terminalId={subId}
+                  visible={visible()}
+                  focused={shouldFocusSub(subId)}
+                  theme={props.theme}
+                  searchOpen={false}
+                  onSearchOpenChange={() => {}}
+                  onFocus={handleSubFocus}
+                  isSub
+                />
+              );
+            }}
           </For>
         </div>
       </Resizable.Panel>
