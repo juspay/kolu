@@ -8,7 +8,13 @@
  * buffered data is flushed in one shot.
  */
 
-import { type Accessor, createSignal, createEffect, on } from "solid-js";
+import {
+  type Accessor,
+  createSignal,
+  createEffect,
+  on,
+  onCleanup,
+} from "solid-js";
 import type { Terminal } from "@xterm/xterm";
 
 /**
@@ -52,10 +58,15 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
     ),
   );
 
-  /** Wire the onScroll handler to detect when user scrolls away from bottom. */
+  /** Wire the onScroll handler and self-register cleanup on the caller's
+   *  reactive owner. Must be called synchronously within a reactive scope
+   *  (e.g. inside `onMount`, or within a `runWithOwner` restoring the
+   *  component's owner after an await) — otherwise `onCleanup` silently
+   *  no-ops and the `onScroll` closure + `termRef` leak the xterm Terminal
+   *  across the component's lifetime (#591 heap-snapshot evidence). */
   function attachToTerminal(term: Terminal): void {
     termRef = term;
-    term.onScroll(() => {
+    const scrollDisposable = term.onScroll(() => {
       if (enabled() === false) return;
       const buf = term.buffer.active;
       const atBottom = buf.baseY <= buf.viewportY;
@@ -65,6 +76,11 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
       }
       setIsLocked(!atBottom);
       if (atBottom) setHasNewOutput(false);
+    });
+    onCleanup(() => {
+      scrollDisposable.dispose();
+      termRef = null;
+      pendingData.length = 0;
     });
   }
 

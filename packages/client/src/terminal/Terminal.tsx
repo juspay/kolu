@@ -13,6 +13,8 @@ import {
   createSignal,
   createEffect,
   on,
+  getOwner,
+  runWithOwner,
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { makeEventListener } from "@solid-primitives/event-listener";
@@ -329,307 +331,335 @@ const Terminal: Component<{
     streamAbort?.abort();
     unregisterTerminalRefs(props.terminalId);
     disposeDiagnostics?.();
+    disposeDiagnostics = null;
     unloadWebgl();
     terminal?.dispose();
+    terminal = null;
+    // Break the containerRef → __xterm → xterm Terminal bridge. The
+    // containerRef DIV may be retained by SolidJS closures (verified via
+    // heap-snapshot retainer walk: `context containerRef` and `context _el$2`
+    // across disposed Terminal instances). As long as the DIV is alive and
+    // carries `__xterm`, the entire xterm graph (InputHandler, CoreBrowserTerminal,
+    // BufferLines, ~900 KB per instance) stays reachable. Clearing the property
+    // makes xterm GC-eligible even if the DIV can't be collected yet.
+    const el = containerRef as
+      | (HTMLDivElement & { __xterm?: XTerm })
+      | undefined;
+    if (el) el.__xterm = undefined;
   });
 
   onMount(async () => {
+    // Capture the component's reactive owner BEFORE the await. SolidJS's
+    // global `Owner` is lost across any `await` boundary, so every primitive
+    // called after the await (`createResizeObserver`, `makeEventListener`,
+    // `createEffect`, and any `onCleanup` inside `@solid-primitives/*`) would
+    // register its cleanup on a null owner — a silent no-op. That's why the
+    // ResizeObserver callback + event listeners + their `containerRef`
+    // closures were leaking 190+ `xterm Terminal` trees across mode toggles
+    // (verified via heap-snapshot retainer walk: `context observer` ×205 →
+    // ResizeObserver → `__xterm` on container div → entire xterm graph).
+    // `runWithOwner` re-enters the captured owner for the post-await body so
+    // library-internal `onCleanup` calls land on the right cleanup list.
+    const owner = getOwner();
     // Wait for the terminal font to load before measuring cell dimensions.
     // Without this, the first terminal may mount before the font is available,
     // causing xterm to measure with the fallback monospace font — wrong metrics.
     await document.fonts.load(`1em ${FONT_FAMILY}`);
     if (disposed) return;
-
-    const term = new XTerm({
-      fontFamily: FONT_FAMILY,
-      theme: props.theme,
-      fontSize: fontSize(),
-      scrollback: DEFAULT_SCROLLBACK,
-      cursorBlink: true,
-      // Keep a solid block cursor even when xterm thinks we're unfocused.
-      // The default 'outline' is a hollow box that is effectively invisible
-      // at phone DPI, and xterm's WebGL renderer flips to the inactive style
-      // whenever `document.hasFocus()` is false — unreliable on iOS Safari
-      // with the soft keyboard up (CoreBrowserService.ts:55).
-      cursorInactiveStyle: "block",
-      // Required by SerializeAddon and ImageAddon for buffer access
-      allowProposedApi: true,
-    });
-    terminal = term;
-
-    fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.loadAddon(new WebLinksAddon());
-    const search = new SearchAddon();
-    term.loadAddon(search);
-    setSearchAddon(search);
-    term.loadAddon(new ClipboardAddon(undefined, new SafeClipboardProvider()));
-    term.loadAddon(new Unicode11Addon());
-    term.unicode.activeVersion = "11";
-    term.loadAddon(new ImageAddon());
-    const serializeAddon = new SerializeAddon();
-    term.loadAddon(serializeAddon);
-
-    term.open(containerRef);
-    // Mobile: route soft-keyboard input through `.xterm-screen` itself,
-    // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
-    //
-    // xterm's own hidden helper textarea already has spellcheck/autocorrect
-    // disabled by the library (CoreBrowserTerminal.ts:448-450), but iOS
-    // Safari still runs spell-check against the accumulated `textarea.value`
-    // that `_syncTextArea()` parks at the cursor cell — hence the phantom
-    // underlines. Making the screen element contenteditable gives mobile a
-    // real focus target and lets us opt the whole input surface out of
-    // correction features. `caret-color: transparent` keeps the native
-    // contenteditable caret from fighting xterm's rendered cursor.
-    //
-    // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
-    // path works fine with a hardware keyboard and we don't want to risk
-    // fighting its selection handling.
-    if (isTouch()) {
-      const screen = term.element?.querySelector(
-        ".xterm-screen",
-      ) as HTMLElement | null;
-      if (screen) {
-        screen.setAttribute("contenteditable", "true");
-        screen.setAttribute("spellcheck", "false");
-        screen.setAttribute("autocorrect", "off");
-        screen.setAttribute("autocapitalize", "none");
-        screen.setAttribute("autocomplete", "off");
-        screen.setAttribute("aria-readonly", "true");
-        screen.style.caretColor = "transparent";
-        screen.style.outline = "none";
-      }
-    }
-    // Expose for e2e tests: read buffer content at viewport position.
-    (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
-    // Production path for handlers that need live xterm/addon refs
-    // (e.g. export-as-PDF reads serializeAddon).
-    registerTerminalRefs(props.terminalId, {
-      xterm: term,
-      serialize: serializeAddon,
-      probes: {
-        webglAtlas: () => {
-          const a = webgl?.textureAtlas;
-          return a ? { w: a.width, h: a.height } : null;
-        },
-      },
-    });
-    // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
-    // the single source of truth, no imperative updater to forget.
-    disposeDiagnostics = registerDiagnostics(props.terminalId, {
-      xterm: term,
-      renderer: () => (hasWebgl() ? "webgl" : "dom"),
-    });
-
-    scrollLock.attachToTerminal(term);
-
-    if (shouldUseWebgl()) loadWebgl();
-
-    // xterm.js has attachCustomKeyEventHandler for intercepting keys.
-    // Return false to prevent xterm from handling the key.
-    term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
-      // Let Cmd+key pass through to browser (except copy/paste without Shift)
-      if (e.metaKey) {
-        const key = e.key.toLowerCase();
-        if ((key === "c" || key === "v") && !e.shiftKey) return true;
-        return false;
-      }
-
-      // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
-      // paste listener uploads images; xterm's own paste handler covers text.
-      if (e.ctrlKey && e.key === "v") return false;
-
-      // Let any registered app shortcut bubble through to the capture-phase dispatcher
-      if (matchesAnyShortcut(e)) return false;
-
-      return true;
-    });
-
-    // Attach the resize listener before any initial sizing so the very
-    // first fit()/resize() publishes and pings the PTY through the same
-    // code path as every subsequent resize.
-    term.onResize(() => void publishDimensions());
-
-    // FitAddon.fit() only works when the container has real pixel
-    // dimensions. Hidden main terminals live inside a display:none ancestor
-    // (see `hidden` classList on the wrapper below), so we can't measure
-    // them — instead inherit whatever cols×rows the visible main terminal
-    // already published to the viewport signal. Hidden sub-terminals have
-    // no shared signal to read, so they wait until they become visible.
-    // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
-    if (props.visible) {
-      fitAddon.fit();
-      if (props.focused !== false) term.focus();
-    } else if (!props.isSub) {
-      const vp = viewportDimensions();
-      if (vp) term.resize(vp.cols, vp.rows);
-    }
-
-    // Track user-initiated focus for "remember last focused" in sub-panel
-    if (props.onFocus && term.textarea) {
-      makeEventListener(term.textarea, "focus", props.onFocus);
-    }
-
-    streamAbort = new AbortController();
-    const signal = streamAbort.signal;
-
-    // Attach stream: yields scrollback first, then live PTY output.
-    // onRetry resets xterm before the retried iterator's first yield
-    // (a fresh screenState snapshot) — otherwise it double-paints.
-    consumeStream(
-      () =>
-        stream.attach(props.terminalId, {
-          signal,
-          onRetry: () => {
-            terminal?.reset();
-            scrollLock.reset();
-          },
-        }),
-      (data) => {
-        if (terminal) scrollLock.writeData(terminal, data);
-      },
-      "Terminal attach",
-    );
-
-    // fit() and term.resize() above only fire onResize when the grid
-    // actually changes. If xterm's default 80×24 already matched the
-    // target, the listener didn't run — publish manually. Skip when we
-    // haven't sized ourselves yet (hidden main terminal before the
-    // viewport signal arrives, or hidden sub-terminal): publishing the
-    // untouched 80×24 default would corrupt the viewport signal and
-    // send a bogus PTY resize.
-    const sized = props.visible || (!props.isSub && viewportDimensions());
-    if (sized) void publishDimensions();
-
-    // Filter terminal query responses from onData before sending to PTY.
-    // The server's headless xterm already answers these; duplicates arriving
-    // late over the network get printed as visible garbage.
-    const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
-    term.onData((data: string) => {
-      if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
-      void client.terminal.sendInput({ id: props.terminalId, data });
-    });
-
-    createResizeObserver(
-      () => containerRef,
-      () => {
-        // Skip fitting when hidden — display:none triggers a 0x0 resize that would
-        // cause a server-side PTY resize, producing shell output and false activity.
-        if (props.visible) debouncedFit();
-      },
-    );
-
-    refitOnTabVisible(
-      () => {
-        debouncedFit();
-        clearTextureAtlas();
-      },
-      () => props.visible,
-    );
-    // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
-    makeEventListener(containerRef, "contextmenu", (e: Event) =>
-      e.preventDefault(),
-    );
-
-    // Touch-scroll the scrollback. xterm.js 6.0.0 declares
-    // IViewport.handleTouchStart/Move types but Viewport.ts has zero
-    // touch wiring, and the WebGL canvas eats touch events on the way
-    // to the parent .xterm-viewport — so swipes inside the terminal
-    // do nothing on mobile until we bridge them ourselves.
-    //
-    // Single-variable state machine: touchAnchorY is the Y baseline
-    // that line conversion is measured from. null when idle, a number
-    // while a swipe is in progress. On every emitted line the anchor
-    // advances by exactly the consumed pixels, so the sub-line residue
-    // lives implicitly in (currentY - touchAnchorY) on the next move
-    // — no separate accumulator to keep in sync.
-    //
-    // scrollLock picks up the resulting term.onScroll for free, so
-    // freezing live output while the user reads scrollback works
-    // without any extra wiring.
-    let touchAnchorY: number | null = null;
-    makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
-      // Multi-touch (pinch-zoom) passes through to the browser
-      if (e.touches.length !== 1) return;
-      touchAnchorY = e.touches[0]!.clientY;
-    });
-    makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
-      // Multi-touch interrupts a swipe — drop the anchor so the next
-      // single-finger move starts a fresh gesture instead of resuming
-      // from a stale (possibly far-away) reference point.
-      if (e.touches.length !== 1) {
-        touchAnchorY = null;
-        return;
-      }
-      if (touchAnchorY === null || !terminal) return;
-      const screen = terminal.element?.querySelector(
-        ".xterm-screen",
-      ) as HTMLElement | null;
-      if (!screen) return;
-      const cellHeight = screen.clientHeight / terminal.rows;
-      // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
-      // a bare `<= 0` check would miss — NaN poisons the anchor.
-      if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
-      const currentY = e.touches[0]!.clientY;
-      const lines = Math.trunc((currentY - touchAnchorY) / cellHeight);
-      if (lines === 0) return;
-      // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
-      terminal.scrollLines(-lines);
-      touchAnchorY += lines * cellHeight;
-    });
-    makeEventListener(containerRef, "touchend", () => {
-      touchAnchorY = null;
-    });
-
-    // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
-    // Capture phase fires before xterm's own paste handler on the textarea,
-    // letting us intercept images while text paste falls through to xterm.
-    // Uses the native paste event (not navigator.clipboard.read) so no explicit
-    // clipboard-read permission is needed.
-    async function uploadPastedImage(file: File) {
-      const base64 = bufferToBase64(await file.arrayBuffer());
-      try {
-        await client.terminal.pasteImage({
-          id: props.terminalId,
-          data: base64,
-        });
-      } catch (err) {
-        console.error("Failed to upload clipboard image:", err);
-      }
-      // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
-      void client.terminal.sendInput({
-        id: props.terminalId,
-        data: "\x16",
+    runWithOwner(owner, () => {
+      const term = new XTerm({
+        fontFamily: FONT_FAMILY,
+        theme: props.theme,
+        fontSize: fontSize(),
+        scrollback: DEFAULT_SCROLLBACK,
+        cursorBlink: true,
+        // Keep a solid block cursor even when xterm thinks we're unfocused.
+        // The default 'outline' is a hollow box that is effectively invisible
+        // at phone DPI, and xterm's WebGL renderer flips to the inactive style
+        // whenever `document.hasFocus()` is false — unreliable on iOS Safari
+        // with the soft keyboard up (CoreBrowserService.ts:55).
+        cursorInactiveStyle: "block",
+        // Required by SerializeAddon and ImageAddon for buffer access
+        allowProposedApi: true,
       });
-    }
+      terminal = term;
 
-    makeEventListener(
-      containerRef,
-      "paste",
-      (e: ClipboardEvent) => {
-        const items = e.clipboardData?.items;
-        if (!items) return;
+      fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.loadAddon(new WebLinksAddon());
+      const search = new SearchAddon();
+      term.loadAddon(search);
+      setSearchAddon(search);
+      term.loadAddon(
+        new ClipboardAddon(undefined, new SafeClipboardProvider()),
+      );
+      term.loadAddon(new Unicode11Addon());
+      term.unicode.activeVersion = "11";
+      term.loadAddon(new ImageAddon());
+      const serializeAddon = new SerializeAddon();
+      term.loadAddon(serializeAddon);
 
-        const imageItem = Array.from(items).find((i) =>
-          i.type.startsWith("image/"),
-        );
-        const file = imageItem?.getAsFile();
-        if (!file) return; // No image — let xterm handle text paste
+      term.open(containerRef);
+      // Mobile: route soft-keyboard input through `.xterm-screen` itself,
+      // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
+      //
+      // xterm's own hidden helper textarea already has spellcheck/autocorrect
+      // disabled by the library (CoreBrowserTerminal.ts:448-450), but iOS
+      // Safari still runs spell-check against the accumulated `textarea.value`
+      // that `_syncTextArea()` parks at the cursor cell — hence the phantom
+      // underlines. Making the screen element contenteditable gives mobile a
+      // real focus target and lets us opt the whole input surface out of
+      // correction features. `caret-color: transparent` keeps the native
+      // contenteditable caret from fighting xterm's rendered cursor.
+      //
+      // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
+      // path works fine with a hardware keyboard and we don't want to risk
+      // fighting its selection handling.
+      if (isTouch()) {
+        const screen = term.element?.querySelector(
+          ".xterm-screen",
+        ) as HTMLElement | null;
+        if (screen) {
+          screen.setAttribute("contenteditable", "true");
+          screen.setAttribute("spellcheck", "false");
+          screen.setAttribute("autocorrect", "off");
+          screen.setAttribute("autocapitalize", "none");
+          screen.setAttribute("autocomplete", "off");
+          screen.setAttribute("aria-readonly", "true");
+          screen.style.caretColor = "transparent";
+          screen.style.outline = "none";
+        }
+      }
+      // Expose for e2e tests: read buffer content at viewport position.
+      (containerRef as HTMLDivElement & { __xterm?: XTerm }).__xterm = term;
+      // Production path for handlers that need live xterm/addon refs
+      // (e.g. export-as-PDF reads serializeAddon).
+      registerTerminalRefs(props.terminalId, {
+        xterm: term,
+        serialize: serializeAddon,
+        probes: {
+          webglAtlas: () => {
+            const a = webgl?.textureAtlas;
+            return a ? { w: a.width, h: a.height } : null;
+          },
+        },
+      });
+      // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
+      // the single source of truth, no imperative updater to forget.
+      disposeDiagnostics = registerDiagnostics(props.terminalId, {
+        xterm: term,
+        renderer: () => (hasWebgl() ? "webgl" : "dom"),
+      });
 
-        // Must stop propagation synchronously before the async upload,
-        // otherwise xterm's paste handler would paste the image as garbled text.
-        e.stopPropagation();
-        e.preventDefault();
-        void uploadPastedImage(file);
-      },
-      { capture: true },
-    );
+      scrollLock.attachToTerminal(term);
 
-    // Cleanup is registered synchronously near the top of the component body
-    // (see comment there). It references `terminal`, `webgl`, and the local
-    // refs via closure, and handles null state if this onMount body never ran
-    // to completion.
+      if (shouldUseWebgl()) loadWebgl();
+
+      // xterm.js has attachCustomKeyEventHandler for intercepting keys.
+      // Return false to prevent xterm from handling the key.
+      term.attachCustomKeyEventHandler((e: KeyboardEvent) => {
+        // Let Cmd+key pass through to browser (except copy/paste without Shift)
+        if (e.metaKey) {
+          const key = e.key.toLowerCase();
+          if ((key === "c" || key === "v") && !e.shiftKey) return true;
+          return false;
+        }
+
+        // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
+        // paste listener uploads images; xterm's own paste handler covers text.
+        if (e.ctrlKey && e.key === "v") return false;
+
+        // Let any registered app shortcut bubble through to the capture-phase dispatcher
+        if (matchesAnyShortcut(e)) return false;
+
+        return true;
+      });
+
+      // Attach the resize listener before any initial sizing so the very
+      // first fit()/resize() publishes and pings the PTY through the same
+      // code path as every subsequent resize.
+      term.onResize(() => void publishDimensions());
+
+      // FitAddon.fit() only works when the container has real pixel
+      // dimensions. Hidden main terminals live inside a display:none ancestor
+      // (see `hidden` classList on the wrapper below), so we can't measure
+      // them — instead inherit whatever cols×rows the visible main terminal
+      // already published to the viewport signal. Hidden sub-terminals have
+      // no shared signal to read, so they wait until they become visible.
+      // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
+      if (props.visible) {
+        fitAddon.fit();
+        if (props.focused !== false) term.focus();
+      } else if (!props.isSub) {
+        const vp = viewportDimensions();
+        if (vp) term.resize(vp.cols, vp.rows);
+      }
+
+      // Track user-initiated focus for "remember last focused" in sub-panel
+      if (props.onFocus && term.textarea) {
+        makeEventListener(term.textarea, "focus", props.onFocus);
+      }
+
+      streamAbort = new AbortController();
+      const signal = streamAbort.signal;
+
+      // Attach stream: yields scrollback first, then live PTY output.
+      // onRetry resets xterm before the retried iterator's first yield
+      // (a fresh screenState snapshot) — otherwise it double-paints.
+      consumeStream(
+        () =>
+          stream.attach(props.terminalId, {
+            signal,
+            onRetry: () => {
+              terminal?.reset();
+              scrollLock.reset();
+            },
+          }),
+        (data) => {
+          if (terminal) scrollLock.writeData(terminal, data);
+        },
+        "Terminal attach",
+      );
+
+      // fit() and term.resize() above only fire onResize when the grid
+      // actually changes. If xterm's default 80×24 already matched the
+      // target, the listener didn't run — publish manually. Skip when we
+      // haven't sized ourselves yet (hidden main terminal before the
+      // viewport signal arrives, or hidden sub-terminal): publishing the
+      // untouched 80×24 default would corrupt the viewport signal and
+      // send a bogus PTY resize.
+      const sized = props.visible || (!props.isSub && viewportDimensions());
+      if (sized) void publishDimensions();
+
+      // Filter terminal query responses from onData before sending to PTY.
+      // The server's headless xterm already answers these; duplicates arriving
+      // late over the network get printed as visible garbage.
+      const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
+      term.onData((data: string) => {
+        if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
+        void client.terminal.sendInput({ id: props.terminalId, data });
+      });
+
+      createResizeObserver(
+        () => containerRef,
+        () => {
+          // Skip fitting when hidden — display:none triggers a 0x0 resize that would
+          // cause a server-side PTY resize, producing shell output and false activity.
+          if (props.visible) debouncedFit();
+        },
+      );
+
+      refitOnTabVisible(
+        () => {
+          debouncedFit();
+          clearTextureAtlas();
+        },
+        () => props.visible,
+      );
+      // Prevent browser context menu so right-click reaches the terminal (mouse tracking)
+      makeEventListener(containerRef, "contextmenu", (e: Event) =>
+        e.preventDefault(),
+      );
+
+      // Touch-scroll the scrollback. xterm.js 6.0.0 declares
+      // IViewport.handleTouchStart/Move types but Viewport.ts has zero
+      // touch wiring, and the WebGL canvas eats touch events on the way
+      // to the parent .xterm-viewport — so swipes inside the terminal
+      // do nothing on mobile until we bridge them ourselves.
+      //
+      // Single-variable state machine: touchAnchorY is the Y baseline
+      // that line conversion is measured from. null when idle, a number
+      // while a swipe is in progress. On every emitted line the anchor
+      // advances by exactly the consumed pixels, so the sub-line residue
+      // lives implicitly in (currentY - touchAnchorY) on the next move
+      // — no separate accumulator to keep in sync.
+      //
+      // scrollLock picks up the resulting term.onScroll for free, so
+      // freezing live output while the user reads scrollback works
+      // without any extra wiring.
+      let touchAnchorY: number | null = null;
+      makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
+        // Multi-touch (pinch-zoom) passes through to the browser
+        if (e.touches.length !== 1) return;
+        touchAnchorY = e.touches[0]!.clientY;
+      });
+      makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
+        // Multi-touch interrupts a swipe — drop the anchor so the next
+        // single-finger move starts a fresh gesture instead of resuming
+        // from a stale (possibly far-away) reference point.
+        if (e.touches.length !== 1) {
+          touchAnchorY = null;
+          return;
+        }
+        if (touchAnchorY === null || !terminal) return;
+        const screen = terminal.element?.querySelector(
+          ".xterm-screen",
+        ) as HTMLElement | null;
+        if (!screen) return;
+        const cellHeight = screen.clientHeight / terminal.rows;
+        // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
+        // a bare `<= 0` check would miss — NaN poisons the anchor.
+        if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
+        const currentY = e.touches[0]!.clientY;
+        const lines = Math.trunc((currentY - touchAnchorY) / cellHeight);
+        if (lines === 0) return;
+        // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
+        terminal.scrollLines(-lines);
+        touchAnchorY += lines * cellHeight;
+      });
+      makeEventListener(containerRef, "touchend", () => {
+        touchAnchorY = null;
+      });
+
+      // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
+      // Capture phase fires before xterm's own paste handler on the textarea,
+      // letting us intercept images while text paste falls through to xterm.
+      // Uses the native paste event (not navigator.clipboard.read) so no explicit
+      // clipboard-read permission is needed.
+      async function uploadPastedImage(file: File) {
+        const base64 = bufferToBase64(await file.arrayBuffer());
+        try {
+          await client.terminal.pasteImage({
+            id: props.terminalId,
+            data: base64,
+          });
+        } catch (err) {
+          console.error("Failed to upload clipboard image:", err);
+        }
+        // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
+        void client.terminal.sendInput({
+          id: props.terminalId,
+          data: "\x16",
+        });
+      }
+
+      makeEventListener(
+        containerRef,
+        "paste",
+        (e: ClipboardEvent) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+
+          const imageItem = Array.from(items).find((i) =>
+            i.type.startsWith("image/"),
+          );
+          const file = imageItem?.getAsFile();
+          if (!file) return; // No image — let xterm handle text paste
+
+          // Must stop propagation synchronously before the async upload,
+          // otherwise xterm's paste handler would paste the image as garbled text.
+          e.stopPropagation();
+          e.preventDefault();
+          void uploadPastedImage(file);
+        },
+        { capture: true },
+      );
+
+      // Cleanup is registered synchronously near the top of the component body
+      // (see comment there). It references `terminal`, `webgl`, and the local
+      // refs via closure, and handles null state if this onMount body never ran
+      // to completion.
+    });
   });
 
   return (
