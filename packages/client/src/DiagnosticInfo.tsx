@@ -12,15 +12,54 @@ import Row from "./ui/Row";
 import { usePreferences } from "./settings/usePreferences";
 import { wsStatus, serverProcessId } from "./rpc/rpc";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
+import { getTerminalRefs } from "./terminal/terminalRefs";
 import type { TerminalId } from "kolu-common";
+
+/** WebGL2 support detection creates a throwaway canvas + WebGL context
+ *  that lingers on a detached node until GC. Compute once at module load
+ *  so re-opening this dialog doesn't burn one context per open — the exact
+ *  zombie-context pattern this dialog exists to diagnose (#591). */
+const WEBGL2_SUPPORTED = (() => {
+  const canvas = document.createElement("canvas");
+  return !!canvas.getContext("webgl2");
+})();
 
 /** One-shot browser facts read at first render. Stable for the session,
  *  so no reactive source needed — keeps this module's dependency surface
  *  small. */
 function browserFacts() {
-  const canvas = document.createElement("canvas");
-  const gl2 = !!canvas.getContext("webgl2");
-  return { userAgent: navigator.userAgent, webgl2Supported: gl2 };
+  return {
+    userAgent: navigator.userAgent,
+    webgl2Supported: WEBGL2_SUPPORTED,
+    crossOriginIsolated: self.crossOriginIsolated,
+    devicePixelRatio: window.devicePixelRatio,
+  };
+}
+
+/** `performance.memory` is Chromium-only and missing from the DOM type
+ *  definitions — isolate the narrow cast and the MB rounding here so the
+ *  snapshot memo stays free of both. Returns null on non-Chromium browsers. */
+function readJsHeap(): {
+  usedMB: number;
+  totalMB: number;
+  limitMB: number;
+} | null {
+  const mem = (
+    performance as {
+      memory?: {
+        usedJSHeapSize: number;
+        totalJSHeapSize: number;
+        jsHeapSizeLimit: number;
+      };
+    }
+  ).memory;
+  if (!mem) return null;
+  const mb = (n: number) => Math.round((n / 1_048_576) * 10) / 10;
+  return {
+    usedMB: mb(mem.usedJSHeapSize),
+    totalMB: mb(mem.totalJSHeapSize),
+    limitMB: mb(mem.jsHeapSizeLimit),
+  };
 }
 
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
@@ -37,13 +76,23 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       serverProcessId: serverProcessId(),
       activeId: props.activeId,
       terminalCount: getDiagnostics().length,
+      jsHeap: readJsHeap(),
+      domNodes: document.getElementsByTagName("*").length,
+      canvases: document.querySelectorAll("canvas").length,
     },
-    terminals: getDiagnostics().map((d) => ({
-      id: d.id,
-      cols: d.cols,
-      rows: d.rows,
-      renderer: d.renderer,
-    })),
+    terminals: getDiagnostics().map((d) => {
+      const refs = getTerminalRefs(d.id);
+      const bufferLen = refs?.xterm.buffer.active.length ?? null;
+      return {
+        id: d.id,
+        cols: d.cols,
+        rows: d.rows,
+        renderer: d.renderer,
+        bufferLen,
+        scrollback: bufferLen !== null ? bufferLen - d.rows : null,
+        atlas: refs?.probes.webglAtlas() ?? null,
+      };
+    }),
   }));
 
   function copyJson() {
@@ -74,6 +123,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="WebGL 2">
               <span class={browser.webgl2Supported ? "text-ok" : "text-danger"}>
                 {browser.webgl2Supported ? "available" : "unavailable"}
+              </span>
+            </Row>
+            <Row label="DPR">
+              <span class="font-mono text-fg-3">
+                {browser.devicePixelRatio}
               </span>
             </Row>
             <Row label="UA">
@@ -109,33 +163,75 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="Count">
               <span class="font-mono text-fg">{getDiagnostics().length}</span>
             </Row>
+            <Show when={snapshot().session.jsHeap}>
+              {(heap) => (
+                <Row label="JS heap">
+                  <span class="font-mono text-fg">
+                    {heap().usedMB} / {heap().totalMB} MB
+                    <span class="text-fg-3/70"> (limit {heap().limitMB})</span>
+                  </span>
+                </Row>
+              )}
+            </Show>
+            <Row label="DOM">
+              <span class="font-mono text-fg">
+                {snapshot().session.domNodes}
+              </span>
+            </Row>
+            <Row label="Canvases">
+              <span class="font-mono text-fg">
+                {snapshot().session.canvases}
+              </span>
+            </Row>
+            <Row label="COI">
+              <span
+                class={browser.crossOriginIsolated ? "text-ok" : "text-fg-3"}
+              >
+                {browser.crossOriginIsolated ? "yes" : "no"}
+              </span>
+            </Row>
           </div>
         </Section>
 
         <Section title="Terminals">
           <Show
-            when={getDiagnostics().length > 0}
+            when={snapshot().terminals.length > 0}
             fallback={
               <div class="text-[11px] text-fg-3/60 italic">No terminals</div>
             }
           >
-            <div class="space-y-0.5">
-              <For each={getDiagnostics()}>
+            <div class="space-y-1">
+              <For each={snapshot().terminals}>
                 {(d) => (
-                  <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3 text-[11px] font-mono">
-                    <span class="text-fg-3/70">{d.id.slice(0, 8)}</span>
-                    <span class="text-fg-2 tabular-nums">
-                      {d.cols}×{d.rows}
-                    </span>
-                    <span
-                      class={
-                        d.renderer === "webgl" ? "text-accent" : "text-fg-2"
-                      }
-                    >
-                      {d.renderer}
-                    </span>
-                    <Show when={props.activeId === d.id}>
-                      <span class="text-[10px] text-fg-3/70">active</span>
+                  <div class="text-[11px] font-mono space-y-0.5">
+                    <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3">
+                      <span class="text-fg-3/70">{d.id.slice(0, 8)}</span>
+                      <span class="text-fg-2 tabular-nums">
+                        {d.cols}×{d.rows}
+                      </span>
+                      <span
+                        class={
+                          d.renderer === "webgl" ? "text-accent" : "text-fg-2"
+                        }
+                      >
+                        {d.renderer}
+                      </span>
+                      <Show when={props.activeId === d.id}>
+                        <span class="text-[10px] text-fg-3/70">active</span>
+                      </Show>
+                    </div>
+                    <Show when={d.scrollback !== null}>
+                      <div class="pl-[9ch] text-[10px] text-fg-3/60 tabular-nums">
+                        scrollback: {d.scrollback}
+                        <Show when={d.atlas}>
+                          {(a) => (
+                            <span>
+                              {" "}
+                              · atlas: {a().w}×{a().h}
+                            </span>
+                          )}
+                        </Show>
+                      </div>
                     </Show>
                   </div>
                 )}
