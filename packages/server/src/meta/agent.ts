@@ -20,7 +20,7 @@ import type {
 } from "anyagent";
 import type { AgentInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
-import { updateMetadata } from "./index.ts";
+import { updateServerMetadata } from "./index.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
@@ -100,7 +100,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       // Only clear metadata if the terminal's agent is ours to clear.
       // Other providers of different kinds share the same `m.agent` slot.
       if (entry.info.meta.agent?.kind === provider.kind) {
-        updateMetadata(entry, terminalId, (m) => {
+        updateServerMetadata(entry, terminalId, (m) => {
           m.agent = null;
         });
       }
@@ -113,7 +113,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       watcher: provider.createWatcher(
         next,
         (info) => {
-          updateMetadata(entry, terminalId, (m) => {
+          updateServerMetadata(entry, terminalId, (m) => {
             // Widen Info to AgentInfo — every concrete Info variant is a
             // member of the AgentInfo discriminated union by construction
             // (its schema is one of the union's branches). The cast lives
