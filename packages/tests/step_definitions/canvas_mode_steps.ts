@@ -369,6 +369,92 @@ When(
   },
 );
 
+// ── Space-to-pan modifier ──
+
+/** Dispatch a Space keydown/keyup on window, mirroring how the wheel-
+ *  dispatch steps fake gestures. Real `page.keyboard.down("Space")` would
+ *  route through the focused xterm textarea (covered by the isTyping guard)
+ *  and never flip spaceHeld. */
+When("I hold Space", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        code: "Space",
+        key: " ",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await this.waitForFrame();
+});
+
+When("I release Space", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keyup", {
+        code: "Space",
+        key: " ",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await this.waitForFrame();
+});
+
+When(
+  "I pan-drag from inside the terminal tile",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      const xterm = document.querySelector(
+        "[data-visible] .xterm-screen",
+      ) as HTMLElement | null;
+      if (!xterm) throw new Error("xterm-screen not found");
+      const rect = xterm.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      xterm.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx + 60,
+          clientY: cy + 40,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 0,
+          clientX: cx + 60,
+          clientY: cy + 40,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "xterm should not have received a wheel event",
   async function (this: KoluWorld) {

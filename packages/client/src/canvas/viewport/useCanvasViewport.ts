@@ -40,10 +40,13 @@ export interface CanvasViewport {
   zoom: Accessor<number>;
   /** Set container ref — installs gesture listeners. `shouldYieldWheel`, if
    *  provided, lets callers opt specific wheel targets out of canvas pan so
-   *  scrollable tile content (e.g. a terminal) owns its own scroll gesture. */
+   *  scrollable tile content (e.g. a terminal) owns its own scroll gesture.
+   *  `isPanModifier`, if provided, is an opaque boolean accessor; while it
+   *  returns true, the canvas claims every pan gesture (Space-to-pan). */
   setContainerRef: (
     el: HTMLDivElement,
     shouldYieldWheel?: (e: WheelEvent) => boolean,
+    isPanModifier?: () => boolean,
   ) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
@@ -74,6 +77,7 @@ export interface CanvasViewport {
 function setContainerRef(
   el: HTMLDivElement,
   shouldYieldWheel?: (e: WheelEvent) => boolean,
+  isPanModifier?: () => boolean,
 ) {
   cleanupGestures?.();
   containerEl = el;
@@ -93,6 +97,7 @@ function setContainerRef(
       },
     },
     shouldYieldWheel,
+    isPanModifier,
   );
 }
 

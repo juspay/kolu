@@ -28,6 +28,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
@@ -46,6 +47,20 @@ const MIN_H = 200;
  *  for ~150ms so mid-gesture cursor drift doesn't hand off. */
 function isWheelTargetTerminal(e: WheelEvent): boolean {
   return e.target instanceof Element && e.target.closest(".xterm") !== null;
+}
+
+/** Suppress canvas keyboard modifiers (Space-to-pan) while the user is
+ *  entering text anywhere — xterm's helper `<textarea>`, the command palette
+ *  input, a tile-rename input, a contenteditable widget. Uses DOM-native tag
+ *  and `isContentEditable` so new text surfaces are covered without adding
+ *  selectors. Future non-textarea text editors (e.g. a Monaco tile) would
+ *  need to mark themselves via `contenteditable` or extend this rule. */
+function isTyping(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return el.isContentEditable === true;
 }
 
 function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
@@ -72,6 +87,22 @@ const TerminalCanvas: Component<{
   renderTileBody: (id: string, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
+
+  // Space-to-pan: while held, canvas owns every pan gesture (wheel + primary
+  // drag) regardless of target. Suppressed while the user is entering text
+  // (xterm textarea, palette input, etc.) so a space keystroke there reaches
+  // the input. Window blur resets state — keyup is unreliable when focus
+  // leaves the window mid-press.
+  const [spaceHeld, setSpaceHeld] = createSignal(false);
+  makeEventListener(window, "keydown", (e: KeyboardEvent) => {
+    if (e.code !== "Space" || e.repeat || isTyping()) return;
+    e.preventDefault();
+    setSpaceHeld(true);
+  });
+  makeEventListener(window, "keyup", (e: KeyboardEvent) => {
+    if (e.code === "Space") setSpaceHeld(false);
+  });
+  makeEventListener(window, "blur", () => setSpaceHeld(false));
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -273,11 +304,13 @@ const TerminalCanvas: Component<{
       <div
         ref={(el) => {
           containerRef = el;
-          viewport.setContainerRef(el, isWheelTargetTerminal);
+          viewport.setContainerRef(el, isWheelTargetTerminal, spaceHeld);
         }}
         data-testid="canvas-container"
         data-zoom={viewport.zoom()}
+        data-pan-modifier={spaceHeld() ? "" : undefined}
         class="flex-1 min-h-0 overflow-hidden relative canvas-grid-bg"
+        classList={{ "cursor-grab": spaceHeld() }}
         style={{
           "background-position": viewport.gridBgPosition(),
           "background-size": viewport.gridBgSize(),

@@ -45,7 +45,7 @@ nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 
 An alternative to the default single-terminal focus layout — all terminals float as draggable, resizable windows on an infinite 2D canvas. Toggle via the grid icon in the header.
 
-- **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
+- **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Space</kbd> to force pan even with the cursor over a terminal tile (Figma-style hand tool). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
 - **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
 - **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast

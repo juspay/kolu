@@ -1,4 +1,4 @@
-/** Gesture input for the canvas — wheel pan/zoom and middle-mouse drag.
+/** Gesture input for the canvas — wheel pan/zoom and pointer-drag pan.
  *  Owns event listener lifecycle (AbortController cleanup) and the wheel-
  *  ownership state machine that decides whether a continuous scroll belongs
  *  to the canvas (pan) or the target underneath (native scroll).
@@ -18,7 +18,7 @@ export interface GestureCallbacks {
   onZoom: (factor: number, screenX: number, screenY: number) => void;
 }
 
-/** Install wheel and middle-mouse gesture listeners on a container element.
+/** Install wheel and pointer-drag gesture listeners on a container element.
  *  Returns a cleanup function that removes all listeners.
  *
  *  `shouldYieldWheel`, if provided, is called on the first event of a wheel
@@ -26,6 +26,13 @@ export interface GestureCallbacks {
  *  preventDefault). Ownership holds until ~150ms of wheel idle so cursor drift
  *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
  *  canvas regardless.
+ *
+ *  `isPanModifier`, if provided, is an opaque boolean accessor the caller
+ *  uses to assert that the canvas owns all pan gestures right now — regardless
+ *  of target or ownership state. While it returns true: wheel always pans
+ *  (no yield), and primary-button drag starts a pan gesture (like middle-mouse).
+ *  The gesture layer knows nothing about what triggers the modifier (today:
+ *  Space key); that's the caller's concern.
  *
  *  The wheel listener runs in capture phase so that when the canvas owns the
  *  gesture we can `stopPropagation()` before xterm (or any deeper listener)
@@ -36,6 +43,7 @@ export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
   shouldYieldWheel?: (e: WheelEvent) => boolean,
+  isPanModifier?: () => boolean,
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
@@ -66,7 +74,7 @@ export function installGestures(
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
         return;
       }
-      if (yieldsWheel(e)) return;
+      if (!isPanModifier?.() && yieldsWheel(e)) return;
       e.preventDefault();
       e.stopPropagation();
       callbacks.onPan(e.deltaX, e.deltaY);
@@ -74,14 +82,17 @@ export function installGestures(
     { passive: false, capture: true, signal },
   );
 
-  // Middle-mouse drag pan
+  // Pan drag: middle-mouse, or primary-button while the caller's pan modifier
+  // is held (Space-to-pan).
   let abortPanDrag: AbortController | null = null;
 
   el.addEventListener(
     "pointerdown",
     (e) => {
-      if (e.button !== 1) return;
+      const isPrimaryPanModifier = e.button === 0 && isPanModifier?.() === true;
+      if (e.button !== 1 && !isPrimaryPanModifier) return;
       e.preventDefault();
+      e.stopPropagation();
       abortPanDrag?.abort();
       el.style.cursor = "grabbing";
 
@@ -104,7 +115,10 @@ export function installGestures(
         abortPanDrag,
       );
     },
-    { signal },
+    // Capture phase: pan claim fires before deeper listeners (tile onMouseDown,
+    // solid-dnd sensor) so Space+primary-drag pans instead of selecting or
+    // dragging a tile.
+    { signal, capture: true },
   );
 
   return () => {
