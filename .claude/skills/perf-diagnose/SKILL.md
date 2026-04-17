@@ -34,10 +34,10 @@ A running dev server on `http://localhost:5173` + chrome-devtools MCP. If the de
 
 Before digging into any specific retention chain, figure out which shape you have. They have different fixes.
 
-| Shape                                      | How to tell                                                                                                                                                  | Fix pattern                                                                          |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| **Cleanup doesn't run** (#598 class)       | `__kolu.lifecycle()` shows `mounts - cleanups > live`. Orphan entry's event tape has only `{kind: "create"}` — no `dispose` event ever fires.                | Register `onCleanup` synchronously before any `await`; bail with `if (disposed)` post-await. |
-| **Cleanup runs but memory retained** (#606 class) | `lifecycle()` math works. `scripts/check-yn-disposed.mjs` shows all retained `yn` have `_store._isDisposed=true`. `Rn` count > live count. | Null captured refs in component scope (#607) OR register disposables (#609).        |
+| Shape                                             | How to tell                                                                                                                                   | Fix pattern                                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Cleanup doesn't run** (#598 class)              | `__kolu.lifecycle()` shows `mounts - cleanups > live`. Orphan entry's event tape has only `{kind: "create"}` — no `dispose` event ever fires. | Register `onCleanup` synchronously before any `await`; bail with `if (disposed)` post-await. |
+| **Cleanup runs but memory retained** (#606 class) | `lifecycle()` math works. `scripts/check-yn-disposed.mjs` shows all retained `yn` have `_store._isDisposed=true`. `Rn` count > live count.    | Null captured refs in component scope (#607) OR register disposables (#609).                 |
 
 ## WebGL lifecycle invariants
 
@@ -49,12 +49,12 @@ Healthy steady-state (`__kolu.webgl()` or Diagnostic dialog):
 
 Violation patterns:
 
-| Violation                                                                          | Diagnosis                                                                          |
-| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `totalCreated - disposed > 1` + orphan tape has only `{kind: "create"}`            | Async-onMount cleanup race. Look for a new `await` before `onCleanup(...)` registers. Fix pattern in #598. |
-| `aliveDetached > contextsLost`                                                     | `loseContext()` isn't firing. Check canvas selector (#596 pattern) or xterm preventDefault. |
-| Retained `yn._store._isDisposed=true`                                              | Cleanup runs, memory pinned externally. Run `orphan-paths.mjs` to find the pin.    |
-| `contextlost` with `defaultPrevented: true` time-adjacent to active use            | xterm's listener ran before disposal — schedules a 3 s restoration timer.          |
+| Violation                                                               | Diagnosis                                                                                                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `totalCreated - disposed > 1` + orphan tape has only `{kind: "create"}` | Async-onMount cleanup race. Look for a new `await` before `onCleanup(...)` registers. Fix pattern in #598. |
+| `aliveDetached > contextsLost`                                          | `loseContext()` isn't firing. Check canvas selector (#596 pattern) or xterm preventDefault.                |
+| Retained `yn._store._isDisposed=true`                                   | Cleanup runs, memory pinned externally. Run `orphan-paths.mjs` to find the pin.                            |
+| `contextlost` with `defaultPrevented: true` time-adjacent to active use | xterm's listener ran before disposal — schedules a 3 s restoration timer.                                  |
 
 ## Heap-snapshot analyzers (three durable scripts)
 
@@ -81,12 +81,12 @@ Minified class names shift between xterm versions (e.g. `Ht` in one build is `Cu
 
 Focus swaps alone rarely leak. What does:
 
-| Scenario                                         | Triggers                                                                                    |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| **6× Focus↔Canvas mode toggle** with 4 terminals | The canonical Chapter-2 repro. Pre-#607+#609: 24 orphans. Post-fix: 0.                      |
-| Terminal close (`×` + confirm, or `Ctrl+D`)      | Server removal → `<For>` unmounts the tile → Terminal disposes.                             |
-| `Ctrl+Enter` + `Ctrl+D` rapid-fire               | Stresses the `await document.fonts.load` window in onMount.                                  |
-| 20× `Ctrl+Enter`+`Ctrl+D`                        | Regression test. Pre-#598: ~6 orphans per cycle. Post-#598: 0.                              |
+| Scenario                                         | Triggers                                                               |
+| ------------------------------------------------ | ---------------------------------------------------------------------- |
+| **6× Focus↔Canvas mode toggle** with 4 terminals | The canonical Chapter-2 repro. Pre-#607+#609: 24 orphans. Post-fix: 0. |
+| Terminal close (`×` + confirm, or `Ctrl+D`)      | Server removal → `<For>` unmounts the tile → Terminal disposes.        |
+| `Ctrl+Enter` + `Ctrl+D` rapid-fire               | Stresses the `await document.fonts.load` window in onMount.            |
+| 20× `Ctrl+Enter`+`Ctrl+D`                        | Regression test. Pre-#598: ~6 orphans per cycle. Post-#598: 0.         |
 
 Combine over ~1–2 minutes of scripted churn before reading the dialog.
 
