@@ -220,7 +220,9 @@ Before(async function (this: KoluWorld, scenario) {
     postJSON(`${baseUrl}/rpc/terminal/killAll`, {}),
     postJSON(`${baseUrl}/rpc/preferences/test__set`, {
       json: {
-        // Reset all preferences to defaults (shuffleTheme off for deterministic tests)
+        // Reset all preferences to defaults (shuffleTheme off for deterministic tests).
+        // layoutPin is computed from the scenario's @layout-compact tag below
+        // so feature files that need compact rendering at 1280×720 can opt in.
         seenTips: [],
         startupTips: true,
         shuffleTheme: false,
@@ -228,7 +230,11 @@ Before(async function (this: KoluWorld, scenario) {
         activityAlerts: true,
         colorScheme: "dark",
         sidebarAgentPreviews: "attention",
-        canvasMode: false,
+        layoutPin: scenario.pickle.tags.some(
+          (t) => t.name === "@layout-compact",
+        )
+          ? "compact"
+          : "auto",
         terminalRenderer: "auto",
         rightPanel: {
           collapsed: true,

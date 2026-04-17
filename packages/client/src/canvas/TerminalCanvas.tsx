@@ -17,6 +17,7 @@
 import {
   type Component,
   For,
+  Show,
   createEffect,
   createMemo,
   createSignal,
@@ -33,7 +34,8 @@ import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
-import CanvasMinimap from "./CanvasMinimap";
+import CanvasDock from "../dock/CanvasDock";
+import { dockVisible } from "../layout/useLayout";
 
 const DEFAULT_W = 700;
 const DEFAULT_H = 500;
@@ -114,7 +116,7 @@ const TerminalCanvas: Component<{
     return pending()[id] ?? props.getLayout(id);
   }
 
-  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
+  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasDock. */
   const layouts = createMemo<Record<string, TileLayout>>(() => {
     const result: Record<string, TileLayout> = {};
     for (const id of props.tileIds) {
@@ -314,12 +316,14 @@ const TerminalCanvas: Component<{
           </For>
         </div>
 
-        <CanvasMinimap
-          tileIds={props.tileIds}
-          activeId={props.activeId}
-          layouts={layouts()}
-          getTileTheme={props.getTileTheme}
-        />
+        <Show when={dockVisible()}>
+          <CanvasDock
+            tileIds={props.tileIds}
+            activeId={props.activeId}
+            layouts={layouts()}
+            getTileTheme={props.getTileTheme}
+          />
+        </Show>
       </div>
     </DragDropProvider>
   );

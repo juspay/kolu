@@ -1,5 +1,6 @@
+@layout-compact
 Feature: Terminal activity indicator
-  Sidebar shows active (green) vs sleeping (grey) status for each terminal.
+  Compact dock shows active (green) vs sleeping (grey) status for each terminal.
 
   Scenario: New terminal starts active then becomes sleeping
     When I open the app

@@ -150,6 +150,10 @@ export const SHORTCUTS = {
     keybind: { key: "b", code: "KeyB", mod: true },
     label: "Toggle inspector panel",
   },
+  toggleDock: {
+    keybind: { key: "D", code: "KeyD", mod: true, shift: true },
+    label: "Toggle dock",
+  },
   canvasCenterActive: {
     keybind: { key: "2", code: "Digit2", mod: true, shift: true },
     label: "Center on active tile",

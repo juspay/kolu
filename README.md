@@ -41,15 +41,15 @@ nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 - Sidebar agent previews — when an agent is waiting on you (or has finished with an unread completion), its sidebar card expands with a live xterm preview so you can peek without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
-### Canvas mode
+### Layout — canvas vs compact
 
-An alternative to the default single-terminal focus layout — all terminals float as draggable, resizable windows on an infinite 2D canvas. Toggle via the grid icon in the header.
+Kolu has one **dock** that renders two ways depending on viewport. Wide screens (≥1024px) get the **canvas** rendering: all terminals float as draggable, resizable windows on an infinite 2D canvas, with a minimap dock floating bottom-left for navigation. Narrow screens get the **compact** rendering: one active terminal with the dock as a sidebar list. Cycle the pin (auto / canvas / compact) via the grid icon in the header, or hide the dock entirely with <kbd>Cmd+Shift+D</kbd>.
 
-- **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
+- **Infinite pan & zoom** — on canvas, two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
-- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
+- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile (canvas only)
 - **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
-- **Desktop-only** — mobile devices always use focus mode; canvas mode preference is persisted server-side
+- **Mobile** — mobile devices always render compact regardless of pin; the layout-pin toggle is hidden. The pin itself is server-persisted, so a desktop-pinned canvas survives the trip to a phone and back. Per-device dock visibility (the <kbd>Cmd+Shift+D</kbd> hide/show) lives in localStorage
 
 ### Git & GitHub
 
@@ -149,7 +149,7 @@ flowchart TB
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
     Subs["createSubscription\nsignals"]:::cache
-    UI["UI components\nsidebar · header · palette"]:::client
+    UI["UI components\ndock · header · palette"]:::client
   end
 
   subgraph Server["Server (Hono)"]

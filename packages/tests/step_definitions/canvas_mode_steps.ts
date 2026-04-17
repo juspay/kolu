@@ -2,7 +2,7 @@ import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
-const TOGGLE_SELECTOR = '[data-testid="canvas-mode-toggle"]';
+const PIN_TOGGLE_SELECTOR = '[data-testid="layout-pin-toggle"]';
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
@@ -11,33 +11,91 @@ const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 
 // ── Actions ──
 
-When("I click the canvas mode toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator(TOGGLE_SELECTOR);
+/** Cycle the layout-pin toggle until `data-layout-pin` matches `target`.
+ *  The toggle cycles `auto → canvas → compact → auto`, so at most 2 clicks. */
+async function cyclePinTo(world: KoluWorld, target: string): Promise<void> {
+  const toggle = world.page.locator(PIN_TOGGLE_SELECTOR);
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  for (let i = 0; i < 4; i++) {
+    const current = await toggle.getAttribute("data-layout-pin");
+    if (current === target) return;
+    await toggle.click();
+    await world.waitForFrame();
+  }
+  throw new Error(`Could not cycle layout pin to "${target}" after 4 clicks`);
+}
+
+When("I pin the canvas layout", async function (this: KoluWorld) {
+  await cyclePinTo(this, "canvas");
+});
+
+When("I pin the compact layout", async function (this: KoluWorld) {
+  await cyclePinTo(this, "compact");
+});
+
+When("I unpin the layout", async function (this: KoluWorld) {
+  await cyclePinTo(this, "auto");
+});
+
+When("I cycle the layout pin", async function (this: KoluWorld) {
+  const toggle = this.page.locator(PIN_TOGGLE_SELECTOR);
   await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await toggle.click();
   await this.waitForFrame();
 });
 
+When("I press the toggle dock shortcut", async function (this: KoluWorld) {
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await this.page.keyboard.down(modifier);
+  await this.page.keyboard.down("Shift");
+  await this.page.keyboard.press("d");
+  await this.page.keyboard.up("Shift");
+  await this.page.keyboard.up(modifier);
+  await this.waitForFrame();
+});
+
+// Backwards-compatible alias for terminal-screenshot.feature — clicks the
+// pin toggle (cycle). Other features should prefer the explicit pin steps.
+When("I click the canvas mode toggle", async function (this: KoluWorld) {
+  await cyclePinTo(this, "canvas");
+});
+
 // ── Assertions ──
 
 Then(
-  "the canvas mode toggle should show {string}",
-  async function (this: KoluWorld, label: string) {
-    const toggle = this.page.locator(TOGGLE_SELECTOR);
+  "the layout pin should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    const toggle = this.page.locator(PIN_TOGGLE_SELECTOR);
     await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
-      ({ sel, expected }: { sel: string; expected: string }) => {
+      ({ sel, exp }: { sel: string; exp: string }) => {
         const el = document.querySelector(sel);
-        return el?.textContent?.trim() === expected;
+        return el?.getAttribute("data-layout-pin") === exp;
       },
-      { sel: TOGGLE_SELECTOR, expected: label },
+      { sel: PIN_TOGGLE_SELECTOR, exp: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
 );
 
 Then(
-  "the canvas mode toggle should not be visible",
+  "the current layout should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    const toggle = this.page.locator(PIN_TOGGLE_SELECTOR);
+    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      ({ sel, exp }: { sel: string; exp: string }) => {
+        const el = document.querySelector(sel);
+        return el?.getAttribute("data-current-layout") === exp;
+      },
+      { sel: PIN_TOGGLE_SELECTOR, exp: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the layout pin toggle should not be visible",
   async function (this: KoluWorld) {
     // On mobile, the toggle is hidden via `hidden sm:flex` — check it's not visible
     await this.page.waitForFunction(
@@ -47,7 +105,7 @@ Then(
         const style = getComputedStyle(el);
         return style.display === "none";
       },
-      TOGGLE_SELECTOR,
+      PIN_TOGGLE_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -431,6 +489,17 @@ Then(
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
       (sel: string) => document.querySelector(sel) !== null,
+      MINIMAP_TOGGLE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the minimap toggle button should not be visible",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => document.querySelector(sel) === null,
       MINIMAP_TOGGLE_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );

@@ -1,5 +1,7 @@
-Feature: Responsive sidebar layout
-  Sidebar adapts between mobile (overlay) and desktop (in-flow) layouts.
+@layout-compact
+Feature: Responsive compact-dock layout
+  Compact dock adapts between mobile (overlay) and desktop (in-flow) layouts.
+  Pinned compact so the dock renders even at the desktop default viewport.
 
   Background:
     Given the terminal is ready

@@ -1,5 +1,6 @@
+@layout-compact
 Feature: Kill terminal
-  Closing terminals via sidebar and auto-switching.
+  Closing terminals via the compact dock and auto-switching.
 
   Scenario: Closing a plain terminal asks for confirmation
     When I open the app

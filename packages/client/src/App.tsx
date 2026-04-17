@@ -10,9 +10,8 @@ import {
 } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
-import { isMobile } from "./useMobile";
 import Header from "./Header";
-import Sidebar from "./sidebar/Sidebar";
+import Dock from "./dock/Dock";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import TerminalCanvas from "./canvas/TerminalCanvas";
@@ -35,15 +34,18 @@ import { client, wsStatus, serverProcessId } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import { useTerminals } from "./terminal/useTerminals";
 import { useThemeManager } from "./useThemeManager";
-import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
-import { usePreferences } from "./settings/usePreferences";
 import { useTips } from "./settings/useTips";
-import { toggleMinimap } from "./canvas/CanvasMinimap";
+import {
+  currentLayout,
+  cycleLayoutPin,
+  toggleDockVisible,
+} from "./layout/useLayout";
+import { toggleCanvasDockExpanded } from "./dock/CanvasDock";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -67,15 +69,9 @@ const App: Component = () => {
     setThemeName: crud.setThemeName,
   });
 
-  const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
-  const { preferences, updatePreferences } = usePreferences();
-  // Canvas mode is desktop-only — force focus mode on mobile
-  const canvasMode = () => !isMobile() && preferences().canvasMode;
-  const toggleCanvasMode = () =>
-    updatePreferences({ canvasMode: !canvasMode() });
 
   const canvasViewport = useCanvasViewport();
 
@@ -144,7 +140,7 @@ const App: Component = () => {
   }
 
   function handleCanvasCenterActive() {
-    if (!canvasMode()) return;
+    if (currentLayout() !== "canvas") return;
     const id = store.activeId();
     if (!id) return;
     const tile = store.getMetadata(id)?.canvasLayout;
@@ -177,6 +173,7 @@ const App: Component = () => {
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
+    toggleDock: toggleDockVisible,
   });
 
   function openPalette() {
@@ -242,8 +239,10 @@ const App: Component = () => {
     simulateAlert: alerts.simulateAlert,
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
-    toggleMinimap,
-    isCanvasMode: canvasMode,
+    toggleCanvasDockExpanded,
+    cycleLayoutPin,
+    toggleDock: toggleDockVisible,
+    isCanvasLayout: () => currentLayout() === "canvas",
   });
 
   // Reset state on close and return focus to terminal
@@ -375,15 +374,11 @@ const App: Component = () => {
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
         meta={store.activeMeta()}
-        onToggleSidebar={toggleSidebar}
         onAgentClick={() => rightPanel.expandPanel()}
         onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
         themeName={activeThemeName()}
         onThemeClick={() => openPaletteGroup("Theme")}
-        canvasMode={canvasMode()}
-        onToggleCanvasMode={toggleCanvasMode}
-        sidebarOpen={sidebarOpen()}
         hasSubPanel={
           store.activeId() !== null &&
           store.getSubTerminalIds(store.activeId()!).length > 0
@@ -398,11 +393,11 @@ const App: Component = () => {
           if (id) handleToggleSubPanel(id);
         }}
       />
-      {/* relative: anchor for sidebar's absolute overlay on mobile.
+      {/* relative: anchor for the compact dock's absolute overlay on mobile.
        *  --active-terminal-{bg,fg} published here so child components
-       *  (Sidebar) can read them via CSS without prop drilling. The fg
-       *  lets the active sidebar card re-tune its text tiers against
-       *  the terminal theme's own foreground (see #390). */}
+       *  (Dock) can read them via CSS without prop drilling. The fg lets
+       *  the active dock card re-tune its text tiers against the terminal
+       *  theme's own foreground (see #390). */}
       <div
         class="relative flex flex-1 min-h-0"
         style={{
@@ -412,10 +407,10 @@ const App: Component = () => {
         }}
       >
         <Show
-          when={canvasMode()}
+          when={currentLayout() === "canvas"}
           fallback={
             <>
-              <Sidebar
+              <Dock
                 terminalIds={store.terminalIds()}
                 activeId={store.activeId()}
                 getMetadata={store.getMetadata}
@@ -427,8 +422,6 @@ const App: Component = () => {
                 onCreate={() => crud.handleCreate()}
                 onNewTerminalMenu={() => openPaletteGroup("New terminal")}
                 onReorder={crud.reorderTerminals}
-                open={sidebarOpen()}
-                onClose={closeSidebar}
               />
               <RightPanelLayout
                 meta={store.activeMeta()}

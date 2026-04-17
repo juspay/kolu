@@ -1,3 +1,4 @@
+@layout-compact
 Feature: Session restore
   Terminals and their CWDs are saved automatically. When kolu starts
   with no terminals, the empty state offers to restore the previous session.

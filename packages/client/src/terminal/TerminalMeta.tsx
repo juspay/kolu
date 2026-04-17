@@ -1,10 +1,10 @@
 /** Terminal metadata display — name, branch, PR, agent status, activity.
- *  Shared between Sidebar entries and Mission Control cards. */
+ *  Shared between Dock entries and Mission Control cards. */
 
 import { type Component, Show } from "solid-js";
-import ChecksIndicator from "../sidebar/ChecksIndicator";
-import AgentIndicator from "../sidebar/AgentIndicator";
-import ActivityGraph from "../sidebar/ActivityGraph";
+import ChecksIndicator from "../dock/ChecksIndicator";
+import AgentIndicator from "../dock/AgentIndicator";
+import ActivityGraph from "../dock/ActivityGraph";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";

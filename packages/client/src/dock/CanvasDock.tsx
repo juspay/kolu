@@ -1,14 +1,23 @@
-/** Canvas minimap — spatial overview of all tiles + integrated zoom controls.
+/** CanvasDock — spatial minimap + zoom controls for the canvas layout.
  *  Two states: expanded (minimap visualization + zoom bar) and minimized
- *  (zoom bar only). Auto-hides the map when ≤2 tiles. */
+ *  (zoom bar only). Auto-hides the map when ≤2 tiles. One of two Dock
+ *  renderings; the other is `CompactDock`. Both read visibility from the
+ *  `useLayout` seam — this file never imports preferences directly.
+ *
+ *  `expanded` is device-local chrome (map-vs-zoombar collapse), distinct
+ *  from the dock-level `dockVisible()` from the seam (which hides the dock
+ *  entirely). Kept in localStorage via `makePersisted`, same as before. */
 
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
 import { MinimapIcon } from "../ui/Icons";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
-import type { TileLayout } from "./TileLayout";
-import type { TileTheme } from "./CanvasTile";
+import { useCanvasViewport } from "../canvas/viewport/useCanvasViewport";
+import {
+  startViewportDrag,
+  handleMinimapClick,
+} from "../canvas/minimapGestures";
+import type { TileLayout } from "../canvas/TileLayout";
+import type { TileTheme } from "../canvas/CanvasTile";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -18,16 +27,18 @@ const MAP_PAD = 100;
 /** Show full minimap only when tile count exceeds this. */
 const AUTO_SHOW_THRESHOLD = 2;
 
-/** Singleton expanded state — persisted across reloads. */
+/** Singleton expanded state — persisted across reloads. Separate from
+ *  the seam's `dockVisible()`: `expanded` collapses the map to a zoom
+ *  bar, while `dockVisible()` hides the whole dock. */
 const [expanded, setExpanded] = makePersisted(createSignal(true), {
   name: "kolu-minimap-expanded",
 });
 
-export function toggleMinimap() {
+export function toggleCanvasDockExpanded() {
   setExpanded((v) => !v);
 }
 
-const CanvasMinimap: Component<{
+const CanvasDock: Component<{
   tileIds: string[];
   activeId: string | null;
   layouts: Record<string, TileLayout>;
@@ -212,7 +223,7 @@ const CanvasMinimap: Component<{
           class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
           classList={{ "text-accent": expanded() }}
           title="Toggle minimap"
-          onClick={() => toggleMinimap()}
+          onClick={() => toggleCanvasDockExpanded()}
         >
           <MinimapIcon class="w-3.5 h-3.5" />
         </button>
@@ -243,4 +254,4 @@ const CanvasMinimap: Component<{
   );
 };
 
-export default CanvasMinimap;
+export default CanvasDock;

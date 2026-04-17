@@ -1,3 +1,8 @@
+/** CompactDock — vertical list of terminal cards, owner of drag-to-reorder,
+ *  per-card agent preview, and mobile overlay behavior. One of two Dock
+ *  renderings; the other is `CanvasDock`. Both read visibility from the
+ *  `useLayout` seam — this file never imports preferences directly. */
+
 import {
   type Component,
   For,
@@ -34,10 +39,11 @@ import type {
 } from "kolu-common";
 import type { ITheme } from "@xterm/xterm";
 import { viewportDimensions } from "../useViewport";
+import { closeDock } from "../layout/useLayout";
 
 type CardTier = "waiting" | "active" | "idle";
 
-/** Derive the visual tier for the sidebar card from live agent state.
+/** Derive the visual tier for the dock card from live agent state.
  *  Generic — works for any agent kind without reading `.state` or `.kind`.
  *  Note: `unread` (unseen completion) is orthogonal — rendered as a
  *  separate dot, not folded into this tier. */
@@ -48,7 +54,7 @@ function cardTier(agent: AgentInfo | undefined): CardTier {
     .otherwise(() => "active" as const);
 }
 
-/** Decide whether a sidebar card should render a live xterm preview.
+/** Decide whether a dock card should render a live xterm preview.
  *
  *  User-configurable via the `sidebarAgentPreviews` preference:
  *
@@ -62,7 +68,7 @@ function cardTier(agent: AgentInfo | undefined): CardTier {
  *    Previews are expensive vertically (only ~3 cards fit — see #388),
  *    so we reserve them for the moment peeking without switching
  *    actually helps. Once the user looks, the preview disappears and
- *    frees the sidebar slot. */
+ *    frees the dock slot. */
 function shouldShowPreview(
   mode: SidebarAgentPreviews,
   hasAgent: boolean,
@@ -76,8 +82,8 @@ function shouldShowPreview(
     .exhaustive();
 }
 
-/** Single sortable sidebar entry — floating card with spinning border for agent states. */
-const SidebarEntry: Component<{
+/** Single sortable dock entry — floating card with spinning border for agent states. */
+const DockEntry: Component<{
   id: TerminalId;
   isActive: boolean;
   metadata: TerminalMetadata | undefined;
@@ -215,7 +221,7 @@ const SidebarEntry: Component<{
              * --active-terminal-bg is published by App.tsx on the layout root.
              *
              * Inactive cards get a light mix of THIS terminal's theme bg into
-             * surface-1 so the sidebar at rest looks variegated — each card
+             * surface-1 so the dock at rest looks variegated — each card
              * hints at its own terminal's colour instead of every card being
              * the same surface-1 grey.
              *
@@ -311,8 +317,11 @@ const SidebarEntry: Component<{
   );
 };
 
-/** Sidebar — collapsible terminal list with drag-to-reorder. */
-const Sidebar: Component<{
+/** CompactDock — left-side terminal list. Rendered when `currentLayout()`
+ *  is "compact" and `dockVisible()` is true (the parent `Dock.tsx` owns
+ *  those checks). On mobile the dock is a slide-in overlay; on desktop
+ *  it's a fixed column. */
+const CompactDock: Component<{
   terminalIds: TerminalId[];
   activeId: TerminalId | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
@@ -324,8 +333,6 @@ const Sidebar: Component<{
   onCreate: () => void;
   onNewTerminalMenu: () => void;
   onReorder: (ids: TerminalId[]) => void;
-  open: boolean;
-  onClose: () => void;
 }> = (props) => {
   const { showTipOnce } = useTips();
 
@@ -333,7 +340,9 @@ const Sidebar: Component<{
     const idx = props.terminalIds.indexOf(id);
     if (idx >= 0 && idx < 9) showTipOnce(sidebarSwitchTip(idx));
     props.onSelect(id);
-    if (window.innerWidth < 640) props.onClose();
+    // On mobile the dock is an overlay — auto-dismiss on select so the
+    // user isn't forced to hit the backdrop after every switch.
+    if (window.innerWidth < 640) closeDock();
   }
 
   const [dragFrom, setDragFrom] = createSignal<number | null>(null);
@@ -357,22 +366,16 @@ const Sidebar: Component<{
 
   return (
     <>
-      <Show when={props.open}>
-        <div
-          data-testid="sidebar-backdrop"
-          class="absolute inset-0 bg-black/50 z-30 sm:hidden"
-          onClick={() => props.onClose()}
-        />
-      </Show>
+      {/* Backdrop — only meaningful on mobile where the dock is an overlay. */}
+      <div
+        data-testid="sidebar-backdrop"
+        class="absolute inset-0 bg-black/50 z-30 sm:hidden"
+        onClick={() => closeDock()}
+      />
 
       <aside
         data-testid="sidebar"
-        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 transition-transform duration-200 ease-out z-40"
-        classList={{
-          "absolute inset-y-0 left-0 sm:relative sm:inset-auto": true,
-          "-translate-x-full sm:hidden": !props.open,
-          "translate-x-0": props.open,
-        }}
+        class="flex flex-col w-52 lg:w-60 xl:w-64 bg-surface-0 z-40 absolute inset-y-0 left-0 sm:relative sm:inset-auto"
       >
         <Tip label="New terminal" class="w-full">
           <div class="flex m-1.5 rounded-2xl bg-surface-1 overflow-hidden">
@@ -430,7 +433,7 @@ const Sidebar: Component<{
                     return from > toIdx ? "above" : "below";
                   };
                   return (
-                    <SidebarEntry
+                    <DockEntry
                       id={id}
                       isActive={props.activeId === id}
                       metadata={props.getMetadata(id)}
@@ -477,4 +480,4 @@ const Sidebar: Component<{
   );
 };
 
-export default Sidebar;
+export default CompactDock;

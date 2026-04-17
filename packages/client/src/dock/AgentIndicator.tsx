@@ -1,5 +1,6 @@
 /** AI agent state indicator — logo + state label. Logo animates when active.
- *  Renders the appropriate icon per agent kind (Claude Code, OpenCode). */
+ *  Renders the appropriate icon per agent kind (Claude Code, OpenCode).
+ *  Shared primitive used by the Header and by both Dock renderings. */
 
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";

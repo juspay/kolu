@@ -6,11 +6,18 @@ import { MenuIcon, SearchIcon, SettingsIcon, GridIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
-import AgentIndicator from "./sidebar/AgentIndicator";
+import AgentIndicator from "./dock/AgentIndicator";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useTips } from "./settings/useTips";
 import { CONTEXTUAL_TIPS } from "./settings/tips";
 import { useRightPanel } from "./right-panel/useRightPanel";
+import {
+  currentLayout,
+  cycleLayoutPin,
+  dockVisible,
+  layoutPin,
+  toggleDockVisible,
+} from "./layout/useLayout";
 import type { WsStatus } from "./rpc/rpc";
 import type { TerminalMetadata } from "kolu-common";
 
@@ -73,18 +80,13 @@ const Header: Component<{
   status?: WsStatus;
   onOpenPalette?: () => void;
   meta?: TerminalMetadata | null;
-  onToggleSidebar?: () => void;
   onAgentClick?: () => void;
   onSearch?: () => void;
   appTitle?: string;
   // Theme
   themeName?: string;
   onThemeClick?: () => void;
-  // Canvas mode
-  canvasMode?: boolean;
-  onToggleCanvasMode?: () => void;
   // Panel toggles
-  sidebarOpen?: boolean;
   hasSubPanel?: boolean;
   subPanelExpanded?: boolean;
   onToggleSubPanel?: () => void;
@@ -95,15 +97,32 @@ const Header: Component<{
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
+  /** Button label — "Auto: canvas" / "Auto: compact" when unpinned so the
+   *  user can see which rendering they're getting, or a bare "Canvas" /
+   *  "Compact" when explicitly pinned. */
+  const layoutPinLabel = () => {
+    const pin = layoutPin();
+    if (pin === "auto") return `Auto: ${currentLayout()}`;
+    return pin === "canvas" ? "Canvas" : "Compact";
+  };
+
+  const layoutPinTooltip = () => {
+    const pin = layoutPin();
+    const kb = formatKeybind(SHORTCUTS.toggleDock.keybind);
+    const next =
+      pin === "auto" ? "canvas" : pin === "canvas" ? "compact" : "auto";
+    return `Layout: ${pin}. Click to pin ${next}. Toggle dock ${kb}.`;
+  };
+
   return (
     <header class="flex items-center h-10 shrink-0 bg-surface-1 border-b border-edge">
       {/* Zone A: Identity — burger is mobile-only */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
-        <Tip label="Toggle sidebar">
+        <Tip label="Toggle dock">
           <button
             data-testid="sidebar-toggle"
             class="p-1 text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            onClick={() => props.onToggleSidebar?.()}
+            onClick={() => toggleDockVisible()}
           >
             <MenuIcon />
           </button>
@@ -130,32 +149,34 @@ const Header: Component<{
 
       {/* Zone C: Panel toggles → Theme → Search → Settings → ⌘K → Connection dot */}
       <div class="flex items-center gap-2 px-2 sm:px-4 shrink-0">
-        {/* Canvas/Focus mode toggle — desktop only (canvas is unusable on mobile) */}
-        <Tip
-          label={
-            props.canvasMode ? "Switch to Focus mode" : "Switch to Canvas mode"
-          }
-        >
+        {/* Layout pin toggle — desktop only. Cycles auto → canvas → compact.
+         *  Hidden on mobile (<640px) because canvas layout is unusable there:
+         *  the viewport forces compact regardless of pin, so a pin control
+         *  would be UI theatre. */}
+        <Tip label={layoutPinTooltip()}>
           <button
-            data-testid="canvas-mode-toggle"
+            data-testid="layout-pin-toggle"
+            data-layout-pin={layoutPin()}
+            data-current-layout={currentLayout()}
             class="hidden sm:flex h-7 px-2 items-center gap-1.5 text-xs rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             classList={{
-              "bg-accent/20 text-accent": props.canvasMode,
-              "text-fg-2 hover:text-fg hover:bg-surface-2": !props.canvasMode,
+              "bg-accent/20 text-accent": layoutPin() !== "auto",
+              "text-fg-2 hover:text-fg hover:bg-surface-2":
+                layoutPin() === "auto",
             }}
-            onClick={() => props.onToggleCanvasMode?.()}
+            onClick={() => cycleLayoutPin()}
           >
             <GridIcon class="w-3 h-3" />
-            {props.canvasMode ? "Canvas" : "Focus"}
+            {layoutPinLabel()}
           </button>
         </Tip>
         {/* Panel toggle icons — desktop only */}
         <div class="hidden sm:flex items-center gap-0.5">
           <PanelToggleIcon
             orientation="left"
-            active={props.sidebarOpen}
-            label={`Toggle sidebar (${formatKeybind(SHORTCUTS.commandPalette.keybind)})`}
-            onClick={() => props.onToggleSidebar?.()}
+            active={dockVisible()}
+            label={`Toggle dock (${formatKeybind(SHORTCUTS.toggleDock.keybind)})`}
+            onClick={() => toggleDockVisible()}
             data-testid="sidebar-toggle-desktop"
           />
           <PanelToggleIcon

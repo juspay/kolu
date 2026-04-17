@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.14.0";
+const SCHEMA_VERSION = "1.15.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -258,6 +258,20 @@ export const store = new Conf<PersistedState>({
       if ((current as Record<string, unknown>).terminalRenderer === undefined) {
         store.set("preferences", { ...current, terminalRenderer: "auto" });
       }
+    },
+    // canvasMode (boolean) → layoutPin (enum). Users who explicitly picked
+    // canvas stay pinned to canvas. The old default (false / focus mode) maps
+    // to the new default "auto", which picks canvas on wide screens and
+    // compact on narrow ones — a UX upgrade.
+    "1.15.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      if (current.layoutPin !== undefined) return;
+      const pin = current.canvasMode === true ? "canvas" : "auto";
+      const { canvasMode: _canvasMode, ...rest } = current;
+      store.set("preferences", {
+        ...rest,
+        layoutPin: pin,
+      } as Preferences);
     },
   },
 });

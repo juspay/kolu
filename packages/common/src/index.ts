@@ -340,9 +340,10 @@ export const PreferencesSchema = z.object({
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
   sidebarAgentPreviews: SidebarAgentPreviewsSchema,
-  /** Canvas mode shows all terminals as freeform draggable tiles.
-   *  Focus mode shows one terminal at a time with a sidebar. */
-  canvasMode: z.boolean(),
+  /** Layout pin. "auto" follows viewport width (≥1024px → canvas, else
+   *  compact). "canvas" / "compact" = explicit user pin overriding the
+   *  auto-switch. Mobile (<640px) always renders compact regardless of pin. */
+  layoutPin: z.enum(["auto", "canvas", "compact"]),
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
    *  WebGL-everywhere unsafe). `dom` forces DOM everywhere, eliminating the

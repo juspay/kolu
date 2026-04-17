@@ -1,3 +1,4 @@
+@layout-compact
 Feature: Sub-terminals
   Per-terminal sub-panels toggled via command palette or Ctrl+`.
 

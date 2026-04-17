@@ -1,8 +1,9 @@
 /** TerminalContent — shared terminal rendering: main terminal + resizable
  *  sub-panel with tab bar and child terminals.
  *
- *  Used by both TerminalPane (focus mode) and CanvasTile (canvas mode).
- *  Owns sub-panel state internally — callers provide only the shell. */
+ *  Used by both the compact-layout single-terminal view and CanvasTile
+ *  (canvas layout). Owns sub-panel state internally — callers provide
+ *  only the shell. */
 
 import { type Component, Show, For } from "solid-js";
 import Resizable from "@corvu/resizable";
@@ -15,12 +16,12 @@ import type { TerminalId, TerminalMetadata } from "kolu-common";
 const TerminalContent: Component<{
   terminalId: TerminalId;
   /** Whether this terminal is "active" — controls focus, fit, viewport publishing.
-   *  In focus mode: true only for the selected terminal.
-   *  In canvas mode: true for all (always rendered). */
+   *  In compact layout: true only for the selected terminal.
+   *  In canvas layout: true for all (always rendered). */
   visible: boolean;
   /** Whether this terminal should grab keyboard focus.
-   *  In focus mode: same as visible (active terminal gets focus).
-   *  In canvas mode: true only for the selected tile. */
+   *  In compact layout: same as visible (active terminal gets focus).
+   *  In canvas layout: true only for the selected tile. */
   focused: boolean;
   theme: ITheme;
   searchOpen: boolean;
@@ -31,7 +32,7 @@ const TerminalContent: Component<{
   onCloseTerminal: (id: TerminalId) => void;
   activeMeta: TerminalMetadata | null;
   /** Called when user focuses any terminal in this pane (click, keyboard).
-   *  Canvas mode uses this to set the active tile. */
+   *  Canvas layout uses this to set the active tile. */
   onFocus?: () => void;
 }> = (props) => {
   const subPanel = useSubPanel();

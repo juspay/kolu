@@ -1,3 +1,4 @@
+@layout-compact
 Feature: Scroll lock
   Prevents auto-scroll when user scrolls up during continuous output.
 

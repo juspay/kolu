@@ -60,10 +60,12 @@ export interface CommandDeps {
   setDiagnosticInfoOpen: (open: boolean) => void;
   // Right panel
   toggleRightPanel: () => void;
-  // Canvas
+  // Layout / canvas
   canvasCenterActive: () => void;
-  toggleMinimap: () => void;
-  isCanvasMode: () => boolean;
+  toggleCanvasDockExpanded: () => void;
+  cycleLayoutPin: () => void;
+  toggleDock: () => void;
+  isCanvasLayout: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -167,7 +169,17 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       keybind: SHORTCUTS.toggleRightPanel.keybind,
       onSelect: () => deps.toggleRightPanel(),
     },
-    ...(deps.isCanvasMode()
+    {
+      name: "Toggle dock",
+      keybind: SHORTCUTS.toggleDock.keybind,
+      onSelect: () => deps.toggleDock(),
+    },
+    {
+      name: "Pin layout",
+      description: "Cycle: auto → canvas → compact",
+      onSelect: () => deps.cycleLayoutPin(),
+    },
+    ...(deps.isCanvasLayout()
       ? [
           {
             name: "Center on active tile",
@@ -176,7 +188,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           {
             name: "Toggle minimap",
-            onSelect: () => deps.toggleMinimap(),
+            description: "Collapse the canvas dock to its zoom bar",
+            onSelect: () => deps.toggleCanvasDockExpanded(),
           },
         ]
       : []),

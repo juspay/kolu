@@ -4,7 +4,7 @@
  *
  * Why a local store? Instant UI response requires synchronous updates —
  * waiting for the server echo introduces a visible delay when a pref flip
- * gates a re-render (e.g., `canvasMode` → canvas mount → wheel listener
+ * gates a re-render (e.g., `layoutPin` → canvas mount → wheel listener
  * attach). On the CI side this timing shows up as a race against the canvas
  * ownership window; on the user side it's the same class of single-frame lag.
  *

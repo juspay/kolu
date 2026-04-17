@@ -68,19 +68,23 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-canvas",
-    text: "Click the grid icon in the header to switch to Canvas mode — drag and resize terminals freely",
+    text: "Click the grid icon in the header to pin canvas or compact layout (or leave it on auto for viewport-driven switching)",
   },
   {
     id: "amb-canvas-zoom",
-    text: "In Canvas mode, pinch or Ctrl+scroll to zoom. Two-finger scroll to pan.",
+    text: "In canvas layout, pinch or Ctrl+scroll to zoom. Two-finger scroll to pan.",
   },
   {
     id: "amb-canvas-hand",
-    text: "In Canvas mode, middle-click and drag to pan freely in any direction",
+    text: "In canvas layout, middle-click and drag to pan freely in any direction",
   },
   {
     id: "amb-canvas-minimap",
-    text: "In Canvas mode, toggle the minimap via the grid icon for a bird's-eye view",
+    text: "In canvas layout, toggle the minimap via the grid icon for a bird's-eye view",
+  },
+  {
+    id: "amb-toggle-dock",
+    text: `${formatKeybind(SHORTCUTS.toggleDock.keybind)} hides the dock for a distraction-free terminal`,
   },
   {
     id: "amb-pwa-install",
