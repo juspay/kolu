@@ -8,13 +8,22 @@ mode-toggle leak. Companion to the user-facing writeup in issue #606.
 6 Focus/Canvas toggles with 4 terminals previously left **24/28 xterm
 `Terminal` instances retained** after forced GC. Terminal.tsx
 `onCleanup` runs for every unmount, and xterm's internal dispose
-completes (`yn._store._isDisposed === true` for all 24). The residual
-retention is via addon back-pointers that Terminal.tsx's Context still
-held after `terminal = null`. Nulling `fitAddon` and `searchAddon`
-slots in `onCleanup` cuts orphans from 24 → 6 (**-75%**). The
-remaining 6 are retained by xterm-internal scheduled render callbacks
-(`Ht._renderCallback` / `RenderDebouncer`), which Kolu can't fix
-without patching xterm.
+completes (`yn._store._isDisposed === true` for all 24) — yet the
+graph wasn't GC-eligible. Two independent causes:
+
+1. Terminal.tsx didn't null `fitAddon` / `searchAddon` slots on
+   cleanup; the live container `<div>`'s `onClick` closure shared a
+   V8 Context with those slots, keeping the whole xterm graph
+   reachable via the addons' `_terminal` back-pointers. Fixed in
+   `Terminal.tsx` cleanup (-75% orphans on its own).
+2. xterm's `CursorBlinkStateManager` was not registered for disposal
+   in `WebglRenderer` (addon-webgl). Its `setInterval` kept running
+   past dispose and pinned the renderer. Fixed via `pnpm patch` of
+   `@xterm/addon-webgl`. A parallel bug in `RenderService` +
+   `DebouncedIdleTask` fixed via `pnpm patch` of `@xterm/xterm`.
+
+Combined result: **24 → 0 disposed-retained xterm Terminals** after
+the full reproduction.
 
 ## Reproduction
 
@@ -70,35 +79,66 @@ function-local `const` inside `onMount`'s `runWithOwner` — it's
 released when the TerminalRefs entry is deleted by
 `unregisterTerminalRefs`.
 
-## The remaining xterm-side leak (6 of 28)
+## The xterm-side leak — fixed by `pnpm patch`
 
-The 6 orphans that survive the Kolu-side fix all share this retainer
-chain (heap-snapshot BFS from root):
+After the Kolu-side fix, the 6 surviving orphans all shared this
+retainer chain:
 
 ```
 Window → InternalNode* → DOMTimer → ScheduledAction → V8Function
-  → closure → Context → object:Ht.(_renderCallback) → closure
-  → Context → object:ui.(_terminal) → Dl (InputHandler) → Rn (Terminal)
+  → closure → Context → Ht._renderCallback → closure
+  → Context → ui._terminal → Dl → Rn
 ```
 
-`Ht` is xterm's `RenderService` (or `RenderDebouncer` within it) and
-`ui` is the `InputHandler`'s internal peer. A pending render callback
-was scheduled before dispose ran and was never cancelled, so the
-scheduled `DOMTimer` keeps the whole chain alive. Waiting 10 seconds
+`Ht` is xterm's **`CursorBlinkStateManager`** (addon-webgl), a class
+that runs `setInterval`/`setTimeout` for the cursor blink animation.
+It manages its own timers and has a correct `dispose()` method that
+clears them.
 
-- GC does not resolve it — the timer appears persistent, not just
-  delayed.
+**The xterm bug**: in `addons/addon-webgl/src/WebglRenderer.ts`, the
+field is declared as:
 
-Fixing this requires patching `RenderService.dispose` (or
-`RenderDebouncer.dispose`) inside xterm.js to cancel its pending
-timer. That's outside this PR's scope. Options:
+```ts
+private _cursorBlinkStateManager: MutableDisposable<CursorBlinkStateManager> = new MutableDisposable();
+```
 
-- **Fork xterm.js** (`juspay/xterm.js` or `srid/xterm.js`), patch
-  `RenderService.dispose`, wire through Nix. The investigation
-  infrastructure here (heap scripts + `window.__kolu.lifecycle()`)
-  makes the fork iteration fast.
-- **Upstream a bug report + PR** to xterm.js. Slower loop, right
-  thing long-term.
+Every sibling `MutableDisposable` in that class is wrapped in
+`this._register(...)` — the exception is this one. That's the
+difference between having disposal propagate and leaving a pending
+interval running past `WebglRenderer.dispose()`. The interval keeps
+the `CursorBlinkStateManager` alive; its `_renderCallback` captures
+the whole renderer, which captures the terminal.
+
+**Secondary fix** in xterm core: `RenderService._pausedResizeTask` is
+a `DebouncedIdleTask` that was not registered for disposal — same
+pattern, different surface. `DebouncedIdleTask` also lacked a
+`dispose()` method.
+
+Applied as two `pnpm patch` files (matches the repo's pre-existing
+pattern for `node-pty`):
+
+- `patches/@xterm__addon-webgl@0.19.0.patch`: wraps the
+  `_cursorBlinkStateManager = new MutableDisposable()` init with
+  `this._register(...)`.
+- `patches/@xterm__xterm@6.0.0.patch`: adds `dispose()` to
+  `DebouncedIdleTask` and registers `_pausedResizeTask` in
+  `RenderService`.
+
+Both patches should be upstreamed to xterm.js as PRs. Filed as #606
+follow-up.
+
+## Post-patch numbers
+
+| Snapshot                         | Rn    | yn disposed | yn live |
+| -------------------------------- | ----- | ----------- | ------- |
+| Baseline (fresh restore)         | 4     | 0           | 4       |
+| After 6 toggles — pre any fix    | 29    | 24          | 4       |
+| After 6 toggles — Kolu fix only  | 11    | 6           | 4       |
+| After 6 toggles — **both fixes** | **5** | **0**       | **4**   |
+
+Disposed-retained xterm Terminals: **24 → 0**. The residual 1 Rn
+above live count is a transitional instance (freshly created during
+restore, pending final GC after the latest allocation pressure).
 
 ## Minified class mapping (dev build)
 
@@ -111,7 +151,7 @@ timer. That's outside this PR's scope. Options:
 - `lU` — xterm `AtlasPage` (wraps an `OffscreenCanvas`)
 - `Ge` / `D` — xterm `EventEmitter` internals
 - `dr2` — xterm `DisposableStore`
-- `Ht` — xterm `RenderService` (remaining leak site)
+- `Ht` — xterm `CursorBlinkStateManager` (addon-webgl; the leak site)
 - `ui` — xterm `InputHandler` peer class
 - `debouncedFit` — closure defined in `Terminal.tsx`
 
