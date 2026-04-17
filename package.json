@@ -17,7 +17,9 @@
       "picomatch": "^4.0.4",
       "yaml": "^2.8.3",
       "defu": "^6.1.5",
-      "@anthropic-ai/sdk": "^0.81.0"
+      "@anthropic-ai/sdk": "^0.81.0",
+      "@xterm/xterm": "github:juspay/xterm.js#fix/dispose-leaks-built",
+      "@xterm/addon-webgl": "github:juspay/xterm.js#fix/dispose-leaks-built&path:/addons/addon-webgl"
     },
     "patchedDependencies": {
       "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
