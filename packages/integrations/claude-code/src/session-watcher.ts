@@ -11,10 +11,10 @@
 
 import fs from "node:fs";
 import { match } from "ts-pattern";
+import { agentInfoEqual } from "anyagent";
 import {
   type SessionFile,
   type ClaudeCodeInfo,
-  type TaskProgress,
   PROJECTS_DIR,
   TAIL_BYTES,
   encodeProjectPath,
@@ -26,34 +26,6 @@ import {
   watchOrWaitForDir,
   fetchSessionSummary,
 } from "./index.ts";
-
-// --- Equality helpers ---
-
-/** Compare two TaskProgress values for equality. */
-function taskProgressEqual(
-  a: TaskProgress | null,
-  b: TaskProgress | null,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return a.total === b.total && a.completed === b.completed;
-}
-
-/** Compare two ClaudeCodeInfo values for equality. */
-export function infoEqual(
-  a: ClaudeCodeInfo | null,
-  b: ClaudeCodeInfo | null,
-): boolean {
-  if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.state === b.state &&
-    a.sessionId === b.sessionId &&
-    a.model === b.model &&
-    a.summary === b.summary &&
-    taskProgressEqual(a.taskProgress, b.taskProgress)
-  );
-}
 
 // --- Tuning constants ---
 
@@ -227,7 +199,7 @@ export function createSessionWatcher(
       taskProgress: deriveTaskProgress(taskMap),
     };
 
-    if (!infoEqual(info, lastInfo)) {
+    if (!agentInfoEqual(info, lastInfo)) {
       plog.debug(
         { state: info.state, model: info.model, session: info.sessionId },
         "claude code state updated",

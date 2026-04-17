@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMessageState, infoEqual, type OpenCodeInfo } from "./index.ts";
+import { parseMessageState } from "./index.ts";
 
 describe("parseMessageState", () => {
   it("returns thinking for a user message", () => {
@@ -73,70 +73,5 @@ describe("parseMessageState", () => {
 
   it("returns null for malformed JSON", () => {
     expect(parseMessageState("not json")).toBeNull();
-  });
-});
-
-describe("infoEqual", () => {
-  const info: OpenCodeInfo = {
-    kind: "opencode",
-    state: "thinking",
-    sessionId: "ses_abc",
-    model: "litellm/glm-latest",
-    summary: "Fix auth flow",
-    taskProgress: null,
-  };
-
-  it("returns true for identical references", () => {
-    expect(infoEqual(info, info)).toBe(true);
-  });
-
-  it("returns true for both null", () => {
-    expect(infoEqual(null, null)).toBe(true);
-  });
-
-  it("returns false when one is null", () => {
-    expect(infoEqual(info, null)).toBe(false);
-    expect(infoEqual(null, info)).toBe(false);
-  });
-
-  it("returns true for equal values", () => {
-    expect(infoEqual(info, { ...info })).toBe(true);
-  });
-
-  it.each([
-    { field: "state", value: "waiting" },
-    { field: "sessionId", value: "ses_other" },
-    { field: "model", value: "anthropic/claude-sonnet-4-5" },
-    { field: "summary", value: "Different topic" },
-    { field: "summary", value: null },
-    { field: "taskProgress", value: { total: 5, completed: 2 } },
-  ] as const)("detects different $field", ({ field, value }) => {
-    expect(infoEqual(info, { ...info, [field]: value } as OpenCodeInfo)).toBe(
-      false,
-    );
-  });
-
-  it("detects different taskProgress completed count", () => {
-    const a: OpenCodeInfo = {
-      ...info,
-      taskProgress: { total: 5, completed: 2 },
-    };
-    const b: OpenCodeInfo = {
-      ...info,
-      taskProgress: { total: 5, completed: 3 },
-    };
-    expect(infoEqual(a, b)).toBe(false);
-  });
-
-  it("returns true for equal taskProgress", () => {
-    const a: OpenCodeInfo = {
-      ...info,
-      taskProgress: { total: 5, completed: 3 },
-    };
-    const b: OpenCodeInfo = {
-      ...info,
-      taskProgress: { total: 5, completed: 3 },
-    };
-    expect(infoEqual(a, b)).toBe(true);
   });
 });

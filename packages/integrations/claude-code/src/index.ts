@@ -467,7 +467,10 @@ export async function fetchSessionSummary(
 export {
   createSessionWatcher,
   getPendingSummaryFetches,
-  infoEqual,
   type SessionWatcher,
   type WatcherLog,
 } from "./session-watcher.ts";
+
+// --- AgentProvider instance ---
+
+export { claudeCodeProvider } from "./agent-provider.ts";

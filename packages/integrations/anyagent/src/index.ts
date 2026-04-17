@@ -5,6 +5,14 @@
 
 export { parseAgentCommand } from "./agent-cli.ts";
 
+export {
+  type AgentTerminalState,
+  type AgentWatcher,
+  type AgentInfoShape,
+  type AgentProvider,
+  agentInfoEqual,
+} from "./agent-provider.ts";
+
 import { z } from "zod";
 
 /** Task/todo progress — total items and completed count.
