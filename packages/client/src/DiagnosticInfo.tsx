@@ -37,17 +37,23 @@ function browserFacts() {
   };
 }
 
-/** Render a byte count as MB with one decimal; small values get KB for
- *  readability — a fresh primary buffer at 80×24 is only ~23 KB, and showing
- *  "0.0 MB" there obscures more than it communicates. */
+/** Single source of truth for byte-count display across the dialog.
+ *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
+ *  callers may parse programmatically). `formatMB` returns a display string
+ *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
+ *  "0.0 MB" obscures more than it communicates. Every byte render in this
+ *  module goes through these two; evolving the granularity is one edit. */
+function bytesToMB(bytes: number): number {
+  return Math.round((bytes / 1_048_576) * 10) / 10;
+}
 function formatMB(bytes: number): string {
   if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+  return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
 /** `performance.memory` is Chromium-only and missing from the DOM type
- *  definitions — isolate the narrow cast and the MB rounding here so the
- *  snapshot memo stays free of both. Returns null on non-Chromium browsers. */
+ *  definitions — isolate the narrow cast here so the snapshot memo stays
+ *  free of it. Returns null on non-Chromium browsers. */
 function readJsHeap(): {
   usedMB: number;
   totalMB: number;
@@ -63,11 +69,10 @@ function readJsHeap(): {
     }
   ).memory;
   if (!mem) return null;
-  const mb = (n: number) => Math.round((n / 1_048_576) * 10) / 10;
   return {
-    usedMB: mb(mem.usedJSHeapSize),
-    totalMB: mb(mem.totalJSHeapSize),
-    limitMB: mb(mem.jsHeapSizeLimit),
+    usedMB: bytesToMB(mem.usedJSHeapSize),
+    totalMB: bytesToMB(mem.totalJSHeapSize),
+    limitMB: bytesToMB(mem.jsHeapSizeLimit),
   };
 }
 
