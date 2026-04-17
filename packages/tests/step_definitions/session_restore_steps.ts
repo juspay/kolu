@@ -26,13 +26,11 @@ async function postSavedSessionPayload(
   page: KoluWorld["page"],
   terminals: SavedTerminal[],
 ): Promise<void> {
-  const resp = await page.request.fetch("/rpc/state/test__set", {
+  const resp = await page.request.fetch("/rpc/session/test__set", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     data: JSON.stringify({
-      json: {
-        session: { terminals, savedAt: Date.now() },
-      },
+      json: { terminals, savedAt: Date.now() },
     }),
   });
   assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
