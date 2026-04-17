@@ -146,25 +146,33 @@ const Terminal: Component<{
   function unloadWebgl() {
     const w = webgl;
     if (!w) return;
-    // Null out first: `loseContext()` below fires `webglcontextlost`
-    // synchronously, which re-enters this function via the addon's
-    // `onContextLoss` listener. The guard above short-circuits the reentry.
+    // Null out first so any reentry (onContextLoss → unloadWebgl) short-circuits.
     webgl = null;
     setHasWebgl(false);
-    // Explicitly release the GPU context. xterm's dispose() removes the
-    // canvas from the DOM but does NOT call WEBGL_lose_context.loseContext(),
-    // so Chrome keeps the context alive on the detached canvas until GC.
-    // Rapid focus changes create contexts faster than GC runs and overflow
-    // Chrome's ~16-context-per-tab budget, at which point Chrome starts
-    // evicting live contexts — including the focused tile's — producing a
-    // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set at 1.
-    webglCanvas
+    // Order matters: dispose BEFORE loseContext.
+    //
+    // xterm's WebglRenderer registers a `webglcontextlost` DOM listener on the
+    // canvas that calls `e.preventDefault()` (addons/addon-webgl/src/WebglRenderer.ts).
+    // `preventDefault()` asks the browser to keep the canvas eligible for
+    // context restoration — and Chrome does restore, firing `webglcontextrestored`,
+    // which xterm catches and uses to re-initialize WebGL state on the already-
+    // detached canvas. Result: one zombie context per focus switch. Over an
+    // hour of use, Chrome's ~16-context-per-tab budget fills and the
+    // "Too many active WebGL contexts" warnings from #591 start firing, with
+    // ~500 MB of GPU memory stranded on detached canvases.
+    //
+    // Disposing first tears down xterm's Disposable chain (which is what owns
+    // the `webglcontextlost` listener), so the subsequent `loseContext()` is
+    // observed by nobody, the browser doesn't attempt restoration, and the
+    // GPU memory is released in the current microtask. Keeps the live-context
+    // count at 1. (#591)
+    const canvas = webglCanvas;
+    webglCanvas = null;
+    w.dispose();
+    canvas
       ?.getContext("webgl2")
       ?.getExtension("WEBGL_lose_context")
       ?.loseContext();
-    webglCanvas = null;
-    w.dispose();
   }
 
   // Main terminals inherit the viewport grid while they're hidden.
