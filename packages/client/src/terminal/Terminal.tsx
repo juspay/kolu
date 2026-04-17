@@ -43,7 +43,11 @@ import { isTouch } from "../useMobile";
 import { usePreferences } from "../settings/usePreferences";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { viewportDimensions, setViewportDimensions } from "../useViewport";
-import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
+import {
+  registerTerminalRefs,
+  unregisterTerminalRefs,
+  getTerminalRefs,
+} from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import {
   trackCreate,
@@ -126,6 +130,21 @@ function consumeStream<T>(
  *  If `mounts - cleanups > liveComponentCount` after a mode-toggle run,
  *  some Terminal disposals are being skipped — that's the leak path. */
 export const lifecycleCounters = { mounts: 0, cleanups: 0 };
+
+/** Module-level container-click handler. Reads the terminal id from the
+ *  clicked element's `data-terminal-id` and focuses via the terminalRefs
+ *  registry. Kept at module scope so it does NOT capture any component-local
+ *  (and therefore does not share a V8 Context chain with `debouncedFit` or the
+ *  rest of the component's scope). Verified via heap-snapshot retainer walk:
+ *  before this refactor, every disposed Terminal's `debouncedFit` closure was
+ *  reachable via `<div data-terminal-id> --$$click--> closure --context-->
+ *  Context[18414]:debouncedFit`, pinning the whole component scope past
+ *  onCleanup (#606 class). */
+function handleContainerClick(e: MouseEvent): void {
+  const el = e.currentTarget as HTMLElement;
+  const id = el.dataset.terminalId as TerminalId | undefined;
+  if (id) getTerminalRefs(id)?.xterm.focus();
+}
 
 /** ArrayBuffer → base64 without stack overflow (spread on large arrays blows the stack). */
 function bufferToBase64(buf: ArrayBuffer): string {
@@ -761,7 +780,7 @@ const Terminal: Component<{
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
         data-renderer={hasWebgl() ? "webgl" : "dom"}
-        onClick={() => terminal?.focus()}
+        onClick={handleContainerClick}
       />
     </div>
   );
