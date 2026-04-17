@@ -333,7 +333,6 @@ const Terminal: Component<{
     disposeDiagnostics?.();
     disposeDiagnostics = null;
     unloadWebgl();
-    scrollLock.detach();
     terminal?.dispose();
     terminal = null;
     // Break the containerRef → __xterm → xterm Terminal bridge. The

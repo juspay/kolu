@@ -48,10 +48,10 @@ Combine all three over ~2 minutes of scripted churn before reading the dialog.
 Heap snapshots are big JSON. Parse with Node:
 
 ```js
-const data = JSON.parse(fs.readFileSync(path, 'utf8'));
+const data = JSON.parse(fs.readFileSync(path, "utf8"));
 const { nodes, edges, strings } = data;
-const nodeTypes = data.snapshot.meta.node_types[0];   // ['hidden','array','string','object','code','closure',...,'native',...]
-const edgeTypes = data.snapshot.meta.edge_types[0];   // ['context','element','property','internal','hidden','shortcut','weak']
+const nodeTypes = data.snapshot.meta.node_types[0]; // ['hidden','array','string','object','code','closure',...,'native',...]
+const edgeTypes = data.snapshot.meta.edge_types[0]; // ['context','element','property','internal','hidden','shortcut','weak']
 // node_fields: [type, name, id, self_size, edge_count, detachedness]
 // edge_fields: [type, name_or_index, to_node]
 ```
