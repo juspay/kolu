@@ -319,6 +319,7 @@ const TerminalCanvas: Component<{
           activeId={props.activeId}
           layouts={layouts()}
           getTileTheme={props.getTileTheme}
+          onSelect={props.onSelect}
         />
       </div>
     </DragDropProvider>

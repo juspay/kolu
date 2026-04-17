@@ -134,10 +134,6 @@ export const SHORTCUTS = {
     keybind: { key: "j", mod: true },
     label: "Shuffle theme",
   },
-  copyTerminalText: {
-    keybind: { key: "C", code: "KeyC", mod: true, shift: true },
-    label: "Copy terminal text",
-  },
   exportSessionAsPdf: {
     keybind: { key: "p", code: "KeyP", mod: true },
     label: "Export session as PDF",
@@ -151,7 +147,7 @@ export const SHORTCUTS = {
     label: "Toggle inspector panel",
   },
   canvasCenterActive: {
-    keybind: { key: "2", code: "Digit2", mod: true, shift: true },
+    keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     label: "Center on active tile",
   },
 } as const satisfies Record<string, Shortcut>;

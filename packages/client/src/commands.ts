@@ -147,7 +147,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
           {
             name: "Copy terminal text",
-            keybind: SHORTCUTS.copyTerminalText.keybind,
             onSelect: () => deps.handleCopyTerminalText(),
           },
           {

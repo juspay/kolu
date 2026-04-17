@@ -20,6 +20,7 @@ import {
   gridBgPositionCSS,
   gridBgSizeCSS,
 } from "./coordinates";
+import { animatePan } from "./animatedPan";
 
 // ── Singleton state ──
 
@@ -31,6 +32,14 @@ const [zoom, setZoom] = createSignal(1);
 let containerEl: HTMLDivElement | null = null;
 /** Cleanup function for the current gesture listeners. */
 let cleanupGestures: (() => void) | null = null;
+/** In-flight pan animation (if any) — cancelled by any gesture or
+ *  instant pan so external input always wins over an ongoing tween. */
+let currentAnim: AbortController | null = null;
+
+function cancelPanAnimation() {
+  currentAnim?.abort();
+  currentAnim = null;
+}
 
 // ── Public API ──
 
@@ -47,11 +56,15 @@ export interface CanvasViewport {
   ) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
-  /** Set pan so a specific tile is centered. */
+  /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
+   *  any subsequent gesture or `setPan` call. Respects
+   *  `prefers-reduced-motion` (jumps to target). */
   centerOnTile: (tile: TileLayout) => void;
-  /** Pan so canvas-space point (x, y) is centered in the viewport. */
+  /** Pan so canvas-space point (x, y) is centered in the viewport.
+   *  Same animation + cancel semantics as `centerOnTile`. */
   panTo: (x: number, y: number) => void;
-  /** Set pan offset directly (canvas-space coordinates). */
+  /** Set pan offset directly (canvas-space coordinates). Instant — for
+   *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
   /** Current viewport dimensions in pixels (0×0 before mount). */
   viewportSize: () => { width: number; height: number };
@@ -81,11 +94,13 @@ function setContainerRef(
     el,
     {
       onPan: (dx, dy) => {
+        cancelPanAnimation();
         const z = zoom();
         setPanX(panX() + dx / z);
         setPanY(panY() + dy / z);
       },
       onZoom: (factor, sx, sy) => {
+        cancelPanAnimation();
         const result = zoomTowardPoint(panX(), panY(), zoom(), factor, sx, sy);
         setPanX(result.panX);
         setPanY(result.panY);
@@ -100,9 +115,11 @@ function normalizeDelta(dx: number, dy: number) {
   return normalizeDeltaPure(dx, dy, zoom());
 }
 
-function centerOnTile(tile: TileLayout) {
-  if (!containerEl) return;
-  const pan = computeCenterPan(
+function targetForTile(
+  tile: TileLayout,
+): { panX: number; panY: number } | null {
+  if (!containerEl) return null;
+  return computeCenterPan(
     tile.x,
     tile.y,
     tile.x + tile.w,
@@ -111,13 +128,14 @@ function centerOnTile(tile: TileLayout) {
     containerEl.clientHeight,
     zoom(),
   );
-  setPanX(pan.panX);
-  setPanY(pan.panY);
 }
 
-function panTo(x: number, y: number) {
-  if (!containerEl) return;
-  const pan = computeCenterPan(
+function targetForPoint(
+  x: number,
+  y: number,
+): { panX: number; panY: number } | null {
+  if (!containerEl) return null;
+  return computeCenterPan(
     x,
     y,
     x,
@@ -126,11 +144,32 @@ function panTo(x: number, y: number) {
     containerEl.clientHeight,
     zoom(),
   );
-  setPanX(pan.panX);
-  setPanY(pan.panY);
+}
+
+function startAnimatedPan(target: { panX: number; panY: number }) {
+  cancelPanAnimation();
+  currentAnim = animatePan(
+    { x: panX(), y: panY() },
+    { x: target.panX, y: target.panY },
+    (x, y) => {
+      setPanX(x);
+      setPanY(y);
+    },
+  );
+}
+
+function centerOnTile(tile: TileLayout) {
+  const t = targetForTile(tile);
+  if (t) startAnimatedPan(t);
+}
+
+function panTo(x: number, y: number) {
+  const t = targetForPoint(x, y);
+  if (t) startAnimatedPan(t);
 }
 
 function setPan(x: number, y: number) {
+  cancelPanAnimation();
   setPanX(x);
   setPanY(y);
 }
@@ -146,6 +185,7 @@ function viewportSize() {
 
 function applyZoomToCenter(direction: "in" | "out" | "reset") {
   if (!containerEl) return;
+  cancelPanAnimation();
   const result = zoomToCenterPure(
     panX(),
     panY(),

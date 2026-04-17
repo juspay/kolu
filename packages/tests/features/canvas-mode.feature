@@ -137,6 +137,17 @@ Feature: Canvas mode
     Then the canvas viewport state should have changed
     And there should be no page errors
 
+  Scenario: Clicking a minimap tile rect activates that terminal and pans the canvas
+    Given I create a terminal
+    And I create a terminal
+    When I click the canvas mode toggle
+    And I click canvas tile 2
+    And I save the canvas viewport state
+    And I click minimap tile rect 3
+    Then the canvas viewport state should have changed
+    And canvas tile 3 should be the active tile
+    And there should be no page errors
+
   Scenario: Canvas tile positions persist across refresh
     When I click the canvas mode toggle
     And I move the canvas tile to x=320 y=420
