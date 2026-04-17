@@ -53,6 +53,26 @@ function computeBuckets(
   return result;
 }
 
+/** Build the `d` attribute for a single `<path>` that renders every bar in
+ *  one SVG node — one rect per bar would create ~150 SVGAnimated* native
+ *  objects per graph (x/y/width/height/rx × 30 rects), and retention of
+ *  the parent tile DOM via signal observers pinned them all. Collapsing to
+ *  a single path drops per-graph SVG footprint by ~30× (verified via
+ *  heap-snapshot byte-delta diff). Per-bar opacity is dropped because a
+ *  single path has one fill — height already conveys activity level. */
+function buildPath(buckets: readonly number[]): string {
+  let d = "";
+  for (let i = 0; i < BUCKET_COUNT; i++) {
+    const val = buckets[i]!;
+    if (val <= 0) continue;
+    const h = Math.max(2, val * 10);
+    const y = 10 - h;
+    // `M x,y h 0.7 v h h -0.7 z` — trace rect perimeter as a sub-path.
+    d += `M${i},${y}h0.7v${h}h-0.7z`;
+  }
+  return d;
+}
+
 /** Mini sparkline showing terminal activity over the last 5 minutes. */
 const ActivityGraph: Component<{
   samples: ActivitySample[];
@@ -64,8 +84,8 @@ const ActivityGraph: Component<{
 
   // Reactive memo: recomputes when samples change OR tick advances.
   const buckets = createMemo(() => computeBuckets(props.samples, tick()));
-
   const hasData = createMemo(() => buckets().some((v) => v > 0));
+  const pathD = createMemo(() => buildPath(buckets()));
 
   return (
     <svg
@@ -77,21 +97,7 @@ const ActivityGraph: Component<{
       preserveAspectRatio="none"
       style={{ height: "14px" }}
     >
-      {Array.from({ length: BUCKET_COUNT }, (_, i) => {
-        const val = () => buckets()[i]!;
-        const h = () => (val() > 0 ? Math.max(2, val() * 10) : 0);
-        return (
-          <rect
-            x={i}
-            y={10 - h()}
-            width={0.7}
-            height={h()}
-            rx={0.2}
-            fill="var(--color-ok)"
-            opacity={0.4 + val() * 0.6}
-          />
-        );
-      })}
+      <path d={pathD()} fill="var(--color-ok)" />
     </svg>
   );
 };
