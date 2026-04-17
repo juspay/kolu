@@ -356,6 +356,12 @@ const Terminal: Component<{
     registerTerminalRefs(props.terminalId, {
       xterm: term,
       serialize: serializeAddon,
+      probes: {
+        webglAtlas: () => {
+          const a = webgl?.textureAtlas;
+          return a ? { w: a.width, h: a.height } : null;
+        },
+      },
     });
     // Diagnostics subscribes to hasWebgl via accessor — keeps hasWebgl
     // the single source of truth, no imperative updater to forget.
