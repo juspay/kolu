@@ -11,16 +11,25 @@ import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { AgentInfo } from "kolu-common";
 import { shortenCwd } from "../path";
 
-/** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
-export type TerminalMetaMode = "normal" | "readonly";
+/** "normal" = interactive (compact text, PR links).
+ *  "readonly" = display-only (larger text, no links).
+ *  "compact" = name row only (mobile pull-handle); drops cwd, branch,
+ *   PR, agent, foreground rows. */
+export type TerminalMetaMode = "normal" | "readonly" | "compact";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
   mode?: TerminalMetaMode;
 }> = (props) => {
   const mode = () => props.mode ?? "normal";
+  /** Compact mode (mobile pull-handle) renders the name row only —
+   *  branch/PR/agent/foreground/cwd live in the chrome sheet, not on
+   *  the always-visible strip. */
+  const full = () => mode() !== "compact";
   const nameClass = () =>
-    mode() === "normal" ? "text-sm font-medium" : "text-base font-semibold";
+    mode() === "normal" || mode() === "compact"
+      ? "text-sm font-medium"
+      : "text-base font-semibold";
   const detailClass = () => (mode() === "normal" ? "text-xs" : "text-sm");
   const i = () => props.info;
 
@@ -65,7 +74,7 @@ const TerminalMeta: Component<{
                 </Show>
               )}
             </Show>
-            <Show when={info().meta.cwd}>
+            <Show when={full() && info().meta.cwd}>
               {(cwd) => (
                 <span
                   data-testid="terminal-meta-cwd"
@@ -83,16 +92,20 @@ const TerminalMeta: Component<{
             </Show>
           </div>
 
-          {/* Branch — tooltip shows full name when truncated */}
+          {/* Branch — tooltip shows full name when truncated. Hidden in
+           *  compact mode (mobile pull-handle) so the strip stays a
+           *  single visible row. */}
           <Show
-            when={info().meta.git}
+            when={full() && info().meta.git}
             fallback={
-              <div
-                data-testid="terminal-meta-branch"
-                class={`${detailClass()} text-fg-2`}
-              >
-                {"\u00A0"}
-              </div>
+              <Show when={full()}>
+                <div
+                  data-testid="terminal-meta-branch"
+                  class={`${detailClass()} text-fg-2`}
+                >
+                  {"\u00A0"}
+                </div>
+              </Show>
             }
           >
             {(git) => (
@@ -110,7 +123,7 @@ const TerminalMeta: Component<{
           </Show>
 
           {/* PR info */}
-          <Show when={info().meta.pr}>
+          <Show when={full() && info().meta.pr}>
             {(pr) => (
               <div
                 class={`flex items-center gap-1 ${detailClass()} text-fg-2 truncate`}
@@ -144,7 +157,7 @@ const TerminalMeta: Component<{
            *  summary line carries the SDK-derived display title (custom title ›
            *  auto-summary › first prompt) so a glance at the card tells you
            *  _what_ the agent is working on, not just that it's working. */}
-          <Show when={info().meta.agent}>
+          <Show when={full() && info().meta.agent}>
             {(agent) => (
               <div class="mt-1">
                 <div class="flex items-center gap-1.5">
@@ -193,6 +206,7 @@ const TerminalMeta: Component<{
            *  title is just the cwd (already displayed on row 1). */}
           <Show
             when={
+              full() &&
               !(info().meta.agent && info().meta.agent!.summary) &&
               info().meta.foreground
             }

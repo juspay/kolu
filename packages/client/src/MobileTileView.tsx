@@ -8,6 +8,7 @@
  *  ChromeBar for touch — logo, vertical pill list, controls. */
 
 import { type Component, For, Show, createSignal, type JSX } from "solid-js";
+import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
 import type { WsStatus } from "./rpc/rpc";
@@ -20,6 +21,11 @@ const SWIPE_THRESHOLD = 60;
 /** Vertical drift cap — if the user moved more vertically than horizontally,
  *  treat the gesture as a scroll, not a swipe. */
 const VERTICAL_TOLERANCE_RATIO = 0.7;
+/** Vertical pull (px) on the closed pull-handle before we open the drawer.
+ *  Corvu's Trigger is tap-only out of the box; this thin handler turns a
+ *  downward drag on the handle into "open." Once open, Corvu owns the
+ *  drag-to-dismiss gesture on Drawer.Content. */
+const PULL_OPEN_THRESHOLD = 24;
 
 const MobileTileView: Component<{
   /** Pill-tree-ordered ids — same source as the desktop pill tree, so swipe
@@ -39,6 +45,12 @@ const MobileTileView: Component<{
   const store = useTerminalStore();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
+    y: number;
+  } | null>(null);
+  /** Pull-handle's own touch tracker — kept separate from the wrapper's
+   *  horizontal-swipe tracker so a downward pull on the handle can't
+   *  accidentally trigger a tile-cycle. */
+  const [handleTouchStart, setHandleTouchStart] = createSignal<{
     y: number;
   } | null>(null);
   const [sheetOpen, setSheetOpen] = createSignal(false);
@@ -79,68 +91,101 @@ const MobileTileView: Component<{
   };
 
   return (
-    <div
-      data-testid="mobile-tile-view"
-      class="flex-1 min-h-0 flex flex-col relative"
-      // Listen for swipes on the wrapper so xterm's own pointer handling
-      // is unaffected — touchstart bubbles even when xterm consumes pointer
-      // events internally.
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
+    <Drawer
+      side="top"
+      open={sheetOpen()}
+      onOpenChange={setSheetOpen}
+      // Allow drag-to-dismiss on the open drawer. Corvu owns this; we
+      // only handle the inverse (drag-to-open) on the closed trigger.
     >
-      {/* Pull-handle row — drag-bar + identity + connection dot.
-       *  Tap to reveal the chrome sheet. Always visible so the chrome
-       *  affordance is discoverable. */}
-      <button
-        data-testid="mobile-pull-handle"
-        class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
-        onClick={() => setSheetOpen(true)}
-        aria-label="Open navigation"
+      <div
+        data-testid="mobile-tile-view"
+        class="flex-1 min-h-0 flex flex-col relative"
+        // Listen for swipes on the wrapper so xterm's own pointer handling
+        // is unaffected — touchstart bubbles even when xterm consumes pointer
+        // events internally.
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
       >
-        <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
-        <div class="flex items-center gap-2 w-full">
-          <Show
-            when={activeInfo()}
-            fallback={<span class="text-sm text-fg-2">kolu</span>}
-          >
-            {(info) => (
-              <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
-                <TerminalMeta info={info()} />
-              </div>
-            )}
-          </Show>
-        </div>
-      </button>
-
-      {/* Body container — relative so per-terminal absolutely-positioned
-       *  search overlays anchor here, not the dvh root. */}
-      <div class="flex-1 min-h-0 relative overflow-hidden">
-        <For each={props.orderedIds}>
-          {(id) => {
-            const visible = () => store.activeId() === id;
-            return (
-              <div
-                class="absolute inset-0 flex flex-col"
-                classList={{ hidden: !visible() }}
-              >
-                {props.renderBody(id, visible)}
-              </div>
-            );
+        {/* Pull-handle row — drag-bar + compact identity strip. Tap or
+         *  pull-down opens the drawer (Corvu's Trigger handles tap; the
+         *  touch handlers below open on a downward drag). Always visible
+         *  so the chrome affordance is discoverable. */}
+        <Drawer.Trigger
+          data-testid="mobile-pull-handle"
+          class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
+          aria-label="Open navigation"
+          onTouchStart={(e: TouchEvent) => {
+            const t = e.touches[0];
+            if (t) setHandleTouchStart({ y: t.clientY });
+            // Don't bubble to the wrapper's horizontal-swipe handler —
+            // a vertical pull from the handle is its own gesture.
+            e.stopPropagation();
           }}
-        </For>
-      </div>
-      {props.bottomBar}
+          onTouchMove={(e: TouchEvent) => {
+            const start = handleTouchStart();
+            if (!start || sheetOpen()) return;
+            const t = e.touches[0];
+            if (!t) return;
+            if (t.clientY - start.y > PULL_OPEN_THRESHOLD) {
+              setSheetOpen(true);
+              setHandleTouchStart(null);
+            }
+          }}
+          onTouchEnd={() => setHandleTouchStart(null)}
+        >
+          <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
+          <div class="flex items-center gap-2 w-full">
+            <Show
+              when={activeInfo()}
+              fallback={<span class="text-sm text-fg-2">kolu</span>}
+            >
+              {(info) => (
+                <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
+                  <TerminalMeta info={info()} mode="compact" />
+                </div>
+              )}
+            </Show>
+          </div>
+        </Drawer.Trigger>
 
-      <MobileChromeSheet
-        open={sheetOpen()}
-        onDismiss={() => setSheetOpen(false)}
-        status={props.status}
-        appTitle={props.appTitle}
-        onOpenPalette={props.onOpenPalette}
-        groups={props.groups}
-        onSelect={store.setActiveId}
-      />
-    </div>
+        {/* Body container — relative so per-terminal absolutely-positioned
+         *  search overlays anchor here, not the dvh root. */}
+        <div class="flex-1 min-h-0 relative overflow-hidden">
+          <For each={props.orderedIds}>
+            {(id) => {
+              const visible = () => store.activeId() === id;
+              return (
+                <div
+                  class="absolute inset-0 flex flex-col"
+                  classList={{ hidden: !visible() }}
+                >
+                  {props.renderBody(id, visible)}
+                </div>
+              );
+            }}
+          </For>
+        </div>
+        {props.bottomBar}
+      </div>
+
+      <Drawer.Portal>
+        <Drawer.Overlay
+          data-testid="mobile-chrome-backdrop"
+          class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+        />
+        <Drawer.Content class="fixed top-0 left-0 right-0 z-50 bg-surface-1 border-b border-edge shadow-xl max-h-[70vh] overflow-y-auto">
+          <MobileChromeSheet
+            status={props.status}
+            appTitle={props.appTitle}
+            onOpenPalette={props.onOpenPalette}
+            groups={props.groups}
+            onSelect={store.setActiveId}
+            onClose={() => setSheetOpen(false)}
+          />
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer>
   );
 };
 
