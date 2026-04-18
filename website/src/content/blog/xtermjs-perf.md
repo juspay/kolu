@@ -1,10 +1,15 @@
-# The leak that wasn't in any `Context`
+---
+title: "The leak that wasn't in any Context"
+description: "One afternoon, two xterm.js contributions, and a reminder that proxy metrics can be wrong by three orders of magnitude."
+pubDate: 2026-04-18
+author: "Sridhar Ratnakumar"
+---
 
 _One afternoon, two xterm.js contributions, and a reminder that proxy
 metrics can be wrong by three orders of magnitude._
 
 [Kolu](https://github.com/juspay/kolu) is a browser cockpit for
-coding agents — `claude`, `aider`, `codex`, whatever ships next week.
+coding agents — `claude`, `opencode`, whatever ships next week.
 The terminal is the universal interface: every pane is a real
 [xterm.js](https://xtermjs.org/) in the browser, connected over
 WebSocket to a PTY on the server, and Kolu watches what you already
@@ -31,8 +36,13 @@ Code](https://claude.com/claude-code) did the agent-side work.
 
 ## First pass: the bus-stop fix
 
-The first pass at the leak happened earlier that day [on the bus to
-the swimming pool, then again checking it on the way back](https://x.com/sridca/status/2045164268341895434),
+<div class="tweet-embed">
+<blockquote class="twitter-tweet" data-dnt="true" data-theme="dark"><p lang="en" dir="ltr">Debugging Kolu memory leak in Kolu itself on iPhone whilst waiting at the bus stop. <a href="https://t.co/ysFvgmHZoS">pic.twitter.com/ysFvgmHZoS</a></p>&mdash; Sridhar Ratnakumar (@sridca) <a href="https://twitter.com/sridca/status/2045164268341895434?ref_src=twsrc%5Etfw">April 17, 2026</a></blockquote>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+</div>
+
+The first pass at the leak happened earlier that day on the bus to
+the swimming pool, then again checking it on the way back,
 typing instructions to Claude Code on my phone and watching retainer
 walks come back between stops. That pass found a
 dispose-registration gap inside xterm itself: two `MutableDisposable`
@@ -82,8 +92,8 @@ Chrome Task Manager showed no change. Zero. Identical to before.
 
 ## What I was actually measuring
 
-Chrome's [Task Manager](https://developer.chrome.com/docs/devtools/memory)
-(`⇧⎋`) has three columns that matter for a tab: `JavaScript Memory`,
+Chrome's [Task Manager](https://developer.chrome.com/docs/devtools/memory-problems#monitor_memory_use_in_realtime_with_the_chrome_task_manager)
+has three columns that matter for a tab: `JavaScript Memory`,
 `GPU Memory`, and `Memory Footprint`. The first two are what they
 sound like. `Memory Footprint` is the one that matters: the total
 resident size the operating system assigns to the tab's renderer

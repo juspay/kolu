@@ -35,8 +35,10 @@ _darwin-fanout: e2e
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
 
-# Verify the declared pnpmDeps hash in default.nix matches what
-# fetchPnpmDeps actually produces from the current pnpm-lock.yaml.
+# Verify the declared pnpmDeps hashes match what fetchPnpmDeps produces
+# from the current pnpm-lock.yaml files. Covers both the main kolu lockfile
+# (./pnpm-lock.yaml → .#pnpmDeps) and the website lockfile
+# (./website/pnpm-lock.yaml → .#website-pnpm-deps).
 #
 # Two builds are required, not one: `nix build --rebuild` errors with
 # "outputs ... are not valid, so checking is not possible" when the store
@@ -46,10 +48,10 @@ _darwin:
 # or cache.nixos.asia) can't silently satisfy a hash that no longer
 # matches the lockfile.
 #
-# Runs on one system — hash is platform-independent (pnpm install --force
+# Runs on one system — hashes are platform-independent (pnpm install --force
 # bypasses os/cpu/libc gating, see default.nix pnpmDeps comment).
 pnpm-hash-fresh:
-    just ci::_run pnpm-hash-fresh "sh -c 'nix build .#pnpmDeps --no-link && nix build --rebuild .#pnpmDeps --no-link'"
+    just ci::_run pnpm-hash-fresh "sh -c 'nix build .#pnpmDeps .#website-pnpm-deps --no-link && nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link'"
 
 nix:
     just ci::_devour-flake nix --override-input flake .
