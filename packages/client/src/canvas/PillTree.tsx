@@ -58,7 +58,12 @@ const PillTree: Component<{
         // clusters items toward the middle so 3 repos at rest don't
         // spread edge-to-edge. flex-wrap kicks in only when content
         // genuinely exceeds the slot.
-        class="group/pill-tree pointer-events-auto select-none w-full"
+        //
+        // pointer-events-none on the wrapper so the empty middle of
+        // the chrome (between pills) passes clicks through to the
+        // right-panel tab bar / canvas underneath; the actual pill
+        // buttons re-enable pointer events on themselves.
+        class="group/pill-tree pointer-events-none select-none w-full"
       >
         <div
           // flex-nowrap: repos stay on a single row. Branch overflow
@@ -78,7 +83,7 @@ const PillTree: Component<{
           <Show when={store.canvasMaximized()}>
             <button
               data-testid="pill-tree-exit-maximize"
-              class="flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
+              class="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
               onClick={store.toggleCanvasMaximized}
               title="Show all on canvas"
             >
@@ -166,7 +171,7 @@ const PillTree: Component<{
                                       data-active={active() ? "" : undefined}
                                       data-unread={unread() ? "" : undefined}
                                       data-agent-state={agentState()}
-                                      class={`flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${agentBorderClass()}`}
+                                      class={`pointer-events-auto flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${agentBorderClass()}`}
                                       classList={{
                                         // Static repo-colored ring when
                                         // active and no agent animation
