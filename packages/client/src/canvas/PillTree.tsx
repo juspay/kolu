@@ -67,13 +67,14 @@ const PillTree: Component<{
         data-maximized={props.canvasMaximized ? "" : undefined}
         // Positioning is the caller's job (ChromeBar embeds this as a
         // flex child, mobile sheet renders its own vertical list).
-        // `w-fit` keeps the tree at content width so the parent's
-        // justify-center actually centers it instead of stretching the
-        // tree across the whole header.
-        class="group/pill-tree pointer-events-auto select-none w-fit"
+        // The outer fills its slot; `justify-center` on the inner
+        // clusters items toward the middle so 3 repos at rest don't
+        // spread edge-to-edge. flex-wrap kicks in only when content
+        // genuinely exceeds the slot.
+        class="group/pill-tree pointer-events-auto select-none w-full"
       >
         <div
-          class="flex flex-wrap items-start justify-center gap-x-3 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+          class="flex flex-wrap items-start justify-center gap-x-2 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
           classList={{
             // Deeper recess in maximized mode: the user is focused on
             // one tile, the tree is a peripheral nav affordance; but it
