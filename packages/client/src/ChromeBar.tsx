@@ -90,14 +90,17 @@ const ChromeBar: Component<{
         {props.pillTree}
       </div>
 
-      {/* Control cluster: inspector → settings → ⌘K */}
-      <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
+      {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
+       *  itself stays pointer-events-none so the gap-2 spaces and any
+       *  area covered when the cluster overlaps the right panel pass
+       *  clicks through; each button re-enables pointer-events-auto. */}
+      <div class="flex items-center gap-2 shrink-0">
         <Tip
           label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
         >
           <button
             data-testid="inspector-toggle"
-            class="hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             classList={{
               "bg-surface-2 text-fg": !rightPanel.collapsed(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg":
@@ -110,7 +113,7 @@ const ChromeBar: Component<{
             <InspectorToggleIcon active={!rightPanel.collapsed()} />
           </button>
         </Tip>
-        <div>
+        <div class="pointer-events-auto">
           <Tip label="Settings">
             <button
               ref={settingsTriggerRef}
@@ -130,7 +133,7 @@ const ChromeBar: Component<{
         <Tip label="Command palette">
           <button
             data-testid="palette-trigger"
-            class="h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class="pointer-events-auto h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette()}
           >
             <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
