@@ -170,36 +170,49 @@ body {
 
 /* --- Prose (blog post body) -----------------------------------------------
 
-  Override tailwind-typography defaults to match the editorial voice.
+  Applied via `class="prose prose-invert prose-editorial"` — tailwind-typo-
+  graphy supplies the structural rules (paragraph margins, list indents, code
+  spacing); `.prose-editorial` overrides the color tokens and typographic
+  character.
 -------------------------------------------------------------------------- */
 
 .prose-editorial {
-  --tw-prose-body: var(--color-ink);
-  --tw-prose-headings: var(--color-ink);
-  --tw-prose-lead: var(--color-ink-dim);
-  --tw-prose-links: var(--color-amber);
-  --tw-prose-bold: var(--color-ink);
-  --tw-prose-counters: var(--color-ink-muted);
-  --tw-prose-bullets: var(--color-ink-faint);
-  --tw-prose-hr: var(--color-rule-strong);
-  --tw-prose-quotes: var(--color-ink);
-  --tw-prose-quote-borders: var(--color-amber-dim);
-  --tw-prose-captions: var(--color-ink-muted);
-  --tw-prose-code: var(--color-amber-bright);
-  --tw-prose-pre-code: #e8e5dd;
-  --tw-prose-pre-bg: var(--color-void-sunk);
-  --tw-prose-th-borders: var(--color-rule-strong);
-  --tw-prose-td-borders: var(--color-rule);
-}
+  /* Invert palette: warm ink on void. Headings get pure white for pop;
+     bold pops further with amber-bright to differentiate from body. */
+  --tw-prose-invert-body: var(--color-ink);
+  --tw-prose-invert-headings: #ffffff;
+  --tw-prose-invert-lead: var(--color-ink-dim);
+  --tw-prose-invert-links: var(--color-amber);
+  /* Bold = pure white so it differentiates from inline code, which uses
+     amber-bright. Distinct visual channels: weight for emphasis, colour
+     for code. */
+  --tw-prose-invert-bold: #ffffff;
+  --tw-prose-invert-counters: var(--color-ink-muted);
+  --tw-prose-invert-bullets: var(--color-ink-muted);
+  --tw-prose-invert-hr: var(--color-rule-strong);
+  --tw-prose-invert-quotes: var(--color-ink);
+  --tw-prose-invert-quote-borders: var(--color-amber-dim);
+  --tw-prose-invert-captions: var(--color-ink-muted);
+  --tw-prose-invert-code: var(--color-amber-bright);
+  --tw-prose-invert-pre-code: var(--color-ink);
+  --tw-prose-invert-pre-bg: var(--color-void-sunk);
+  --tw-prose-invert-th-borders: var(--color-rule-strong);
+  --tw-prose-invert-td-borders: var(--color-rule);
 
-.prose-editorial {
   font-family: var(--font-serif);
   font-variation-settings:
     "opsz" 11,
     "SOFT" 50,
     "WONK" 0;
-  font-size: 1.075rem;
-  line-height: 1.7;
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+/* Paragraph rhythm — tw-typography gives us top/bottom margins; nudge for
+   a slightly roomier feel that matches the serif body. */
+.prose-editorial p {
+  margin-top: 1.35em;
+  margin-bottom: 1.35em;
 }
 
 .prose-editorial h1,
@@ -211,39 +224,97 @@ body {
     "SOFT" 20,
     "WONK" 1;
   letter-spacing: -0.015em;
+  font-weight: 600;
 }
 
 .prose-editorial h2 {
-  margin-top: 2.5em;
-  font-size: 1.6em;
+  margin-top: 2.6em;
+  margin-bottom: 0.8em;
+  font-size: 1.65em;
   border-bottom: 1px solid var(--color-rule);
-  padding-bottom: 0.3em;
+  padding-bottom: 0.35em;
+}
+
+.prose-editorial h3 {
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+  font-size: 1.25em;
+}
+
+.prose-editorial strong {
+  font-weight: 650;
+  color: #ffffff;
 }
 
 .prose-editorial a {
   text-decoration: none;
   border-bottom: 1px solid var(--color-amber-dim);
   transition: border-color 120ms ease;
+  font-weight: 500;
 }
 
 .prose-editorial a:hover {
   border-bottom-color: var(--color-amber);
 }
 
+/* Code blocks: distinct card with generous breathing room above/below. */
 .prose-editorial pre {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
   border: 1px solid var(--color-rule);
   border-radius: 0.5rem;
-  padding: 1rem 1.1rem;
-  font-size: 0.85rem;
-  line-height: 1.6;
+  padding: 1rem 1.15rem;
+  font-size: 0.84rem;
+  line-height: 1.65;
+  margin-top: 1.8em;
+  margin-bottom: 1.8em;
+  overflow-x: auto;
+}
+
+/* Inline code within prose — keep lighter than pre blocks. */
+.prose-editorial :not(pre) > code {
+  font-family: var(--font-mono);
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.88em;
+  color: var(--color-amber-bright);
+  font-weight: 500;
 }
 
 .prose-editorial blockquote {
   font-style: italic;
   border-left-width: 2px;
   color: var(--color-ink-dim);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+.prose-editorial blockquote p {
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+}
+
+.prose-editorial ul,
+.prose-editorial ol {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+
+.prose-editorial li {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
+.prose-editorial li > p {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
+.prose-editorial hr {
+  margin-top: 3em;
+  margin-bottom: 3em;
 }
 
 .prose-editorial kbd {
@@ -257,15 +328,29 @@ body {
   color: var(--color-ink);
 }
 
-/* Drop-cap on the first paragraph of a post — subtle editorial flourish. */
+/* Drop-cap on the first paragraph — subtle editorial flourish. */
 .prose-editorial > p:first-of-type::first-letter {
   font-variation-settings:
     "opsz" 144,
     "SOFT" 20,
     "WONK" 1;
-  font-size: 3.4em;
+  font-size: 3.6em;
   line-height: 0.85;
   float: left;
-  padding: 0.2rem 0.6rem 0 0;
+  padding: 0.25rem 0.65rem 0 0;
   color: var(--color-amber);
+  font-weight: 500;
+}
+
+/* Footnote list at end of post — distinguish visually from body paragraphs. */
+.prose-editorial section[data-footnotes] {
+  margin-top: 3em;
+  padding-top: 1.5em;
+  border-top: 1px solid var(--color-rule);
+  font-size: 0.92em;
+  color: var(--color-ink-dim);
+}
+
+.prose-editorial section[data-footnotes] ol {
+  padding-left: 1.25em;
 }
