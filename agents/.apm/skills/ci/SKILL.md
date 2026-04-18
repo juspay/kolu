@@ -74,5 +74,3 @@ If a test fails once but passes on retry, post a comment on [issue #320](https:/
 Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
 Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
-
-**Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run.
