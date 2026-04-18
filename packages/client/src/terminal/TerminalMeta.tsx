@@ -91,6 +91,20 @@ const TerminalMeta: Component<{
                 </>
               )}
             </Show>
+            {/* PR number — compact mode only (full mode renders the
+             *  whole PR row below). Just `#N` so the strip stays one
+             *  line; tooltip carries the full title. */}
+            <Show when={!full() && info().meta.pr}>
+              {(pr) => (
+                <span
+                  data-testid="terminal-meta-pr-compact"
+                  class="text-xs font-mono text-fg-3 shrink-0"
+                  title={`#${pr().number} ${pr().title}`}
+                >
+                  #{pr().number}
+                </span>
+              )}
+            </Show>
             <Show when={full() && info().meta.cwd}>
               {(cwd) => (
                 <span
