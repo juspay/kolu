@@ -26,6 +26,16 @@ Then(
   },
 );
 
+Then("the terminal should have keyboard focus", async function (this: KoluWorld) {
+  // Active terminal carries data-focused on its xterm wrapper. Poll because
+  // Corvu's focus-trap release after dialogs is async (waitForFrame can be
+  // insufficient on loaded CI).
+  await this.page.waitForFunction(
+    () => !!document.activeElement?.closest("[data-focused]"),
+    { timeout: POLL_TIMEOUT },
+  );
+});
+
 When(
   "I select terminal {int} in the sidebar",
   async function (this: KoluWorld, index: number) {
@@ -68,14 +78,5 @@ Then(
   },
 );
 
-Then(
-  "the sidebar should have {int} fewer terminal entry/entries",
-  async function (this: KoluWorld, delta: number) {
-    const expected = (this.savedSidebarCount ?? 0) - delta;
-    await this.page.waitForFunction(
-      ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
-      { sel: PILL_TREE_ENTRY_SELECTOR, exp: expected },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
+// "the sidebar should have N fewer terminal entries" already lives in
+// worktree_steps.ts — don't redeclare it here.
