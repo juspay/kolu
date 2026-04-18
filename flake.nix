@@ -29,8 +29,24 @@
     {
       homeManagerModules.default = import ./nix/home/module.nix;
       packages = eachSystem (pkgs:
-        let all = import ./default.nix { inherit pkgs commitHash; };
-        in removeAttrs all [ "koluEnv" ]);
+        let
+          kolu = import ./default.nix { inherit pkgs commitHash; };
+          # Synthesized website source tree: website/ with the canonical
+          # favicon copied in where the working tree has a symlink to
+          # ../../packages/client/favicon.svg. One SVG on disk; the Nix
+          # sandbox still sees a self-contained website/ with real bytes.
+          websiteSrc = pkgs.runCommand "kolu-website-src" { } ''
+            cp -r ${./website} $out
+            chmod -R u+w $out
+            rm -f $out/public/favicon.svg
+            cp ${./packages/client/favicon.svg} $out/public/favicon.svg
+          '';
+          website = import ./website { inherit pkgs; src = websiteSrc; };
+        in
+        removeAttrs kolu [ "koluEnv" ] // {
+          website = website.default;
+          website-pnpm-deps = website.pnpmDeps;
+        });
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
         in {

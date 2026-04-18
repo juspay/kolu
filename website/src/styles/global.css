@@ -1,0 +1,462 @@
+@import "tailwindcss";
+
+/* Self-hosted variable fonts (via fontsource, npm-installed, Nix-reproducible). */
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/jetbrains-mono";
+
+@plugin "@tailwindcss/typography";
+
+/* --- Design tokens --------------------------------------------------------
+
+  Editorial terminal aesthetic: warm off-black, warm off-white ink, a single
+  amber accent borrowed from the kolu tiered-step palette. The full rainbow
+  lives in the favicon; everywhere else, restraint.
+-------------------------------------------------------------------------- */
+@theme {
+  --color-void: #0a0a0a;
+  --color-void-raised: #121110;
+  --color-void-sunk: #050505;
+  --color-ink: #e8e5dd;
+  --color-ink-dim: #a9a59a;
+  --color-ink-muted: #6f6b61;
+  --color-ink-faint: #3a3832;
+  --color-rule: #1a1814;
+  --color-rule-strong: #2a2620;
+
+  --color-amber: #e7b87a;
+  --color-amber-bright: #f4cf97;
+  --color-amber-dim: #a08256;
+
+  /* Rarely used — kept for legacy favicon echo only. */
+  --color-brand-red: #ef4444;
+  --color-brand-amber: #f59e0b;
+  --color-brand-green: #22c55e;
+  --color-brand-blue: #3b82f6;
+  --color-brand-purple: #a855f7;
+
+  --font-serif: "Fraunces Variable", ui-serif, Georgia, serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+  --font-sans: "Fraunces Variable", ui-serif, Georgia, serif;
+}
+
+/* --- Theme switch --------------------------------------------------------- */
+
+/* Dark is the default; an inline script in BaseLayout sets
+   <html data-theme="light|dark"> before first paint (no FOUC). */
+
+[data-theme="light"] {
+  --color-void: #faf6ec;
+  --color-void-raised: #f2ecdb;
+  --color-void-sunk: #ebe4d0;
+  --color-ink: #241f17;
+  --color-ink-dim: #554e40;
+  --color-ink-muted: #857e6e;
+  --color-ink-faint: #bfb8a6;
+  --color-rule: #e1dac6;
+  --color-rule-strong: #c9c1ab;
+  --color-amber: #9a5e1e;
+  --color-amber-bright: #7d4a14;
+  --color-amber-dim: #c2956a;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* --- Base ------------------------------------------------------------------ */
+
+html {
+  background: var(--color-void);
+  /* Subtle character-cell lattice — evokes a terminal without shouting.
+     Dot opacity blended per theme via --dot-rgb below. */
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--dot-color) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+  background-attachment: fixed;
+  --dot-color: rgba(231, 184, 122, 0.04);
+}
+
+html[data-theme="light"] {
+  --dot-color: rgba(154, 94, 30, 0.08);
+}
+
+body {
+  font-family: var(--font-serif);
+  font-variation-settings:
+    "opsz" 14,
+    "SOFT" 50,
+    "WONK" 0;
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-amber);
+  color: var(--color-void);
+}
+
+/* --- Typography utilities -------------------------------------------------- */
+
+.display {
+  font-family: var(--font-serif);
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 20,
+    "WONK" 1;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+
+.display-sm {
+  font-family: var(--font-serif);
+  font-variation-settings:
+    "opsz" 72,
+    "SOFT" 30,
+    "WONK" 0;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "zero", "ss01";
+}
+
+/* --- Theme toggle icons --------------------------------------------------- */
+
+/* Show the sun in dark mode (clicking it moves to light), moon in light. */
+.theme-icon-sun,
+.theme-icon-moon {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.7);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .theme-icon-sun,
+[data-theme="light"] .theme-icon-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+  pointer-events: auto;
+}
+
+/* --- Shiki dual-theme code blocks ----------------------------------------- */
+
+/* Astro emits both light and dark styles as CSS custom properties on
+   .astro-code when shikiConfig uses `themes: {light, dark}` with
+   `defaultColor: false`. We route them via data-theme. */
+
+[data-theme="dark"] .astro-code,
+[data-theme="dark"] .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+[data-theme="light"] .astro-code,
+[data-theme="light"] .astro-code span {
+  color: var(--shiki-light) !important;
+  background-color: var(--shiki-light-bg) !important;
+  font-style: var(--shiki-light-font-style) !important;
+  font-weight: var(--shiki-light-font-weight) !important;
+  text-decoration: var(--shiki-light-text-decoration) !important;
+}
+
+/* --- Blinking cursor ------------------------------------------------------- */
+
+.cursor::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 0.1em;
+  background: var(--color-amber);
+  vertical-align: -0.12em;
+  animation: blink 1.1s step-start infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* --- Staggered reveal on load --------------------------------------------- */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: reveal 800ms cubic-bezier(0.16, 0.84, 0.34, 1) forwards;
+}
+
+.reveal-1 {
+  animation-delay: 80ms;
+}
+.reveal-2 {
+  animation-delay: 200ms;
+}
+.reveal-3 {
+  animation-delay: 340ms;
+}
+.reveal-4 {
+  animation-delay: 480ms;
+}
+
+@keyframes reveal {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Inline code ----------------------------------------------------------- */
+
+:not(pre) > code {
+  font-family: var(--font-mono);
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.9em;
+  color: var(--color-amber-bright);
+}
+
+/* --- Prose (blog post body) -----------------------------------------------
+
+  Applied via `class="prose prose-invert prose-editorial"` — tailwind-typo-
+  graphy supplies the structural rules (paragraph margins, list indents, code
+  spacing); `.prose-editorial` overrides the color tokens and typographic
+  character.
+-------------------------------------------------------------------------- */
+
+.prose-editorial {
+  /* Use the non-invert tokens — the blog wrapper applies only `.prose` so
+     these drive both light and dark. Dark = default; light is overridden
+     below via `[data-theme="light"] .prose-editorial`.
+
+     Headings: pure white in dark (maximum pop), near-black in light.
+     Bold: same — weight + colour distinct from body. Inline code uses
+     amber-bright, creating a separate visual channel. */
+  --tw-prose-body: var(--color-ink);
+  --tw-prose-headings: #ffffff;
+  --tw-prose-lead: var(--color-ink-dim);
+  --tw-prose-links: var(--color-amber);
+  --tw-prose-bold: #ffffff;
+  --tw-prose-counters: var(--color-ink-muted);
+  --tw-prose-bullets: var(--color-ink-muted);
+  --tw-prose-hr: var(--color-rule-strong);
+  --tw-prose-quotes: var(--color-ink);
+  --tw-prose-quote-borders: var(--color-amber-dim);
+  --tw-prose-captions: var(--color-ink-muted);
+  --tw-prose-code: var(--color-amber-bright);
+  --tw-prose-pre-code: var(--color-ink);
+  --tw-prose-pre-bg: var(--color-void-sunk);
+  --tw-prose-th-borders: var(--color-rule-strong);
+  --tw-prose-td-borders: var(--color-rule);
+
+  font-family: var(--font-serif);
+  font-variation-settings:
+    "opsz" 11,
+    "SOFT" 50,
+    "WONK" 0;
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+/* Paragraph rhythm — tw-typography gives us top/bottom margins; nudge for
+   a slightly roomier feel that matches the serif body. */
+.prose-editorial p {
+  margin-top: 1.35em;
+  margin-bottom: 1.35em;
+}
+
+.prose-editorial h1,
+.prose-editorial h2,
+.prose-editorial h3,
+.prose-editorial h4 {
+  font-variation-settings:
+    "opsz" 72,
+    "SOFT" 20,
+    "WONK" 1;
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+
+.prose-editorial h2 {
+  margin-top: 2.6em;
+  margin-bottom: 0.8em;
+  font-size: 1.65em;
+  border-bottom: 1px solid var(--color-rule);
+  padding-bottom: 0.35em;
+}
+
+.prose-editorial h3 {
+  margin-top: 2em;
+  margin-bottom: 0.5em;
+  font-size: 1.25em;
+}
+
+.prose-editorial strong {
+  font-weight: 650;
+  color: var(--tw-prose-bold);
+}
+
+/* --- Light-mode prose overrides ------------------------------------------- */
+[data-theme="light"] .prose-editorial {
+  /* Deep ink for headings + bold — near-black on warm paper, max legibility. */
+  --tw-prose-headings: #141208;
+  --tw-prose-body: var(--color-ink);
+  --tw-prose-bold: #141208;
+  --tw-prose-links: var(--color-amber-bright);
+  --tw-prose-code: var(--color-amber-bright);
+  --tw-prose-pre-code: var(--color-ink);
+  --tw-prose-pre-bg: var(--color-void-sunk);
+}
+
+.prose-editorial a {
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-amber-dim);
+  transition: border-color 120ms ease;
+  font-weight: 500;
+}
+
+.prose-editorial a:hover {
+  border-bottom-color: var(--color-amber);
+}
+
+/* Code blocks: distinct card with generous breathing room above/below. */
+.prose-editorial pre {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  border: 1px solid var(--color-rule);
+  border-radius: 0.5rem;
+  padding: 1rem 1.15rem;
+  font-size: 0.84rem;
+  line-height: 1.65;
+  margin-top: 1.8em;
+  margin-bottom: 1.8em;
+  overflow-x: auto;
+}
+
+/* Inline code within prose — keep lighter than pre blocks. */
+.prose-editorial :not(pre) > code {
+  font-family: var(--font-mono);
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule);
+  border-radius: 0.25rem;
+  padding: 0.08rem 0.38rem;
+  font-size: 0.88em;
+  color: var(--color-amber-bright);
+  font-weight: 500;
+}
+
+.prose-editorial blockquote {
+  font-style: italic;
+  border-left-width: 2px;
+  color: var(--color-ink-dim);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+}
+
+.prose-editorial blockquote p {
+  margin-top: 0.6em;
+  margin-bottom: 0.6em;
+}
+
+.prose-editorial ul,
+.prose-editorial ol {
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+
+.prose-editorial li {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
+.prose-editorial li > p {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
+.prose-editorial hr {
+  margin-top: 3em;
+  margin-bottom: 3em;
+}
+
+.prose-editorial kbd {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  background: var(--color-void-raised);
+  border: 1px solid var(--color-rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 0.25rem;
+  padding: 0.05rem 0.35rem;
+  color: var(--color-ink);
+}
+
+/* Drop-cap on the first paragraph — subtle editorial flourish. */
+.prose-editorial > p:first-of-type::first-letter {
+  font-variation-settings:
+    "opsz" 144,
+    "SOFT" 20,
+    "WONK" 1;
+  font-size: 3.6em;
+  line-height: 0.85;
+  float: left;
+  padding: 0.25rem 0.65rem 0 0;
+  color: var(--color-amber);
+  font-weight: 500;
+}
+
+/* Tweet embed wrapper — Twitter widgets.js replaces the blockquote with a
+   cross-origin iframe on load. The wrapper gives the iframe a sensible
+   max-width and centers it. The inner blockquote styles below apply only
+   to the brief pre-iframe render. */
+.prose-editorial .tweet-embed {
+  max-width: 550px;
+  margin: 2.5em auto;
+}
+.prose-editorial .tweet-embed blockquote.twitter-tweet {
+  margin: 0;
+  font-style: normal;
+  border: none;
+  padding: 1em 1.2em;
+  color: inherit;
+  background: var(--color-void-raised);
+  border-radius: 0.5rem;
+}
+
+/* Footnote list at end of post — distinguish visually from body paragraphs. */
+.prose-editorial section[data-footnotes] {
+  margin-top: 3em;
+  padding-top: 1.5em;
+  border-top: 1px solid var(--color-rule);
+  font-size: 0.92em;
+  color: var(--color-ink-dim);
+}
+
+.prose-editorial section[data-footnotes] ol {
+  padding-left: 1.25em;
+}

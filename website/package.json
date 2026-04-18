@@ -1,0 +1,30 @@
+{
+  "name": "kolu-website",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check": "astro check",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@fontsource-variable/fraunces": "^5.1.1",
+    "@fontsource-variable/jetbrains-mono": "^5.1.2",
+    "astro": "^6.1.8"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.8",
+    "@astrojs/mdx": "^5.0.3",
+    "@astrojs/sitemap": "^3.7.2",
+    "@tailwindcss/typography": "^0.5.16",
+    "@tailwindcss/vite": "^4.0.6",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.3"
+  }
+}
