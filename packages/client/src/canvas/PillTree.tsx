@@ -166,6 +166,16 @@ const PillTree: Component<{
                                         </span>
                                       </Show>
                                       <span class="truncate">{b.label}</span>
+                                      <Show when={b.suffix}>
+                                        {(suffix) => (
+                                          <span
+                                            data-testid="pill-tree-branch-suffix"
+                                            class="font-mono text-[0.6rem] text-fg-3 tabular-nums shrink-0"
+                                          >
+                                            {suffix()}
+                                          </span>
+                                        )}
+                                      </Show>
                                     </button>
                                   );
                                 }}

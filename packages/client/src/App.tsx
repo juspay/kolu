@@ -89,7 +89,7 @@ const App: Component = () => {
   // Pill-tree-grouped order — single source for the desktop pill tree AND
   // the mobile swipe handler so the two views never drift.
   const pillGroups = createMemo(() =>
-    groupByRepo(store.terminalIds(), store.getMetadata),
+    groupByRepo(store.terminalIds(), store.getDisplayInfo),
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 

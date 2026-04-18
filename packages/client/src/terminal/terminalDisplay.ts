@@ -7,12 +7,33 @@ import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
 export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */
   name: string;
+  /** Short id-prefix suffix ("#a3f2") rendered next to the name when
+   *  ≥2 terminals would otherwise collide on identity (same git
+   *  repo+branch, or same cwd for non-git). Undefined when the natural
+   *  name is already unique among all terminals. */
+  displaySuffix?: string;
   repoColor?: string;
   branchColor?: string;
   meta: TerminalMetadata;
   activityHistory: ActivitySample[];
   subCount: number;
 };
+
+/** Identity tuple used to detect display-collisions. Two terminals
+ *  share an identity iff this string matches — for git terminals
+ *  that's (repoName, branch); for non-git it's the cwd. */
+function identityKey(meta: TerminalMetadata): string {
+  return meta.git
+    ? `git|${meta.git.repoName}|${meta.git.branch}`
+    : `cwd|${meta.cwd}`;
+}
+
+/** Short stable suffix derived from the terminal id — first 4 chars of
+ *  the UUID. Stable across sessions; different from "#1, #2" which
+ *  would shift if a middle terminal is killed. */
+function idSuffix(id: TerminalId): string {
+  return `#${id.slice(0, 4)}`;
+}
 
 /** Assign OKLCH colors via golden-angle hue spacing.
  *  All keys share one sequence so no two get the same color. */
@@ -39,12 +60,14 @@ export function buildTerminalDisplayInfos(
 ): Map<TerminalId, TerminalDisplayInfo> {
   const repoKeys = new Set<string>();
   const branchKeys = new Set<string>();
+  const identityCounts = new Map<string, number>();
   const entries: Array<{
     id: TerminalId;
     name: string;
     meta: TerminalMetadata;
     repoKey?: string;
     branchKey?: string;
+    identity: string;
   }> = [];
 
   for (const id of ids) {
@@ -53,16 +76,21 @@ export function buildTerminalDisplayInfos(
     const name = terminalName(meta);
     const repoKey = meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
     const branchKey = meta.git?.branch;
+    const identity = identityKey(meta);
+    identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
     if (repoKey) repoKeys.add(repoKey);
     if (branchKey) branchKeys.add(branchKey);
-    entries.push({ id, name, meta, repoKey, branchKey });
+    entries.push({ id, name, meta, repoKey, branchKey, identity });
   }
 
   const unified = assignColors([...repoKeys, ...branchKeys]);
   const result = new Map<TerminalId, TerminalDisplayInfo>();
-  for (const { id, name, meta, repoKey, branchKey } of entries) {
+  for (const { id, name, meta, repoKey, branchKey, identity } of entries) {
+    const displaySuffix =
+      (identityCounts.get(identity) ?? 0) > 1 ? idSuffix(id) : undefined;
     result.set(id, {
       name,
+      displaySuffix,
       meta,
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,

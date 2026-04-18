@@ -36,6 +36,17 @@ const TerminalMeta: Component<{
             >
               {info().name}
             </span>
+            <Show when={info().displaySuffix}>
+              {(suffix) => (
+                <span
+                  data-testid="terminal-meta-suffix"
+                  class="font-mono text-xs text-fg-3 tabular-nums shrink-0"
+                  title="Identifier — distinguishes terminals that share repo + branch (or cwd)"
+                >
+                  {suffix()}
+                </span>
+              )}
+            </Show>
             <Show when={info().meta.git}>
               {(git) => (
                 <Show when={git().isWorktree}>
