@@ -3,7 +3,7 @@ set working-directory := '..'
 
 # Pinned to juspay's fork while the hook-idempotency fix (microsoft/apm#708)
 # is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
-apm_cmd := 'uvx --from git+https://github.com/juspay/apm@fix/hook-idempotent-install apm'
+apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
