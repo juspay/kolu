@@ -31,24 +31,24 @@ the code was done.
 
 ## What the two lenses are
 
-Rich Hickey's *Simple Made Easy* gives you one question: **is this
+Rich Hickey's _Simple Made Easy_ gives you one question: **is this
 complected?** Are two ideas braided together in one thing, so that to
 touch one you have to touch the other? Hickey is literal about the
 word:
 
-> Okay. So there's this really cool word called *complect*. I found
+> Okay. So there's this really cool word called _complect_. I found
 > it. I love it. It means to interleave or entwine or braid. Okay?
 > I want to start talking about what we do to our software that
 > makes it bad.
 >
-> — Rich Hickey, [*Simple Made Easy*](https://www.infoq.com/presentations/Simple-Made-Easy/) (Strange Loop, 2011)
+> — Rich Hickey, [_Simple Made Easy_](https://www.infoq.com/presentations/Simple-Made-Easy/) (Strange Loop, 2011)
 
 A [Hickey reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
 reads code the way a lockpicker reads a tumbler — looking for
 concepts that shouldn't be in the same position. The output is
 always "split these apart."
 
-Juval Löwy's *Righting Software* (2019) gives you a different
+Juval Löwy's _Righting Software_ (2019) gives you a different
 question: **what changes at a different rate than its neighbors?**
 Löwy builds on David Parnas, who had the rule fifty-four years
 ago:
@@ -57,17 +57,17 @@ ago:
 > decisions or design decisions which are likely to change. Each
 > module is then designed to hide such a decision from the others.
 >
-> — David Parnas, [*On the Criteria To Be Used in Decomposing
-> Systems into Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972)
+> — David Parnas, [_On the Criteria To Be Used in Decomposing
+> Systems into Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972)
 
 A [Löwy reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
 reads code the way an actuary reads a portfolio — looking for
 things coupled to unrelated schedules. The output is always "draw
 a boundary that encapsulates this volatility."
 
-These sound adjacent. They aren't. Hickey is a *spatial* question:
+These sound adjacent. They aren't. Hickey is a _spatial_ question:
 the code, right now, in the snapshot on the page, has a
-concept-duplication problem or it doesn't. Löwy is a *temporal*
+concept-duplication problem or it doesn't. Löwy is a _temporal_
 question: these two things will drift in the future on clocks you
 can name, and the code doesn't know that yet. You can have one
 kind of defect without the other. A module can be perfectly
@@ -83,7 +83,7 @@ In physics, space and time are not independent. They're two
 projections of one four-dimensional manifold — and different
 observers, depending on how they're moving, measure different
 mixes of the two. What looks like pure space from one frame is a
-blend of space *and* time from another. But the interval between
+blend of space _and_ time from another. But the interval between
 events is the same in every frame. The structure is real, prior to
 any observer's view of it.
 
@@ -92,7 +92,7 @@ with what, what shares a name, what occupies the same scope) is
 one projection. Its evolution (what will rev on what clock, which
 decisions will be revisited, how fast each part drifts) is
 another. The two are not independent: they're constrained by the
-same underlying fact, which is *how the code is factored*. Bad
+same underlying fact, which is _how the code is factored_. Bad
 factoring shows up in both projections, because there is only one
 structure to project from.
 
@@ -109,7 +109,7 @@ Löwy says as much himself, in an appendix on complexity:
 > resulting huge diversity in the architecture leads directly to
 > out-of-control complexity.
 >
-> — Juval Löwy, *Righting Software* (Appendix B)
+> — Juval Löwy, _Righting Software_ (Appendix B)
 
 Mis-scope the volatilities — get the temporal projection wrong —
 and what you end up holding is complected in the Hickey sense. The
@@ -130,7 +130,7 @@ Running both is not redundant. It's binocular.
 
 In PR #623, the Canvas-vs-Focus mode seam went away. Desktop is now
 always the 2D canvas; mobile is always the fullscreen-with-swipe.
-Inside that, a tile can be *maximized* — one terminal fills the
+Inside that, a tile can be _maximized_ — one terminal fills the
 viewport, double-click to toggle.
 
 The first version I shipped to the branch treated `canvasMaximized`
@@ -146,9 +146,9 @@ Then the second Hickey pass said:
 > sync spread across `useViewState`, `useSessionRestore`, and a
 > `maxHydrated` ordering flag.
 
-Translation: three concepts — *what's maximized*, *when is the
-client caught up to the server*, *how do we avoid a flash on first
-paint* — are braided into one propagation chain. You can't touch
+Translation: three concepts — _what's maximized_, _when is the
+client caught up to the server_, _how do we avoid a flash on first
+paint_ — are braided into one propagation chain. You can't touch
 any of them without thinking about the other two.
 
 Then the second Löwy pass, running independently on the same diff,
@@ -246,20 +246,20 @@ Binocular agreement is the strongest signal. The corollary: a
 finding from only one reviewer is a weaker signal, and you should
 treat it that way.
 
-If only Hickey fires, ask: *is this structural duplication actually
+If only Hickey fires, ask: _is this structural duplication actually
 going to hurt, or am I about to DRY up two things that happen to
-look alike but rev independently?* The `repoColor` helper duplicated
+look alike but rev independently?_ The `repoColor` helper duplicated
 in `PillTree.tsx` and `MobileChromeSheet.tsx` was a safe DRY — one
 semantic concept ("the canonical color for this repo") that happened
 to have two call sites. Move it to `pillTreeOrder.ts`, done. But
 I've seen Hickey-lens deduplications that collapsed two things that
-*should* rev on different clocks, and the subsequent "now I need to
+_should_ rev on different clocks, and the subsequent "now I need to
 parameterize the helper" spiral is exactly what Löwy was trying to
 prevent.
 
-If only Löwy fires, ask: *am I drawing a boundary around a real
+If only Löwy fires, ask: _am I drawing a boundary around a real
 volatility, or around something that currently happens to look
-bounded?* The `displaySuffix` collision-detection move — from
+bounded?_ The `displaySuffix` collision-detection move — from
 per-render re-derivation in the display layer to a server-side
 concern that publishes into `TerminalMetadata` — was a real Löwy
 catch. Collision detection isn't a display concern; it's a
@@ -272,13 +272,13 @@ actually revs are premature abstractions, and that's its own
 failure mode.
 
 Binocular agreement cuts through both of these second-guesses,
-because the two reviewers disagree about everything *except*
+because the two reviewers disagree about everything _except_
 whether this particular line is wrong. That disagreement is what
 gives the agreement its weight.
 
 ## How to run it
 
-One practical thing: run them as *independent* reviewers, not as
+One practical thing: run them as _independent_ reviewers, not as
 one pass. If you ask a single reader to "check for structural
 simplicity and volatility," you get a blended answer. Blended
 answers bias toward whichever axis the reader already cares about.
@@ -288,8 +288,8 @@ looking for overlap. The overlap is the signal. (Both agents ship
 in [srid/agency](https://github.com/srid/agency) as subagents your
 main Claude Code session can spawn in parallel.)
 
-Another: don't expect the reviewers to agree on *fixes*. They
-agree on *locations*. Their prescriptions diverge. Hickey wants you
+Another: don't expect the reviewers to agree on _fixes_. They
+agree on _locations_. Their prescriptions diverge. Hickey wants you
 to decouple the concepts. Löwy wants you to encapsulate the
 volatilities. Sometimes those are the same edit. Sometimes Hickey
 says "split the function" and Löwy says "move the boundary," and
@@ -305,8 +305,8 @@ compromise that fails both tests six months later.
 
 ## The line
 
-*When two independent lenses agree on a location, the fix isn't a
-polish — it's a missing split.*
+_When two independent lenses agree on a location, the fix isn't a
+polish — it's a missing split._
 
 That's the whole essay. Everything else is an existence proof: the
 `canvasMaximized` chain, the display-suffix server move, the
@@ -341,8 +341,8 @@ Ship it when both agents go quiet. Not before.
 - [**PR #623 Hickey/Löwy analysis (post-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
   — the second pass, against the finished diff. The binocular
   findings live here.
-- **The source texts.** Rich Hickey, [*Simple Made Easy*](https://www.infoq.com/presentations/Simple-Made-Easy/)
-  (2011 talk). Juval Löwy, *Righting Software* (2019). David
-  Parnas, [*On the Criteria To Be Used in Decomposing Systems into
-  Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
+- **The source texts.** Rich Hickey, [_Simple Made Easy_](https://www.infoq.com/presentations/Simple-Made-Easy/)
+  (2011 talk). Juval Löwy, _Righting Software_ (2019). David
+  Parnas, [_On the Criteria To Be Used in Decomposing Systems into
+  Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
   (1972) — still the clearest six pages on why the Löwy lens works.

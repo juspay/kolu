@@ -339,7 +339,7 @@ const App: Component = () => {
         <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
           <button
             data-testid="tile-split-toggle"
-            class={`${TILE_BUTTON_CLASS} w-7`}
+            class={`${TILE_BUTTON_CLASS} flex items-center gap-1 px-1.5`}
             classList={{ "bg-black/20": splitExpanded() }}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -361,6 +361,14 @@ const App: Component = () => {
               <rect x="3" y="3" width="18" height="18" rx="2" />
               <line x1="3" y1="13" x2="21" y2="13" />
             </svg>
+            <Show when={subCount() > 0}>
+              <span
+                data-testid="sub-count"
+                class="text-[0.65rem] tabular-nums leading-none"
+              >
+                {subCount()}
+              </span>
+            </Show>
           </button>
         </Tip>
         <Tip label="Find in terminal">
@@ -561,7 +569,6 @@ const App: Component = () => {
       <Show when={!isMobile()}>
         <ChromeBar
           status={wsStatus()}
-          appTitle={appTitle()}
           onOpenPalette={() => openPalette()}
           pillTree={
             <PillTree
@@ -573,6 +580,7 @@ const App: Component = () => {
                   if (layout) canvasViewport.centerOnTile(layout);
                 }
               }}
+              onCreate={() => openPaletteGroup("New terminal")}
             />
           }
         />
@@ -632,6 +640,7 @@ const App: Component = () => {
                 .with(false, () => (
                   <TerminalCanvas
                     tileIds={store.terminalIds()}
+                    watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     onLayoutChange={(id, layout) =>
                       crud.setCanvasLayout(id, layout)

@@ -9,6 +9,7 @@ import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 import type { AgentInfo } from "kolu-common";
+import { shortenCwd } from "../path";
 
 /** "normal" = interactive (compact text, PR links). "readonly" = display-only (larger text, no links). */
 export type TerminalMetaMode = "normal" | "readonly";
@@ -27,11 +28,14 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row */}
-          <div class={`flex items-center gap-1.5 ${nameClass()} truncate`}>
+          {/* Name row — sub-count moved to the title-bar split toggle
+           *  (one source of truth for "this tile has children"); the
+           *  activity sparkline takes that right slot so the title bar
+           *  reads name → activity → window controls in a single line. */}
+          <div class={`flex items-center gap-1.5 ${nameClass()} min-w-0`}>
             <span
               data-testid="terminal-meta-name"
-              class="truncate"
+              class="truncate min-w-0"
               style={{ color: info().repoColor }}
             >
               {info().name}
@@ -60,13 +64,21 @@ const TerminalMeta: Component<{
                 </Show>
               )}
             </Show>
-            <Show when={info().subCount > 0}>
-              <span
-                data-testid="sub-count"
-                class="ml-auto text-[0.6rem] text-fg-2 bg-fg/10 px-1 rounded shrink-0"
-              >
-                +{info().subCount}
-              </span>
+            <Show when={info().meta.cwd}>
+              {(cwd) => (
+                <span
+                  data-testid="terminal-meta-cwd"
+                  class="text-xs font-mono text-fg-3 truncate min-w-0"
+                  title={cwd()}
+                >
+                  {shortenCwd(cwd())}
+                </span>
+              )}
+            </Show>
+            <Show when={info().activityHistory.length > 0}>
+              <div class="ml-auto w-16 shrink-0">
+                <ActivityGraph samples={info().activityHistory} />
+              </div>
             </Show>
           </div>
 
@@ -173,44 +185,44 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Foreground process/title + activity sparkline (shared row) */}
+          {/* Foreground process/title row — activity sparkline lives on
+           *  the name row now (item #5), so this row carries only the
+           *  OSC 2 process title when present. Suppressed when the agent
+           *  summary row above already shows a near-duplicate string, or
+           *  when the title is just the cwd (already displayed on row 1). */}
           <Show
-            when={info().meta.foreground || info().activityHistory.length > 0}
+            when={
+              !(info().meta.agent && info().meta.agent!.summary) &&
+              info().meta.foreground
+            }
           >
-            <div
-              class="flex items-center gap-2 min-w-0 mt-1"
-              classList={{
-                "mt-auto": mode() === "readonly",
-              }}
-            >
-              {/* Suppress the OSC 2 title when the agent summary row is
-               *  already shown above — the two texts are near-duplicates
-               *  (SDK summary vs agent's live activity indicator) and
-               *  stacking them eats vertical space for no new information.
-               *  `A && B` returns B when A is truthy, so `Show` narrows
-               *  `fg` to the foreground value directly. */}
-              <Show
-                when={
-                  !(info().meta.agent && info().meta.agent!.summary) &&
-                  info().meta.foreground
-                }
-              >
-                {(fg) => (
-                  <span
-                    class="text-xs text-fg-3 truncate min-w-0 flex-1"
-                    data-testid="process-name"
-                    title={fg().title ?? fg().name}
+            {(fg) => {
+              const text = () => fg().title ?? fg().name;
+              const isCwd = () => {
+                const cwd = info().meta.cwd;
+                if (!cwd) return false;
+                const t = text();
+                return t === cwd || t === shortenCwd(cwd);
+              };
+              return (
+                <Show when={!isCwd()}>
+                  <div
+                    class="flex items-center gap-2 min-w-0 mt-1"
+                    classList={{
+                      "mt-auto": mode() === "readonly",
+                    }}
                   >
-                    {fg().title ?? fg().name}
-                  </span>
-                )}
-              </Show>
-              <Show when={info().activityHistory.length > 0}>
-                <div class="ml-auto w-16 shrink-0">
-                  <ActivityGraph samples={info().activityHistory} />
-                </div>
-              </Show>
-            </div>
+                    <span
+                      class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                      data-testid="process-name"
+                      title={text()}
+                    >
+                      {text()}
+                    </span>
+                  </div>
+                </Show>
+              );
+            }}
           </Show>
         </>
       )}

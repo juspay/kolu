@@ -115,10 +115,16 @@ const CanvasTile: Component<{
       {/* Title bar — uses tile foreground at low opacity for guaranteed
        *  contrast against the tile background, regardless of theme. The
        *  drag activators only attach when tiled — a maximized tile shouldn't
-       *  start a drag on grab. Double-click toggles maximize. */}
+       *  start a drag on grab. Double-click toggles maximize.
+       *
+       *  Layout is `items-start` so window controls hug the top edge even
+       *  when the title block grows multi-row (branch + PR + agent rows).
+       *  Title actions are wrapped in a top-aligned cluster so split /
+       *  search / screenshot / maximize / close all sit on row 1, and the
+       *  identity rows stack below the name. */}
       <div
         data-testid="canvas-tile-titlebar"
-        class="flex items-center gap-2 px-3 py-1.5 shrink-0 select-none"
+        class="flex items-start gap-2 px-3 py-1.5 shrink-0 select-none"
         classList={{
           "cursor-grab active:cursor-grabbing": !props.maximized,
         }}
@@ -139,53 +145,42 @@ const CanvasTile: Component<{
         }}
         {...(props.maximized ? {} : draggable.dragActivators)}
       >
-        {/* Traffic-lights — purely decorative (close already lives at the
-         *  end of the bar, drag is the whole title bar). Hidden on maximized
-         *  tiles to keep the chrome lean. */}
-        <Show when={!props.maximized}>
-          <div
-            class="flex items-center gap-1 shrink-0 pointer-events-none"
-            aria-hidden="true"
-          >
-            <span class="w-2.5 h-2.5 rounded-full bg-[#ff5f57]/80" />
-            <span class="w-2.5 h-2.5 rounded-full bg-[#febc2e]/80" />
-            <span class="w-2.5 h-2.5 rounded-full bg-[#28c840]/80" />
-          </div>
-        </Show>
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
-        {props.renderTitleActions?.()}
-        <button
-          data-testid="canvas-tile-maximize"
-          class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20"
-          style={{
-            color: tileChromeButton(props.theme),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onToggleMaximize();
-          }}
-          title={props.maximized ? "Restore to canvas" : "Maximize"}
-        >
-          <Show when={props.maximized} fallback={<MaximizeIcon />}>
-            <RestoreIcon />
-          </Show>
-        </button>
-        <button
-          data-testid="canvas-tile-close"
-          class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
-          style={{
-            color: tileChromeButton(props.theme),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            props.onClose();
-          }}
-          title="Close terminal"
-        >
-          ×
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          {props.renderTitleActions?.()}
+          <button
+            data-testid="canvas-tile-maximize"
+            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20"
+            style={{
+              color: tileChromeButton(props.theme),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onToggleMaximize();
+            }}
+            title={props.maximized ? "Restore to canvas" : "Maximize"}
+          >
+            <Show when={props.maximized} fallback={<MaximizeIcon />}>
+              <RestoreIcon />
+            </Show>
+          </button>
+          <button
+            data-testid="canvas-tile-close"
+            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20 text-sm"
+            style={{
+              color: tileChromeButton(props.theme),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onClose();
+            }}
+            title="Close terminal"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Tile body — injected by caller */}

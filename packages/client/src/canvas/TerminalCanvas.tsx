@@ -58,6 +58,10 @@ function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
 
 const TerminalCanvas: Component<{
   tileIds: TerminalId[];
+  /** Optional corner watermark (e.g. `kolu@host`) painted in the
+   *  top-left of the canvas. Stays outside the pan/zoom transform so
+   *  it reads as a fixed identity mark on the surface, not a tile. */
+  watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
@@ -243,9 +247,10 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // On first mount at the default origin, pan so the tile bounding box is
-  // centered — prevents restored sessions (whose tiles may live far from
-  // (0,0)) from opening with the viewport empty.
+  // On first mount at the default origin, pan so the persisted active tile
+  // is centered (matches what a pill-tree click does). If there's no
+  // active tile, fall back to centering the bounding box of all tiles so
+  // restored sessions whose tiles live far from (0,0) don't open empty.
   let containerRef!: HTMLDivElement;
   const isDefaultViewport = () =>
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
@@ -253,6 +258,12 @@ const TerminalCanvas: Component<{
   createEffect(() => {
     const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
+    const active = store.activeId();
+    const activeLayout = active ? layoutOf(active) : undefined;
+    if (activeLayout) {
+      requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
+      return;
+    }
     let minX = Infinity,
       minY = Infinity,
       maxX = -Infinity,
@@ -287,6 +298,22 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
+        {/* Identity watermark — top-left, just below the chrome bar so
+         *  it doesn't collide with the logo. The chrome bar is ~44px tall
+         *  in overlay mode; `top-12` (48px) clears it with a hairline of
+         *  breathing room. Low opacity, mono; pointer-events-none so
+         *  drags/clicks pass through to the canvas. */}
+        <Show when={props.watermark}>
+          {(text) => (
+            <div
+              data-testid="canvas-watermark"
+              aria-hidden="true"
+              class="absolute top-12 left-3 z-0 font-mono text-[0.7rem] tracking-wide text-fg-3/40 pointer-events-none select-none"
+            >
+              {text()}
+            </div>
+          )}
+        </Show>
         {/* renderTile: one definition shared by tiled and maximized
          *  branches — the only difference is the `maximized` boolean
          *  and (for tiled) the active-state read derived from store. */}

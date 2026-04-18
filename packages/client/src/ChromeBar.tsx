@@ -34,7 +34,6 @@ const statusStyles: Record<WsStatus, string> = {
 
 const ChromeBar: Component<{
   status: WsStatus;
-  appTitle: string;
   onOpenPalette: () => void;
   /** Pill tree slot — caller composes `<PillTree ... />`. ChromeBar
    *  is a layout host (logo + tree + controls); it doesn't need to
@@ -73,12 +72,18 @@ const ChromeBar: Component<{
         "relative shrink-0": docked(),
       }}
     >
-      {/* Identity: logo + app name + connection dot */}
+      {/* Identity: logo (→ kolu.dev) + connection dot. App name lives as
+       *  a corner watermark on the canvas, not in the chrome. */}
       <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
-        <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
-        <span class="font-semibold text-sm hidden sm:inline">
-          {props.appTitle}
-        </span>
+        <a
+          href="https://kolu.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center"
+          aria-label="kolu.dev"
+        >
+          <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
+        </a>
         <Tip label="Connection status">
           <span
             data-ws-status={props.status}

@@ -34,10 +34,10 @@ const RightPanel: Component<{
   return (
     <div
       data-testid="right-panel"
-      class="flex flex-col h-full min-w-0 overflow-hidden bg-gradient-to-b from-surface-0 to-surface-1/20 border-l border-edge"
+      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
     >
       {/* Tab bar */}
-      <div class="flex items-center h-8 shrink-0 bg-surface-1/50 border-b border-edge">
+      <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
         <For each={TAB_KINDS}>
           {(kind) => (
             <button

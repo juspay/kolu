@@ -419,3 +419,15 @@ export const WorktreeIcon: Component<{ class?: string }> = (props) => (
     />
   </svg>
 );
+
+export const PlusIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+  >
+    <path stroke-linecap="round" d="M12 5v14M5 12h14" />
+  </svg>
+);
