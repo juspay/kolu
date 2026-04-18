@@ -1,5 +1,5 @@
 ---
-title: "Two lenses, one line"
+title: "Two lenses, one invariant"
 description: "When Hickey's structural-simplicity lens and Löwy's volatility lens flag the same line of code, trust the finding more than either agent alone."
 pubDate: 2026-04-19
 author: "Sridhar Ratnakumar"
@@ -10,11 +10,11 @@ flag the same line of code, trust the finding more than either agent
 alone._
 
 The best refactor signal I've found in code review this year is when
-two independent reviewers, aimed at different axes of complexity, flag
-the same line. Not the same kind of problem. The same line. When
-Rich Hickey's "what's braided together" lens and Juval Löwy's "what
-changes at different rates" lens both point at it, you're not looking
-at a style issue. You're looking at a missing split.
+two independent reviewers, aimed at different axes, flag the same
+line. Not the same kind of problem. The same line. When Rich
+Hickey's "what's braided together" lens and Juval Löwy's "what
+changes at different rates" lens both point at it, you're not
+looking at a style issue. You're looking at a missing split.
 
 I'll name it: **binocular agreement.** Two eyes, different angles,
 converging on one point. When it happens the fix is almost never a
@@ -65,18 +65,66 @@ reads code the way an actuary reads a portfolio — looking for
 things coupled to unrelated schedules. The output is always "draw
 a boundary that encapsulates this volatility."
 
-These sound adjacent. They aren't. Hickey is a *timeless structural*
-question: the code, right now, has a concept-duplication problem or
-it doesn't. Löwy is a *temporal* question: these two things will
-drift in the future on clocks you can name, and the code doesn't
-know that yet. You can have one without the other. A module can be
-perfectly uncomplected and still be a volatility time-bomb — one
-clean concept that happens to fuse three things that will rev
+These sound adjacent. They aren't. Hickey is a *spatial* question:
+the code, right now, in the snapshot on the page, has a
+concept-duplication problem or it doesn't. Löwy is a *temporal*
+question: these two things will drift in the future on clocks you
+can name, and the code doesn't know that yet. You can have one
+kind of defect without the other. A module can be perfectly
+uncomplected and still be a volatility time-bomb — one clean
+concept that happens to fuse three things that will rev
 independently. A module can be volatility-safe and still be
 complected — one cleanly-bounded boundary with two unrelated
 concepts braided inside.
 
-Which is why running both is not redundant. It's binocular.
+## The spacetime of code
+
+In physics, space and time are not independent. They're two
+projections of one four-dimensional manifold — and different
+observers, depending on how they're moving, measure different
+mixes of the two. What looks like pure space from one frame is a
+blend of space *and* time from another. But the interval between
+events is the same in every frame. The structure is real, prior to
+any observer's view of it.
+
+Code has a spacetime too. A module's current shape (what's braided
+with what, what shares a name, what occupies the same scope) is
+one projection. Its evolution (what will rev on what clock, which
+decisions will be revisited, how fast each part drifts) is
+another. The two are not independent: they're constrained by the
+same underlying fact, which is *how the code is factored*. Bad
+factoring shows up in both projections, because there is only one
+structure to project from.
+
+Hickey's lens is a space-like observer. It reads the code as a
+snapshot: what's tangled right now? Löwy's lens is a time-like
+observer. It reads the same code as a world-line: what will pull
+apart, and when? Neither observer has access to the other's view
+directly. They are measuring different axes of the same object.
+
+Löwy says as much himself, in an appendix on complexity:
+
+> Functional decomposition is as diverse as the required
+> functionality across all customers and points in time. The
+> resulting huge diversity in the architecture leads directly to
+> out-of-control complexity.
+>
+> — Juval Löwy, *Righting Software* (Appendix B)
+
+Mis-scope the volatilities — get the temporal projection wrong —
+and what you end up holding is complected in the Hickey sense. The
+temporal defect becomes a spatial one. These are not two problems
+but two readings of the same invariant.
+
+Which is why binocular agreement is not a coincidence. When two
+independent observers converge on the same line of code, it means
+the spatial projection and the temporal projection both register a
+feature at the same coordinate. They have triangulated something
+that lives in the code's structure, not in one observer's frame. A
+single-lens finding can be a projection artifact. Binocular
+agreement never is.
+
+Running both is not redundant. It's binocular.
 
 ## The `canvasMaximized` case
 
@@ -164,27 +212,30 @@ The other findings in the second pass weren't binocular. Each hit
 on one axis, not both, and they're useful precisely because they
 show you what each lens catches alone.
 
-**Hickey-only.** `CanvasTile`'s prop set was spelled out twice —
-once in the tiled `<For>` branch, once in the maximized `<Show>`
-branch. Every `theme`, `activity`, `renderTitle` prop repeated in
-two places. Not a volatility issue: both branches will rev
-together, always, by definition. Pure structural duplication.
-[Extracted `renderTile(id, maximized)`](https://github.com/juspay/kolu/commit/22e42c9) —
-one helper, two call sites. Löwy had nothing to say here and
+**Hickey-only (a purely spatial defect).** `CanvasTile`'s prop set
+was spelled out twice — once in the tiled `<For>` branch, once in
+the maximized `<Show>` branch. Every `theme`, `activity`,
+`renderTitle` prop repeated in two places. No temporal signal here:
+both branches rev together, always, by definition. The defect
+exists in the snapshot and nowhere else. [Extracted
+`renderTile(id, maximized)`](https://github.com/juspay/kolu/commit/22e42c9)
+— one helper, two call sites. Löwy had nothing to say and
 shouldn't have.
 
-**Löwy-only.** `getDisplayInfo` and `getTileTheme` were being
-drilled as props through `App.tsx → ChromeBar → PillTree`.
-Structurally, prop-drilling is not complecting — each hop passes a
-closure through cleanly. But Kolu has an explicit
+**Löwy-only (a purely temporal defect).** `getDisplayInfo` and
+`getTileTheme` were being drilled as props through `App.tsx →
+ChromeBar → PillTree`. Structurally, prop-drilling is not
+complected — each hop passes a closure through cleanly. The
+snapshot looks fine. But Kolu has an explicit
 `no-preference-prop-drilling` rule precisely because this shape of
 data has a different volatility from the component tree:
-preferences and store lookups change via the user, the tree changes
-via product design. A rule that looks like a style rule is actually
-a volatility encapsulation. [Promoted `useTerminalStore` and
-`useThemeManager` to `createRoot`-cached singletons](https://github.com/juspay/kolu/commit/22e42c9) —
-190 insertions, 233 deletions. Another net negative. Hickey had
-nothing to say here and shouldn't have.
+preferences and store lookups change on the user's clock; the tree
+changes on the product designer's clock. A rule that looks like a
+style rule is a volatility encapsulation. [Promoted
+`useTerminalStore` and `useThemeManager` to `createRoot`-cached
+singletons](https://github.com/juspay/kolu/commit/22e42c9) — 190
+insertions, 233 deletions. Another net negative. Hickey had
+nothing to say and shouldn't have.
 
 Two lenses, each catching the thing the other can't. The reason to
 keep running both is not that they overlap. It's that they don't.
