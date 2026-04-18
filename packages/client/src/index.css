@@ -37,8 +37,6 @@ body {
   --color-warning: #facc15;
   --color-danger: #f87171;
   --color-busy: #d97757;
-
-  --animate-activity-pulse: activity-pulse 600ms ease-out;
 }
 
 /* ── Light mode (default when .dark is absent) ───────────────── */
@@ -64,38 +62,9 @@ body {
   --color-busy: #c4623e;
 }
 
-/* Brief pulse when a terminal becomes active in the background */
-@keyframes activity-pulse {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.5);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* Slim sidebar scrollbar — only visible when content actually overflows */
-.sidebar-scroll {
-  scrollbar-width: thin; /* Firefox */
-  scrollbar-color: var(--color-edge) transparent;
-  &::-webkit-scrollbar {
-    width: 6px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background-color: var(--color-edge);
-    border-radius: 3px;
-  }
-}
-
 /* ── Spinning border animation ───────────────────────────────── */
-/* Conic gradient rotates behind the card; the card masks the center,
-   leaving a thin animated "tire" border visible around the edges. */
+/* Drives `pill-border-spin` below: a conic gradient rotates around
+   the pill, leaving an animated "tire" ring via mask-composite. */
 
 @property --spin-angle {
   syntax: "<angle>";
@@ -106,58 +75,6 @@ body {
 @keyframes border-spin {
   to {
     --spin-angle: 360deg;
-  }
-}
-
-/* Base wrapper — positions the spinning gradient behind the card */
-.card-border-wrap {
-  position: relative;
-  padding: 2px; /* border thickness */
-  background: var(--color-surface-0);
-}
-
-/* Active wrapper bleeds to the right edge — no right border channel */
-.card-border-wrap.card-active {
-  padding-right: 0;
-}
-
-/* Active card depth + identity:
- *   - dark drop shadow for elevation in dark themes
- *   - repo-colored outer glow that's always visible (any theme)
- *   - subtle inset highlight on top edge for "lifted" feel
- */
-.card-active-shadow {
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    0 0 0 2px oklch(from var(--card-color) l c h / 0.4),
-    0 0 16px oklch(from var(--card-color) l c h / 0.35);
-}
-
-/* Spinning states — all use --card-color (the terminal's repo color) */
-.card-border-wrap.card-spin-active {
-  background:
-    conic-gradient(
-      from var(--spin-angle),
-      transparent 0%,
-      oklch(from var(--card-color) l calc(c * 1.3) h) 8%,
-      transparent 16%,
-      transparent 100%
-    ),
-    oklch(from var(--card-color) l c h / 0.4);
-  animation: border-spin 2s linear infinite;
-}
-
-.card-border-wrap.card-spin-waiting {
-  animation: border-breathe 1.6s ease-in-out infinite;
-}
-
-@keyframes border-breathe {
-  0%,
-  100% {
-    background: oklch(from var(--card-color) l c h / 0.1);
-  }
-  50% {
-    background: oklch(from var(--card-color) l calc(c * 1.2) h / 0.9);
   }
 }
 
