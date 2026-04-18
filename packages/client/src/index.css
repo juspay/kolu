@@ -161,6 +161,72 @@ body {
   }
 }
 
+/* ── Pill agent border ──────────────────────────────────────── */
+/* Single border channel encoding both `active` (which terminal is
+ * focused) and `agent state` (what its agent is doing right now).
+ * The ::before pseudo sits 2px outside the pill and uses the standard
+ * mask-composite trick so only the ring is visible — the pill's own
+ * background covers the inner area. `--card-color` is set per-pill
+ * (repo color) so the border doubles as identity.
+ *
+ * Reuses --spin-angle / @keyframes border-spin from above. */
+
+.pill-border {
+  position: relative;
+}
+.pill-border::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 9999px;
+  padding: 2px;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.pill-border-active::before {
+  background: oklch(from var(--card-color) l c h / 0.8);
+}
+
+.pill-border-spin::before {
+  background:
+    conic-gradient(
+      from var(--spin-angle),
+      transparent 0%,
+      oklch(from var(--card-color) l calc(c * 1.3) h) 8%,
+      transparent 16%,
+      transparent 100%
+    ),
+    oklch(from var(--card-color) l c h / 0.4);
+  animation: border-spin 2s linear infinite;
+}
+
+.pill-border-waiting::before {
+  animation: pill-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes pill-breathe {
+  0%,
+  100% {
+    background: oklch(from var(--card-color) l c h / 0.15);
+  }
+  50% {
+    background: oklch(from var(--card-color) l calc(c * 1.2) h / 0.85);
+  }
+}
+
+/* Inset highlight: marks the pill as ALSO the active terminal when
+ * the border is already busy showing agent state. Sits inside the
+ * pill so it doesn't compete with the outer animated ring. */
+.pill-glow-inner {
+  box-shadow: inset 0 0 0 1px
+    oklch(from var(--card-color) l calc(c * 1.5) h / 0.7);
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */

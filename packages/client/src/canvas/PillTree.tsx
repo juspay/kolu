@@ -11,6 +11,7 @@
  *  so the parent→child relationship reads as a tree, not a soup. */
 
 import { type Component, For, Show, createMemo } from "solid-js";
+import { match, P } from "ts-pattern";
 import type { TerminalId } from "kolu-common";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { PillRepoGroup, PillBranch } from "./pillTreeOrder";
@@ -124,8 +125,7 @@ const PillTree: Component<{
                             class="items-center gap-1"
                             classList={{
                               flex: rowIdx() === 0,
-                              "hidden group-hover/pill-tree:flex":
-                                rowIdx() > 0,
+                              "hidden group-hover/pill-tree:flex": rowIdx() > 0,
                             }}
                           >
                             <span
@@ -153,6 +153,31 @@ const PillTree: Component<{
                                   // pre-#622 sidebar affordance).
                                   const tooltip = () =>
                                     info()?.meta.cwd ?? b.label;
+                                  // Single border channel: encodes BOTH
+                                  // active-ness and agent state. Border
+                                  // animation = agent state (spin /
+                                  // breathe / solid); inner glow = also
+                                  // the focused terminal.
+                                  const borderClass = () =>
+                                    match([active(), agentState()] as const)
+                                      .with(
+                                        [P._, P.union("thinking", "tool_use")],
+                                        ([a]) =>
+                                          a
+                                            ? "pill-border pill-border-spin pill-glow-inner"
+                                            : "pill-border pill-border-spin",
+                                      )
+                                      .with([P._, "waiting"], ([a]) =>
+                                        a
+                                          ? "pill-border pill-border-waiting pill-glow-inner"
+                                          : "pill-border pill-border-waiting",
+                                      )
+                                      .with(
+                                        [true, undefined],
+                                        () => "pill-border pill-border-active",
+                                      )
+                                      .with([false, undefined], () => "")
+                                      .exhaustive();
                                   return (
                                     <button
                                       data-testid="pill-tree-branch"
@@ -160,12 +185,15 @@ const PillTree: Component<{
                                       data-active={active() ? "" : undefined}
                                       data-unread={unread() ? "" : undefined}
                                       data-agent-state={agentState()}
-                                      class="relative flex items-center gap-1 px-2 h-6 rounded-full text-xs transition-shadow cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] truncate"
+                                      class={`flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${borderClass()}`}
                                       classList={{
-                                        "ring-2 ring-accent/80 shadow":
-                                          active(),
+                                        // Hover ring only when no other
+                                        // border is doing work — a tiny
+                                        // discoverability cue for idle,
+                                        // unfocused pills. Doesn't fight
+                                        // the animated pseudo-border.
                                         "hover:ring-1 hover:ring-edge/60":
-                                          !active(),
+                                          !active() && !agentState(),
                                       }}
                                       style={{
                                         // Pill bg = terminal's BG color,
@@ -176,6 +204,13 @@ const PillTree: Component<{
                                         // brightness of full inversion.
                                         "background-color": theme().bg,
                                         color: theme().fg,
+                                        // --card-color drives the pseudo
+                                        // border's color (spin / breathe /
+                                        // solid). Repo color so the border
+                                        // doubles as identity.
+                                        "--card-color":
+                                          info()?.repoColor ??
+                                          "var(--color-accent)",
                                       }}
                                       onClick={() => props.onSelect(b.id)}
                                       title={tooltip()}
@@ -189,7 +224,9 @@ const PillTree: Component<{
                                           <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
                                         </span>
                                       </Show>
-                                      <span class="truncate">{b.label}</span>
+                                      <span class="truncate min-w-0">
+                                        {b.label}
+                                      </span>
                                       <Show when={b.suffix}>
                                         {(suffix) => (
                                           <span
