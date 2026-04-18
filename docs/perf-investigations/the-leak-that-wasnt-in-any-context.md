@@ -31,10 +31,10 @@ Code](https://claude.com/claude-code) did the agent-side work.
 
 ## First pass: the bus-stop fix
 
-The first pass at the leak happened earlier that day, [from a bus
-stop and on the bus](https://x.com/sridca/status/2045164268341895434),
+The first pass at the leak happened earlier that day [on the bus to
+the swimming pool, then again checking it on the way back](https://x.com/sridca/status/2045164268341895434),
 typing instructions to Claude Code on my phone and watching retainer
-walks come back between WhatsApp messages. That pass found a
+walks come back between stops. That pass found a
 dispose-registration gap inside xterm itself: two `MutableDisposable`
 fields in `RenderService` and `WebglRenderer` were declared with `=
 new MutableDisposable()` but never wrapped in `this._register(...)`.
@@ -83,24 +83,32 @@ Chrome Task Manager showed no change. Zero. Identical to before.
 ## What I was actually measuring
 
 Chrome's [Task Manager](https://developer.chrome.com/docs/devtools/memory)
-(`⇧⎋`) shows, per-tab, the number the operating system assigns to the
-tab process. It includes:
+(`⇧⎋`) has three columns that matter for a tab: `JavaScript Memory`,
+`GPU Memory`, and `Memory Footprint`. The first two are what they
+sound like. `Memory Footprint` is the one that matters: the total
+resident size the operating system assigns to the tab's renderer
+process. It's an aggregate — it rolls up the JS heap, the GPU
+textures, Chrome's per-renderer baseline (~100-150 MB), V8's code
+cache, and a category that isn't called out as its own column but
+turned out to be the big one here:
 
-- The live JavaScript heap (post-GC).
-- GPU memory — textures, compositor layers.
-- The renderer's baseline, ~100-150 MB.
-- **Native-side DOM state.** SVG element attributes, detached
-  canvases, and — this turned out to matter — [`ArrayBuffer`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer)
-  backing stores. This is the layer that holds the actual bytes of a
-  typed array, sitting outside what [`performance.memory`](https://web.dev/articles/monitor-total-page-memory-usage)
-  can see.
-- V8's code cache.
+**Native-side state backing the DOM and typed-array objects.** SVG
+element attributes, detached canvases, and — the one that mattered —
+[`ArrayBuffer`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer)
+backing stores. An `ArrayBuffer` is the raw byte block that a typed
+array (a `Uint32Array` etc.) is a typed view of; it lives outside
+what [`performance.memory`](https://web.dev/articles/monitor-total-page-memory-usage)
+can see. Kilobytes of typed-array object metadata in the JS heap can
+correspond to megabytes of `ArrayBuffer` bytes in the native heap.
+The JS-side instance count tells you how many arrays exist; the
+aggregate `Memory Footprint` tells you how much memory they actually
+cost.
 
-`system/Context` count is a sub-metric of the first bullet. Reducing
-it by 89% is meaningful if that's where the leak is. It's invisible
-if the leak is in the fourth bullet.
+`system/Context` count is a JS-heap metric. Reducing it by 89% is
+meaningful if the leak is there. It's invisible if the leak is in
+native-side `ArrayBuffer` bytes.
 
-The leak was in the fourth bullet.
+The leak was in native-side `ArrayBuffer` bytes.
 
 ## The one-line fix that took hours to find
 
