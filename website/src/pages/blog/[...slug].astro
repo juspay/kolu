@@ -1,0 +1,81 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => `${base}${p}` || '/';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('blog');
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content, remarkPluginFrontmatter } = await render(post);
+
+const minutesRead = remarkPluginFrontmatter?.minutesRead;
+---
+
+<BaseLayout title={post.data.title} description={post.data.description}>
+  <article class="mx-auto max-w-[44rem] px-6 pt-20 pb-24">
+    <header class="mb-14">
+      <a
+        href={href('/blog')}
+        class="mono text-[0.72rem] text-ink-muted hover:text-amber transition-colors tracking-widest"
+      >
+        ← all posts
+      </a>
+
+      <h1 class="display mt-8 text-[2.8rem] md:text-[3.6rem] text-ink">
+        {post.data.title}
+      </h1>
+
+      <div class="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2 mono text-[0.72rem] text-ink-muted tracking-widest">
+        <time datetime={post.data.pubDate.toISOString()}>
+          {
+            post.data.pubDate
+              .toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: '2-digit',
+              })
+              .toUpperCase()
+          }
+        </time>
+        <span class="text-ink-faint">·</span>
+        <span>{post.data.author}</span>
+        {
+          minutesRead && (
+            <>
+              <span class="text-ink-faint">·</span>
+              <span>{minutesRead}</span>
+            </>
+          )
+        }
+      </div>
+    </header>
+
+    <div class="prose-editorial">
+      <Content />
+    </div>
+
+    <footer class="mt-20 pt-8 border-t border-rule flex items-center justify-between">
+      <a
+        href={href('/blog')}
+        class="mono text-[0.72rem] text-ink-dim hover:text-amber transition-colors tracking-widest"
+      >
+        ← all posts
+      </a>
+      <a
+        href="https://github.com/juspay/kolu"
+        rel="noopener"
+        class="mono text-[0.72rem] text-ink-dim hover:text-amber transition-colors tracking-widest"
+      >
+        github ↗
+      </a>
+    </footer>
+  </article>
+</BaseLayout>

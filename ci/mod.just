@@ -26,8 +26,10 @@ _linux:
 
 # Runs post-nix steps in parallel. Within the same just process, their
 # `: nix` deps are already satisfied, so nix is not rebuilt.
+# `website` has its own flake (zero shared deps with the main kolu build)
+# so it doesn't need `: nix` — just runs in parallel with the fanout.
 [parallel]
-_linux-fanout: home-manager e2e
+_linux-fanout: home-manager e2e website
 
 [parallel]
 _darwin-fanout: e2e
@@ -56,6 +58,11 @@ nix:
 
 home-manager: nix
     just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
+
+# Build the Astro static site (website/ has its own zero-input flake).
+# Output artefact is what .github/workflows/pages.yml uploads to GitHub Pages.
+website:
+    just ci::_devour-flake website --override-input flake ./website
 
 typecheck:
     just ci::_run typecheck just check

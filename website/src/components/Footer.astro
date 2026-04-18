@@ -1,0 +1,31 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-rule mt-28">
+  <div
+    class="mx-auto max-w-[68rem] px-6 py-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6"
+  >
+    <div>
+      <p class="eyebrow mb-2">colophon</p>
+      <p class="text-ink-dim max-w-md leading-relaxed text-[0.95rem]">
+        Named after <a
+          class="text-ink border-b border-amber-dim hover:border-amber transition-colors"
+          href="https://en.wikipedia.org/wiki/Golu_(festival)"
+          rel="noopener">கோலு</a
+        >, the South Indian tradition of arranging figures on tiered steps.
+      </p>
+    </div>
+
+    <div class="mono text-[0.72rem] text-ink-muted space-y-1 md:text-right">
+      <div>© {year} · AGPL-3.0</div>
+      <div>
+        <a
+          href="https://github.com/juspay/kolu"
+          rel="noopener"
+          class="hover:text-amber transition-colors">github.com/juspay/kolu</a
+        >
+      </div>
+    </div>
+  </div>
+</footer>

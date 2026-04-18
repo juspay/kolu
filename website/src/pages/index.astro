@@ -1,0 +1,282 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { getCollection } from 'astro:content';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => `${base}${p}` || '/';
+
+const posts = (await getCollection('blog')).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
+);
+const latest = posts[0];
+
+// Features: numbered, mono-labelled. One row breaks the 2-col grid (the first
+// tile spans 2 cols on large screens) — the rest align to a calm rhythm.
+const features = [
+  {
+    num: '01',
+    key: 'agent-agnostic',
+    title: 'Agent-agnostic, by design',
+    body: "The terminal is the universal interface. claude, opencode, aider, or whatever ships next week all work the same way — because they're just programs you run in a shell. No adapters, no registry, no vendor lock-in.",
+    wide: true,
+  },
+  {
+    num: '02',
+    key: 'zero-setup',
+    title: 'Zero setup',
+    body: 'Kolu populates its UI from what you already do. Recent repos track your cd events. Run an agent CLI once — it appears in the palette the next time you need it.',
+  },
+  {
+    num: '03',
+    key: 'canvas-mode',
+    title: 'Canvas mode',
+    body: 'Drag terminals around an infinite 2D canvas like desktop windows. Pan, zoom, snap-to-grid. Or stick with the classic sidebar layout — your call.',
+  },
+  {
+    num: '04',
+    key: 'agent-status',
+    title: 'Live agent status',
+    body: 'Detects Claude Code and OpenCode sessions: thinking, tool use, waiting. Surfaced in header and sidebar with session titles and activity sparklines.',
+  },
+  {
+    num: '05',
+    key: 'git-aware',
+    title: 'Git & GitHub aware',
+    body: "Repo name, branch, PR number, CI status derived from each terminal's CWD. Worktree create + agent launch in one palette step.",
+  },
+  {
+    num: '06',
+    key: 'xterm',
+    title: 'Terminals done right',
+    body: 'xterm.js with WebGL rendering, clickable URLs, inline images (sixel, iTerm2, kitty), splits, tabs, 200+ themes, and a mobile key bar for touch devices.',
+  },
+];
+---
+
+<BaseLayout title="kolu">
+  <!-- ── HERO ─────────────────────────────────────────────────────────── -->
+  <section class="mx-auto max-w-[68rem] px-6 pt-24 pb-20 md:pt-36 md:pb-28 relative">
+    <!-- Decorative corner glyphs — evoke ASCII box drawing, very restrained -->
+    <span
+      aria-hidden="true"
+      class="absolute top-12 left-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
+    >
+      ┌ kolu
+    </span>
+    <span
+      aria-hidden="true"
+      class="absolute top-12 right-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
+    >
+      v0.1 ┐
+    </span>
+
+    <p class="eyebrow reveal reveal-1">an agentic development environment</p>
+
+    <h1
+      class="display reveal reveal-2 mt-5 text-[3.4rem] sm:text-[4.6rem] md:text-[6rem] max-w-4xl"
+    >
+      A browser cockpit <span class="text-amber">for</span>
+      <br class="hidden sm:block" />coding agents<span class="cursor" aria-hidden="true"></span>
+    </h1>
+
+    <p
+      class="reveal reveal-3 mt-10 max-w-xl text-lg leading-relaxed text-ink-dim"
+      style="font-variation-settings: 'opsz' 14, 'SOFT' 60;"
+    >
+      Bring your own CLI, run it anywhere. Kolu treats the terminal as the
+      universal interface — so <span class="mono text-ink">claude</span>, <span
+        class="mono text-ink">opencode</span
+      >, <span class="mono text-ink">aider</span>, or whatever ships next week
+      all work the same way.
+    </p>
+
+    <div class="reveal reveal-4 mt-10 flex flex-wrap items-center gap-3">
+      <a
+        href="#run"
+        class="inline-flex items-center gap-2 rounded-sm bg-amber text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-amber-bright transition-colors"
+      >
+        <span aria-hidden="true">$</span> run with nix
+      </a>
+      <a
+        href="https://github.com/juspay/kolu"
+        rel="noopener"
+        class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
+      >
+        <svg viewBox="0 0 16 16" class="size-3.5 fill-current" aria-hidden="true">
+          <path
+            d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
+          ></path>
+        </svg>
+        juspay/kolu
+      </a>
+    </div>
+  </section>
+
+  <!-- ── DIVIDER ──────────────────────────────────────────────────────── -->
+  <div class="mx-auto max-w-[68rem] px-6 my-4 flex items-center gap-4 text-ink-faint">
+    <span class="flex-1 h-px bg-rule"></span>
+    <span class="mono text-[0.7rem] tracking-widest">§</span>
+    <span class="flex-1 h-px bg-rule"></span>
+  </div>
+
+  <!-- ── FEATURES ─────────────────────────────────────────────────────── -->
+  <section class="mx-auto max-w-[68rem] px-6 py-20">
+    <div class="mb-14 flex items-baseline justify-between">
+      <p class="eyebrow">what you get</p>
+      <p class="mono text-[0.72rem] text-ink-faint">06 principles</p>
+    </div>
+
+    <ul class="grid md:grid-cols-2 gap-px bg-rule">
+      {
+        features.map((f) => (
+          <li
+            class:list={[
+              'relative group bg-void p-7 md:p-9 transition-colors hover:bg-void-raised',
+              f.wide && 'md:col-span-2',
+            ]}
+          >
+            {/* Left amber accent bar on hover */}
+            <span
+              aria-hidden="true"
+              class="absolute left-0 top-0 bottom-0 w-px bg-amber scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-300"
+            />
+            <div class="flex items-baseline gap-4 mb-4">
+              <span class="mono text-[0.72rem] text-amber-dim tracking-widest">
+                {f.num}
+              </span>
+              <span class="mono text-[0.72rem] text-ink-faint tracking-widest">
+                — {f.key}
+              </span>
+            </div>
+            <h3
+              class="display-sm text-[1.55rem] md:text-[1.8rem] mb-3 text-ink"
+            >
+              {f.title}
+            </h3>
+            <p class="text-ink-dim leading-relaxed max-w-xl">
+              {f.body}
+            </p>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <!-- ── RUN WITH NIX ─────────────────────────────────────────────────── -->
+  <section id="run" class="mx-auto max-w-[68rem] px-6 py-20 scroll-mt-16">
+    <div class="grid md:grid-cols-[1fr_1.4fr] gap-10 md:gap-16 items-start">
+      <div>
+        <p class="eyebrow mb-4">install</p>
+        <h2 class="display-sm text-[2.3rem] md:text-[2.8rem] text-ink mb-6">
+          Three seconds<br />from zero to running.
+        </h2>
+        <p class="text-ink-dim leading-relaxed mb-4">
+          Kolu is packaged with Nix. <a
+            href="https://nixos.asia/en/install"
+            rel="noopener"
+            class="text-ink border-b border-amber-dim hover:border-amber transition-colors"
+          >
+            Install Nix</a
+          > (with flakes enabled), and you're one command away.
+        </p>
+        <p class="text-ink-muted text-sm">
+          Or wire it into a NixOS/home-manager module to run as a long-lived
+          systemd user service — see the <a
+            href="https://github.com/juspay/kolu#deployment-nixos--home-manager"
+            rel="noopener"
+            class="border-b border-ink-faint hover:border-amber hover:text-ink transition-colors"
+            >deployment guide</a
+          >.
+        </p>
+      </div>
+
+      <!-- Fake terminal window, tastefully composed -->
+      <div
+        class="rounded-md border border-rule-strong bg-void-sunk overflow-hidden shadow-[0_0_60px_-20px_rgba(231,184,122,0.25)]"
+      >
+        <!-- Title bar -->
+        <div
+          class="flex items-center gap-2 px-4 py-2.5 border-b border-rule bg-void-raised"
+        >
+          <span class="size-2.5 rounded-full bg-[#ff5f56]"></span>
+          <span class="size-2.5 rounded-full bg-[#ffbd2e]"></span>
+          <span class="size-2.5 rounded-full bg-[#27c93f]"></span>
+          <span class="mono text-[0.68rem] text-ink-muted tracking-wider ml-3">
+            ~/dev — zsh
+          </span>
+        </div>
+        <!-- Terminal body -->
+        <div class="p-5 mono text-[0.82rem] leading-relaxed">
+          <div class="text-ink-muted">
+            <span class="text-amber"># serve on 127.0.0.1:7681</span>
+          </div>
+          <div class="flex items-start gap-2 mt-1">
+            <span class="text-amber-dim select-none">$</span>
+            <span class="text-ink">nix run <span class="text-amber">github:juspay/kolu</span></span>
+          </div>
+
+          <div class="text-ink-muted mt-4">
+            <span class="text-amber"># expose on LAN with custom host/port</span>
+          </div>
+          <div class="flex items-start gap-2 mt-1 flex-wrap">
+            <span class="text-amber-dim select-none">$</span>
+            <span class="text-ink">
+              nix run <span class="text-amber">github:juspay/kolu</span> --
+              <span class="text-ink-dim">--host</span> 0.0.0.0
+              <span class="text-ink-dim">--port</span> 8080
+            </span>
+          </div>
+
+          <div class="mt-5 pt-4 border-t border-rule text-ink-muted">
+            <span class="text-ink-faint select-none">→</span>
+            listening on <span class="text-ink">http://127.0.0.1:7681</span>
+            <span class="cursor" aria-hidden="true"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── LATEST POST ──────────────────────────────────────────────────── -->
+  {
+    latest && (
+      <section class="mx-auto max-w-[68rem] px-6 py-20">
+        <div class="mb-10 flex items-baseline justify-between">
+          <p class="eyebrow">from the blog</p>
+          <a
+            href={href('/blog')}
+            class="mono text-[0.72rem] text-ink-dim hover:text-amber transition-colors"
+          >
+            all posts →
+          </a>
+        </div>
+        <a
+          href={href(`/blog/${latest.id}`)}
+          class="block group relative border-t border-b border-rule py-10 hover:border-amber-dim transition-colors"
+        >
+          <time
+            class="mono text-[0.72rem] text-ink-muted tracking-widest"
+            datetime={latest.data.pubDate.toISOString()}
+          >
+            {latest.data.pubDate
+              .toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: '2-digit',
+              })
+              .toUpperCase()}
+          </time>
+          <h3 class="display-sm text-[2rem] md:text-[2.4rem] mt-3 text-ink group-hover:text-amber transition-colors">
+            {latest.data.title}
+          </h3>
+          <p class="mt-4 text-ink-dim leading-relaxed max-w-2xl">
+            {latest.data.description}
+          </p>
+          <span class="mt-6 inline-block mono text-[0.76rem] text-ink-dim group-hover:text-amber transition-colors">
+            read →
+          </span>
+        </a>
+      </section>
+    )
+  }
+</BaseLayout>

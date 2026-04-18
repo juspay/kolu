@@ -14,6 +14,7 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
+mod website 'website/mod.just'
 
 # List available recipes
 default:
@@ -97,11 +98,11 @@ clean:
 
 # Format all files in-place
 fmt: install
-    {{ nix_shell }} sh -c 'pnpm exec prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix'
+    {{ nix_shell }} sh -c 'pnpm exec prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix website/nix/*.nix'
 
 # Check formatting without modifying files (used by CI)
 fmt-check: install
-    {{ nix_shell }} sh -c 'pnpm exec prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix'
+    {{ nix_shell }} sh -c 'pnpm exec prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix website/nix/*.nix'
 
 # Nix build (server + client)
 build:

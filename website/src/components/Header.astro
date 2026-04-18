@@ -1,0 +1,62 @@
+---
+const { pathname } = Astro.url;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => `${base}${p}` || '/';
+
+// Astro's pathname always starts with the configured `base`; strip it before
+// comparing so "/kolu/blog" still matches as "/blog".
+const normalized = pathname.replace(new RegExp(`^${base}`), '') || '/';
+const isActive = (p: string) =>
+  p === '/' ? normalized === '/' : normalized.startsWith(p);
+
+const nav = [
+  { label: 'Blog', href: href('/blog'), path: '/blog' },
+  { label: 'GitHub', href: 'https://github.com/juspay/kolu', external: true },
+];
+---
+
+<header class="sticky top-0 z-10 border-b border-rule backdrop-blur-xs bg-void/80">
+  <div class="mx-auto max-w-[68rem] px-6 h-14 flex items-center justify-between">
+    <a
+      href={href('/')}
+      class="flex items-center gap-2.5 group"
+      aria-label="kolu home"
+    >
+      <img
+        src={href('/favicon.svg')}
+        alt=""
+        class="size-5 transition-transform group-hover:-translate-y-px"
+      />
+      <span class="font-serif text-[1.05rem] leading-none" style="font-variation-settings: 'opsz' 72, 'SOFT' 20, 'WONK' 1;">
+        kolu
+      </span>
+    </a>
+
+    <nav class="flex items-center gap-7 mono text-[0.78rem]">
+      {
+        nav.map((item) =>
+          'external' in item ? (
+            <a
+              href={item.href}
+              rel="noopener"
+              class="text-ink-dim hover:text-amber transition-colors flex items-center gap-1.5"
+            >
+              <span>{item.label}</span>
+              <span class="text-ink-faint" aria-hidden="true">↗</span>
+            </a>
+          ) : (
+            <a
+              href={item.href}
+              class:list={[
+                'transition-colors',
+                isActive(item.path) ? 'text-amber' : 'text-ink-dim hover:text-ink',
+              ]}
+            >
+              {item.label}
+            </a>
+          ),
+        )
+      }
+    </nav>
+  </div>
+</header>

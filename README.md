@@ -257,6 +257,17 @@ See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM 
 
 If kolu grows unbounded (V8 heap climbing over hours), set `services.kolu.diagnostics.dir` to an absolute path. Each restart gets its own timestamped subdir there, with a baseline heap snapshot at T+5min, periodic `"diag"` stats lines (memory bands + `terminals`/`publisherSize`/`claudeSessions`/`pendingSummaryFetches`), and automatic near-OOM snapshots via V8's `--heapsnapshot-near-heap-limit`. `kill -USR2 <pid>` captures an on-demand snapshot into the same dir. Diff two snapshots offline with [memlab](https://facebook.github.io/memlab/docs/cli/CLI-commands/) to name the retainer. Unset = zero overhead; the code path is fully gated.
 
+## Website
+
+The marketing site and blog at <https://juspay.github.io/kolu> live in [`website/`](website/) — Astro + Tailwind, its own zero-input flake, deployed to GitHub Pages via `.github/workflows/pages.yml`.
+
+```sh
+just website::dev          # live preview with HMR
+just website::nix-build    # reproducible build
+```
+
+See [`website/README.md`](website/README.md) for authoring posts and deploy details.
+
 ---
 
 Named after [கோலு](<https://en.wikipedia.org/wiki/Golu_(festival)>), the tradition of arranging figures on tiered steps.
