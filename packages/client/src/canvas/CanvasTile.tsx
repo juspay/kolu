@@ -93,8 +93,14 @@ const CanvasTile: Component<{
       data-activity={props.activity}
       class="flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
-        absolute: !props.maximized,
-        "fixed inset-0 z-40 rounded-none": props.maximized,
+        // Maximized stays `absolute inset-0` so it fills the canvas
+        // container — NOT `fixed`, because the transformed pan/zoom
+        // wrapper would otherwise become its containing block (CSS
+        // makes `position: fixed` resolve to the nearest transformed
+        // ancestor, not the viewport). Caller must render maximized
+        // tiles outside that wrapper.
+        absolute: true,
+        "inset-0 z-40 rounded-none": props.maximized,
         "border-accent/60 shadow-xl": props.active && !props.maximized,
         "border-edge/40 hover:border-edge/60":
           !props.active && !props.maximized,

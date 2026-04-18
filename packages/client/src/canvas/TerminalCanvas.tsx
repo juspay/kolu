@@ -313,6 +313,10 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
+        {/* Tiled tiles live inside the pan/zoom transform. The maximized
+         *  tile is rendered outside it (below) — `position: absolute
+         *  inset-0` would otherwise resolve against the transformed
+         *  wrapper, which is itself scaled and panned. */}
         <div
           style={{
             "transform-origin": "0 0",
@@ -321,35 +325,71 @@ const TerminalCanvas: Component<{
         >
           <For each={props.tileIds}>
             {(id) => (
-              <CanvasTile
-                id={id}
-                active={props.activeId === id}
-                maximized={maximizedId() === id}
-                activity={
-                  props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
-                    ? "active"
-                    : "sleeping"
-                }
-                theme={props.getTileTheme(id)}
-                onSelect={() => props.onSelect(id)}
-                onClose={() => props.onClose(id)}
-                onToggleMaximize={() => toggleMaximize(id)}
-                renderTitle={() => props.renderTileTitle(id)}
-                renderTitleActions={
-                  props.renderTileTitleActions
-                    ? () => props.renderTileTitleActions!(id)
-                    : undefined
-                }
-                renderBody={() =>
-                  props.renderTileBody(id, () => props.activeId === id)
-                }
-                layouts={layouts()}
-                startResize={startResize}
-                zoom={viewport.zoom}
-              />
+              <Show when={maximizedId() !== id}>
+                <CanvasTile
+                  id={id}
+                  active={props.activeId === id}
+                  maximized={false}
+                  activity={
+                    props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
+                      ? "active"
+                      : "sleeping"
+                  }
+                  theme={props.getTileTheme(id)}
+                  onSelect={() => props.onSelect(id)}
+                  onClose={() => props.onClose(id)}
+                  onToggleMaximize={() => toggleMaximize(id)}
+                  renderTitle={() => props.renderTileTitle(id)}
+                  renderTitleActions={
+                    props.renderTileTitleActions
+                      ? () => props.renderTileTitleActions!(id)
+                      : undefined
+                  }
+                  renderBody={() =>
+                    props.renderTileBody(id, () => props.activeId === id)
+                  }
+                  layouts={layouts()}
+                  startResize={startResize}
+                  zoom={viewport.zoom}
+                />
+              </Show>
             )}
           </For>
         </div>
+
+        {/* Maximized tile lives outside the transform wrapper so its
+         *  `position: absolute inset-0` covers the canvas container
+         *  rather than the panned/zoomed canvas plane. */}
+        <Show when={maximizedId()} keyed>
+          {(id) => (
+            <CanvasTile
+              id={id}
+              active={props.activeId === id}
+              maximized={true}
+              activity={
+                props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
+                  ? "active"
+                  : "sleeping"
+              }
+              theme={props.getTileTheme(id)}
+              onSelect={() => props.onSelect(id)}
+              onClose={() => props.onClose(id)}
+              onToggleMaximize={() => toggleMaximize(id)}
+              renderTitle={() => props.renderTileTitle(id)}
+              renderTitleActions={
+                props.renderTileTitleActions
+                  ? () => props.renderTileTitleActions!(id)
+                  : undefined
+              }
+              renderBody={() =>
+                props.renderTileBody(id, () => props.activeId === id)
+              }
+              layouts={layouts()}
+              startResize={startResize}
+              zoom={viewport.zoom}
+            />
+          )}
+        </Show>
 
         {/* Pill tree + minimap hide while a tile is maximized — the
          *  fullscreen tile owns the viewport. */}
