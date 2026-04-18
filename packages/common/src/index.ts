@@ -220,10 +220,6 @@ export const SetActiveTerminalInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
 });
 
-export const SetCanvasMaximizedInputSchema = z.object({
-  maximized: z.boolean(),
-});
-
 export const TerminalCreateInputSchema = z.object({
   cwd: z.string().optional(),
   parentId: TerminalIdSchema.optional(),
@@ -315,12 +311,6 @@ export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),
   /** Which terminal was active at save time. */
   activeTerminalId: z.string().nullable().optional(),
-  /** Whether the workspace was in fullscreen-one-tile mode at save time.
-   *  Orthogonal to which terminal is active — the active tile is always
-   *  the one being rendered fullscreen, so this is a pure mode flag.
-   *  Persisted because once we treat maximize as an explicit mode (not
-   *  a transient peek), users expect it to survive reload. */
-  canvasMaximized: z.boolean().optional(),
   savedAt: z.number(),
 });
 

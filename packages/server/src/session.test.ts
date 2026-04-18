@@ -33,7 +33,6 @@ describe("session persistence", () => {
     saveSession({
       terminals: [terminal],
       activeTerminalId: null,
-      canvasMaximized: false,
     });
     const session = getSavedSession();
     expect(session).not.toBeNull();
@@ -51,13 +50,11 @@ describe("session persistence", () => {
     saveSession({
       terminals: [terminal],
       activeTerminalId: null,
-      canvasMaximized: false,
     });
     expect(getSavedSession()).not.toBeNull();
     saveSession({
       terminals: [],
       activeTerminalId: null,
-      canvasMaximized: false,
     });
     expect(getSavedSession()).toBeNull();
   });
@@ -74,7 +71,7 @@ describe("session persistence", () => {
       { id: "b", cwd: "/b", sortOrder: 1 },
       { id: "c", cwd: "/c", parentId: "a", sortOrder: 2 },
     ];
-    saveSession({ terminals, activeTerminalId: null, canvasMaximized: false });
+    saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
     expect(session!.terminals).toHaveLength(3);
     expect(session!.terminals.map((t) => t.id)).toEqual(["a", "b", "c"]);
@@ -86,7 +83,7 @@ describe("session persistence", () => {
       { id: "a", cwd: "/a", sortOrder: 0, themeName: "Dracula" },
       { id: "b", cwd: "/b", sortOrder: 1 },
     ];
-    saveSession({ terminals, activeTerminalId: null, canvasMaximized: false });
+    saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
     expect(session!.terminals[0]!.themeName).toBe("Dracula");
     expect(session!.terminals[1]!.themeName).toBeUndefined();
@@ -96,7 +93,6 @@ describe("session persistence", () => {
     saveSession({
       terminals: [terminal],
       activeTerminalId: null,
-      canvasMaximized: false,
     });
     expect(getSavedSession()).not.toBeNull();
     clearSavedSession();

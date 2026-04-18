@@ -7,6 +7,7 @@
 
 import { createSignal, createEffect, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
+import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
 import { client } from "./rpc/rpc";
 
@@ -15,9 +16,14 @@ export function useViewState() {
 
   /** Whether the workspace is in fullscreen-one-tile mode. The active
    *  tile is always the one rendered fullscreen, so this is a pure mode
-   *  flag. Persisted server-side via `setCanvasMaximized` so the posture
-   *  survives reload — see `useSessionRestore` for hydrate-on-mount. */
-  const [canvasMaximized, setCanvasMaximizedSignal] = createSignal(false);
+   *  flag. Persisted to localStorage so the posture survives reload —
+   *  it's a per-tab view preference, not session state, so it lives
+   *  alongside other view prefs (e.g. minimap-expanded), not in the
+   *  server's SavedSession. */
+  const [canvasMaximized, setCanvasMaximizedSignal] = makePersisted(
+    createSignal(false),
+    { name: "kolu-canvas-maximized" },
+  );
 
   /** Terminals with unseen Claude completions (cleared when user visits). */
   const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
@@ -32,25 +38,6 @@ export function useViewState() {
       void client.terminal.setActive({ id }).catch(() => {});
     }),
   );
-
-  // Mirror maximize mode to the server. Skip the very first run so the
-  // initial `false` doesn't clobber a restored `true` on hydrate —
-  // `useSessionRestore` seeds the restored value, and anything after
-  // that is a real user toggle.
-  let maxHydrated = false;
-  createEffect(
-    on(canvasMaximized, (m) => {
-      if (!maxHydrated) {
-        maxHydrated = true;
-        return;
-      }
-      void client.terminal.setCanvasMaximized({ maximized: m }).catch(() => {});
-    }),
-  );
-
-  function setCanvasMaximized(next: boolean) {
-    setCanvasMaximizedSignal(next);
-  }
 
   function toggleCanvasMaximized() {
     setCanvasMaximizedSignal((prev) => !prev);
@@ -75,7 +62,6 @@ export function useViewState() {
     activeId,
     setActiveId,
     canvasMaximized,
-    setCanvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
     setMruOrder,

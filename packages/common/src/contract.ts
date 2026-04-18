@@ -14,7 +14,6 @@ import {
   TerminalSetCanvasLayoutInputSchema,
   TerminalSetSubPanelInputSchema,
   SetActiveTerminalInputSchema,
-  SetCanvasMaximizedInputSchema,
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
   TerminalOnExitOutputSchema,
@@ -59,9 +58,6 @@ export const contract = oc.router({
       .output(z.void()),
     setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
-    setCanvasMaximized: oc
-      .input(SetCanvasMaximizedInputSchema)
-      .output(z.void()),
     attach: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalAttachOutputSchema)),

@@ -105,7 +105,6 @@ function touchActivity(entry: TerminalProcess, terminalId: string): void {
 export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
-  canvasMaximized: boolean;
 } {
   const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
@@ -120,7 +119,7 @@ export function snapshotSession(): {
       ...(m.subPanel && { subPanel: m.subPanel }),
     };
   });
-  return { terminals: snappedTerminals, activeTerminalId, canvasMaximized };
+  return { terminals: snappedTerminals, activeTerminalId };
 }
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
@@ -312,19 +311,6 @@ let activeTerminalId: TerminalId | null = null;
 export function setActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
   if (id !== null) emitChanged();
-}
-
-// Canvas-maximized mode — client-reported, persisted in session snapshots.
-// A pure mode flag: "render the active tile fullscreen" vs "show the
-// canvas." The active tile is always the one rendered fullscreen, so we
-// don't store a separate terminal ID here. Both true and false are
-// legitimate user states, so every transition emits.
-let canvasMaximized = false;
-
-export function setCanvasMaximized(next: boolean): void {
-  if (canvasMaximized === next) return;
-  canvasMaximized = next;
-  emitChanged();
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

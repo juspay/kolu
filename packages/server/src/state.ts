@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.16.0";
+const SCHEMA_VERSION = "1.15.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -270,11 +270,6 @@ export const store = new Conf<PersistedState>({
       const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;
       store.set("preferences", rest as Preferences);
     },
-    // canvasMaximized added to SavedSession — persists fullscreen-mode
-    // across reload. Field is optional in the schema so old sessions
-    // parse fine; this migration is a no-op explicitly to satisfy the
-    // rule that every persisted-shape change carries a migration entry.
-    "1.16.0": () => {},
   },
 });
 

@@ -24,7 +24,6 @@ function writeSession(next: SavedSession | null): void {
 export function saveSession(snapshot: {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
-  canvasMaximized: boolean;
 }): void {
   if (snapshot.terminals.length === 0) {
     writeSession(null);
@@ -33,7 +32,6 @@ export function saveSession(snapshot: {
   writeSession({
     terminals: snapshot.terminals,
     activeTerminalId: snapshot.activeTerminalId,
-    canvasMaximized: snapshot.canvasMaximized,
     savedAt: Date.now(),
   });
 }
@@ -64,7 +62,6 @@ export function initSessionAutoSave(
   snapshot: () => {
     terminals: SavedTerminal[];
     activeTerminalId: string | null;
-    canvasMaximized: boolean;
   },
 ): void {
   void (async () => {
