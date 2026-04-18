@@ -88,8 +88,17 @@ const App: Component = () => {
 
   // Pill-tree-grouped order — single source for the desktop pill tree AND
   // the mobile swipe handler so the two views never drift.
+  //
+  // Desktop: pass `getLayout` so the tree mirrors the canvas spatially
+  // (left tile → first pill, right tile → last pill). Reorders live as
+  // tiles are dragged. Mobile has no canvas, so layouts are absent and
+  // the function falls back to sortOrder.
   const pillGroups = createMemo(() =>
-    groupByRepo(store.terminalIds(), store.getDisplayInfo),
+    groupByRepo(
+      store.terminalIds(),
+      store.getDisplayInfo,
+      (id) => store.getMetadata(id)?.canvasLayout,
+    ),
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 
