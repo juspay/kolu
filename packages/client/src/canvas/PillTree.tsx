@@ -9,10 +9,18 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import type { TerminalId } from "kolu-common";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { PillRepoGroup } from "./pillTreeOrder";
+import { MinimapIcon } from "../ui/Icons";
 
 const PillTree: Component<{
   groups: PillRepoGroup[];
   activeId: TerminalId | null;
+  /** When true, the workspace is in fullscreen-one-tile mode. The tree
+   *  recedes further and grows a leading "back to canvas" affordance —
+   *  the visual signal that there's a canvas behind the maximized tile.
+   *  Clicking a pill in maximized mode swaps which terminal is rendered
+   *  fullscreen (via the caller's onSelect); no pan. */
+  canvasMaximized: boolean;
+  onExitMaximize: () => void;
   /** Lookup so each pill can colour itself by repo and surface unread/agent
    *  glow without the tree re-deriving any of that itself. */
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
@@ -35,14 +43,39 @@ const PillTree: Component<{
     <Show when={!empty()}>
       <div
         data-testid="pill-tree"
-        // Per #622, the pill tree sits BEHIND tiles at rest (z-0; tiles
-        // start at z-1) and pops above on hover (z-30). Pointer events
-        // pass through to whatever overlays it until the user explicitly
-        // hovers — so a tile's title bar stays double-clickable for
-        // maximize even when the pill tree visually overlaps it.
-        class="absolute top-3 left-1/2 -translate-x-1/2 z-0 hover:z-30 group/pill-tree pointer-events-auto select-none"
+        data-maximized={props.canvasMaximized ? "" : undefined}
+        // Tiled mode: tree sits BEHIND tiles at rest (z-0; tiles start at
+        // z-1) and pops above on hover (z-30), so a tile's title bar
+        // stays double-clickable for maximize. Maximized mode: tree is
+        // always above the fullscreen tile (z-40) because there's
+        // nothing else to compete with and the user needs it reachable.
+        class="absolute top-3 left-1/2 -translate-x-1/2 group/pill-tree pointer-events-auto select-none"
+        classList={{
+          "z-0 hover:z-30": !props.canvasMaximized,
+          "z-40": props.canvasMaximized,
+        }}
       >
-        <div class="flex items-start gap-3 px-3 py-2 rounded-2xl bg-surface-1/40 backdrop-blur-md border border-edge/30 shadow-sm transition-opacity duration-150 opacity-50 group-hover/pill-tree:opacity-100">
+        <div
+          class="flex items-start gap-3 px-3 py-2 rounded-2xl bg-surface-1/40 backdrop-blur-md border border-edge/30 shadow-sm transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+          classList={{
+            // Deeper recess in maximized mode: the user is focused on
+            // one tile, the tree is a peripheral nav affordance; but it
+            // stays readable at a glance so "there's a canvas behind
+            // this" remains legible without a hover.
+            "opacity-50": !props.canvasMaximized,
+            "opacity-40": props.canvasMaximized,
+          }}
+        >
+          <Show when={props.canvasMaximized}>
+            <button
+              data-testid="pill-tree-exit-maximize"
+              class="flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
+              onClick={props.onExitMaximize}
+              title="Show all on canvas"
+            >
+              <MinimapIcon class="w-3.5 h-3.5" />
+            </button>
+          </Show>
           <For each={props.groups}>
             {(group) => (
               <div class="flex flex-col items-start gap-1">

@@ -13,6 +13,12 @@ import { client } from "./rpc/rpc";
 export function useViewState() {
   const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
 
+  /** Whether the workspace is in fullscreen-one-tile mode. The active
+   *  tile is always the one rendered fullscreen, so this is a pure mode
+   *  flag. Persisted server-side via `setCanvasMaximized` so the posture
+   *  survives reload — see `useSessionRestore` for hydrate-on-mount. */
+  const [canvasMaximized, setCanvasMaximizedSignal] = createSignal(false);
+
   /** Terminals with unseen Claude completions (cleared when user visits). */
   const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
 
@@ -27,6 +33,29 @@ export function useViewState() {
     }),
   );
 
+  // Mirror maximize mode to the server. Skip the very first run so the
+  // initial `false` doesn't clobber a restored `true` on hydrate —
+  // `useSessionRestore` seeds the restored value, and anything after
+  // that is a real user toggle.
+  let maxHydrated = false;
+  createEffect(
+    on(canvasMaximized, (m) => {
+      if (!maxHydrated) {
+        maxHydrated = true;
+        return;
+      }
+      void client.terminal.setCanvasMaximized({ maximized: m }).catch(() => {});
+    }),
+  );
+
+  function setCanvasMaximized(next: boolean) {
+    setCanvasMaximizedSignal(next);
+  }
+
+  function toggleCanvasMaximized() {
+    setCanvasMaximizedSignal((prev) => !prev);
+  }
+
   function markUnread(id: TerminalId) {
     setUnread(id, true);
   }
@@ -37,6 +66,7 @@ export function useViewState() {
 
   function reset() {
     setActiveId(null);
+    setCanvasMaximizedSignal(false);
     setMruOrder([]);
     setUnread(reconcile({}));
   }
@@ -44,6 +74,9 @@ export function useViewState() {
   return {
     activeId,
     setActiveId,
+    canvasMaximized,
+    setCanvasMaximized,
+    toggleCanvasMaximized,
     mruOrder,
     setMruOrder,
     markUnread,

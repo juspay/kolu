@@ -18,6 +18,7 @@ import {
   setCanvasLayout,
   setSubPanelState,
   setActiveTerminalId,
+  setCanvasMaximized,
   setTerminalParent,
   reorderTerminals,
   type TerminalProcess,
@@ -119,6 +120,12 @@ export const appRouter = t.router({
     setActive: t.terminal.setActive.handler(async ({ input }) => {
       setActiveTerminalId(input.id);
     }),
+
+    setCanvasMaximized: t.terminal.setCanvasMaximized.handler(
+      async ({ input }) => {
+        setCanvasMaximized(input.maximized);
+      },
+    ),
 
     /**
      * Attach to a terminal's output stream.

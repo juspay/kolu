@@ -14,6 +14,7 @@ import { type Component, For, type JSX, Show } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 
 /** Minimal theme info for tile chrome (title bar, border). */
 export interface TileTheme {
@@ -151,6 +152,23 @@ const CanvasTile: Component<{
         </Show>
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         {props.renderTitleActions?.()}
+        <button
+          data-testid="canvas-tile-maximize"
+          class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20"
+          style={{
+            color: `color-mix(in oklch, ${fg()} 50%, ${bg()})`,
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onToggleMaximize();
+          }}
+          title={props.maximized ? "Restore to canvas" : "Maximize"}
+        >
+          <Show when={props.maximized} fallback={<MaximizeIcon />}>
+            <RestoreIcon />
+          </Show>
+        </button>
         <button
           data-testid="canvas-tile-close"
           class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"

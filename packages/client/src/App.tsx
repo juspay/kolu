@@ -609,6 +609,8 @@ const App: Component = () => {
                   <TerminalCanvas
                     tileIds={store.terminalIds()}
                     activeId={store.activeId()}
+                    canvasMaximized={store.canvasMaximized()}
+                    onToggleMaximize={store.toggleCanvasMaximized}
                     getMetadata={store.getMetadata}
                     getDisplayInfo={store.getDisplayInfo}
                     isUnread={store.isUnread}

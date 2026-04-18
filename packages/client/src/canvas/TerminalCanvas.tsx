@@ -60,6 +60,12 @@ function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
 const TerminalCanvas: Component<{
   tileIds: TerminalId[];
   activeId: TerminalId | null;
+  /** Whether the workspace is in fullscreen-one-tile mode. When true, the
+   *  active tile fills the canvas container; tiled tiles, pill tree, and
+   *  minimap all adapt accordingly. Owned by the caller so it can persist
+   *  across reload. */
+  canvasMaximized: boolean;
+  onToggleMaximize: () => void;
   getTileTheme: (id: TerminalId) => TileTheme;
   /** Lookup so the pill tree can render repo color + unread + agent state
    *  without re-deriving any of it. */
@@ -82,22 +88,6 @@ const TerminalCanvas: Component<{
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
-
-  // Maximize state: which tile, if any, currently fills the viewport.
-  // Transient by design — resets on reload (see lowy analysis): a viewing
-  // gesture, not an arrangement, so it has no value across sessions and
-  // syncing it across tabs would be actively wrong.
-  const [maximizedId, setMaximizedId] = createSignal<TerminalId | null>(null);
-
-  function toggleMaximize(id: TerminalId) {
-    setMaximizedId((prev) => (prev === id ? null : id));
-  }
-
-  // If the maximized tile is closed, drop the state automatically.
-  createEffect(() => {
-    const m = maximizedId();
-    if (m && !props.tileIds.includes(m)) setMaximizedId(null);
-  });
 
   const pillGroups = createMemo(() =>
     groupByRepo(props.tileIds, props.getMetadata),
@@ -313,19 +303,18 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
-        {/* Tiled tiles live inside the pan/zoom transform. The maximized
-         *  tile is rendered outside it (below) — `position: absolute
-         *  inset-0` would otherwise resolve against the transformed
-         *  wrapper, which is itself scaled and panned. */}
-        <div
-          style={{
-            "transform-origin": "0 0",
-            transform: viewport.canvasTransform(),
-          }}
-        >
-          <For each={props.tileIds}>
-            {(id) => (
-              <Show when={maximizedId() !== id}>
+        {/* Tiled canvas — tiles live inside the pan/zoom transform. Hidden
+         *  entirely when maximized; no reason to paint tiles the user
+         *  can't see, and the maximized view owns the container. */}
+        <Show when={!props.canvasMaximized}>
+          <div
+            style={{
+              "transform-origin": "0 0",
+              transform: viewport.canvasTransform(),
+            }}
+          >
+            <For each={props.tileIds}>
+              {(id) => (
                 <CanvasTile
                   id={id}
                   active={props.activeId === id}
@@ -338,7 +327,7 @@ const TerminalCanvas: Component<{
                   theme={props.getTileTheme(id)}
                   onSelect={() => props.onSelect(id)}
                   onClose={() => props.onClose(id)}
-                  onToggleMaximize={() => toggleMaximize(id)}
+                  onToggleMaximize={props.onToggleMaximize}
                   renderTitle={() => props.renderTileTitle(id)}
                   renderTitleActions={
                     props.renderTileTitleActions
@@ -352,19 +341,18 @@ const TerminalCanvas: Component<{
                   startResize={startResize}
                   zoom={viewport.zoom}
                 />
-              </Show>
-            )}
-          </For>
-        </div>
+              )}
+            </For>
+          </div>
+        </Show>
 
-        {/* Maximized tile lives outside the transform wrapper so its
-         *  `position: absolute inset-0` covers the canvas container
-         *  rather than the panned/zoomed canvas plane. */}
-        <Show when={maximizedId()} keyed>
+        {/* Maximized view — renders only the active tile, outside any
+         *  transform, covering the canvas container via `absolute inset-0`. */}
+        <Show when={props.canvasMaximized && props.activeId} keyed>
           {(id) => (
             <CanvasTile
               id={id}
-              active={props.activeId === id}
+              active={true}
               maximized={true}
               activity={
                 props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
@@ -374,7 +362,7 @@ const TerminalCanvas: Component<{
               theme={props.getTileTheme(id)}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}
-              onToggleMaximize={() => toggleMaximize(id)}
+              onToggleMaximize={props.onToggleMaximize}
               renderTitle={() => props.renderTileTitle(id)}
               renderTitleActions={
                 props.renderTileTitleActions
@@ -391,20 +379,30 @@ const TerminalCanvas: Component<{
           )}
         </Show>
 
-        {/* Pill tree + minimap hide while a tile is maximized — the
-         *  fullscreen tile owns the viewport. */}
-        <Show when={maximizedId() === null}>
-          <PillTree
-            groups={pillGroups()}
-            activeId={props.activeId}
-            getDisplayInfo={props.getDisplayInfo}
-            isUnread={props.isUnread}
-            onSelect={(id) => {
-              props.onSelect(id);
+        {/* Pill tree stays visible in both modes — in tiled mode it's a
+         *  navigator; in maximized mode it carries the "there's a canvas
+         *  behind this" signal plus lets the user swap which terminal is
+         *  rendered fullscreen without exiting maximize first. The
+         *  minimap is a spatial dashboard; it has no meaning in
+         *  fullscreen-single-tile mode and hides. */}
+        <PillTree
+          groups={pillGroups()}
+          activeId={props.activeId}
+          canvasMaximized={props.canvasMaximized}
+          onExitMaximize={props.onToggleMaximize}
+          getDisplayInfo={props.getDisplayInfo}
+          isUnread={props.isUnread}
+          onSelect={(id) => {
+            props.onSelect(id);
+            // Only pan in tiled mode — in maximized mode there's nothing
+            // spatial to pan to, the tile just swaps fullscreen content.
+            if (!props.canvasMaximized) {
               const tile = props.getLayout(id);
               if (tile) viewport.centerOnTile(tile);
-            }}
-          />
+            }
+          }}
+        />
+        <Show when={!props.canvasMaximized}>
           <CanvasMinimap
             tileIds={props.tileIds}
             activeId={props.activeId}

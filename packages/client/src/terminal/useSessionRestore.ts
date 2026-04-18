@@ -41,12 +41,17 @@ export function useSessionRestore(deps: {
       setSavedSession(fromServer);
       return;
     }
-    hydrateFromTerminals(existing, fromServer?.activeTerminalId ?? null);
+    hydrateFromTerminals(
+      existing,
+      fromServer?.activeTerminalId ?? null,
+      fromServer?.canvasMaximized ?? false,
+    );
   });
 
   function hydrateFromTerminals(
     existing: TerminalInfo[],
     serverActiveId: string | null,
+    serverCanvasMaximized: boolean,
   ) {
     // Canvas layouts live on metadata — no client-side seeding needed.
     // Seed sub-panel state from server metadata.
@@ -83,6 +88,12 @@ export function useSessionRestore(deps: {
         ? (serverActiveId as TerminalId)
         : (topIds[0] ?? null);
     store.setActiveId(picked);
+
+    // Restore fullscreen-mode posture. Only honor it when there's an active
+    // tile to render — maximized-with-nothing-active would show a blank.
+    if (serverCanvasMaximized && picked) {
+      store.setCanvasMaximized(true);
+    }
 
     // Seed MRU with all top-level terminals (active first, rest in sidebar order).
     const active = store.activeId();
@@ -164,6 +175,10 @@ export function useSessionRestore(deps: {
       if (session.activeTerminalId) {
         const newActiveId = oldToNew.get(session.activeTerminalId);
         if (newActiveId) store.setActiveId(newActiveId);
+      }
+      // Restore fullscreen-mode posture
+      if (session.canvasMaximized && store.activeId()) {
+        store.setCanvasMaximized(true);
       }
       toast.success("Session restored", { id });
     } catch (err) {
