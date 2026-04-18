@@ -758,6 +758,7 @@ const Terminal: Component<{
         class="w-full h-full overflow-hidden touch-manipulation"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
+        data-focused={props.focused !== false ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
         data-renderer={hasWebgl() ? "webgl" : "dom"}

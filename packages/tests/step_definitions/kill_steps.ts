@@ -15,9 +15,12 @@ When(
     const entry = this.page.locator(
       `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
-    // Hover to reveal the close button, then click it
-    await entry.hover();
-    await entry.locator('[data-testid="sidebar-close"]').click();
+    // `force` because canvas tiles overlap (active tile sits at z-10 over
+    // inactive tiles at z-1) — Playwright's hit-test rejects clicks on a
+    // background tile's close button even though the element exists.
+    await entry
+      .locator('[data-testid="canvas-tile-close"]')
+      .click({ force: true });
     // Confirm in the dialog — every close goes through CloseConfirm.
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -35,8 +38,9 @@ When(
     const entry = this.page.locator(
       `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
-    await entry.hover();
-    await entry.locator('[data-testid="sidebar-close"]').click();
+    await entry
+      .locator('[data-testid="canvas-tile-close"]')
+      .click({ force: true });
   },
 );
 

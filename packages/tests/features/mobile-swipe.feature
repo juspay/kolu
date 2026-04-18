@@ -11,18 +11,20 @@ Feature: Mobile tile swipe
     And there should be no page errors
 
   @mobile
-  Scenario: Swipe left advances to the next terminal
-    Given I create a terminal
-    And I run "echo second-terminal"
+  Scenario: Swipe left cycles to a different terminal
+    # Background creates t0; explicit create makes t1 active. Swipe left
+    # advances in pill-tree order — with two terminals it lands on t0,
+    # whose buffer is empty (no echo issued).
+    Given I run "echo from-t0"
+    And I create a terminal
     When I swipe left on the mobile tile view
-    Then the active terminal should show "second-terminal"
+    Then the active terminal should show "from-t0"
     And there should be no page errors
 
   @mobile
-  Scenario: Swipe right returns to the previous terminal
-    Given I create a terminal
-    And I run "echo second-terminal"
-    And I swipe left on the mobile tile view
+  Scenario: Swipe right also cycles
+    Given I run "echo from-t0"
+    And I create a terminal
     When I swipe right on the mobile tile view
-    Then the active terminal should not show "second-terminal"
+    Then the active terminal should show "from-t0"
     And there should be no page errors

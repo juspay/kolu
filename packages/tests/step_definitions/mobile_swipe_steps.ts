@@ -22,45 +22,33 @@ async function dispatchSwipe(world: KoluWorld, dx: number) {
   // Synthesize a touch sequence — Playwright's touchscreen.tap() doesn't
   // send the start/end pair MobileTileView listens for. Use a minimal
   // browser-side dispatch so the swipe handler sees real Touch events.
-  await world.page.evaluate(
-    ({ x0, x1, y, sel }) => {
-      const target = document.querySelector(sel) as HTMLElement | null;
+  // tsx/esbuild instruments closures with `__name` for stack-trace fidelity,
+  // which doesn't exist in the browser. page.evaluate ships the function
+  // body as a string — the workaround is to ship plain JS source via
+  // page.evaluate(string) so esbuild never touches it.
+  const src = `
+    (() => {
+      const target = document.querySelector(${JSON.stringify(VIEW_SELECTOR)});
       if (!target) throw new Error("mobile tile view not found");
-      function makeTouch(x: number, y: number): Touch {
-        return new Touch({
-          identifier: 1,
-          target,
-          clientX: x,
-          clientY: y,
-          pageX: x,
-          pageY: y,
-          screenX: x,
-          screenY: y,
-          radiusX: 1,
-          radiusY: 1,
-          rotationAngle: 0,
-          force: 1,
-        });
-      }
-      const start = new TouchEvent("touchstart", {
-        cancelable: true,
-        bubbles: true,
-        touches: [makeTouch(x0, y)],
-        targetTouches: [makeTouch(x0, y)],
-        changedTouches: [makeTouch(x0, y)],
+      const t = (x, y) => new Touch({
+        identifier: 1, target, clientX: x, clientY: y,
+        pageX: x, pageY: y, screenX: x, screenY: y,
+        radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1,
       });
-      const end = new TouchEvent("touchend", {
-        cancelable: true,
-        bubbles: true,
-        touches: [],
-        targetTouches: [],
-        changedTouches: [makeTouch(x1, y)],
-      });
-      target.dispatchEvent(start);
-      target.dispatchEvent(end);
-    },
-    { x0: startX, x1: startX + dx, y, sel: VIEW_SELECTOR },
-  );
+      target.dispatchEvent(new TouchEvent("touchstart", {
+        cancelable: true, bubbles: true,
+        touches: [t(${startX}, ${y})],
+        targetTouches: [t(${startX}, ${y})],
+        changedTouches: [t(${startX}, ${y})],
+      }));
+      target.dispatchEvent(new TouchEvent("touchend", {
+        cancelable: true, bubbles: true,
+        touches: [], targetTouches: [],
+        changedTouches: [t(${startX + dx}, ${y})],
+      }));
+    })()
+  `;
+  await world.page.evaluate(src);
   await world.waitForFrame();
 }
 

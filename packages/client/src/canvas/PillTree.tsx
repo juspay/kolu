@@ -35,8 +35,11 @@ const PillTree: Component<{
     <Show when={!empty()}>
       <div
         data-testid="pill-tree"
-        // Translucent at rest, opaque on hover. The hover target is the whole
-        // overlay so moving between groups doesn't flicker.
+        // Per #622, the pill tree sits BEHIND tiles at rest (z-0; tiles
+        // start at z-1) and pops above on hover (z-30). Pointer events
+        // pass through to whatever overlays it until the user explicitly
+        // hovers — so a tile's title bar stays double-clickable for
+        // maximize even when the pill tree visually overlaps it.
         class="absolute top-3 left-1/2 -translate-x-1/2 z-0 hover:z-30 group/pill-tree pointer-events-auto select-none"
       >
         <div class="flex items-start gap-3 px-3 py-2 rounded-2xl bg-surface-1/40 backdrop-blur-md border border-edge/30 shadow-sm transition-opacity duration-150 opacity-50 group-hover/pill-tree:opacity-100">

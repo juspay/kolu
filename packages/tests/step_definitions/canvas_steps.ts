@@ -767,7 +767,14 @@ When(
       .locator(`${CANVAS_SELECTOR} ${TILE_TITLEBAR_SELECTOR}`)
       .nth(index - 1);
     await titleBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await titleBar.dblclick();
+    // `dblclick` waits for the element to be "stable" and visible at the
+    // viewport center of the bounding box. The first tile's title bar
+    // overlaps spatially with the floating PillTree (top center of the
+    // canvas), and Playwright's hit-test rejects the click target — even
+    // with the pill tree at z-0. `force: true` bypasses the hit-test
+    // (we know the title bar is the intended target; the pill tree is
+    // visually behind it per #622's z-order spec).
+    await titleBar.dblclick({ force: true });
     await this.waitForFrame();
   },
 );

@@ -61,7 +61,12 @@ export class KoluWorld extends World {
   }
 
   get canvas(): Locator {
-    return this.page.locator("[data-visible] .xterm-screen");
+    // Every canvas tile mounts an xterm with `data-visible` (focused tiles
+    // and unfocused tiles alike — visibility means "rendered, not display:
+    // none"). With multiple tiles this selector matches multiple elements
+    // — `.first()` keeps every legacy assertion that wants "any visible
+    // terminal screen" happy without forcing each call site to disambiguate.
+    return this.page.locator("[data-visible] .xterm-screen").first();
   }
 
   /** Create a terminal via the keyboard shortcut (`Cmd/Ctrl+Enter`). Works

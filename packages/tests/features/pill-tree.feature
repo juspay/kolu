@@ -21,8 +21,10 @@ Feature: Pill tree (terminal switcher)
     And there should be no page errors
 
   Scenario: Clicking a branch pill switches the active terminal
-    Given I create a terminal
-    And I run "echo first-pill"
+    # The Background-created terminal is t0; running echo first targets it
+    # (it's the active one). Then a second terminal becomes active. Clicking
+    # pill 1 returns to t0, whose buffer carries the echo output.
+    Given I run "echo first-pill"
     And I create a terminal
     When I click pill tree branch 1
     Then the active terminal should show "first-pill"

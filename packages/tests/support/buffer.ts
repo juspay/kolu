@@ -10,8 +10,10 @@
 import type { Page } from "playwright";
 import { POLL_TIMEOUT } from "./world.ts";
 
-/** Default selector for the active (visible) terminal container. */
-export const ACTIVE_TERMINAL = "[data-visible][data-terminal-id]";
+/** Default selector for the active (focused) terminal container.
+ *  In canvas mode multiple xterms carry `data-visible` (every tile mounts
+ *  its xterm); only one carries `data-focused` at any time. */
+export const ACTIVE_TERMINAL = "[data-focused][data-terminal-id]";
 
 /**
  * Read all lines from a terminal's xterm buffer (joined by newline).
