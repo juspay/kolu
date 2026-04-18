@@ -251,27 +251,29 @@ body {
 -------------------------------------------------------------------------- */
 
 .prose-editorial {
-  /* Invert palette: warm ink on void. Headings get pure white for pop;
-     bold pops further with amber-bright to differentiate from body. */
-  --tw-prose-invert-body: var(--color-ink);
-  --tw-prose-invert-headings: #ffffff;
-  --tw-prose-invert-lead: var(--color-ink-dim);
-  --tw-prose-invert-links: var(--color-amber);
-  /* Bold = pure white so it differentiates from inline code, which uses
-     amber-bright. Distinct visual channels: weight for emphasis, colour
-     for code. */
-  --tw-prose-invert-bold: #ffffff;
-  --tw-prose-invert-counters: var(--color-ink-muted);
-  --tw-prose-invert-bullets: var(--color-ink-muted);
-  --tw-prose-invert-hr: var(--color-rule-strong);
-  --tw-prose-invert-quotes: var(--color-ink);
-  --tw-prose-invert-quote-borders: var(--color-amber-dim);
-  --tw-prose-invert-captions: var(--color-ink-muted);
-  --tw-prose-invert-code: var(--color-amber-bright);
-  --tw-prose-invert-pre-code: var(--color-ink);
-  --tw-prose-invert-pre-bg: var(--color-void-sunk);
-  --tw-prose-invert-th-borders: var(--color-rule-strong);
-  --tw-prose-invert-td-borders: var(--color-rule);
+  /* Use the non-invert tokens — the blog wrapper applies only `.prose` so
+     these drive both light and dark. Dark = default; light is overridden
+     below via `[data-theme="light"] .prose-editorial`.
+
+     Headings: pure white in dark (maximum pop), near-black in light.
+     Bold: same — weight + colour distinct from body. Inline code uses
+     amber-bright, creating a separate visual channel. */
+  --tw-prose-body: var(--color-ink);
+  --tw-prose-headings: #ffffff;
+  --tw-prose-lead: var(--color-ink-dim);
+  --tw-prose-links: var(--color-amber);
+  --tw-prose-bold: #ffffff;
+  --tw-prose-counters: var(--color-ink-muted);
+  --tw-prose-bullets: var(--color-ink-muted);
+  --tw-prose-hr: var(--color-rule-strong);
+  --tw-prose-quotes: var(--color-ink);
+  --tw-prose-quote-borders: var(--color-amber-dim);
+  --tw-prose-captions: var(--color-ink-muted);
+  --tw-prose-code: var(--color-amber-bright);
+  --tw-prose-pre-code: var(--color-ink);
+  --tw-prose-pre-bg: var(--color-void-sunk);
+  --tw-prose-th-borders: var(--color-rule-strong);
+  --tw-prose-td-borders: var(--color-rule);
 
   font-family: var(--font-serif);
   font-variation-settings:
@@ -317,7 +319,19 @@ body {
 
 .prose-editorial strong {
   font-weight: 650;
-  color: #ffffff;
+  color: var(--tw-prose-bold);
+}
+
+/* --- Light-mode prose overrides ------------------------------------------- */
+[data-theme="light"] .prose-editorial {
+  /* Deep ink for headings + bold — near-black on warm paper, max legibility. */
+  --tw-prose-headings: #141208;
+  --tw-prose-body: var(--color-ink);
+  --tw-prose-bold: #141208;
+  --tw-prose-links: var(--color-amber-bright);
+  --tw-prose-code: var(--color-amber-bright);
+  --tw-prose-pre-code: var(--color-ink);
+  --tw-prose-pre-bg: var(--color-void-sunk);
 }
 
 .prose-editorial a {
