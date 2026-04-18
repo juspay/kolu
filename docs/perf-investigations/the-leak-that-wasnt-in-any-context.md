@@ -173,8 +173,11 @@ Two small contributions to xterm.js came out of this line of work:
   — two cases where xterm's `Disposable` pattern registered a child
   disposable via `= new MutableDisposable()` but forgot the
   `this._register(...)` wrapper. Both leaked a `setInterval` past
-  dispose. Six lines of source, found by walking a separate retainer
-  chain during an earlier investigation.
+  dispose. Six lines of source. Diagnosed during an earlier pass of
+  this same investigation [standing at a bus stop and on the bus
+  itself](https://x.com/sridca/status/2045164268341895434), typing
+  instructions to Claude Code on my phone and watching the retainer
+  walks come back.
 - [xtermjs/xterm.js#5821](https://github.com/xtermjs/xterm.js/pull/5821)
   — the `WeakRef` patch above. One line of real code, plus a comment
   explaining why.
