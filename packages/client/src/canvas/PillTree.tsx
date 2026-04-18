@@ -111,17 +111,23 @@ const PillTree: Component<{
                   >
                     {group.repoName}
                   </div>
-                  {/* max-h-7 caps the visible rows to one at rest;
-                   *  hover on the pill tree (group/pill-tree) lifts the
-                   *  cap so all chunked rows reveal. gap-1 (4px) between
-                   *  rows means row 2 starts exactly at the cap edge —
-                   *  no partial pill peek bleeding through the clip. */}
-                  <div class="flex flex-col gap-1 max-h-7 overflow-hidden group-hover/pill-tree:max-h-96 transition-[max-height] duration-150">
+                  {/* Rows past the first are display:none at rest and
+                   *  revealed on hover. Avoids `max-h + overflow-hidden`,
+                   *  which clipped the active pill's ring-2 outline on
+                   *  its top/bottom arcs. */}
+                  <div class="flex flex-col gap-1">
                     <For each={rows()}>
                       {(row, rowIdx) => {
                         const isLast = () => rowIdx() === rows().length - 1;
                         return (
-                          <div class="flex items-center gap-1">
+                          <div
+                            class="items-center gap-1"
+                            classList={{
+                              flex: rowIdx() === 0,
+                              "hidden group-hover/pill-tree:flex":
+                                rowIdx() > 0,
+                            }}
+                          >
                             <span
                               aria-hidden="true"
                               class="font-mono text-[0.7rem] leading-none text-fg-3 select-none w-3 shrink-0"
