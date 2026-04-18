@@ -63,15 +63,32 @@ const TerminalMeta: Component<{
             </Show>
             <Show when={info().meta.git}>
               {(git) => (
-                <Show when={git().isWorktree}>
-                  <span
-                    data-testid="worktree-indicator"
-                    class="text-fg-3 shrink-0"
-                    title="Worktree"
-                  >
-                    <WorktreeIcon />
-                  </span>
-                </Show>
+                <>
+                  <Show when={git().isWorktree}>
+                    <span
+                      data-testid="worktree-indicator"
+                      class="text-fg-3 shrink-0"
+                      title="Worktree"
+                    >
+                      <WorktreeIcon />
+                    </span>
+                  </Show>
+                  {/* Compact mode mirrors the pill tree: repo + branch
+                   *  (+ suffix above when ambiguous). The dedicated
+                   *  branch row below is suppressed in compact. */}
+                  <Show when={!full()}>
+                    <Tip label={git().branch}>
+                      <span
+                        data-testid="terminal-meta-branch"
+                        class="text-xs truncate min-w-0"
+                        style={{ color: info().branchColor }}
+                        classList={{ "text-fg-2": !info().branchColor }}
+                      >
+                        {git().branch}
+                      </span>
+                    </Tip>
+                  </Show>
+                </>
               )}
             </Show>
             <Show when={full() && info().meta.cwd}>
