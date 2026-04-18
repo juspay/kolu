@@ -93,6 +93,17 @@ const App: Component = () => {
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 
+  // Shared TileTheme accessor — feeds both ChromeBar (pill bg) and
+  // TerminalCanvas (tile chrome). One source so a theme tweak flows
+  // through every surface that mirrors the tile.
+  const getChromeTileTheme = (id: TerminalId) => {
+    const t = getTerminalTheme(id);
+    return {
+      bg: t.background ?? "var(--color-surface-1)",
+      fg: t.foreground ?? "var(--color-fg)",
+    };
+  };
+
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
   void client.server
@@ -563,6 +574,7 @@ const App: Component = () => {
           canvasMaximized={store.canvasMaximized()}
           onExitMaximize={store.toggleCanvasMaximized}
           getDisplayInfo={store.getDisplayInfo}
+          getTileTheme={getChromeTileTheme}
           isUnread={store.isUnread}
           onSelect={(id) => {
             store.setActiveId(id);
@@ -636,13 +648,7 @@ const App: Component = () => {
                     canvasMaximized={store.canvasMaximized()}
                     onToggleMaximize={store.toggleCanvasMaximized}
                     getDisplayInfo={store.getDisplayInfo}
-                    getTileTheme={(id) => {
-                      const t = getTerminalTheme(id);
-                      return {
-                        bg: t.background ?? "var(--color-surface-1)",
-                        fg: t.foreground ?? "var(--color-fg)",
-                      };
-                    }}
+                    getTileTheme={getChromeTileTheme}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     onLayoutChange={(id, layout) =>
                       crud.setCanvasLayout(id, layout)

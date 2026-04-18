@@ -8,7 +8,7 @@ import { MinimapIcon } from "../ui/Icons";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
-import type { TileTheme } from "./CanvasTile";
+import { type TileTheme, tileMinimapBorder } from "./tileChrome";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -182,7 +182,7 @@ const CanvasMinimap: Component<{
                         width: `${p().w}px`,
                         height: `${p().h}px`,
                         "background-color": theme().bg,
-                        border: `1px solid color-mix(in oklch, ${theme().fg} 25%, ${theme().bg})`,
+                        border: `1px solid ${tileMinimapBorder(theme())}`,
                       }}
                       title={id}
                       onClick={handleTileClick}

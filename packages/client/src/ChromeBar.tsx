@@ -18,6 +18,7 @@ import SettingsPopover from "./settings/SettingsPopover";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import PillTree from "./canvas/PillTree";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
+import type { TileTheme } from "./canvas/tileChrome";
 import type { TerminalDisplayInfo } from "./terminal/terminalDisplay";
 import type { TerminalId } from "kolu-common";
 import type { WsStatus } from "./rpc/rpc";
@@ -39,6 +40,7 @@ const ChromeBar: Component<{
   canvasMaximized: boolean;
   onExitMaximize: () => void;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  getTileTheme: (id: TerminalId) => TileTheme;
   isUnread: (id: TerminalId) => boolean;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
@@ -49,7 +51,11 @@ const ChromeBar: Component<{
   return (
     <div
       data-testid="chrome-bar"
-      class="flex items-center gap-3 px-3 py-2 select-none w-full bg-surface-1 border-b border-edge"
+      // No bg / border — chrome shares the canvas surface so the
+      // visual top of the workspace extends through the chrome row.
+      // Items (logo, pills, controls) carry their own backgrounds
+      // where needed.
+      class="flex items-center gap-3 px-3 py-2 select-none w-full canvas-grid-bg"
     >
       {/* Identity: logo + app name + connection dot */}
       <div class="flex items-center gap-2 shrink-0">
@@ -73,6 +79,7 @@ const ChromeBar: Component<{
           canvasMaximized={props.canvasMaximized}
           onExitMaximize={props.onExitMaximize}
           getDisplayInfo={props.getDisplayInfo}
+          getTileTheme={props.getTileTheme}
           isUnread={props.isUnread}
           onSelect={props.onSelect}
         />

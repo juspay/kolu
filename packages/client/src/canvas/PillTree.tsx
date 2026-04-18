@@ -14,6 +14,7 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import type { TerminalId } from "kolu-common";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { PillRepoGroup, PillBranch } from "./pillTreeOrder";
+import type { TileTheme } from "./tileChrome";
 import { MinimapIcon } from "../ui/Icons";
 
 const BRANCHES_PER_ROW = 3;
@@ -41,6 +42,9 @@ const PillTree: Component<{
   /** Lookup so each pill can colour itself by repo and surface unread/agent
    *  glow without the tree re-deriving any of that itself. */
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  /** Theme lookup so each pill takes the tile's title-bar tint —
+   *  visually echoes the tile, doubles as a stable identity color. */
+  getTileTheme: (id: TerminalId) => TileTheme;
   isUnread: (id: TerminalId) => boolean;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
@@ -63,11 +67,13 @@ const PillTree: Component<{
         data-maximized={props.canvasMaximized ? "" : undefined}
         // Positioning is the caller's job (ChromeBar embeds this as a
         // flex child, mobile sheet renders its own vertical list).
-        // This component owns only the pill layout + opacity recess.
-        class="group/pill-tree pointer-events-auto select-none"
+        // `w-fit` keeps the tree at content width so the parent's
+        // justify-center actually centers it instead of stretching the
+        // tree across the whole header.
+        class="group/pill-tree pointer-events-auto select-none w-fit"
       >
         <div
-          class="flex flex-wrap items-start gap-x-4 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+          class="flex flex-wrap items-start justify-center gap-x-3 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
           classList={{
             // Deeper recess in maximized mode: the user is focused on
             // one tile, the tree is a peripheral nav affordance; but it
@@ -126,6 +132,7 @@ const PillTree: Component<{
                               <For each={row}>
                                 {(b) => {
                                   const info = () => props.getDisplayInfo(b.id);
+                                  const theme = () => props.getTileTheme(b.id);
                                   const active = () => props.activeId === b.id;
                                   const unread = () => props.isUnread(b.id);
                                   const agentState = () =>
@@ -141,17 +148,22 @@ const PillTree: Component<{
                                       data-active={active() ? "" : undefined}
                                       data-unread={unread() ? "" : undefined}
                                       data-agent-state={agentState()}
-                                      class="relative flex items-center gap-1 px-2 h-6 rounded-full text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] truncate"
+                                      class="relative flex items-center gap-1 px-2 h-6 rounded-full text-xs transition-shadow cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] truncate"
                                       classList={{
-                                        "bg-accent/30 text-fg ring-1 ring-accent/60":
+                                        "ring-2 ring-accent/80 shadow":
                                           active(),
-                                        "text-fg-2 hover:bg-surface-2/80 hover:text-fg":
+                                        "hover:ring-1 hover:ring-edge/60":
                                           !active(),
                                       }}
                                       style={{
-                                        "border-color": active()
-                                          ? repoColor(group)
-                                          : undefined,
+                                        // Pill bg = terminal's BG color,
+                                        // text = its FG color. Each pill
+                                        // is a literal swatch of its
+                                        // terminal — clearest visual
+                                        // pill ↔ tile link without the
+                                        // brightness of full inversion.
+                                        "background-color": theme().bg,
+                                        color: theme().fg,
                                       }}
                                       onClick={() => props.onSelect(b.id)}
                                       title={tooltip()}

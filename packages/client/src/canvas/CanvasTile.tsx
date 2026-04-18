@@ -15,12 +15,15 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
+import {
+  type TileTheme,
+  tileTitleBarBg,
+  tileTitleBarBorder,
+  tileFgTier,
+  tileChromeButton,
+} from "./tileChrome";
 
-/** Minimal theme info for tile chrome (title bar, border). */
-export interface TileTheme {
-  bg: string;
-  fg: string;
-}
+export type { TileTheme };
 
 // 800×540 fits ~88 cols × 27 rows at the default font (~9px × 20px cell),
 // safely above the legacy 80×24 baseline that downstream tools (`stty`,
@@ -64,7 +67,6 @@ const CanvasTile: Component<{
     props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
 
   const bg = () => props.theme.bg;
-  const fg = () => props.theme.fg;
 
   // While maximized: ignore drag transform and pin to viewport. While
   // tiled: absolute-positioned at layout(), drag transform follows.
@@ -121,15 +123,15 @@ const CanvasTile: Component<{
           "cursor-grab active:cursor-grabbing": !props.maximized,
         }}
         style={{
-          "background-color": `color-mix(in oklch, ${fg()} 8%, ${bg()})`,
-          "border-bottom": `1px solid color-mix(in oklch, ${fg()} 12%, ${bg()})`,
+          "background-color": tileTitleBarBg(props.theme),
+          "border-bottom": `1px solid ${tileTitleBarBorder(props.theme)}`,
           // Scope theme-derived foreground tiers to the title bar so
           // chrome buttons read sensible defaults via var(--color-fg-3,
           // currentColor) without leaking the override into the tile body
           // (xterm + search overlays use the global tiers there).
-          "--color-fg": fg(),
-          "--color-fg-2": `color-mix(in oklch, ${fg()} 75%, ${bg()})`,
-          "--color-fg-3": `color-mix(in oklch, ${fg()} 55%, ${bg()})`,
+          "--color-fg": tileFgTier(props.theme, 1),
+          "--color-fg-2": tileFgTier(props.theme, 2),
+          "--color-fg-3": tileFgTier(props.theme, 3),
         }}
         onDblClick={(e) => {
           e.stopPropagation();
@@ -156,7 +158,7 @@ const CanvasTile: Component<{
           data-testid="canvas-tile-maximize"
           class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20"
           style={{
-            color: `color-mix(in oklch, ${fg()} 50%, ${bg()})`,
+            color: tileChromeButton(props.theme),
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -173,7 +175,7 @@ const CanvasTile: Component<{
           data-testid="canvas-tile-close"
           class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
           style={{
-            color: `color-mix(in oklch, ${fg()} 50%, ${bg()})`,
+            color: tileChromeButton(props.theme),
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
