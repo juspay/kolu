@@ -129,7 +129,13 @@ const PillTree: Component<{
                             >
                               {isLast() ? "└─" : "├─"}
                             </span>
-                            <div class="grid grid-cols-3 gap-1">
+                            {/* `auto` columns size to content — a repo
+                             *  with only 2 pills doesn't reserve a 3rd
+                             *  column's width (which would happen with
+                             *  `grid-cols-3` = `repeat(3, 1fr)`). Vertical
+                             *  alignment across rows holds because both
+                             *  use the same column-sizing rule. */}
+                            <div class="grid grid-cols-[repeat(3,auto)] gap-1">
                               <For each={row}>
                                 {(b) => {
                                   const info = () => props.getDisplayInfo(b.id);
