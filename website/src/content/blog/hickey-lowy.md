@@ -33,16 +33,34 @@ the code was done.
 
 Rich Hickey's *Simple Made Easy* gives you one question: **is this
 complected?** Are two ideas braided together in one thing, so that to
-touch one you have to touch the other? A [Hickey
-reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
+touch one you have to touch the other? Hickey is literal about the
+word:
+
+> Okay. So there's this really cool word called *complect*. I found
+> it. I love it. It means to interleave or entwine or braid. Okay?
+> I want to start talking about what we do to our software that
+> makes it bad.
+>
+> — Rich Hickey, [*Simple Made Easy*](https://www.infoq.com/presentations/Simple-Made-Easy/) (Strange Loop, 2011)
+
+A [Hickey reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
 reads code the way a lockpicker reads a tumbler — looking for
 concepts that shouldn't be in the same position. The output is
 always "split these apart."
 
-Juval Lowy's *Righting Software*, building on [Parnas 1972](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf),
-gives you a different question: **what changes at a different rate
-than its neighbors?** A [Lowy
-reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
+Juval Löwy's *Righting Software* (2019) gives you a different
+question: **what changes at a different rate than its neighbors?**
+Löwy builds on David Parnas, who had the rule fifty-four years
+ago:
+
+> We propose instead that one begins with a list of difficult design
+> decisions or design decisions which are likely to change. Each
+> module is then designed to hide such a decision from the others.
+>
+> — David Parnas, [*On the Criteria To Be Used in Decomposing
+> Systems into Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972)
+
+A [Löwy reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
 reads code the way an actuary reads a portfolio — looking for
 things coupled to unrelated schedules. The output is always "draw
 a boundary that encapsulates this volatility."
