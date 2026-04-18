@@ -6,13 +6,15 @@ import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { cwdBasename } from "../path";
 import { terminalName } from "../terminal/terminalDisplay";
 
+export interface PillBranch {
+  id: TerminalId;
+  /** Display label — branch name when known, falls back to terminal name. */
+  label: string;
+}
+
 export interface PillRepoGroup {
   repoName: string;
-  branches: Array<{
-    id: TerminalId;
-    /** Display label — branch name when known, falls back to terminal name. */
-    label: string;
-  }>;
+  branches: PillBranch[];
 }
 
 /** Group ids by repoName (or cwd basename for non-git terminals). Preserves

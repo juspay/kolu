@@ -29,15 +29,13 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId } from "kolu-common";
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
-import PillTree from "./PillTree";
-import { groupByRepo } from "./pillTreeOrder";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 
 const DEFAULT_W = 800;
@@ -67,11 +65,7 @@ const TerminalCanvas: Component<{
   canvasMaximized: boolean;
   onToggleMaximize: () => void;
   getTileTheme: (id: TerminalId) => TileTheme;
-  /** Lookup so the pill tree can render repo color + unread + agent state
-   *  without re-deriving any of it. */
-  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  isUnread: (id: TerminalId) => boolean;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
@@ -88,10 +82,6 @@ const TerminalCanvas: Component<{
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
-
-  const pillGroups = createMemo(() =>
-    groupByRepo(props.tileIds, props.getMetadata),
-  );
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -379,29 +369,10 @@ const TerminalCanvas: Component<{
           )}
         </Show>
 
-        {/* Pill tree stays visible in both modes — in tiled mode it's a
-         *  navigator; in maximized mode it carries the "there's a canvas
-         *  behind this" signal plus lets the user swap which terminal is
-         *  rendered fullscreen without exiting maximize first. The
-         *  minimap is a spatial dashboard; it has no meaning in
-         *  fullscreen-single-tile mode and hides. */}
-        <PillTree
-          groups={pillGroups()}
-          activeId={props.activeId}
-          canvasMaximized={props.canvasMaximized}
-          onExitMaximize={props.onToggleMaximize}
-          getDisplayInfo={props.getDisplayInfo}
-          isUnread={props.isUnread}
-          onSelect={(id) => {
-            props.onSelect(id);
-            // Only pan in tiled mode — in maximized mode there's nothing
-            // spatial to pan to, the tile just swaps fullscreen content.
-            if (!props.canvasMaximized) {
-              const tile = props.getLayout(id);
-              if (tile) viewport.centerOnTile(tile);
-            }
-          }}
-        />
+        {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
+         *  since there's nothing spatial to summarize. Pill tree lives in
+         *  the ChromeBar at App.tsx level — shared between pinned (docked
+         *  header row) and unpinned (floating overlay) layouts. */}
         <Show when={!props.canvasMaximized}>
           <CanvasMinimap
             tileIds={props.tileIds}

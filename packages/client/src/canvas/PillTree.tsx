@@ -3,13 +3,30 @@
  *  Replaces the focus-mode Sidebar. Sits at the top of the viewport,
  *  ghosted at rest and behind any tile that overlaps it; pops to full
  *  opacity above the tiles on hover. Click a branch pill → caller pans
- *  the viewport to center the corresponding tile. */
+ *  the viewport to center the corresponding tile.
+ *
+ *  Layout: repo groups flex-wrap horizontally so a few repos stay on
+ *  one row; branch pills inside each repo lay out in a 3-column grid,
+ *  one row per group of 3. Each grid row carries a leading ├─/└─ glyph
+ *  so the parent→child relationship reads as a tree, not a soup. */
 
 import { type Component, For, Show, createMemo } from "solid-js";
 import type { TerminalId } from "kolu-common";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { PillRepoGroup } from "./pillTreeOrder";
+import type { PillRepoGroup, PillBranch } from "./pillTreeOrder";
 import { MinimapIcon } from "../ui/Icons";
+
+const BRANCHES_PER_ROW = 3;
+
+/** Chunk branches into rows of BRANCHES_PER_ROW so each row gets its
+ *  own ├─/└─ glyph. Last row uses └─, all earlier ones ├─. */
+function chunkBranches(branches: PillBranch[]): PillBranch[][] {
+  const rows: PillBranch[][] = [];
+  for (let i = 0; i < branches.length; i += BRANCHES_PER_ROW) {
+    rows.push(branches.slice(i, i + BRANCHES_PER_ROW));
+  }
+  return rows;
+}
 
 const PillTree: Component<{
   groups: PillRepoGroup[];
@@ -44,26 +61,20 @@ const PillTree: Component<{
       <div
         data-testid="pill-tree"
         data-maximized={props.canvasMaximized ? "" : undefined}
-        // Tiled mode: tree sits BEHIND tiles at rest (z-0; tiles start at
-        // z-1) and pops above on hover (z-30), so a tile's title bar
-        // stays double-clickable for maximize. Maximized mode: tree is
-        // always above the fullscreen tile (z-40) because there's
-        // nothing else to compete with and the user needs it reachable.
-        class="absolute top-3 left-1/2 -translate-x-1/2 group/pill-tree pointer-events-auto select-none"
-        classList={{
-          "z-0 hover:z-30": !props.canvasMaximized,
-          "z-40": props.canvasMaximized,
-        }}
+        // Positioning is the caller's job (ChromeBar embeds this as a
+        // flex child, mobile sheet renders its own vertical list).
+        // This component owns only the pill layout + opacity recess.
+        class="group/pill-tree pointer-events-auto select-none"
       >
         <div
-          class="flex items-start gap-3 px-3 py-2 rounded-2xl bg-surface-1/40 backdrop-blur-md border border-edge/30 shadow-sm transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+          class="flex flex-wrap items-start gap-x-4 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
           classList={{
             // Deeper recess in maximized mode: the user is focused on
             // one tile, the tree is a peripheral nav affordance; but it
             // stays readable at a glance so "there's a canvas behind
             // this" remains legible without a hover.
-            "opacity-50": !props.canvasMaximized,
-            "opacity-40": props.canvasMaximized,
+            "opacity-80": !props.canvasMaximized,
+            "opacity-50": props.canvasMaximized,
           }}
         >
           <Show when={props.canvasMaximized}>
@@ -77,65 +88,97 @@ const PillTree: Component<{
             </button>
           </Show>
           <For each={props.groups}>
-            {(group) => (
-              <div class="flex flex-col items-start gap-1">
-                <div
-                  data-testid="pill-tree-repo"
-                  class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
-                  style={{ color: repoColor(group) }}
-                  title={group.repoName}
-                >
-                  {group.repoName}
-                </div>
-                <div class="flex items-center gap-1 flex-wrap">
-                  <For each={group.branches}>
-                    {(b) => {
-                      const info = () => props.getDisplayInfo(b.id);
-                      const active = () => props.activeId === b.id;
-                      const unread = () => props.isUnread(b.id);
-                      const agentState = () => info()?.meta.agent?.state;
-                      // Tooltip shows the cwd (matches the pre-#622 sidebar
-                      // affordance — hover any entry to see the full path).
-                      const tooltip = () => info()?.meta.cwd ?? b.label;
-                      return (
-                        <button
-                          data-testid="pill-tree-branch"
-                          data-terminal-id={b.id}
-                          data-active={active() ? "" : undefined}
-                          data-unread={unread() ? "" : undefined}
-                          data-agent-state={agentState()}
-                          class="relative flex items-center gap-1 px-2 h-6 rounded-full text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] truncate"
-                          classList={{
-                            "bg-accent/30 text-fg ring-1 ring-accent/60":
-                              active(),
-                            "text-fg-2 hover:bg-surface-2/80 hover:text-fg":
-                              !active(),
-                          }}
-                          style={{
-                            "border-color": active()
-                              ? repoColor(group)
-                              : undefined,
-                          }}
-                          onClick={() => props.onSelect(b.id)}
-                          title={tooltip()}
-                        >
-                          <Show when={unread()}>
+            {(group) => {
+              const rows = createMemo(() => chunkBranches(group.branches));
+              return (
+                <div class="flex flex-col items-start gap-1 min-w-0">
+                  <div class="flex items-baseline gap-2">
+                    <div
+                      data-testid="pill-tree-repo"
+                      class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
+                      style={{ color: repoColor(group) }}
+                      title={group.repoName}
+                    >
+                      {group.repoName}
+                    </div>
+                    <Show when={group.branches.length > 1}>
+                      <span
+                        data-testid="pill-tree-repo-count"
+                        class="text-[0.6rem] font-mono text-fg-3 tabular-nums"
+                      >
+                        {group.branches.length}
+                      </span>
+                    </Show>
+                  </div>
+                  <div class="flex flex-col gap-0.5">
+                    <For each={rows()}>
+                      {(row, rowIdx) => {
+                        const isLast = () => rowIdx() === rows().length - 1;
+                        return (
+                          <div class="flex items-center gap-1">
                             <span
-                              class="absolute -top-0.5 -right-0.5 inline-flex h-2 w-2"
                               aria-hidden="true"
+                              class="font-mono text-[0.7rem] leading-none text-fg-3 select-none w-3 shrink-0"
                             >
-                              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-                              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+                              {isLast() ? "└─" : "├─"}
                             </span>
-                          </Show>
-                          <span class="truncate">{b.label}</span>
-                        </button>
-                      );
-                    }}
-                  </For>
+                            <div class="grid grid-cols-3 gap-1">
+                              <For each={row}>
+                                {(b) => {
+                                  const info = () => props.getDisplayInfo(b.id);
+                                  const active = () => props.activeId === b.id;
+                                  const unread = () => props.isUnread(b.id);
+                                  const agentState = () =>
+                                    info()?.meta.agent?.state;
+                                  // Tooltip shows the cwd (matches the
+                                  // pre-#622 sidebar affordance).
+                                  const tooltip = () =>
+                                    info()?.meta.cwd ?? b.label;
+                                  return (
+                                    <button
+                                      data-testid="pill-tree-branch"
+                                      data-terminal-id={b.id}
+                                      data-active={active() ? "" : undefined}
+                                      data-unread={unread() ? "" : undefined}
+                                      data-agent-state={agentState()}
+                                      class="relative flex items-center gap-1 px-2 h-6 rounded-full text-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] truncate"
+                                      classList={{
+                                        "bg-accent/30 text-fg ring-1 ring-accent/60":
+                                          active(),
+                                        "text-fg-2 hover:bg-surface-2/80 hover:text-fg":
+                                          !active(),
+                                      }}
+                                      style={{
+                                        "border-color": active()
+                                          ? repoColor(group)
+                                          : undefined,
+                                      }}
+                                      onClick={() => props.onSelect(b.id)}
+                                      title={tooltip()}
+                                    >
+                                      <Show when={unread()}>
+                                        <span
+                                          class="absolute -top-0.5 -right-0.5 inline-flex h-2 w-2"
+                                          aria-hidden="true"
+                                        >
+                                          <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+                                          <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+                                        </span>
+                                      </Show>
+                                      <span class="truncate">{b.label}</span>
+                                    </button>
+                                  );
+                                }}
+                              </For>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </div>

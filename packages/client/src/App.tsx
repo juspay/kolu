@@ -17,7 +17,7 @@ import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import { isMobile } from "./useMobile";
-import Header from "./Header";
+import ChromeBar from "./ChromeBar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import AgentIndicator from "./terminal/AgentIndicator";
@@ -88,9 +88,10 @@ const App: Component = () => {
 
   // Pill-tree-grouped order — single source for the desktop pill tree AND
   // the mobile swipe handler so the two views never drift.
-  const orderedIds = createMemo(() =>
-    flatPillOrder(groupByRepo(store.terminalIds(), store.getMetadata)),
+  const pillGroups = createMemo(() =>
+    groupByRepo(store.terminalIds(), store.getMetadata),
   );
+  const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -549,11 +550,29 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      <Header
-        status={wsStatus()}
-        onOpenPalette={() => openPalette()}
-        appTitle={appTitle()}
-      />
+      {/* Desktop chrome — docked top bar carrying pill tree, identity,
+       *  and global controls. Mobile has its own pull-down sheet (see
+       *  MobileTileView) and does not render this band. */}
+      <Show when={!isMobile()}>
+        <ChromeBar
+          status={wsStatus()}
+          appTitle={appTitle()}
+          onOpenPalette={() => openPalette()}
+          groups={pillGroups()}
+          activeId={store.activeId()}
+          canvasMaximized={store.canvasMaximized()}
+          onExitMaximize={store.toggleCanvasMaximized}
+          getDisplayInfo={store.getDisplayInfo}
+          isUnread={store.isUnread}
+          onSelect={(id) => {
+            store.setActiveId(id);
+            if (!store.canvasMaximized()) {
+              const layout = store.getMetadata(id)?.canvasLayout;
+              if (layout) canvasViewport.centerOnTile(layout);
+            }
+          }}
+        />
+      </Show>
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
        *  can read them via CSS without prop drilling. The fg lets sub-
@@ -600,7 +619,12 @@ const App: Component = () => {
                     orderedIds={orderedIds()}
                     activeId={store.activeId()}
                     getDisplayInfo={store.getDisplayInfo}
+                    isUnread={store.isUnread}
                     setActiveId={store.setActiveId}
+                    groups={pillGroups()}
+                    status={wsStatus()}
+                    appTitle={appTitle()}
+                    onOpenPalette={() => openPalette()}
                     renderBody={renderMobileTileBody}
                     bottomBar={<MobileKeyBar activeId={store.activeId} />}
                   />
@@ -611,9 +635,7 @@ const App: Component = () => {
                     activeId={store.activeId()}
                     canvasMaximized={store.canvasMaximized()}
                     onToggleMaximize={store.toggleCanvasMaximized}
-                    getMetadata={store.getMetadata}
                     getDisplayInfo={store.getDisplayInfo}
-                    isUnread={store.isUnread}
                     getTileTheme={(id) => {
                       const t = getTerminalTheme(id);
                       return {

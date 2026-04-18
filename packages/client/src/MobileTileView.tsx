@@ -1,15 +1,19 @@
 /** MobileTileView — single fullscreen tile with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and pill tree are disabled per #622.
- *  The active terminal fills the viewport; swipe-left/right cycles between
- *  terminals in pill-tree order. A slim title row anchored at the top
- *  shows the active terminal's identity (repo · branch + agent indicator)
- *  so the user always knows where they are without the canvas chrome. */
+ *  On mobile the canvas (pan/zoom) and the desktop pill tree are
+ *  disabled per #622. The active terminal fills the viewport; swipe-
+ *  left/right cycles between terminals in pill-tree order. A pull-handle
+ *  row at the top is always visible (drag-bar + identity + connection
+ *  dot); tapping it opens `MobileChromeSheet`, which mirrors the desktop
+ *  ChromeBar for touch — logo, vertical pill list, controls. */
 
 import { type Component, For, Show, createSignal, type JSX } from "solid-js";
 import type { TerminalId } from "kolu-common";
 import type { TerminalDisplayInfo } from "./terminal/terminalDisplay";
+import type { PillRepoGroup } from "./canvas/pillTreeOrder";
+import type { WsStatus } from "./rpc/rpc";
 import TerminalMeta from "./terminal/TerminalMeta";
+import MobileChromeSheet from "./MobileChromeSheet";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -23,7 +27,14 @@ const MobileTileView: Component<{
   orderedIds: TerminalId[];
   activeId: TerminalId | null;
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  isUnread: (id: TerminalId) => boolean;
   setActiveId: (id: TerminalId) => void;
+  /** Chrome sheet props. Passed through to MobileChromeSheet when the
+   *  user opens the drawer. */
+  groups: PillRepoGroup[];
+  status: WsStatus;
+  appTitle: string;
+  onOpenPalette: () => void;
   /** Render the actual terminal body (xterm + sub-panel + search bar). */
   renderBody: (id: TerminalId, visible: () => boolean) => JSX.Element;
   /** Soft-keyboard helper bar (Esc, Tab, arrows, etc.). */
@@ -33,6 +44,7 @@ const MobileTileView: Component<{
     x: number;
     y: number;
   } | null>(null);
+  const [sheetOpen, setSheetOpen] = createSignal(false);
 
   function navigate(direction: 1 | -1) {
     const ids = props.orderedIds;
@@ -69,28 +81,37 @@ const MobileTileView: Component<{
   return (
     <div
       data-testid="mobile-tile-view"
-      class="flex-1 min-h-0 flex flex-col"
+      class="flex-1 min-h-0 flex flex-col relative"
       // Listen for swipes on the wrapper so xterm's own pointer handling
       // is unaffected — touchstart bubbles even when xterm consumes pointer
       // events internally.
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
-      {/* Slim identity row — repo · branch + agent indicator. The minimal
-       *  header carries no per-terminal state on mobile, so this row
-       *  stands in for the per-tile chrome that desktop tiles wear. */}
-      <Show when={activeInfo()}>
-        {(info) => (
-          <div
-            data-testid="mobile-tile-titlebar"
-            class="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1"
+      {/* Pull-handle row — drag-bar + identity + connection dot.
+       *  Tap to reveal the chrome sheet. Always visible so the chrome
+       *  affordance is discoverable. */}
+      <button
+        data-testid="mobile-pull-handle"
+        class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
+        onClick={() => setSheetOpen(true)}
+        aria-label="Open navigation"
+      >
+        <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
+        <div class="flex items-center gap-2 w-full">
+          <Show
+            when={activeInfo()}
+            fallback={<span class="text-sm text-fg-2">kolu</span>}
           >
-            <div class="flex-1 min-w-0">
-              <TerminalMeta info={info()} />
-            </div>
-          </div>
-        )}
-      </Show>
+            {(info) => (
+              <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
+                <TerminalMeta info={info()} />
+              </div>
+            )}
+          </Show>
+        </div>
+      </button>
+
       {/* Body container — relative so per-terminal absolutely-positioned
        *  search overlays anchor here, not the dvh root. */}
       <div class="flex-1 min-h-0 relative overflow-hidden">
@@ -109,6 +130,19 @@ const MobileTileView: Component<{
         </For>
       </div>
       {props.bottomBar}
+
+      <MobileChromeSheet
+        open={sheetOpen()}
+        onDismiss={() => setSheetOpen(false)}
+        status={props.status}
+        appTitle={props.appTitle}
+        onOpenPalette={props.onOpenPalette}
+        groups={props.groups}
+        activeId={props.activeId}
+        getDisplayInfo={props.getDisplayInfo}
+        isUnread={props.isUnread}
+        onSelect={props.setActiveId}
+      />
     </div>
   );
 };
