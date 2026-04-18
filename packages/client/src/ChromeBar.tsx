@@ -16,17 +16,14 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createSignal } from "solid-js";
+import { type Component, type JSX, createSignal } from "solid-js";
 import { SettingsIcon, InspectorToggleIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import PillTree from "./canvas/PillTree";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import type { PillRepoGroup } from "./canvas/pillTreeOrder";
-import type { TerminalId } from "kolu-common";
 import type { WsStatus } from "./rpc/rpc";
 
 const statusStyles: Record<WsStatus, string> = {
@@ -39,12 +36,10 @@ const ChromeBar: Component<{
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
-  /** Grouped pill tree to render in the middle. Caller owns grouping
-   *  (so the same groups feed mobile-swipe order in App.tsx). */
-  groups: PillRepoGroup[];
-  /** Click handler for a pill — caller decides whether to pan, swap
-   *  active terminal, etc. */
-  onSelectPill: (id: TerminalId) => void;
+  /** Pill tree slot — caller composes `<PillTree ... />`. ChromeBar
+   *  is a layout host (logo + tree + controls); it doesn't need to
+   *  know the tree's prop shape, just where to drop it. */
+  pillTree: JSX.Element;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const store = useTerminalStore();
@@ -83,9 +78,7 @@ const ChromeBar: Component<{
       </div>
 
       {/* Pill tree — fills the middle, wraps as needed */}
-      <div class="flex-1 min-w-0 flex justify-center">
-        <PillTree groups={props.groups} onSelect={props.onSelectPill} />
-      </div>
+      <div class="flex-1 min-w-0 flex justify-center">{props.pillTree}</div>
 
       {/* Control cluster: inspector → settings → ⌘K */}
       <div class="flex items-center gap-2 shrink-0">

@@ -331,7 +331,9 @@ const TerminalCanvas: Component<{
                     transform: viewport.canvasTransform(),
                   }}
                 >
-                  <For each={props.tileIds}>{(id) => renderTile(id, false)}</For>
+                  <For each={props.tileIds}>
+                    {(id) => renderTile(id, false)}
+                  </For>
                 </div>
               </Show>
 

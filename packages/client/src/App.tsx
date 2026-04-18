@@ -22,6 +22,7 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import AgentIndicator from "./terminal/AgentIndicator";
 import TerminalCanvas from "./canvas/TerminalCanvas";
+import PillTree from "./canvas/PillTree";
 import { groupByRepo, flatPillOrder } from "./canvas/pillTreeOrder";
 import MobileTileView from "./MobileTileView";
 import MobileKeyBar from "./MobileKeyBar";
@@ -562,14 +563,18 @@ const App: Component = () => {
           status={wsStatus()}
           appTitle={appTitle()}
           onOpenPalette={() => openPalette()}
-          groups={pillGroups()}
-          onSelectPill={(id) => {
-            store.setActiveId(id);
-            if (!store.canvasMaximized()) {
-              const layout = store.getMetadata(id)?.canvasLayout;
-              if (layout) canvasViewport.centerOnTile(layout);
-            }
-          }}
+          pillTree={
+            <PillTree
+              groups={pillGroups()}
+              onSelect={(id) => {
+                store.setActiveId(id);
+                if (!store.canvasMaximized()) {
+                  const layout = store.getMetadata(id)?.canvasLayout;
+                  if (layout) canvasViewport.centerOnTile(layout);
+                }
+              }}
+            />
+          }
         />
       </Show>
       {/* relative: anchor for overlay panels.

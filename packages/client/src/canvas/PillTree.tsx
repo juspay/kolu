@@ -14,7 +14,11 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import { match, P } from "ts-pattern";
 import type { TerminalId } from "kolu-common";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { type PillRepoGroup, type PillBranch, repoColor } from "./pillTreeOrder";
+import {
+  type PillRepoGroup,
+  type PillBranch,
+  repoColor,
+} from "./pillTreeOrder";
 import { useTileTheme } from "./useTileTheme";
 import { MinimapIcon } from "../ui/Icons";
 
@@ -127,7 +131,8 @@ const PillTree: Component<{
                                 {(b) => {
                                   const info = () => store.getDisplayInfo(b.id);
                                   const theme = () => tileTheme(b.id);
-                                  const active = () => store.activeId() === b.id;
+                                  const active = () =>
+                                    store.activeId() === b.id;
                                   const unread = () => store.isUnread(b.id);
                                   const agentState = () =>
                                     info()?.meta.agent?.state;
@@ -135,30 +140,24 @@ const PillTree: Component<{
                                   // pre-#622 sidebar affordance).
                                   const tooltip = () =>
                                     info()?.meta.cwd ?? b.label;
-                                  // Single border channel: encodes BOTH
-                                  // active-ness and agent state. Border
-                                  // animation = agent state (spin /
-                                  // breathe / solid); inner glow = also
-                                  // the focused terminal.
-                                  const borderClass = () =>
-                                    match([active(), agentState()] as const)
+                                  // Two orthogonal border concerns,
+                                  // composed via classList. Agent state
+                                  // drives the animation; active drives
+                                  // the inset glow / static ring. Adding
+                                  // a new agent variant only touches
+                                  // `agentBorderClass` — the active path
+                                  // doesn't need to be re-audited.
+                                  const agentBorderClass = () =>
+                                    match(agentState())
                                       .with(
-                                        [P._, P.union("thinking", "tool_use")],
-                                        ([a]) =>
-                                          a
-                                            ? "pill-border pill-border-spin pill-glow-inner"
-                                            : "pill-border pill-border-spin",
-                                      )
-                                      .with([P._, "waiting"], ([a]) =>
-                                        a
-                                          ? "pill-border pill-border-waiting pill-glow-inner"
-                                          : "pill-border pill-border-waiting",
+                                        P.union("thinking", "tool_use"),
+                                        () => "pill-border pill-border-spin",
                                       )
                                       .with(
-                                        [true, undefined],
-                                        () => "pill-border pill-border-active",
+                                        "waiting",
+                                        () => "pill-border pill-border-waiting",
                                       )
-                                      .with([false, undefined], () => "")
+                                      .with(undefined, () => "")
                                       .exhaustive();
                                   return (
                                     <button
@@ -167,8 +166,19 @@ const PillTree: Component<{
                                       data-active={active() ? "" : undefined}
                                       data-unread={unread() ? "" : undefined}
                                       data-agent-state={agentState()}
-                                      class={`flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${borderClass()}`}
+                                      class={`flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${agentBorderClass()}`}
                                       classList={{
+                                        // Static repo-colored ring when
+                                        // active and no agent animation
+                                        // is already painting one.
+                                        "pill-border pill-border-active":
+                                          active() && !agentState(),
+                                        // Inset glow whenever the active
+                                        // pill ALSO has an agent animation
+                                        // running — distinguishes "focus"
+                                        // from "agent-running-elsewhere".
+                                        "pill-glow-inner":
+                                          active() && !!agentState(),
                                         // Hover ring only when no other
                                         // border is doing work — a tiny
                                         // discoverability cue for idle,

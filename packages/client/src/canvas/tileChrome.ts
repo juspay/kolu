@@ -2,7 +2,13 @@
  *  CanvasTile, PillTree, and CanvasMinimap all derive from a terminal's
  *  theme. Same `color-mix(in oklch, fg X%, bg)` formula was duplicated
  *  across three files; consolidating it here means a tweak to one tier
- *  flows everywhere it's read. */
+ *  flows everywhere it's read.
+ *
+ *  Scope: **color derivations only**. Tile sizing, layout, border-radius,
+ *  shadow, hover state, animation, and other interaction styling stay
+ *  inline in their owning component (CanvasTile, PillTree, CanvasMinimap).
+ *  This module's volatility is the per-theme color formula — anything
+ *  that doesn't change when the formula changes belongs elsewhere. */
 
 /** Minimal theme info — bg/fg from the terminal's color scheme. Both
  *  values are CSS color strings (any form `color-mix` accepts). */
