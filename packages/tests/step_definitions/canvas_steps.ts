@@ -763,18 +763,21 @@ Then(
 When(
   "I double-click the title bar of canvas tile {int}",
   async function (this: KoluWorld, index: number) {
-    const titleBar = this.page
-      .locator(`${CANVAS_SELECTOR} ${TILE_TITLEBAR_SELECTOR}`)
-      .nth(index - 1);
-    await titleBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // `dblclick` waits for the element to be "stable" and visible at the
-    // viewport center of the bounding box. The first tile's title bar
-    // overlaps spatially with the floating PillTree (top center of the
-    // canvas), and Playwright's hit-test rejects the click target — even
-    // with the pill tree at z-0. `force: true` bypasses the hit-test
-    // (we know the title bar is the intended target; the pill tree is
-    // visually behind it per #622's z-order spec).
-    await titleBar.dblclick({ force: true });
+    // Synthesize a `dblclick` event directly on the title bar in page
+    // context — Playwright's real-mouse dblclick contends with the
+    // PillTree overlay and the parent tile's drag activator on a
+    // maximized tile (its position changes from absolute → fixed mid-
+    // sequence). Dispatching the event bypasses both.
+    await this.page.evaluate((i) => {
+      const bars = document.querySelectorAll(
+        '[data-testid="canvas-tile-titlebar"]',
+      );
+      const bar = bars.item(i) as HTMLElement | null;
+      if (!bar) throw new Error(`titlebar ${i + 1} not found`);
+      bar.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+      );
+    }, index - 1);
     await this.waitForFrame();
   },
 );

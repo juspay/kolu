@@ -7,6 +7,21 @@ import {
 } from "../support/world.ts";
 import * as assert from "node:assert";
 
+/** Synthesize a click directly on the close-button DOM node. Real-mouse
+ *  clicks on a stacked canvas tile lose to the active tile (z-10) on top —
+ *  even with `force: true`, the dispatched mousedown bubbles up the parent
+ *  chain and re-selects the tile instead of firing the close button's
+ *  onClick. Calling `.click()` on the node skips the hit-test entirely. */
+async function clickTileCloseButton(world: KoluWorld, id: string) {
+  await world.page.evaluate((targetId) => {
+    const btn = document.querySelector(
+      `[data-testid="canvas-tile"][data-terminal-id="${targetId}"] [data-testid="canvas-tile-close"]`,
+    ) as HTMLButtonElement | null;
+    if (!btn) throw new Error(`close button not found for ${targetId}`);
+    btn.click();
+  }, id);
+}
+
 When(
   "I close terminal {int} via sidebar",
   async function (this: KoluWorld, index: number) {
@@ -15,17 +30,10 @@ When(
     const entry = this.page.locator(
       `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
-    // `force` because canvas tiles overlap (active tile sits at z-10 over
-    // inactive tiles at z-1) — Playwright's hit-test rejects clicks on a
-    // background tile's close button even though the element exists.
-    await entry
-      .locator('[data-testid="canvas-tile-close"]')
-      .click({ force: true });
-    // Confirm in the dialog — every close goes through CloseConfirm.
+    await clickTileCloseButton(this, id);
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await confirm.locator('[data-testid="close-confirm-close-all"]').click();
-    // Wait for removal from DOM
     await entry.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
@@ -35,12 +43,7 @@ When(
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
-    const entry = this.page.locator(
-      `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
-    );
-    await entry
-      .locator('[data-testid="canvas-tile-close"]')
-      .click({ force: true });
+    await clickTileCloseButton(this, id);
   },
 );
 
