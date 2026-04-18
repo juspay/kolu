@@ -430,6 +430,24 @@ body {
   font-weight: 500;
 }
 
+/* Tweet embed wrapper — Twitter widgets.js replaces the blockquote with a
+   cross-origin iframe on load. The wrapper gives the iframe a sensible
+   max-width and centers it. The inner blockquote styles below apply only
+   to the brief pre-iframe render. */
+.prose-editorial .tweet-embed {
+  max-width: 550px;
+  margin: 2.5em auto;
+}
+.prose-editorial .tweet-embed blockquote.twitter-tweet {
+  margin: 0;
+  font-style: normal;
+  border: none;
+  padding: 1em 1.2em;
+  color: inherit;
+  background: var(--color-void-raised);
+  border-radius: 0.5rem;
+}
+
 /* Footnote list at end of post — distinguish visually from body paragraphs. */
 .prose-editorial section[data-footnotes] {
   margin-top: 3em;
