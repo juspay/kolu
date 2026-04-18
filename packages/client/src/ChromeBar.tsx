@@ -1,12 +1,17 @@
-/** ChromeBar — the always-visible workspace chrome band, overlaid on the canvas.
+/** ChromeBar — the always-visible workspace chrome band.
  *
  *  Replaces the pre-#622 global Header. Carries app identity (logo +
  *  connection dot) on the left, the pill tree in the middle, and the
  *  global control cluster (inspector toggle, settings, command palette)
- *  on the right. Floats above the canvas with a frosted backdrop so the
- *  grid (and any tile that drifts under it) shows through faintly —
- *  reinforces "the canvas extends past the chrome" rather than "chrome
- *  caps the canvas."
+ *  on the right.
+ *
+ *  Two positioning modes, switched on `canvasMaximized`:
+ *  - Canvas mode (default): absolute overlay above the canvas. Pure
+ *    transparent so the grid reads through and the chrome looks like
+ *    it floats ON the canvas, not capping it.
+ *  - Maximized mode: docked in flex flow so the maximized terminal
+ *    owns the rest of the viewport without the terminal's own title
+ *    bar overlapping the chrome.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
@@ -53,14 +58,19 @@ const ChromeBar: Component<{
   return (
     <div
       data-testid="chrome-bar"
-      // Absolute overlay above the canvas: the canvas region beneath
-      // takes the full app height so tiles, grid lines, and even a
-      // maximized tile (z-40 inside canvas) read through. Fully
-      // transparent — no bg, no blur — so the canvas grid is the
-      // visible surface behind the chrome. z-50 keeps the chrome above
-      // the maximized tile so the user can always switch terminals or
-      // exit maximize without dismissing first.
-      class="absolute top-0 left-0 right-0 z-50 flex items-center gap-3 px-3 py-2 select-none"
+      data-maximized={props.canvasMaximized ? "" : undefined}
+      class="flex items-center gap-3 px-3 py-2 select-none"
+      classList={{
+        // Canvas mode: absolute overlay, transparent — grid shows
+        // through. z-50 stays above the maximized tile (z-40) should
+        // the mode flip mid-render.
+        "absolute top-0 left-0 right-0 z-50": !props.canvasMaximized,
+        // Maximized: docked flex-col child of the app root. Takes a
+        // real row at the top so the terminal below starts BELOW the
+        // chrome, not behind it — prevents the terminal's own title
+        // bar from colliding with the chrome contents.
+        "relative shrink-0": props.canvasMaximized,
+      }}
     >
       {/* Identity: logo + app name + connection dot */}
       <div class="flex items-center gap-2 shrink-0">
