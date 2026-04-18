@@ -28,10 +28,11 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row — sub-count moved to the title-bar split toggle
-           *  (one source of truth for "this tile has children"); the
-           *  activity sparkline takes that right slot so the title bar
-           *  reads name → activity → window controls in a single line. */}
+          {/* Name row — `name suffix [worktree-icon] cwd [activity]`.
+           *  Sub-count lives on the title-bar split toggle (one source
+           *  of truth for "this tile has children"); the activity
+           *  sparkline owns the right slot so the title bar reads
+           *  name → activity → window controls in a single line. */}
           <div class={`flex items-center gap-1.5 ${nameClass()} min-w-0`}>
             <span
               data-testid="terminal-meta-name"
@@ -185,11 +186,11 @@ const TerminalMeta: Component<{
             )}
           </Show>
 
-          {/* Foreground process/title row — activity sparkline lives on
-           *  the name row now (item #5), so this row carries only the
-           *  OSC 2 process title when present. Suppressed when the agent
-           *  summary row above already shows a near-duplicate string, or
-           *  when the title is just the cwd (already displayed on row 1). */}
+          {/* Foreground process/title row — carries only the OSC 2
+           *  process title when present (the activity sparkline lives
+           *  on the name row). Suppressed when the agent summary row
+           *  above already shows a near-duplicate string, or when the
+           *  title is just the cwd (already displayed on row 1). */}
           <Show
             when={
               !(info().meta.agent && info().meta.agent!.summary) &&

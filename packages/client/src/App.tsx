@@ -339,7 +339,7 @@ const App: Component = () => {
         <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
           <button
             data-testid="tile-split-toggle"
-            class={`${TILE_BUTTON_CLASS} flex items-center gap-1 px-1.5`}
+            class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
             classList={{ "bg-black/20": splitExpanded() }}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
