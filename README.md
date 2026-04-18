@@ -47,15 +47,17 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 ### Canvas workspace
 
-The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar; the global header carries only logo, inspector toggle, settings, command palette, and connection status.
+The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar. A transparent **chrome bar** floats at the top carrying logo, command palette, settings, and inspector toggle; the canvas grid reads through it. When a tile is maximized or the inspector panel is open, the chrome bar docks above so the two surfaces don't fight.
 
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Shift</kbd> to force pan even with the cursor over a terminal tile (hand-tool style). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
-- **Maximize a tile** — double-click any tile's title bar to fill the viewport; double-click again to restore the canvas layout
-- **Floating pill tree** — a two-level overlay (repo → branches) sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover pops it to full opacity, click a branch pill to pan and activate that tile
+- **Maximize a tile** — double-click any tile's title bar (or click the maximize button) to fill the viewport; the maximized posture persists across reload via localStorage so you land back where you left off
+- **Floating pill tree** — a two-level overlay (repo → branches) sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover pops it to full opacity. Branches sort by **canvas x-position**, so the tree reads left-to-right exactly as the tiles sit. Click a branch pill to pan and center its tile
+- **Pill border encodes state** — each pill's border doubles as identity (repo color) and live status: a conic-gradient sweep while the agent is `thinking`/`tool_use`, a breathing pulse while `waiting`, a static ring when the terminal is just active, and an inset glow when the active tile also has a working agent
+- **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the pill tree and tile chrome can disambiguate them at a glance
 - **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
-- **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
-- **Mobile** — pan/zoom and the pill tree are disabled; the active tile fills the viewport, swipe-left/right cycles between terminals in pill-tree order, the minimap is hidden
+- **Per-tile theming** — title bars and pill swatches derive their colors from each terminal's theme for guaranteed contrast
+- **Mobile** — the canvas, pan/zoom, and the floating pill tree are all disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in pill-tree order. A pull-down chrome sheet at the top reveals the same logo + pill list + controls as a touch-sized drawer
 
 ### Git & GitHub
 
@@ -155,7 +157,7 @@ flowchart TB
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
     Subs["createSubscription\nsignals"]:::cache
-    UI["UI components\npill tree · tile chrome · header · palette"]:::client
+    UI["UI components\npill tree · tile chrome · chrome bar · palette"]:::client
   end
 
   subgraph Server["Server (Hono)"]

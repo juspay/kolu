@@ -379,9 +379,9 @@ const Terminal: Component<{
 
   // Cleanup registered SYNCHRONOUSLY at component body top — NOT inside the
   // async `onMount` below. If the reactive owner disposes during `onMount`'s
-  // `await document.fonts.load(...)` (e.g. an `<Show>` toggle swapping between
-  // canvas and focus modes), any `onCleanup` registered after the await is a
-  // silent no-op — the owner's cleanup list was already iterated at disposal.
+  // `await document.fonts.load(...)` (e.g. an `<Show>` toggle swapping a tile
+  // in or out), any `onCleanup` registered after the await is a silent no-op
+  // — the owner's cleanup list was already iterated at disposal.
   // The `disposed` flag is the bail signal for the async body below. Without
   // this, each mode-toggle race leaks a Terminal component instance
   // (orphan xterm + WebGL canvas + scrollback buffer) — the residual #591
