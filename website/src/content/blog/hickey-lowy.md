@@ -273,9 +273,10 @@ Ship it when both agents go quiet. Not before.
 
 ## Further reading
 
-- [**srid/agency**](https://github.com/srid/agency) — the Claude
-  Code subagent pack that includes both reviewers. Your main
-  session spawns them in parallel and collates findings.
+- [**srid/agency**](https://github.com/srid/agency) — my
+  near-autonomous workflow for coding agents, packaged as an APM
+  package. Includes both reviewers; your main session spawns them
+  in parallel and collates findings.
 - [**hickey/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
   — the structural-simplicity reviewer. What "complected" means in
   practice, the four axes the agent grades on, worked examples of
@@ -293,4 +294,4 @@ Ship it when both agents go quiet. Not before.
   (2011 talk). Juval Löwy, *Righting Software* (2019). David
   Parnas, [*On the Criteria To Be Used in Decomposing Systems into
   Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
-  (1972) — still the clearest 14 pages on why the Löwy lens works.
+  (1972) — still the clearest six pages on why the Löwy lens works.
