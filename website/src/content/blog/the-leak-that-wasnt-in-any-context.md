@@ -1,7 +1,7 @@
 ---
 title: "The leak that wasn't in any Context"
 description: "One afternoon, two xterm.js contributions, and a reminder that proxy metrics can be wrong by three orders of magnitude."
-pubDate: 2026-04-17
+pubDate: 2026-04-18
 author: "Sridhar Ratnakumar"
 ---
 

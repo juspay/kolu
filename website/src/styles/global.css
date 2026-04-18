@@ -41,19 +41,52 @@
   --font-sans: "Fraunces Variable", ui-serif, Georgia, serif;
 }
 
+/* --- Theme switch --------------------------------------------------------- */
+
+/* Dark is the default; an inline script in BaseLayout sets
+   <html data-theme="light|dark"> before first paint (no FOUC). */
+
+[data-theme="light"] {
+  --color-void: #faf6ec;
+  --color-void-raised: #f2ecdb;
+  --color-void-sunk: #ebe4d0;
+  --color-ink: #241f17;
+  --color-ink-dim: #554e40;
+  --color-ink-muted: #857e6e;
+  --color-ink-faint: #bfb8a6;
+  --color-rule: #e1dac6;
+  --color-rule-strong: #c9c1ab;
+  --color-amber: #9a5e1e;
+  --color-amber-bright: #7d4a14;
+  --color-amber-dim: #c2956a;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+}
+
 /* --- Base ------------------------------------------------------------------ */
 
 html {
-  color-scheme: dark;
   background: var(--color-void);
-  /* Subtle character-cell lattice — evokes a terminal without shouting. */
+  /* Subtle character-cell lattice — evokes a terminal without shouting.
+     Dot opacity blended per theme via --dot-rgb below. */
   background-image: radial-gradient(
     circle at 1px 1px,
-    rgba(231, 184, 122, 0.035) 1px,
+    var(--dot-color) 1px,
     transparent 0
   );
   background-size: 24px 24px;
   background-attachment: fixed;
+  --dot-color: rgba(231, 184, 122, 0.04);
+}
+
+html[data-theme="light"] {
+  --dot-color: rgba(154, 94, 30, 0.08);
 }
 
 body {
@@ -107,6 +140,47 @@ body {
   font-family: var(--font-mono);
   font-variant-ligatures: none;
   font-feature-settings: "zero", "ss01";
+}
+
+/* --- Theme toggle icons --------------------------------------------------- */
+
+/* Show the sun in dark mode (clicking it moves to light), moon in light. */
+.theme-icon-sun,
+.theme-icon-moon {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.7);
+  pointer-events: none;
+}
+
+[data-theme="dark"] .theme-icon-sun,
+[data-theme="light"] .theme-icon-moon {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+  pointer-events: auto;
+}
+
+/* --- Shiki dual-theme code blocks ----------------------------------------- */
+
+/* Astro emits both light and dark styles as CSS custom properties on
+   .astro-code when shikiConfig uses `themes: {light, dark}` with
+   `defaultColor: false`. We route them via data-theme. */
+
+[data-theme="dark"] .astro-code,
+[data-theme="dark"] .astro-code span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
+}
+
+[data-theme="light"] .astro-code,
+[data-theme="light"] .astro-code span {
+  color: var(--shiki-light) !important;
+  background-color: var(--shiki-light-bg) !important;
+  font-style: var(--shiki-light-font-style) !important;
+  font-weight: var(--shiki-light-font-weight) !important;
+  text-decoration: var(--shiki-light-text-decoration) !important;
 }
 
 /* --- Blinking cursor ------------------------------------------------------- */

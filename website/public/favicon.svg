@@ -1,8 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Tiered steps (கோலு) — 5 ascending rainbow steps -->
-  <rect x="1" y="26" width="30" height="5" rx="1.2" fill="#ef4444"/>
-  <rect x="4" y="20" width="25" height="5" rx="1.2" fill="#f59e0b"/>
-  <rect x="8" y="14" width="20" height="5" rx="1.2" fill="#22c55e"/>
-  <rect x="12" y="8" width="15" height="5" rx="1.2" fill="#3b82f6"/>
-  <rect x="16" y="2" width="10" height="5" rx="1.2" fill="#a855f7"/>
-</svg>
+../../packages/client/favicon.svg

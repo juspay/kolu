@@ -1,14 +1,15 @@
 # Kolu website — Astro static site build.
 #
-# Output: $out/ is the dist/ directory produced by `pnpm build`, ready to be
-# served as a static site (GitHub Pages, Cloudflare Pages, etc.).
+# Output: $out/ is the dist/ directory produced by `pnpm build`, ready to
+# be served as a static site (GitHub Pages, Cloudflare Pages, etc.).
 #
 # Imported from the root flake.nix and exposed as packages.${system}.website.
 # Reuses the root's npins-pinned nixpkgs (via ../nix/nixpkgs.nix) so there's
-# no duplicate pin to keep in sync.
-{ pkgs ? import ../nix/nixpkgs.nix { } }:
-let
-  src = pkgs.lib.fileset.toSource {
+# no duplicate pin to keep in sync. `src` is optional — when omitted, a
+# self-contained fileset is built from ./; the root flake passes a
+# synthesized src that resolves the favicon symlink.
+{ pkgs ? import ../nix/nixpkgs.nix { }
+, src ? pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
       ./package.json
@@ -18,8 +19,9 @@ let
       ./src
       ./public
     ];
-  };
-
+  }
+}:
+let
   # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
   # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
   # pnpmDeps. On mismatch, Nix prints the expected hash; paste it back here.

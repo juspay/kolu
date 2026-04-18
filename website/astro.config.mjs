@@ -10,8 +10,7 @@ import tailwindcss from "@tailwindcss/vite";
 const DEV_PORT = 4321;
 
 export default defineConfig({
-  site: "https://juspay.github.io",
-  base: "/kolu",
+  site: "https://kolu.dev",
   trailingSlash: "ignore",
   server: { port: DEV_PORT, host: "127.0.0.1" },
   integrations: [mdx(), sitemap()],
@@ -20,7 +19,13 @@ export default defineConfig({
   },
   markdown: {
     shikiConfig: {
-      theme: "vitesse-black",
+      // Dual theme — astro emits both as CSS variables; global.css routes
+      // them via `[data-theme]` so code blocks track the light/dark toggle.
+      themes: {
+        light: "vitesse-light",
+        dark: "vitesse-black",
+      },
+      defaultColor: false,
       wrap: false,
     },
   },

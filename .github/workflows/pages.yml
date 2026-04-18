@@ -1,8 +1,7 @@
 # Build and deploy the Kolu website to GitHub Pages.
 #
 # The site lives in website/ and is exposed as packages.${system}.website
-# by the root flake — so `nix build .#website` produces the static artefact
-# that this workflow uploads.
+# by the root flake — `nix build .#website` produces the static artefact.
 name: pages
 
 on:
@@ -10,7 +9,7 @@ on:
     branches: [master, pure-earth]
     paths:
       - "website/**"
-      - "docs/perf-investigations/**"
+      - "packages/client/favicon.svg"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -29,16 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: nixbuild/nix-quick-install-action@v31
         with:
-          extra-conf: |
+          nix_conf: |
             extra-substituters = https://cache.nixos.asia/oss
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            accept-flake-config = true
 
       - name: Build website (nix)
-        run: nix build .#website --print-out-paths --accept-flake-config
+        run: nix build .#website --print-out-paths
 
-      - name: Stage artifact
+      - name: Stage artefact
         run: |
           # result/ is a symlink into /nix/store (read-only). Pages needs
           # a writable directory with a .nojekyll file and correct perms.

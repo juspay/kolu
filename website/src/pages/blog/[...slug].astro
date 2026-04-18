@@ -46,7 +46,13 @@ const minutesRead = remarkPluginFrontmatter?.minutesRead;
           }
         </time>
         <span class="text-ink-faint">·</span>
-        <span>{post.data.author}</span>
+        <a
+          href={post.data.authorUrl}
+          rel="author noopener"
+          class="hover:text-amber transition-colors"
+        >
+          {post.data.author}
+        </a>
         {
           minutesRead && (
             <>

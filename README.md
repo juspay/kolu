@@ -259,7 +259,7 @@ If kolu grows unbounded (V8 heap climbing over hours), set `services.kolu.diagno
 
 ## Website
 
-The marketing site and blog at <https://juspay.github.io/kolu> live in [`website/`](website/) — Astro + Tailwind, its own zero-input flake, deployed to GitHub Pages via `.github/workflows/pages.yml`.
+The marketing site and blog at <https://kolu.dev> live in [`website/`](website/) — Astro + Tailwind, its own zero-input flake, deployed to GitHub Pages via `.github/workflows/pages.yml`.
 
 ```sh
 just website::dev          # live preview with HMR

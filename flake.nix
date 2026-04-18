@@ -31,7 +31,17 @@
       packages = eachSystem (pkgs:
         let
           kolu = import ./default.nix { inherit pkgs commitHash; };
-          website = import ./website { inherit pkgs; };
+          # Synthesized website source tree: website/ with the canonical
+          # favicon copied in where the working tree has a symlink to
+          # ../../packages/client/favicon.svg. One SVG on disk; the Nix
+          # sandbox still sees a self-contained website/ with real bytes.
+          websiteSrc = pkgs.runCommand "kolu-website-src" { } ''
+            cp -r ${./website} $out
+            chmod -R u+w $out
+            rm -f $out/public/favicon.svg
+            cp ${./packages/client/favicon.svg} $out/public/favicon.svg
+          '';
+          website = import ./website { inherit pkgs; src = websiteSrc; };
         in
         removeAttrs kolu [ "koluEnv" ] // {
           website = website.default;

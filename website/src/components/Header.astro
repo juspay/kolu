@@ -32,7 +32,7 @@ const nav = [
       </span>
     </a>
 
-    <nav class="flex items-center gap-7 mono text-[0.78rem]">
+    <nav class="flex items-center gap-5 sm:gap-7 mono text-[0.78rem]">
       {
         nav.map((item) =>
           'external' in item ? (
@@ -57,6 +57,47 @@ const nav = [
           ),
         )
       }
+
+      <button
+        id="theme-toggle"
+        type="button"
+        aria-label="Toggle light/dark theme"
+        class="relative size-7 rounded-sm border border-transparent hover:border-rule text-ink-dim hover:text-amber transition-colors flex items-center justify-center"
+      >
+        {/* Sun — shown in dark mode (click to go light) */}
+        <svg
+          class="theme-icon-sun absolute size-4 transition-all"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="8" cy="8" r="3" />
+          <path d="M8 1v2M8 13v2M15 8h-2M3 8H1M13 3l-1.4 1.4M4.4 11.6L3 13M13 13l-1.4-1.4M4.4 4.4L3 3" />
+        </svg>
+        {/* Moon — shown in light mode (click to go dark) */}
+        <svg
+          class="theme-icon-moon absolute size-4 transition-all"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M13.8 9.4a5.5 5.5 0 0 1-7.2-7.2.6.6 0 0 0-.8-.8 7 7 0 1 0 8.8 8.8.6.6 0 0 0-.8-.8Z" />
+        </svg>
+      </button>
     </nav>
   </div>
 </header>
+
+<script>
+  const btn = document.getElementById("theme-toggle");
+  btn?.addEventListener("click", () => {
+    const html = document.documentElement;
+    const next = html.dataset.theme === "dark" ? "light" : "dark";
+    html.dataset.theme = next;
+    localStorage.setItem("theme", next);
+  });
+</script>
