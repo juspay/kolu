@@ -1,24 +1,24 @@
 ---
 name: do
 description: Do a task end-to-end — implement, PR, CI loop, ship
-argument-hint: "<issue-url | prompt> [--review] [--no-git] [--setup] [--from <step>]"
+argument-hint: "<issue-url | prompt> [--review] [--no-git] [--skip-setup] [--from <step>]"
 ---
 
 # Do Workflow
 
 Take a task and do it top-to-bottom: research, branch, implement, pass CI, open a PR, and ship. (Under `--no-git`, extend the working tree in place — no branch, commit, or PR.)
 
-**Fully autonomous.** Do NOT use `AskUserQuestion` at any point (unless `--review` is active during the planning pause, or `--setup` is active during the setup step gate). Make sensible default choices and keep moving.
+**Mostly autonomous.** Do NOT use `AskUserQuestion` at any point (except at the setup step gate, which runs by default — pass `--skip-setup` to suppress it — or during the `--review` planning pause). Make sensible default choices and keep moving.
 
 ## Arguments
 
-Parse the arguments string: `[--review] [--no-git] [--setup] [--from <step-id>] <task description or issue-url>`
+Parse the arguments string: `[--review] [--no-git] [--skip-setup] [--from <step-id>] <task description or issue-url>`
 
 The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHub or elsewhere during the **sync** step (see Forge Detection). Only GitHub has an active code path today — Bitbucket/other forges gracefully skip PR-related steps. Tracking: [srid/agency#10](https://github.com/srid/agency/issues/10).
 
 - `--review`: Pause after **hickey**/**lowy** for user plan approval via `EnterPlanMode`/`ExitPlanMode`, then continue autonomously
 - `--no-git`: Extend the working tree **in place** — do not create a branch, commit, push, or touch any PR. Research, implement, check, docs, police, fmt, and test all run; git-mutating steps (**branch**, **commit**, **create-pr**) are skipped. Use this when you have uncommitted local work and want the agent to build on it without taking over git state. Feedback from a Bitbucket user in [#26](https://github.com/srid/agency/issues/26).
-- `--setup` (`-s`): After **research**, pause to present a recommended step plan to the user via `AskUserQuestion`. The AI assesses which steps are relevant based on the task (e.g., a docs-only change doesn't need **check** or **test**; a trivial one-liner doesn't need **hickey+lowy** or **police**) and presents a multi-select checklist of skippable steps with pre-selected recommendations. The user confirms or adjusts, then the workflow continues autonomously. Steps the user deselects are recorded as `skipped` with reason `"--setup: user skipped"`. **sync** and **done** are never skippable. See the **Setup step gate** section below for details.
+- `--skip-setup`: Bypass the setup step gate and run every applicable step. By default, after **research** the workflow pauses to present a recommended step plan via `AskUserQuestion`: the AI assesses which steps are relevant to the task (e.g., a docs-only change doesn't need **check** or **test**; a trivial one-liner doesn't need **hickey+lowy** or **police**) and presents a multi-select checklist of skippable steps with pre-selected recommendations. The user confirms or adjusts, then the workflow continues autonomously. Steps the user deselects are recorded as `skipped` with reason `"setup: user skipped"`. Pass `--skip-setup` when you want fully hands-off behavior and don't want to be interrupted. **sync**, **research**, and **done** are never skippable. See the **Setup step gate** section below for details.
 - `--from <step-id>`: Start from a specific step (see entry points below)
 
 ## Results Tracking
@@ -122,7 +122,7 @@ Research the task thoroughly before writing code.
 
 ### Setup step gate
 
-**Only runs if `--setup` is active.** Otherwise skip entirely — all steps run as normal.
+**Runs by default.** Skipped entirely if `--skip-setup` is active — in that case all steps run as normal.
 
 After **research** completes (and before **hickey+lowy**), assess which of the remaining steps are relevant to this task. Consider:
 
@@ -139,9 +139,9 @@ The question should explain the rationale briefly, e.g.:
 
 > "This looks like a docs-only change. Which steps should run? (Pre-selected = recommended)"
 
-Steps the user leaves deselected are skipped throughout the workflow with status `skipped` and reason `"--setup: user skipped"`. Steps the user selects proceed normally. The `--setup` flag is recorded in the results JSON via `scripts/do-results set setup true`.
+Steps the user leaves deselected are skipped throughout the workflow with status `skipped` and reason `"setup: user skipped"`. Steps the user selects proceed normally. The gate's activation is recorded in the results JSON via `scripts/do-results set setup true`.
 
-**Interaction with other flags**: `--setup` composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that *would* normally run are presented for user selection.
+**Interaction with other flags**: The setup gate composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that *would* normally run are presented for user selection. Passing `--skip-setup` disables the gate entirely regardless of the other flags.
 
 After the user confirms, continue autonomously from **hickey+lowy** (or the next non-skipped step).
 
@@ -335,7 +335,7 @@ Present a summary of all steps with their verification status. If any step has a
 
 1. A step `skipped` with `reason` beginning `"non-<forge> forge:"` (detected forge isn't GitHub).
 2. A step `skipped` with `reason` `"--no-git"` (user opted out of git operations).
-3. A step `skipped` with `reason` `"--setup: user skipped"` (user chose to skip during setup).
+3. A step `skipped` with `reason` `"setup: user skipped"` (user deselected it at the setup gate).
 
 A `failed` step always blocks `"completed"`. No redefining "passed," no footnote caveats. Update via `scripts/do-results set status completed` or `scripts/do-results set status failed` accordingly.
 
@@ -404,11 +404,11 @@ COMMENT
 
 ## Rules
 
-- **Never skip steps** (unless skipped by `--no-git`, `--setup`, or forge detection). Run them in order from entry point to **done**.
+- **Never skip steps** (unless skipped by `--no-git`, the setup gate, or forge detection). Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
 - **Background for CI.** Run CI with `run_in_background: true`.
-- **No questions.** Don't use `AskUserQuestion` unless `--review` is active during the hickey/lowy pause, or `--setup` is active during the setup step gate.
+- **No questions.** Don't use `AskUserQuestion` outside the setup step gate (which runs by default unless `--skip-setup`) and the `--review` hickey/lowy pause.
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
 - **Complete the full workflow.** Implementing code is one step of many. The task is not done until a PR URL (GitHub), a pushed branch name (non-GitHub forges), or a working-tree summary (`--no-git`) is reported.
 - **Exhausted retries = halt.** If `ci` or `test` retries are exhausted, set status to `"failed"` and skip to **done**. On `ci` failure the draft PR (opened in the preceding **create-pr** step) stays open as the record of the failed attempt — do not close, undraft, or otherwise mutate it.
