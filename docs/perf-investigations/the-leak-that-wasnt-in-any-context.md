@@ -29,16 +29,34 @@ wrong hours, the one good diff, the one-line fix, and the two small
 patches I upstreamed to xterm.js along the way. I drove; [Claude
 Code](https://claude.com/claude-code) did the agent-side work.
 
+## First pass: the bus-stop fix
+
+The first pass at the leak happened earlier that day, [from a bus
+stop and on the bus](https://x.com/sridca/status/2045164268341895434),
+typing instructions to Claude Code on my phone and watching retainer
+walks come back between WhatsApp messages. That pass found a
+dispose-registration gap inside xterm itself: two `MutableDisposable`
+fields in `RenderService` and `WebglRenderer` were declared with `=
+new MutableDisposable()` but never wrapped in `this._register(...)`.
+Without that registration, xterm's `Disposable` base class never
+disposed them on teardown, so a `setInterval` for the cursor blink
+and a debounced resize task kept ticking past `terminal.dispose()`.
+Six lines of source. [xtermjs/xterm.js#5817](https://github.com/xtermjs/xterm.js/pull/5817).
+
+Deploy. Chrome Task Manager, GPU Memory column: dropped from steady-
+climbing to flat. Memory Footprint column: unchanged. GPU was a
+symptom of its own leak, not the big one.
+
 ## The wrong turn
 
 Kolu uses [SolidJS](https://www.solidjs.com/), which tracks
-reactivity through `system/Context` objects — V8's name for the
-block of memory that holds a closure's captured variables. If a
-component's scope fails to clean up on unmount, its `Context`
-lingers, and everything that scope closes over lingers with it.
-Classic retention.
+reactivity through [`system/Context`](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots#system-context)
+objects — V8's name for the block of memory that holds a closure's
+captured variables. If a component's scope fails to clean up on
+unmount, its `Context` lingers, and everything that scope closes
+over lingers with it. Classic retention.
 
-So I took the usual first steps. Open Chrome DevTools → Memory tab.
+Claude took the usual first steps. Open Chrome DevTools → Memory tab.
 Take a [heap snapshot](https://developer.chrome.com/docs/devtools/memory-problems/heap-snapshots)
 before, thirty toggles, snapshot after. Look at instance count growth
 per class. Tens of thousands of new `system/Context` and `closure`
@@ -54,11 +72,11 @@ the usual SolidJS-shaped culprits:
   always tear them down cleanly.
 
 Six commits landed on [a branch](https://github.com/juspay/kolu/pull/614)
-over the afternoon. Replaced the two libraries with 200 lines of
-custom code. Delegated every inline handler to the parent. `Context`
-count per 30-toggle run went from +11,025 down to +1,208. An 89%
-reduction. I wrote the PR, drew a mermaid graph of the staircase,
-shipped to my dev box.
+over the afternoon. Claude replaced the two libraries with 200 lines
+of custom code. Delegated every inline handler to the parent.
+`Context` count per 30-toggle run went from +11,025 down to +1,208.
+An 89% reduction. Claude wrote the PR, drew a mermaid graph of the
+staircase. I deployed to my dev box.
 
 Chrome Task Manager showed no change. Zero. Identical to before.
 
@@ -86,9 +104,9 @@ The leak was in the fourth bullet.
 
 ## The one-line fix that took hours to find
 
-I threw the PR away and started over with a different analyzer:
-aggregate `self_size` bytes per class across a snapshot pair, sort by
-byte growth. Five minutes of code, one line of output:
+I told Claude to throw the PR away and start over with a different
+analyzer: aggregate `self_size` bytes per class across a snapshot
+pair, sort by byte growth. Five minutes of code, one line of output:
 
 ```
   dBytes        dCount    Class
@@ -105,8 +123,9 @@ of every `Terminal` instance that had ever existed during those
 thirty toggles was still in memory. `terminal.dispose()` had fired
 for every one. The buffers were supposed to be gone.
 
-A BFS walk from the GC root to every retained `Uint32Array` found the
-same retainer chain for all 175,594 of them:
+Claude then walked BFS from the GC root to every retained
+`Uint32Array`. Every one of the 175,594 instances came back with the
+same retainer chain:
 
 ```
 Window.IntersectionObserver   (native browser registry)
@@ -167,20 +186,14 @@ to zero.
 
 ## The xterm.js side
 
-Two small contributions to xterm.js came out of this line of work:
+Two upstream contributions fell out of the day's work:
 
 - [xtermjs/xterm.js#5817](https://github.com/xtermjs/xterm.js/pull/5817)
-  — two cases where xterm's `Disposable` pattern registered a child
-  disposable via `= new MutableDisposable()` but forgot the
-  `this._register(...)` wrapper. Both leaked a `setInterval` past
-  dispose. Six lines of source. Diagnosed during an earlier pass of
-  this same investigation [standing at a bus stop and on the bus
-  itself](https://x.com/sridca/status/2045164268341895434), typing
-  instructions to Claude Code on my phone and watching the retainer
-  walks come back.
+  — the bus-stop patch above. Register the two `MutableDisposable`
+  fields. Six lines of source. Dropped the GPU-memory leak.
 - [xtermjs/xterm.js#5821](https://github.com/xtermjs/xterm.js/pull/5821)
-  — the `WeakRef` patch above. One line of real code, plus a comment
-  explaining why.
+  — the `WeakRef` patch. One line of real code plus a comment
+  explaining why. Dropped the Memory-Footprint leak.
 
 Both patches look laughably small. Both took hours of measurement,
 retainer-walking, and wrong turns to find. That's the shape of this
