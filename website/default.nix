@@ -1,8 +1,12 @@
 # Kolu website — Astro static site build.
 #
-# Output layout: $out/  is the dist/ directory produced by `pnpm build`,
-# ready to be served as a static site (GitHub Pages, Cloudflare Pages, etc.).
-{ pkgs ? import ./nix/nixpkgs.nix { } }:
+# Output: $out/ is the dist/ directory produced by `pnpm build`, ready to be
+# served as a static site (GitHub Pages, Cloudflare Pages, etc.).
+#
+# Imported from the root flake.nix and exposed as packages.${system}.website.
+# Reuses the root's npins-pinned nixpkgs (via ../nix/nixpkgs.nix) so there's
+# no duplicate pin to keep in sync.
+{ pkgs ? import ../nix/nixpkgs.nix { } }:
 let
   src = pkgs.lib.fileset.toSource {
     root = ./.;
@@ -16,10 +20,9 @@ let
     ];
   };
 
-  # fetchPnpmDeps hash is platform-independent. It is regenerated when
-  # pnpm-lock.yaml changes — run `nix build .#pnpmDeps` and replace the hash
-  # with the "got:" value that Nix prints on mismatch. Same workflow as the
-  # root repo's kolu derivation.
+  # fetchPnpmDeps hash is platform-independent. Regenerate when pnpm-lock.yaml
+  # changes — `just ci::pnpm-hash-fresh` checks this alongside the root's
+  # pnpmDeps. On mismatch, Nix prints the expected hash; paste it back here.
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu-website";
     version = "0.1.0";
@@ -39,13 +42,10 @@ let
       pkgs.pnpmConfigHook
     ];
 
-    # Astro build is pure JS — skip the fixupPhase (strip/patchShebangs)
-    # which would traverse node_modules for no benefit.
+    # Astro build is pure JS — skip the fixupPhase (strip/patchShebangs) which
+    # would traverse node_modules for no benefit.
     dontFixup = true;
 
-    # Pass --base at build time so the produced static site is rooted at the
-    # deploy path (e.g. GitHub Pages project site → /kolu). Overridable via
-    # `nix build --argstr base /something`.
     buildPhase = ''
       runHook preBuild
       pnpm build

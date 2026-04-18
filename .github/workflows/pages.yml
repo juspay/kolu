@@ -1,8 +1,8 @@
 # Build and deploy the Kolu website to GitHub Pages.
 #
-# The site lives in website/ and builds via its own flake — zero shared
-# dependencies with the main kolu build, so this workflow is fast and
-# independent of the root repo's Nix caches.
+# The site lives in website/ and is exposed as packages.${system}.website
+# by the root flake — so `nix build .#website` produces the static artefact
+# that this workflow uploads.
 name: pages
 
 on:
@@ -35,10 +35,8 @@ jobs:
             extra-substituters = https://cache.nixos.asia/oss
             extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
 
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-
       - name: Build website (nix)
-        run: nix build ./website#default --print-out-paths --accept-flake-config
+        run: nix build .#website --print-out-paths --accept-flake-config
 
       - name: Stage artifact
         run: |
