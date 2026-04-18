@@ -14,7 +14,7 @@ Then(
     await this.page.waitForFunction(
       (exp) => {
         const el = document.querySelector(
-          '[data-testid="sidebar"] [data-testid="process-name"]',
+          '[data-testid="canvas-tile"] [data-testid="process-name"]',
         );
         const text = el?.textContent?.trim() ?? "";
         return text.includes(exp);
@@ -31,7 +31,7 @@ Then(
     await this.page.waitForFunction(
       () => {
         const el = document.querySelector(
-          '[data-testid="sidebar"] [data-testid="process-name"]',
+          '[data-testid="canvas-tile"] [data-testid="process-name"]',
         );
         return (el?.textContent?.trim() ?? "").length > 0;
       },

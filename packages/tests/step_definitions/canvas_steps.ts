@@ -2,56 +2,13 @@ import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
-const TOGGLE_SELECTOR = '[data-testid="canvas-mode-toggle"]';
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_TOGGLE_SELECTOR = '[data-testid="minimap-toggle"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
-
-// ── Actions ──
-
-When("I click the canvas mode toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator(TOGGLE_SELECTOR);
-  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await toggle.click();
-  await this.waitForFrame();
-});
-
-// ── Assertions ──
-
-Then(
-  "the canvas mode toggle should show {string}",
-  async function (this: KoluWorld, label: string) {
-    const toggle = this.page.locator(TOGGLE_SELECTOR);
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await this.page.waitForFunction(
-      ({ sel, expected }: { sel: string; expected: string }) => {
-        const el = document.querySelector(sel);
-        return el?.textContent?.trim() === expected;
-      },
-      { sel: TOGGLE_SELECTOR, expected: label },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
-  "the canvas mode toggle should not be visible",
-  async function (this: KoluWorld) {
-    // On mobile, the toggle is hidden via `hidden sm:flex` — check it's not visible
-    await this.page.waitForFunction(
-      (sel: string) => {
-        const el = document.querySelector(sel);
-        if (!el) return true;
-        const style = getComputedStyle(el);
-        return style.display === "none";
-      },
-      TOGGLE_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
+const TILE_SELECTOR = '[data-testid="canvas-tile"]';
+const TILE_TITLEBAR_SELECTOR = '[data-testid="canvas-tile-titlebar"]';
 
 Then(
   "the canvas grid background should be visible",
@@ -800,3 +757,48 @@ Then(
     );
   },
 );
+
+// ── Tile maximize ──
+
+When(
+  "I double-click the title bar of canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    const titleBar = this.page
+      .locator(`${CANVAS_SELECTOR} ${TILE_TITLEBAR_SELECTOR}`)
+      .nth(index - 1);
+    await titleBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await titleBar.dblclick();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "canvas tile {int} should be maximized",
+  async function (this: KoluWorld, index: number) {
+    const tile = this.page.locator(TILE_SELECTOR).nth(index - 1);
+    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const tiles = document.querySelectorAll(sel);
+        return [...tiles].some(
+          (t) => t.getAttribute("data-maximized") === "true",
+        );
+      },
+      TILE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then("no canvas tile should be maximized", async function (this: KoluWorld) {
+  await this.page.waitForFunction(
+    (sel: string) => {
+      const tiles = document.querySelectorAll(sel);
+      return ![...tiles].some(
+        (t) => t.getAttribute("data-maximized") === "true",
+      );
+    },
+    TILE_SELECTOR,
+    { timeout: POLL_TIMEOUT },
+  );
+});

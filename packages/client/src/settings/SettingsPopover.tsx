@@ -10,25 +10,13 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { usePreferences } from "./usePreferences";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
-import type { Preferences, SidebarAgentPreviews } from "kolu-common";
+import type { Preferences } from "kolu-common";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "System" },
 ];
-
-/** Preview-mode options for the sidebar agent previews segmented control.
- *  Order is intentional: narrowest ("none") to broadest ("all"), with
- *  the default ("attention") sitting next to "none" so users can quickly
- *  dial back from the default without overshooting into "all". */
-const PREVIEW_OPTIONS: readonly SegmentedControlOption<SidebarAgentPreviews>[] =
-  [
-    { value: "none", label: "Off" },
-    { value: "attention", label: "Alert" },
-    { value: "agents", label: "Agents" },
-    { value: "all", label: "All" },
-  ];
 
 /** WebGL = system chooses per tile (WebGL on focused, DOM on others).
  *  DOM = force DOM everywhere; no font shift on focus swap. */
@@ -131,16 +119,6 @@ const SettingsPopover: Component<{
               onChange={(on) => updatePreferences({ activityAlerts: on })}
             />
           </label>
-          {/* Sidebar agent previews — 4-way segmented control */}
-          <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="text-fg-2">Agent previews</span>
-            <SegmentedControl
-              options={PREVIEW_OPTIONS}
-              value={preferences().sidebarAgentPreviews}
-              onChange={(v) => updatePreferences({ sidebarAgentPreviews: v })}
-              testIdPrefix="sidebar-agent-previews"
-            />
-          </div>
           {/* Terminal renderer — WebGL (focused tile) vs DOM everywhere */}
           <div class="flex items-center justify-between gap-3 text-sm">
             <span class="text-fg-2">Renderer</span>

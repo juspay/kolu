@@ -41,12 +41,12 @@ When(
 
 When("I press the create terminal shortcut", async function (this: KoluWorld) {
   const countBefore = await this.page
-    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .count();
   await this.page.keyboard.press(`${MOD_KEY}+t`);
   // Wait for a new sidebar entry to appear
   await this.page
-    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .nth(countBefore)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });

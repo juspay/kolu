@@ -1,21 +1,29 @@
-/** App shell: layout + wiring. State lives in useTerminals, behavior in components. */
+/** App shell: layout + wiring. State lives in useTerminals, behavior in components.
+ *
+ *  Per #622 the workspace is mode-less: desktop is always the canvas; mobile
+ *  is a single fullscreen tile with swipe nav. Per-terminal chrome (theme
+ *  pill, agent indicator, screenshot, split toggle) lives on the tile title
+ *  bar via `renderTileTitleActions`. The header is intentionally minimal. */
 
 import {
   type Component,
   createSignal,
   createEffect,
+  createMemo,
   on,
   Show,
-  For,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
+import { match } from "ts-pattern";
 import { isMobile } from "./useMobile";
 import Header from "./Header";
-import Sidebar from "./sidebar/Sidebar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import AgentIndicator from "./terminal/AgentIndicator";
 import TerminalCanvas from "./canvas/TerminalCanvas";
+import { groupByRepo, flatPillOrder } from "./canvas/pillTreeOrder";
+import MobileTileView from "./MobileTileView";
 import MobileKeyBar from "./MobileKeyBar";
 import CommandPalette from "./CommandPalette";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -28,22 +36,27 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
 import { screenshotTerminal } from "./screenshotTerminal";
-import { ScreenshotIcon } from "./ui/Icons";
+import { ScreenshotIcon, SearchIcon } from "./ui/Icons";
+import Tip from "./ui/Tip";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import { useTerminals } from "./terminal/useTerminals";
 import { useThemeManager } from "./useThemeManager";
-import { useSidebar } from "./sidebar/useSidebar";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
-import { usePreferences } from "./settings/usePreferences";
 import { useTips } from "./settings/useTips";
+import { CONTEXTUAL_TIPS, pillTreeSwitchTip } from "./settings/tips";
 import { toggleMinimap } from "./canvas/CanvasMinimap";
+
+/** Tile chrome buttons share this affordance. Theme pill is wider — it shows
+ *  the theme name. Other buttons are square. */
+const TILE_BUTTON_CLASS =
+  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -67,17 +80,17 @@ const App: Component = () => {
     setThemeName: crud.setThemeName,
   });
 
-  const { sidebarOpen, toggleSidebar, closeSidebar } = useSidebar();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
-  const { preferences, updatePreferences } = usePreferences();
-  // Canvas mode is desktop-only — force focus mode on mobile
-  const canvasMode = () => !isMobile() && preferences().canvasMode;
-  const toggleCanvasMode = () =>
-    updatePreferences({ canvasMode: !canvasMode() });
-
   const canvasViewport = useCanvasViewport();
+  const { showTipOnce } = useTips();
+
+  // Pill-tree-grouped order — single source for the desktop pill tree AND
+  // the mobile swipe handler so the two views never drift.
+  const orderedIds = createMemo(() =>
+    flatPillOrder(groupByRepo(store.terminalIds(), store.getMetadata)),
+  );
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -112,7 +125,7 @@ const App: Component = () => {
   const [closeConfirmTarget, setCloseConfirmTarget] =
     createSignal<CloseConfirmTarget | null>(null);
 
-  // Terminal search bar state — close when switching terminals
+  // Terminal search bar state — close when switching terminals.
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
 
@@ -144,11 +157,17 @@ const App: Component = () => {
   }
 
   function handleCanvasCenterActive() {
-    if (!canvasMode()) return;
+    if (isMobile()) return;
     const id = store.activeId();
     if (!id) return;
     const tile = store.getMetadata(id)?.canvasLayout;
     if (tile) canvasViewport.centerOnTile(tile);
+  }
+
+  function selectTerminalFromPill(id: TerminalId) {
+    const idx = orderedIds().indexOf(id);
+    if (idx >= 0 && idx < 9) showTipOnce(pillTreeSwitchTip(idx));
+    store.setActiveId(id);
   }
 
   useShortcuts({
@@ -242,7 +261,7 @@ const App: Component = () => {
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
     toggleMinimap,
-    isCanvasMode: canvasMode,
+    isMobile,
   });
 
   // Reset state on close and return focus to terminal
@@ -259,6 +278,166 @@ const App: Component = () => {
       });
     }
   }
+
+  /** Per-tile chrome rendered into the CanvasTile title bar.
+   *  Order (left → right between title and close): agent indicator, theme
+   *  pill, split toggle, search, screenshot. */
+  function renderTileTitleActions(id: TerminalId) {
+    const meta = store.getMetadata(id);
+    const themeName = () =>
+      store.activeId() === id ? activeThemeName() : meta?.themeName;
+    const subCount = () => store.getSubTerminalIds(id).length;
+    const splitExpanded = () =>
+      subCount() > 0 && !subPanel.getSubPanel(id).collapsed;
+    return (
+      <>
+        <Show when={meta?.agent}>
+          {(agent) => (
+            <button
+              class={`${TILE_BUTTON_CLASS} px-2`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                store.setActiveId(id);
+                rightPanel.expandPanel();
+              }}
+              title="Open inspector"
+            >
+              <AgentIndicator agent={agent()} />
+            </button>
+          )}
+        </Show>
+        <Show when={themeName()}>
+          {(name) => (
+            <Tip label={`Theme: ${name()}`}>
+              <button
+                data-testid="tile-theme-pill"
+                class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
+                style={{ color: "var(--color-fg-3, currentColor)" }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  store.setActiveId(id);
+                  openPaletteGroup("Theme");
+                  setTimeout(
+                    () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
+                    500,
+                  );
+                }}
+              >
+                {name()}
+              </button>
+            </Tip>
+          )}
+        </Show>
+        <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
+          <button
+            data-testid="tile-split-toggle"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            classList={{ "bg-black/20": splitExpanded() }}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              store.setActiveId(id);
+              handleToggleSubPanel(id);
+            }}
+            aria-label="Toggle split"
+          >
+            <svg
+              class="w-3.5 h-3.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="3" y1="13" x2="21" y2="13" />
+            </svg>
+          </button>
+        </Tip>
+        <Tip label="Find in terminal">
+          <button
+            data-testid="tile-find"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              store.setActiveId(id);
+              setSearchOpen(true);
+            }}
+            aria-label="Find in terminal"
+          >
+            <SearchIcon />
+          </button>
+        </Tip>
+        <button
+          class={`${TILE_BUTTON_CLASS} w-7`}
+          style={{ color: "var(--color-fg-3, currentColor)" }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleScreenshotTerminal(id);
+          }}
+          title="Screenshot terminal"
+          data-testid="screenshot-button"
+        >
+          <ScreenshotIcon />
+        </button>
+      </>
+    );
+  }
+
+  /** Canvas tile body — every tile stays mounted (`visible={true}`) so
+   *  inactive xterms keep their grid sized correctly; only the focused tile
+   *  takes keyboard focus. */
+  function renderCanvasTileBody(id: TerminalId, active: () => boolean) {
+    return (
+      <TerminalContent
+        terminalId={id}
+        visible={true}
+        focused={active()}
+        theme={getTerminalTheme(id)}
+        searchOpen={active() && searchOpen()}
+        onSearchOpenChange={setSearchOpen}
+        subTerminalIds={store.getSubTerminalIds(id)}
+        getMetadata={store.getMetadata}
+        onCreateSubTerminal={(parentId, cwd) =>
+          void crud.handleCreateSubTerminal(parentId, cwd)
+        }
+        onCloseTerminal={closeTerminal}
+        activeMeta={store.activeMeta()}
+        onFocus={() => store.setActiveId(id)}
+      />
+    );
+  }
+
+  /** Mobile body — only the active terminal is visible (others hide via
+   *  the parent's classList) so xterm doesn't try to size a 0×0 element. */
+  function renderMobileTileBody(id: TerminalId, visible: () => boolean) {
+    return (
+      <TerminalContent
+        terminalId={id}
+        visible={visible()}
+        focused={visible()}
+        theme={getTerminalTheme(id)}
+        searchOpen={visible() && searchOpen()}
+        onSearchOpenChange={setSearchOpen}
+        subTerminalIds={store.getSubTerminalIds(id)}
+        getMetadata={store.getMetadata}
+        onCreateSubTerminal={(parentId, cwd) =>
+          void crud.handleCreateSubTerminal(parentId, cwd)
+        }
+        onCloseTerminal={closeTerminal}
+        activeMeta={store.activeMeta()}
+      />
+    );
+  }
+
+  const showEmpty = () =>
+    !session.isLoading() && store.terminalIds().length === 0;
 
   return (
     <div
@@ -373,35 +552,12 @@ const App: Component = () => {
       <Header
         status={wsStatus()}
         onOpenPalette={() => openPalette()}
-        meta={store.activeMeta()}
-        onToggleSidebar={toggleSidebar}
-        onAgentClick={() => rightPanel.expandPanel()}
-        onSearch={() => setSearchOpen(true)}
         appTitle={appTitle()}
-        themeName={activeThemeName()}
-        onThemeClick={() => openPaletteGroup("Theme")}
-        canvasMode={canvasMode()}
-        onToggleCanvasMode={toggleCanvasMode}
-        sidebarOpen={sidebarOpen()}
-        hasSubPanel={
-          store.activeId() !== null &&
-          store.getSubTerminalIds(store.activeId()!).length > 0
-        }
-        subPanelExpanded={
-          store.activeId() !== null &&
-          store.getSubTerminalIds(store.activeId()!).length > 0 &&
-          !subPanel.getSubPanel(store.activeId()!).collapsed
-        }
-        onToggleSubPanel={() => {
-          const id = store.activeId();
-          if (id) handleToggleSubPanel(id);
-        }}
       />
-      {/* relative: anchor for sidebar's absolute overlay on mobile.
+      {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
-       *  (Sidebar) can read them via CSS without prop drilling. The fg
-       *  lets the active sidebar card re-tune its text tiers against
-       *  the terminal theme's own foreground (see #390). */}
+       *  can read them via CSS without prop drilling. The fg lets sub-
+       *  components re-tune text tiers against the terminal theme. */}
       <div
         class="relative flex flex-1 min-h-0"
         style={{
@@ -411,170 +567,73 @@ const App: Component = () => {
         }}
       >
         <Show
-          when={canvasMode()}
+          when={!session.isLoading()}
           fallback={
-            <>
-              <Sidebar
-                terminalIds={store.terminalIds()}
-                activeId={store.activeId()}
-                getMetadata={store.getMetadata}
-                isUnread={store.isUnread}
-                getDisplayInfo={store.getDisplayInfo}
-                getTerminalTheme={getTerminalTheme}
-                onSelect={store.setActiveId}
-                onCloseTerminal={closeTerminal}
-                onCreate={() => crud.handleCreate()}
-                onNewTerminalMenu={() => openPaletteGroup("New terminal")}
-                onReorder={crud.reorderTerminals}
-                open={sidebarOpen()}
-                onClose={closeSidebar}
-              />
-              <RightPanelLayout
-                meta={store.activeMeta()}
-                themeName={activeThemeName()}
-                onThemeClick={() => openPaletteGroup("Theme")}
-                contentClass="flex-col"
-              >
-                <div
-                  class="flex-1 min-h-0 overflow-hidden"
-                  style={{ "background-color": activeTheme().background }}
-                  data-testid="terminal-viewport"
-                >
-                  <Show
-                    when={!session.isLoading()}
-                    fallback={
-                      <div class="flex items-center justify-center h-full text-fg-3 text-sm">
-                        Connecting...
-                      </div>
-                    }
-                  >
-                    <Show when={store.terminalIds().length === 0}>
-                      <EmptyState
-                        savedSession={session.savedSession() ?? undefined}
-                        onRestore={() => void session.handleRestoreSession()}
-                      />
-                    </Show>
-                    <For each={store.terminalIds()}>
-                      {(id) => {
-                        const visible = () => store.activeId() === id;
-                        return (
-                          <div
-                            class="w-full h-full relative flex flex-col"
-                            classList={{ hidden: !visible() }}
-                          >
-                            <TerminalContent
-                              terminalId={id}
-                              visible={visible()}
-                              focused={visible()}
-                              theme={getTerminalTheme(id)}
-                              searchOpen={searchOpen()}
-                              onSearchOpenChange={setSearchOpen}
-                              subTerminalIds={store.getSubTerminalIds(id)}
-                              getMetadata={store.getMetadata}
-                              onCreateSubTerminal={(parentId, cwd) =>
-                                void crud.handleCreateSubTerminal(parentId, cwd)
-                              }
-                              onCloseTerminal={closeTerminal}
-                              activeMeta={store.activeMeta()}
-                            />
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </Show>
-                </div>
-                <MobileKeyBar activeId={store.activeId} />
-              </RightPanelLayout>
-            </>
+            <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
+              Connecting...
+            </div>
           }
         >
-          {/* Canvas mode — all terminals on freeform 2D canvas */}
           <Show
-            when={!session.isLoading()}
+            when={!showEmpty()}
             fallback={
-              <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
-                Connecting...
+              <div
+                data-testid="canvas-container"
+                class="flex-1 min-h-0 canvas-grid-bg"
+              >
+                <EmptyState
+                  savedSession={session.savedSession() ?? undefined}
+                  onRestore={() => void session.handleRestoreSession()}
+                />
               </div>
             }
           >
-            <Show
-              when={store.terminalIds().length > 0}
-              fallback={
-                <div
-                  data-testid="canvas-container"
-                  class="flex-1 min-h-0 canvas-grid-bg"
-                >
-                  <EmptyState
-                    savedSession={session.savedSession() ?? undefined}
-                    onRestore={() => void session.handleRestoreSession()}
-                  />
-                </div>
-              }
+            <RightPanelLayout
+              meta={store.activeMeta()}
+              themeName={activeThemeName()}
+              onThemeClick={() => openPaletteGroup("Theme")}
+              contentClass={isMobile() ? "flex-col" : undefined}
             >
-              <RightPanelLayout
-                meta={store.activeMeta()}
-                themeName={activeThemeName()}
-                onThemeClick={() => openPaletteGroup("Theme")}
-              >
-                <TerminalCanvas
-                  tileIds={store.terminalIds()}
-                  activeId={store.activeId()}
-                  getTileTheme={(id) => {
-                    const t = getTerminalTheme(id as TerminalId);
-                    return {
-                      bg: t.background ?? "var(--color-surface-1)",
-                      fg: t.foreground ?? "var(--color-fg)",
-                    };
-                  }}
-                  getLayout={(id) =>
-                    store.getMetadata(id as TerminalId)?.canvasLayout
-                  }
-                  onLayoutChange={(id, layout) =>
-                    crud.setCanvasLayout(id as TerminalId, layout)
-                  }
-                  onSelect={(id) => store.setActiveId(id as TerminalId)}
-                  onClose={(id) => closeTerminal(id as TerminalId)}
-                  renderTileTitle={(id) => (
-                    <TerminalMeta
-                      info={store.getDisplayInfo(id as TerminalId)}
-                    />
-                  )}
-                  renderTileTitleActions={(id) => (
-                    <button
-                      class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm"
-                      style={{ color: "var(--color-fg-3, currentColor)" }}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleScreenshotTerminal(id as TerminalId);
-                      }}
-                      title="Screenshot terminal"
-                      data-testid="screenshot-button"
-                    >
-                      <ScreenshotIcon />
-                    </button>
-                  )}
-                  renderTileBody={(id, active) => (
-                    <TerminalContent
-                      terminalId={id as TerminalId}
-                      visible={true}
-                      focused={active()}
-                      theme={getTerminalTheme(id as TerminalId)}
-                      searchOpen={active() && searchOpen()}
-                      onSearchOpenChange={setSearchOpen}
-                      subTerminalIds={store.getSubTerminalIds(id as TerminalId)}
-                      getMetadata={store.getMetadata}
-                      onCreateSubTerminal={(parentId, cwd) =>
-                        void crud.handleCreateSubTerminal(parentId, cwd)
-                      }
-                      onCloseTerminal={closeTerminal}
-                      activeMeta={store.activeMeta()}
-                      onFocus={() => store.setActiveId(id as TerminalId)}
-                    />
-                  )}
-                />
-              </RightPanelLayout>
-            </Show>
+              {match(isMobile())
+                .with(true, () => (
+                  <MobileTileView
+                    orderedIds={orderedIds()}
+                    activeId={store.activeId()}
+                    getDisplayInfo={store.getDisplayInfo}
+                    setActiveId={store.setActiveId}
+                    renderBody={renderMobileTileBody}
+                    bottomBar={<MobileKeyBar activeId={store.activeId} />}
+                  />
+                ))
+                .with(false, () => (
+                  <TerminalCanvas
+                    tileIds={store.terminalIds()}
+                    activeId={store.activeId()}
+                    getMetadata={store.getMetadata}
+                    getDisplayInfo={store.getDisplayInfo}
+                    isUnread={store.isUnread}
+                    getTileTheme={(id) => {
+                      const t = getTerminalTheme(id);
+                      return {
+                        bg: t.background ?? "var(--color-surface-1)",
+                        fg: t.foreground ?? "var(--color-fg)",
+                      };
+                    }}
+                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                    onLayoutChange={(id, layout) =>
+                      crud.setCanvasLayout(id, layout)
+                    }
+                    onSelect={(id) => store.setActiveId(id)}
+                    onClose={(id) => closeTerminal(id)}
+                    renderTileTitle={(id) => (
+                      <TerminalMeta info={store.getDisplayInfo(id)} />
+                    )}
+                    renderTileTitleActions={renderTileTitleActions}
+                    renderTileBody={renderCanvasTileBody}
+                  />
+                ))
+                .exhaustive()}
+            </RightPanelLayout>
           </Show>
         </Show>
       </div>

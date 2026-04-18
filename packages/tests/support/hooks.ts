@@ -227,8 +227,6 @@ Before(async function (this: KoluWorld, scenario) {
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",
-        sidebarAgentPreviews: "attention",
-        canvasMode: false,
         terminalRenderer: "auto",
         rightPanel: {
           collapsed: true,

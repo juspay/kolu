@@ -2,7 +2,7 @@ import { When, Then } from "@cucumber/cucumber";
 import { execFileSync } from "node:child_process";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
@@ -103,7 +103,7 @@ Then(
       this.savedSidebarCount !== undefined,
       "Must note sidebar count first",
     );
-    const current = await this.page.locator(SIDEBAR_ENTRY_SELECTOR).count();
+    const current = await this.page.locator(PILL_TREE_ENTRY_SELECTOR).count();
     assert.strictEqual(
       current,
       this.savedSidebarCount,
@@ -120,7 +120,7 @@ Then(
       "Must note sidebar count first",
     );
     const expected = this.savedSidebarCount! - fewer;
-    const sel = SIDEBAR_ENTRY_SELECTOR;
+    const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

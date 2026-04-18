@@ -4,9 +4,9 @@
  *
  * Why a local store? Instant UI response requires synchronous updates —
  * waiting for the server echo introduces a visible delay when a pref flip
- * gates a re-render (e.g., `canvasMode` → canvas mount → wheel listener
- * attach). On the CI side this timing shows up as a race against the canvas
- * ownership window; on the user side it's the same class of single-frame lag.
+ * gates a re-render. On the CI side this timing shows up as a race against
+ * UI mount/teardown windows; on the user side it's the same class of
+ * single-frame lag.
  *
  * What kept biting before #561 (and motivated #577): the original code
  * reconciled the server's preferences blob into the local store on *every*

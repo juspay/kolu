@@ -1,7 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
@@ -13,7 +13,7 @@ When(
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
     const entry = this.page.locator(
-      `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+      `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
     // Hover to reveal the close button, then click it
     await entry.hover();
@@ -33,7 +33,7 @@ When(
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
     const entry = this.page.locator(
-      `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+      `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
     );
     await entry.hover();
     await entry.locator('[data-testid="sidebar-close"]').click();
@@ -64,7 +64,7 @@ When(
 Then(
   "the sidebar should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    const sel = SIDEBAR_ENTRY_SELECTOR;
+    const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -82,7 +82,7 @@ Then(
   "the sidebar should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     // Natural exit can take a moment — use waitForFunction for reactive check
-    const sel = SIDEBAR_ENTRY_SELECTOR;
+    const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

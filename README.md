@@ -31,7 +31,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 ### Terminals
 
-- Create, switch, kill, and drag-to-reorder terminals from a collapsible sidebar
+- Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with a floating two-level pill tree (repo → branches) for at-a-glance navigation
 - Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
@@ -42,29 +42,31 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 - Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
 - Agent-aware command palette — once you've run a known agent CLI (`claude`, `aider`, `opencode`, `codex`, `goose`, `gemini`, `cursor-agent`) in any kolu terminal, it surfaces in two places: under `New terminal → <recent repo>` as a sub-palette that creates the worktree and launches the agent in one step, and under `Debug → Recent agents` as a prefill-into-active-terminal affordance. Prompt/message flag values (`-p`/`--prompt`/`-m`/`--message`) are stripped before storage so ephemeral prompt text never lands in the persisted MRU
-- Sidebar agent previews — when an agent is waiting on you (or has finished with an unread completion), its sidebar card expands with a live xterm preview so you can peek without switching. Toggle in Settings. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Pill-tree pings — when an agent is waiting on you (or has finished with an unread completion), its branch pill in the floating tree pulses an alert dot so you can spot it without panning. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
-### Canvas mode
+### Canvas workspace
 
-An alternative to the default single-terminal focus layout — all terminals float as draggable, resizable windows on an infinite 2D canvas. Toggle via the grid icon in the header.
+The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar; the global header carries only logo, inspector toggle, settings, command palette, and connection status.
 
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Shift</kbd> to force pan even with the cursor over a terminal tile (hand-tool style). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
+- **Maximize a tile** — double-click any tile's title bar to fill the viewport; double-click again to restore the canvas layout
+- **Floating pill tree** — a two-level overlay (repo → branches) sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover pops it to full opacity, click a branch pill to pan and activate that tile
 - **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
 - **Per-tile theming** — title bars derive their colors from each terminal's theme for guaranteed contrast
-- **Desktop-only** — mobile devices always use focus mode; canvas mode preference is persisted server-side
+- **Mobile** — pan/zoom and the pill tree are disabled; the active tile fills the viewport, swipe-left/right cycles between terminals in pill-tree order, the minimap is hidden
 
 ### Git & GitHub
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
-- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) in header and sidebar
-- Per-repo color coding in sidebar via golden-angle hue spacing
+- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
+- Per-repo color coding on the pill tree and tile chrome via golden-angle hue spacing
 - Activity sparklines per terminal (5-minute rolling window)
 
 ### Claude Code Status
 
-Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and shows their state in the header and sidebar.
+Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and surfaces their state on the tile's chrome (and on its pill in the floating tree).
 
 **What we detect:**
 
@@ -87,7 +89,7 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 ### OpenCode Status
 
-Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows their state alongside Claude Code in the sidebar and header.
+Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows their state alongside Claude Code on the tile chrome.
 
 **How it works:** when the foreground process is `opencode`, the provider queries OpenCode's SQLite database directly at `~/.local/share/opencode/opencode.db` to find the most recently updated session whose `directory` matches the terminal's CWD. State is derived from the latest message: a user message means the assistant is _thinking_; an assistant message with `time.completed` set and `finish: "stop"` means _waiting_; otherwise still _thinking_. Todo progress comes from a `COUNT(*)` over the `todo` table — much simpler than Claude Code's tool-call parsing since OpenCode stores todos as first-class rows with a `status` column. Live updates come from `fs.watch` on the SQLite WAL file (`opencode.db-wal`), which OpenCode writes to on every database mutation.
 
@@ -153,7 +155,7 @@ flowchart TB
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
     Subs["createSubscription\nsignals"]:::cache
-    UI["UI components\nsidebar · header · palette"]:::client
+    UI["UI components\npill tree · tile chrome · header · palette"]:::client
   end
 
   subgraph Server["Server (Hono)"]
@@ -195,7 +197,7 @@ flowchart TB
 
 **Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator ([`meta/agent.ts`](packages/server/src/meta/agent.ts)) driven by per-agent `AgentProvider` instances from each integration package. Today two instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler parses it, matches the first token against a known-agents allowlist, and pushes normalized invocations to a bounded recent-agents MRU published via the server-state stream — powering the agent-aware command palette entries without any `/proc` lookups or argv scraping.
 
-**User actions** — command palette and sidebar dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
+**User actions** — command palette, pill tree, and tile chrome dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 

@@ -24,15 +24,7 @@ Feature: Right panel (inspector)
     Then the right panel should not be visible
     And there should be no page errors
 
-  Scenario: Sidebar toggle icon in header toggles sidebar
-    Then the sidebar should be visible
-    When I click the desktop sidebar toggle icon
-    Then the sidebar should not be visible
-    When I click the desktop sidebar toggle icon
-    Then the sidebar should be visible
-    And there should be no page errors
-
-  Scenario: Agent click in header expands inspector
+  Scenario: Agent click on tile chrome expands inspector
     Then the right panel should not be visible
     When I run "echo agent-expand-test"
     # Agent indicator may not be present without a real agent, so we

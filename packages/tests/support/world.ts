@@ -20,8 +20,12 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
-export const SIDEBAR_ENTRY_SELECTOR =
-  '[data-testid="sidebar"] [data-terminal-id]';
+/** Pill-tree branch entries (one per terminal) — replaces the old sidebar
+ *  card list as the canonical "list of terminals" affordance. */
+export const PILL_TREE_ENTRY_SELECTOR = '[data-testid="pill-tree-branch"]';
+/** Per-tile elements on the canvas — one per top-level terminal. Mobile
+ *  uses the mobile-tile-view body to enumerate terminals instead. */
+export const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
 export class KoluWorld extends World {
   browser!: Browser;
@@ -60,48 +64,43 @@ export class KoluWorld extends World {
     return this.page.locator("[data-visible] .xterm-screen");
   }
 
-  /** Click the sidebar "+" button to create a terminal, then wait for its canvas and focus. Returns terminal ID. */
+  /** Create a terminal via the keyboard shortcut (`Cmd/Ctrl+Enter`). Works
+   *  uniformly on desktop and mobile — there is no longer a "+" button on
+   *  any surface; the shortcut and the command palette are the only paths.
+   *  Returns the new terminal's ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
     // Wait for app to settle (onMount may still be restoring terminals from server)
     const settled = this.page.locator(SETTLED_SELECTOR);
     await settled.first().waitFor({ state: "visible", timeout });
 
-    // On mobile (@mobile tag) the sidebar starts collapsed (`-translate-x-full`)
-    // so the create button sits at a negative x. `isVisible()` doesn't catch
-    // this — translated-offscreen elements still have a non-empty bounding box.
-    // Check the actual x coordinate and click the hamburger if needed.
-    const createBtn = this.page.locator('[data-testid="create-terminal"]');
-    const box = await createBtn.boundingBox();
-    if (!box || box.x < 0) {
-      // Mobile: header burger, desktop: status bar button
-      const mobile = this.page.locator('[data-testid="sidebar-toggle"]');
-      const toggle = (await mobile.isVisible())
-        ? mobile
-        : this.page.locator('[data-testid="sidebar-toggle-desktop"]');
-      await toggle.click();
-      await this.page.waitForFunction(
-        () => {
-          const btn = document.querySelector('[data-testid="create-terminal"]');
-          if (!btn) return false;
-          const r = btn.getBoundingClientRect();
-          return r.x >= 0;
-        },
-        { timeout },
-      );
-    }
+    // Snapshot known ids before the shortcut fires.
+    const beforeIds = await this.terminalIds();
 
-    // Note the last sidebar entry before creating, so we can identify the new one
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
-    const countBefore = await entries.count();
+    await this.page.keyboard.press(`${MOD_KEY}+Enter`);
 
-    await createBtn.click();
+    // Poll until a new id shows up.
+    await this.page.waitForFunction(
+      (prev) => {
+        const nodes = Array.from(
+          document.querySelectorAll("[data-terminal-id]"),
+        );
+        const ids = new Set(
+          nodes
+            .map((n) => n.getAttribute("data-terminal-id"))
+            .filter((id): id is string => !!id),
+        );
+        for (const id of ids) {
+          if (!prev.includes(id)) return true;
+        }
+        return false;
+      },
+      beforeIds,
+      { timeout },
+    );
 
-    // Wait for the new entry to appear in the sidebar
-    await entries.nth(countBefore).waitFor({ state: "visible", timeout });
-    const rawId = await entries
-      .nth(countBefore)
-      .getAttribute("data-terminal-id");
-    if (!rawId) throw new Error("Created terminal has no data-terminal-id");
+    const afterIds = await this.terminalIds();
+    const newId = afterIds.find((id) => !beforeIds.includes(id));
+    if (!newId) throw new Error("Created terminal but no new id appeared");
 
     await this.canvas.waitFor({ state: "visible", timeout });
     // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
@@ -109,7 +108,20 @@ export class KoluWorld extends World {
       () => !!document.activeElement?.closest("[data-visible]"),
       { timeout },
     );
-    return rawId;
+    return newId;
+  }
+
+  /** All terminal ids currently present in the DOM (canvas tiles, mobile
+   *  pager entries, and pill-tree branches all carry `data-terminal-id`). */
+  async terminalIds(): Promise<string[]> {
+    return this.page.evaluate(() => {
+      const seen = new Set<string>();
+      for (const n of document.querySelectorAll("[data-terminal-id]")) {
+        const id = n.getAttribute("data-terminal-id");
+        if (id) seen.add(id);
+      }
+      return [...seen];
+    });
   }
 
   /** Wait for the app to reach a stable state (restored terminals or empty state). */

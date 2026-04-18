@@ -1,7 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
@@ -17,7 +17,7 @@ function hexToRgb(hex: string): string {
 When(
   "I select sidebar entry {int}",
   async function (this: KoluWorld, position: number) {
-    const entry = this.page.locator(SIDEBAR_ENTRY_SELECTOR).nth(position - 1);
+    const entry = this.page.locator(PILL_TREE_ENTRY_SELECTOR).nth(position - 1);
     await entry.click();
     const id = await entry.getAttribute("data-terminal-id");
     assert.ok(id, `Sidebar entry ${position} has no terminal ID`);

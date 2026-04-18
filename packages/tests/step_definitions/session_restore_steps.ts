@@ -1,7 +1,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
@@ -101,7 +101,7 @@ When("I click the restore button", async function (this: KoluWorld) {
   // for a reactive DOM check instead of locator.waitFor.
   await this.page.waitForFunction(
     (sel) => document.querySelectorAll(sel).length > 0,
-    SIDEBAR_ENTRY_SELECTOR,
+    PILL_TREE_ENTRY_SELECTOR,
     { timeout: 20000 },
   );
 });
@@ -109,11 +109,11 @@ When("I click the restore button", async function (this: KoluWorld) {
 Then(
   "there should be {int} sidebar entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
+    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: SIDEBAR_ENTRY_SELECTOR, count: expected },
+      { selector: PILL_TREE_ENTRY_SELECTOR, count: expected },
       { timeout: 15000 },
     );
     const actual = await entries.count();
@@ -152,7 +152,7 @@ Given(
 Then(
   "the sidebar entries should be in sort order",
   async function (this: KoluWorld) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
+    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     const count = await entries.count();
     const titles: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -199,7 +199,7 @@ Then(
     await this.page.waitForFunction(
       (tid: string) => {
         const entry = document.querySelector(
-          `[data-testid="sidebar"] [data-terminal-id="${tid}"]`,
+          `[data-testid="canvas-tile"][data-terminal-id="${tid}"]`,
         );
         return entry?.hasAttribute("data-active") ?? false;
       },

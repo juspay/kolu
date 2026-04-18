@@ -9,8 +9,8 @@ import { toast } from "solid-sonner";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Section from "./ui/Section";
 import Row from "./ui/Row";
-import { usePreferences } from "./settings/usePreferences";
 import { wsStatus, serverProcessId } from "./rpc/rpc";
+import { isMobile } from "./useMobile";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -79,7 +79,6 @@ function readJsHeap(): {
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
-  const { preferences } = usePreferences();
   const browser = browserFacts();
 
   const snapshot = createMemo(() => {
@@ -87,7 +86,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     return {
       browser,
       session: {
-        mode: preferences().canvasMode ? "canvas" : "focus",
+        viewport: isMobile() ? "mobile" : "canvas",
         wsStatus: wsStatus(),
         serverProcessId: serverProcessId(),
         activeId: props.activeId,
@@ -159,10 +158,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 
         <Section title="Session">
           <div class="space-y-0.5">
-            <Row label="Mode">
-              <span class="text-fg">
-                {preferences().canvasMode ? "canvas" : "focus"}
-              </span>
+            <Row label="Viewport">
+              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
             </Row>
             <Row label="WS" variant="badge">
               {wsStatus()}

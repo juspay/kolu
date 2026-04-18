@@ -318,19 +318,6 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
-/** Which sidebar cards render a live xterm preview.
- *  - `all`: every terminal (noisy; mostly useful for testing)
- *  - `agents`: any terminal with a running code agent
- *  - `attention`: only agents that need the user (waiting or unread) — **default**
- *  - `none`: never */
-export const SidebarAgentPreviewsSchema = z.enum([
-  "all",
-  "agents",
-  "attention",
-  "none",
-]);
-export type SidebarAgentPreviews = z.infer<typeof SidebarAgentPreviewsSchema>;
-
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
@@ -362,10 +349,6 @@ export const PreferencesSchema = z.object({
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
-  sidebarAgentPreviews: SidebarAgentPreviewsSchema,
-  /** Canvas mode shows all terminals as freeform draggable tiles.
-   *  Focus mode shows one terminal at a time with a sidebar. */
-  canvasMode: z.boolean(),
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
    *  WebGL-everywhere unsafe). `dom` forces DOM everywhere, eliminating the

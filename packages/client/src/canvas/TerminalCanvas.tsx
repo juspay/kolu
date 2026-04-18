@@ -17,6 +17,7 @@
 import {
   type Component,
   For,
+  Show,
   createEffect,
   createMemo,
   createSignal,
@@ -28,12 +29,16 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile, { type TileTheme } from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
+import PillTree from "./PillTree";
+import { groupByRepo } from "./pillTreeOrder";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 
 const DEFAULT_W = 700;
 const DEFAULT_H = 500;
@@ -53,25 +58,50 @@ function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
 }
 
 const TerminalCanvas: Component<{
-  tileIds: string[];
-  activeId: string | null;
-  getTileTheme: (id: string) => TileTheme;
+  tileIds: TerminalId[];
+  activeId: TerminalId | null;
+  getTileTheme: (id: TerminalId) => TileTheme;
+  /** Lookup so the pill tree can render repo color + unread + agent state
+   *  without re-deriving any of it. */
+  getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
+  isUnread: (id: TerminalId) => boolean;
   /** Saved layout for a tile, or undefined if none exists yet. */
-  getLayout: (id: string) => TileLayout | undefined;
+  getLayout: (id: TerminalId) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
-  onLayoutChange: (id: string, layout: TileLayout) => void;
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  renderTileTitle: (id: string) => JSX.Element;
+  onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
+  onSelect: (id: TerminalId) => void;
+  onClose: (id: TerminalId) => void;
+  renderTileTitle: (id: TerminalId) => JSX.Element;
   /** Optional title-bar actions injected between the title and the close
-   *  button — e.g. the screenshot button. */
-  renderTileTitleActions?: (id: string) => JSX.Element;
+   *  button — e.g. the screenshot button, theme pill, agent indicator. */
+  renderTileTitleActions?: (id: TerminalId) => JSX.Element;
   /** `active` is passed as an accessor so the subtree doesn't remount on
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
-  renderTileBody: (id: string, active: () => boolean) => JSX.Element;
+  renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
+
+  // Maximize state: which tile, if any, currently fills the viewport.
+  // Transient by design — resets on reload (see lowy analysis): a viewing
+  // gesture, not an arrangement, so it has no value across sessions and
+  // syncing it across tabs would be actively wrong.
+  const [maximizedId, setMaximizedId] = createSignal<TerminalId | null>(null);
+
+  function toggleMaximize(id: TerminalId) {
+    setMaximizedId((prev) => (prev === id ? null : id));
+  }
+
+  // If the maximized tile is closed, drop the state automatically.
+  createEffect(() => {
+    const m = maximizedId();
+    if (m && !props.tileIds.includes(m)) setMaximizedId(null);
+  });
+
+  const pillGroups = createMemo(() =>
+    groupByRepo(props.tileIds, props.getMetadata),
+  );
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -294,9 +324,11 @@ const TerminalCanvas: Component<{
               <CanvasTile
                 id={id}
                 active={props.activeId === id}
+                maximized={maximizedId() === id}
                 theme={props.getTileTheme(id)}
                 onSelect={() => props.onSelect(id)}
                 onClose={() => props.onClose(id)}
+                onToggleMaximize={() => toggleMaximize(id)}
                 renderTitle={() => props.renderTileTitle(id)}
                 renderTitleActions={
                   props.renderTileTitleActions
@@ -314,13 +346,28 @@ const TerminalCanvas: Component<{
           </For>
         </div>
 
-        <CanvasMinimap
-          tileIds={props.tileIds}
-          activeId={props.activeId}
-          layouts={layouts()}
-          getTileTheme={props.getTileTheme}
-          onSelect={props.onSelect}
-        />
+        {/* Pill tree + minimap hide while a tile is maximized — the
+         *  fullscreen tile owns the viewport. */}
+        <Show when={maximizedId() === null}>
+          <PillTree
+            groups={pillGroups()}
+            activeId={props.activeId}
+            getDisplayInfo={props.getDisplayInfo}
+            isUnread={props.isUnread}
+            onSelect={(id) => {
+              props.onSelect(id);
+              const tile = props.getLayout(id);
+              if (tile) viewport.centerOnTile(tile);
+            }}
+          />
+          <CanvasMinimap
+            tileIds={props.tileIds}
+            activeId={props.activeId}
+            layouts={layouts()}
+            getTileTheme={props.getTileTheme}
+            onSelect={props.onSelect}
+          />
+        </Show>
       </div>
     </DragDropProvider>
   );

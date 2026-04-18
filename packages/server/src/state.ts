@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.14.0";
+const SCHEMA_VERSION = "1.15.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -94,14 +94,13 @@ export const store = new Conf<PersistedState>({
         ...current,
       });
     },
-    // sidebarAgentPreviews: boolean → enum. Previously `true` meant
-    // "preview every agent terminal" (now "agents"), `false` meant off
-    // (now "none"). New installs default to "attention".
+    // sidebarAgentPreviews: boolean → enum. Field removed entirely in
+    // 1.15.0 (#622); migrations preserved as historical record. The 1.15.0
+    // pass strips the key from disk for any user that walked through these
+    // earlier migrations.
     "1.4.0": (store: Conf<PersistedState>) => {
-      // Cast through `unknown` because the persisted shape predates
-      // the enum — on disk the field may still be a boolean.
       const current = store.get("preferences") as unknown as
-        | (Record<string, unknown> & { sidebarAgentPreviews?: unknown })
+        | Record<string, unknown>
         | undefined;
       const old = current?.sidebarAgentPreviews;
       const migrated =
@@ -110,14 +109,13 @@ export const store = new Conf<PersistedState>({
           : old === false
             ? "none"
             : typeof old === "string"
-              ? (old as Preferences["sidebarAgentPreviews"])
-              : undefined;
+              ? old
+              : "attention";
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...(current as Partial<Preferences>),
-        sidebarAgentPreviews:
-          migrated ?? DEFAULT_PREFERENCES.sidebarAgentPreviews,
-      });
+        sidebarAgentPreviews: migrated,
+      } as unknown as Preferences);
     },
     // recentAgents added — seed as empty array for existing state files.
     "1.5.0": (store: Conf<PersistedState>) => {
@@ -217,10 +215,15 @@ export const store = new Conf<PersistedState>({
       }
     },
     // canvasMode preference added — default to false (focus mode).
+    // Field removed in 1.15.0 (#622). Historical migration preserved so
+    // users walking the ladder don't lose any other preference fields.
     "1.12.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      if ((current as Record<string, unknown>).canvasMode === undefined) {
-        store.set("preferences", { ...current, canvasMode: false });
+      const current = store.get("preferences") as Record<string, unknown>;
+      if (current.canvasMode === undefined) {
+        store.set("preferences", {
+          ...current,
+          canvasMode: false,
+        } as unknown as Preferences);
       }
     },
     // rightPanel.tab reshaped into a discriminated union so illegal
@@ -258,6 +261,14 @@ export const store = new Conf<PersistedState>({
       if ((current as Record<string, unknown>).terminalRenderer === undefined) {
         store.set("preferences", { ...current, terminalRenderer: "auto" });
       }
+    },
+    // canvasMode + sidebarAgentPreviews removed (#622) — the workspace is
+    // now mode-less (canvas always on desktop) and the sidebar with its
+    // preview cards is gone, replaced by a floating pill tree.
+    "1.15.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;
+      store.set("preferences", rest as Preferences);
     },
   },
 });

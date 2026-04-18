@@ -60,10 +60,11 @@ export interface CommandDeps {
   setDiagnosticInfoOpen: (open: boolean) => void;
   // Right panel
   toggleRightPanel: () => void;
-  // Canvas
+  // Canvas — desktop only (always active there); hidden on mobile where
+  // the canvas isn't mounted at all.
   canvasCenterActive: () => void;
   toggleMinimap: () => void;
-  isCanvasMode: () => boolean;
+  isMobile: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -166,7 +167,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       keybind: SHORTCUTS.toggleRightPanel.keybind,
       onSelect: () => deps.toggleRightPanel(),
     },
-    ...(deps.isCanvasMode()
+    ...(!deps.isMobile()
       ? [
           {
             name: "Center on active tile",

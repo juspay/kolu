@@ -33,16 +33,6 @@ When(
 );
 
 When(
-  "I click the desktop sidebar toggle icon",
-  async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="sidebar-toggle-desktop"]');
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await toggle.click();
-    await this.waitForFrame();
-  },
-);
-
-When(
   "I click the theme name in the inspector",
   async function (this: KoluWorld) {
     // The theme section in MetadataInspector renders a clickable button with the theme name.

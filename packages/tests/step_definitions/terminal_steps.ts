@@ -7,7 +7,7 @@ import * as assert from "node:assert";
 /** Count terminals by reading sidebar entries from the DOM. */
 async function countTerminals(world: KoluWorld) {
   return world.page
-    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .count();
 }
 

@@ -15,7 +15,7 @@ async function assertActivity(
   await world.page.waitForFunction(
     ({ id, expected }) => {
       const entry = document.querySelector(
-        `[data-testid="sidebar"] [data-terminal-id="${id}"]`,
+        `[data-testid="canvas-tile"][data-terminal-id="${id}"]`,
       );
       return entry?.getAttribute("data-activity") === expected;
     },
@@ -53,7 +53,7 @@ Then("the activity graph should have data", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (id) => {
       const graph = document.querySelector(
-        `[data-testid="sidebar"] [data-terminal-id="${id}"] [data-testid="activity-graph"]`,
+        `[data-testid="canvas-tile"][data-terminal-id="${id}"] [data-testid="activity-graph"]`,
       );
       return graph?.getAttribute("data-has-data") === "true";
     },
