@@ -7,7 +7,7 @@ name: pages
 
 on:
   push:
-    branches: [master]
+    branches: [master, pure-earth]
     paths:
       - "website/**"
       - "docs/perf-investigations/**"
