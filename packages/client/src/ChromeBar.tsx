@@ -51,21 +51,36 @@ const ChromeBar: Component<{
       data-testid="chrome-bar"
       data-maximized={store.canvasMaximized() ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
-      // eat clicks meant for the right-panel tab bar / canvas under
-      // the overlay. Interactive children (identity row, pill tree,
-      // control cluster) re-enable pointer events on themselves.
+      // eat clicks meant for the canvas under the overlay. Interactive
+      // children (identity row, pill tree, control cluster) re-enable
+      // pointer events on themselves.
       class="flex items-center gap-3 px-3 py-2 select-none pointer-events-none"
       classList={{
         // Canvas mode: absolute overlay, transparent — grid shows
         // through. z-50 stays above the maximized tile (z-40) should
         // the mode flip mid-render.
-        "absolute top-0 left-0 right-0 z-50": !store.canvasMaximized(),
+        "absolute top-0 left-0 z-50": !store.canvasMaximized(),
         // Maximized: docked flex-col child of the app root. Takes a
         // real row at the top so the terminal below starts BELOW the
         // chrome, not behind it — prevents the terminal's own title
         // bar from colliding with the chrome contents.
         "relative shrink-0": store.canvasMaximized(),
       }}
+      style={
+        store.canvasMaximized()
+          ? undefined
+          : {
+              // Stop the overlay at the right panel's left edge when the
+              // panel is docked + open, so the chrome's controls cluster
+              // doesn't sit on top of (and intercept clicks for) the
+              // panel's tab bar (pin button, collapse button, tabs).
+              // panelSize is a [0..1] fraction of viewport width.
+              right:
+                rightPanel.pinned() && !rightPanel.collapsed()
+                  ? `${rightPanel.panelSize() * 100}vw`
+                  : 0,
+            }
+      }
     >
       {/* Identity: logo + app name + connection dot */}
       <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
