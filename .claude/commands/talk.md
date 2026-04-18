@@ -23,7 +23,7 @@ Talk mode is a research-first workflow, not an off-the-cuff conversation. Before
 
 ### First-turn gate
 
-Your first substantive response must not contain recommendations, fixes, "suspects," or claims about third-party library behavior unless you have **already read the relevant source in this session**. If you haven't yet, your first response is the research itself (a plan + the reads), not an answer. Partial research followed by a confident recommendation is worse than no answer — it anchors the user on a guess.
+Your first substantive response must not contain recommendations, fixes, "suspects," or claims about third-party library behavior unless you have **already read the relevant source in this session**. If you haven't yet, your first response is the research itself — normally a single `Agent(subagent_type=Explore)` call. Direct `Read`s in the main turn are allowed only for narrow, single-file lookups you can name up front. Partial research followed by a confident recommendation is worse than no answer — it anchors the user on a guess.
 
 ### When to use the Explore subagent
 
@@ -38,7 +38,7 @@ For narrow, single-file lookups, `Grep`/`Read` directly is fine. The line is: if
 
 **When the source isn't on disk.** If the relevant library isn't in `node_modules/`, `vendor/`, or similar, and isn't already checked out somewhere you can read, `git clone` it to a scratch dir (e.g. `/tmp/<name>`) at the version the project actually uses, then read it there. Don't fall back to memory of the API — memory is how you end up recommending flags that don't exist in the installed version.
 
-**Subagent output is a lead, not ground truth.** Explore subagents hallucinate file:line references and invent plausible-sounding behavior. Before citing any specific claim a subagent made about a file:line, function signature, or control flow, open the file yourself and verify. If you haven't verified it, either verify now or mark the claim as "per subagent, unverified" so the user can weigh it — don't launder subagent guesses into confident statements.
+**Subagent output is a lead, not ground truth.** Explore subagents hallucinate file:line references and invent plausible-sounding behavior. If you haven't verified a claim yourself, mark it "per subagent, unverified" so the user can weigh it — don't launder subagent guesses into confident statements.
 
 ### Citation requirement
 
