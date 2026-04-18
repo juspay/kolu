@@ -21,8 +21,11 @@ export interface TileTheme {
   fg: string;
 }
 
-const DEFAULT_W = 700;
-const DEFAULT_H = 500;
+// 800×540 fits ~88 cols × 27 rows at the default font (~9px × 20px cell),
+// safely above the legacy 80×24 baseline that downstream tools (`stty`,
+// `$COLUMNS`, less, vim) treat as the floor.
+const DEFAULT_W = 800;
+const DEFAULT_H = 540;
 
 const CanvasTile: Component<{
   id: string;
@@ -30,6 +33,10 @@ const CanvasTile: Component<{
   /** When true, the tile fills the canvas viewport (fixed inset-0) and
    *  drag/resize are disabled. Toggled by double-clicking the title bar. */
   maximized: boolean;
+  /** "active" if the terminal emitted output recently, "sleeping" otherwise.
+   *  Drives the data-activity attribute that e2e + UI states key off (the
+   *  pre-#622 sidebar exposed this; tests still reach for it). */
+  activity?: "active" | "sleeping";
   theme: TileTheme;
   onSelect: () => void;
   onClose: () => void;
@@ -83,6 +90,7 @@ const CanvasTile: Component<{
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
       data-maximized={props.maximized ? "true" : undefined}
+      data-activity={props.activity}
       class="flex flex-col rounded-xl overflow-hidden border transition-shadow duration-200"
       classList={{
         absolute: !props.maximized,

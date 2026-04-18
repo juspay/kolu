@@ -16,15 +16,11 @@ Feature: Terminal
     Then the terminal should contain "kolu-refresh-test"
     And there should be no page errors
 
-  Scenario: Terminal resizes with viewport
-    Given I note the canvas dimensions
-    When I resize the viewport to 800x400
-    Then the canvas should be smaller than before
-    When I resize the viewport to 1400x900
-    Then the canvas should be larger than the 800x400 size
-    And there should be no page errors
-
-  Scenario: Canvas fills its container
+  Scenario: Canvas fills its tile container
+    # Canvas tiles are fixed-size on the freeform 2D canvas; the xterm fills
+    # its tile, not the full viewport. The pre-#622 "shrink with viewport"
+    # scenarios are removed — tile resize is a per-tile gesture now (the
+    # eight resize handles), not a side-effect of window resize.
     Then the canvas should fill at least 90% of its container
     And there should be no page errors
 
@@ -65,10 +61,10 @@ Feature: Terminal
     Then the terminal input should be focused
     And there should be no page errors
 
-  Scenario: Canvas refits after tab visibility change
-    Given I note the canvas dimensions
-    When I resize the viewport to 800x400
-    And I simulate a tab visibility change
+  Scenario: Canvas refits its tile after tab visibility change
+    # Tab-hidden xterms can lose their grid measurement. The post-visible
+    # refit must re-fill the tile container regardless of viewport size.
+    When I simulate a tab visibility change
     Then the canvas should fill at least 90% of its container
     And there should be no page errors
 

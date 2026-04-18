@@ -61,6 +61,9 @@ const PillTree: Component<{
                       const active = () => props.activeId === b.id;
                       const unread = () => props.isUnread(b.id);
                       const agentState = () => info()?.meta.agent?.state;
+                      // Tooltip shows the cwd (matches the pre-#622 sidebar
+                      // affordance — hover any entry to see the full path).
+                      const tooltip = () => info()?.meta.cwd ?? b.label;
                       return (
                         <button
                           data-testid="pill-tree-branch"
@@ -81,7 +84,7 @@ const PillTree: Component<{
                               : undefined,
                           }}
                           onClick={() => props.onSelect(b.id)}
-                          title={b.label}
+                          title={tooltip()}
                         >
                           <Show when={unread()}>
                             <span

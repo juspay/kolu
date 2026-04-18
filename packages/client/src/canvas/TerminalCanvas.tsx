@@ -40,8 +40,8 @@ import PillTree from "./PillTree";
 import { groupByRepo } from "./pillTreeOrder";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 
-const DEFAULT_W = 700;
-const DEFAULT_H = 500;
+const DEFAULT_W = 800;
+const DEFAULT_H = 540;
 const CASCADE_OFFSET = 30;
 const MIN_W = 300;
 const MIN_H = 200;
@@ -325,6 +325,11 @@ const TerminalCanvas: Component<{
                 id={id}
                 active={props.activeId === id}
                 maximized={maximizedId() === id}
+                activity={
+                  props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
+                    ? "active"
+                    : "sleeping"
+                }
                 theme={props.getTileTheme(id)}
                 onSelect={() => props.onSelect(id)}
                 onClose={() => props.onClose(id)}

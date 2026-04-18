@@ -26,15 +26,18 @@ Then(
   },
 );
 
-Then("the terminal should have keyboard focus", async function (this: KoluWorld) {
-  // Active terminal carries data-focused on its xterm wrapper. Poll because
-  // Corvu's focus-trap release after dialogs is async (waitForFrame can be
-  // insufficient on loaded CI).
-  await this.page.waitForFunction(
-    () => !!document.activeElement?.closest("[data-focused]"),
-    { timeout: POLL_TIMEOUT },
-  );
-});
+Then(
+  "the terminal should have keyboard focus",
+  async function (this: KoluWorld) {
+    // Active terminal carries data-focused on its xterm wrapper. Poll because
+    // Corvu's focus-trap release after dialogs is async (waitForFrame can be
+    // insufficient on loaded CI).
+    await this.page.waitForFunction(
+      () => !!document.activeElement?.closest("[data-focused]"),
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 When(
   "I select terminal {int} in the sidebar",
