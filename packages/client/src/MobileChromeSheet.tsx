@@ -16,8 +16,8 @@ import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import type { PillRepoGroup } from "./canvas/pillTreeOrder";
-import type { TerminalDisplayInfo } from "./terminal/terminalDisplay";
+import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { TerminalId } from "kolu-common";
 import type { WsStatus } from "./rpc/rpc";
 
@@ -34,22 +34,12 @@ const MobileChromeSheet: Component<{
   appTitle: string;
   onOpenPalette: () => void;
   groups: PillRepoGroup[];
-  activeId: TerminalId | null;
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  isUnread: (id: TerminalId) => boolean;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
+  const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-
-  const repoColor = (group: PillRepoGroup) => {
-    for (const b of group.branches) {
-      const c = props.getDisplayInfo(b.id)?.repoColor;
-      if (c) return c;
-    }
-    return "var(--color-accent)";
-  };
 
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
@@ -97,14 +87,14 @@ const MobileChromeSheet: Component<{
               <div class="flex flex-col">
                 <div
                   class="px-3 pt-2 pb-1 text-[0.65rem] font-semibold uppercase tracking-wide"
-                  style={{ color: repoColor(group) }}
+                  style={{ color: repoColor(group, store.getDisplayInfo) }}
                 >
                   {group.repoName}
                 </div>
                 <For each={group.branches}>
                   {(b) => {
-                    const active = () => props.activeId === b.id;
-                    const unread = () => props.isUnread(b.id);
+                    const active = () => store.activeId() === b.id;
+                    const unread = () => store.isUnread(b.id);
                     return (
                       <button
                         data-testid="mobile-pill-branch"

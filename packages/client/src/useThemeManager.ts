@@ -1,7 +1,11 @@
-/** Theme management — preview/commit lifecycle, independent of terminal CRUD. */
+/** Theme management — preview/commit lifecycle, independent of terminal CRUD.
+ *
+ *  Singleton: pulls live state from `useTerminalStore`, mutates server
+ *  state via the typed RPC client directly. Callers (App.tsx, palette,
+ *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
-import { createSignal, createMemo } from "solid-js";
-import type { Accessor } from "solid-js";
+import { createSignal, createMemo, createRoot } from "solid-js";
+import { toast } from "solid-sonner";
 import {
   DEFAULT_THEME_NAME,
   availableThemes,
@@ -11,25 +15,16 @@ import {
   type ITheme,
 } from "terminal-themes";
 import type { TerminalId } from "kolu-common";
+import { client } from "./rpc/rpc";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 
-export interface ThemeManagerDeps {
-  activeId: Accessor<TerminalId | null>;
-  /** Live terminal IDs — used by `handleVariegateTheme` to collect peer
-   *  backgrounds (every terminal other than the active one) so the
-   *  shortcut/palette path matches new-terminal creation semantics:
-   *  pick something distinct from every sibling, not just from the
-   *  current terminal's own bg. */
-  terminalIds: Accessor<TerminalId[]>;
-  getThemeName: (id: TerminalId) => string | undefined;
-  setThemeName: (id: TerminalId, name: string) => void;
-}
+function init() {
+  const store = useTerminalStore();
+  const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
 
-let cached: ReturnType<typeof init> | undefined;
-
-function init(deps: ThemeManagerDeps) {
   const committedThemeName = createMemo(() => {
-    const id = deps.activeId();
-    return (id !== null && deps.getThemeName(id)) || DEFAULT_THEME_NAME;
+    const id = store.activeId();
+    return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
   });
 
   const [previewThemeName, setPreviewThemeName] = createSignal<
@@ -43,14 +38,22 @@ function init(deps: ThemeManagerDeps) {
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
   function getTerminalTheme(id: TerminalId): ITheme {
-    const preview = deps.activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? deps.getThemeName(id));
+    const preview = store.activeId() === id ? previewThemeName() : undefined;
+    return getThemeByName(preview ?? getThemeName(id));
+  }
+
+  function setThemeName(id: TerminalId, name: string) {
+    void client.terminal
+      .setTheme({ id, themeName: name })
+      .catch((err: Error) =>
+        toast.error(`Failed to set theme: ${err.message}`),
+      );
   }
 
   function handleSetTheme(themeName: string) {
-    const id = deps.activeId();
+    const id = store.activeId();
     if (id === null) return;
-    deps.setThemeName(id, themeName);
+    setThemeName(id, themeName);
   }
 
   /** Shuffle the active terminal to a random theme. Random — not argmax —
@@ -61,12 +64,12 @@ function init(deps: ThemeManagerDeps) {
    *  yellow. New-terminal creation uses spread mode instead —
    *  see {@link pickTheme} for the rationale. */
   function handleShuffleTheme() {
-    const id = deps.activeId();
+    const id = store.activeId();
     if (id === null) return;
-    const current = deps.getThemeName(id);
+    const current = getThemeName(id);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const excludeBgs = resolveThemeBgs(deps.terminalIds(), deps.getThemeName);
+    const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
     handleSetTheme(pickTheme(candidates, { excludeBgs }));
   }
 
@@ -79,10 +82,13 @@ function init(deps: ThemeManagerDeps) {
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleShuffleTheme,
+    setThemeName,
   } as const;
 }
 
-export function useThemeManager(deps: ThemeManagerDeps) {
-  if (!cached) cached = init(deps);
+let cached: ReturnType<typeof init> | undefined;
+
+export function useThemeManager() {
+  if (!cached) cached = createRoot(() => init());
   return cached;
 }

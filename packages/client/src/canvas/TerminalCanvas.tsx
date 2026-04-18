@@ -34,9 +34,10 @@ import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
-import CanvasTile, { type TileTheme } from "./CanvasTile";
+import CanvasTile from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileTheme } from "./useTileTheme";
 
 const DEFAULT_W = 800;
 const DEFAULT_H = 540;
@@ -57,15 +58,6 @@ function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
 
 const TerminalCanvas: Component<{
   tileIds: TerminalId[];
-  activeId: TerminalId | null;
-  /** Whether the workspace is in fullscreen-one-tile mode. When true, the
-   *  active tile fills the canvas container; tiled tiles, pill tree, and
-   *  minimap all adapt accordingly. Owned by the caller so it can persist
-   *  across reload. */
-  canvasMaximized: boolean;
-  onToggleMaximize: () => void;
-  getTileTheme: (id: TerminalId) => TileTheme;
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
@@ -82,6 +74,8 @@ const TerminalCanvas: Component<{
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
+  const store = useTerminalStore();
+  const tileTheme = useTileTheme();
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -293,66 +287,24 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
-        {/* Tiled canvas — tiles live inside the pan/zoom transform. Hidden
-         *  entirely when maximized; no reason to paint tiles the user
-         *  can't see, and the maximized view owns the container. */}
-        <Show when={!props.canvasMaximized}>
-          <div
-            style={{
-              "transform-origin": "0 0",
-              transform: viewport.canvasTransform(),
-            }}
-          >
-            <For each={props.tileIds}>
-              {(id) => (
-                <CanvasTile
-                  id={id}
-                  active={props.activeId === id}
-                  maximized={false}
-                  activity={
-                    props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
-                      ? "active"
-                      : "sleeping"
-                  }
-                  theme={props.getTileTheme(id)}
-                  onSelect={() => props.onSelect(id)}
-                  onClose={() => props.onClose(id)}
-                  onToggleMaximize={props.onToggleMaximize}
-                  renderTitle={() => props.renderTileTitle(id)}
-                  renderTitleActions={
-                    props.renderTileTitleActions
-                      ? () => props.renderTileTitleActions!(id)
-                      : undefined
-                  }
-                  renderBody={() =>
-                    props.renderTileBody(id, () => props.activeId === id)
-                  }
-                  layouts={layouts()}
-                  startResize={startResize}
-                  zoom={viewport.zoom}
-                />
-              )}
-            </For>
-          </div>
-        </Show>
-
-        {/* Maximized view — renders only the active tile, outside any
-         *  transform, covering the canvas container via `absolute inset-0`. */}
-        <Show when={props.canvasMaximized && props.activeId} keyed>
-          {(id) => (
+        {/* renderTile: one definition shared by tiled and maximized
+         *  branches — the only difference is the `maximized` boolean
+         *  and (for tiled) the active-state read derived from store. */}
+        {(() => {
+          const renderTile = (id: TerminalId, maximized: boolean) => (
             <CanvasTile
               id={id}
-              active={true}
-              maximized={true}
+              active={maximized || store.activeId() === id}
+              maximized={maximized}
               activity={
-                props.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
+                store.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
                   ? "active"
                   : "sleeping"
               }
-              theme={props.getTileTheme(id)}
+              theme={tileTheme(id)}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}
-              onToggleMaximize={props.onToggleMaximize}
+              onToggleMaximize={store.toggleCanvasMaximized}
               renderTitle={() => props.renderTileTitle(id)}
               renderTitleActions={
                 props.renderTileTitleActions
@@ -360,25 +312,44 @@ const TerminalCanvas: Component<{
                   : undefined
               }
               renderBody={() =>
-                props.renderTileBody(id, () => props.activeId === id)
+                props.renderTileBody(id, () => store.activeId() === id)
               }
               layouts={layouts()}
               startResize={startResize}
               zoom={viewport.zoom}
             />
-          )}
-        </Show>
+          );
+          return (
+            <>
+              {/* Tiled canvas — tiles live inside the pan/zoom transform.
+               *  Hidden entirely when maximized; no reason to paint
+               *  tiles the user can't see. */}
+              <Show when={!store.canvasMaximized()}>
+                <div
+                  style={{
+                    "transform-origin": "0 0",
+                    transform: viewport.canvasTransform(),
+                  }}
+                >
+                  <For each={props.tileIds}>{(id) => renderTile(id, false)}</For>
+                </div>
+              </Show>
+
+              {/* Maximized view — only the active tile, outside any
+               *  transform, covering the canvas via `absolute inset-0`. */}
+              <Show when={store.canvasMaximized() && store.activeId()} keyed>
+                {(id) => renderTile(id, true)}
+              </Show>
+            </>
+          );
+        })()}
 
         {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
-         *  since there's nothing spatial to summarize. Pill tree lives in
-         *  the ChromeBar at App.tsx level — shared between pinned (docked
-         *  header row) and unpinned (floating overlay) layouts. */}
-        <Show when={!props.canvasMaximized}>
+         *  since there's nothing spatial to summarize. */}
+        <Show when={!store.canvasMaximized()}>
           <CanvasMinimap
             tileIds={props.tileIds}
-            activeId={props.activeId}
             layouts={layouts()}
-            getTileTheme={props.getTileTheme}
             onSelect={props.onSelect}
           />
         </Show>

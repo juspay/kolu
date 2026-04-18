@@ -9,11 +9,11 @@
 
 import { type Component, For, Show, createSignal, type JSX } from "solid-js";
 import type { TerminalId } from "kolu-common";
-import type { TerminalDisplayInfo } from "./terminal/terminalDisplay";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
 import type { WsStatus } from "./rpc/rpc";
 import TerminalMeta from "./terminal/TerminalMeta";
 import MobileChromeSheet from "./MobileChromeSheet";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -25,10 +25,6 @@ const MobileTileView: Component<{
   /** Pill-tree-ordered ids — same source as the desktop pill tree, so swipe
    *  order matches what the user would see if they switched to desktop. */
   orderedIds: TerminalId[];
-  activeId: TerminalId | null;
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  isUnread: (id: TerminalId) => boolean;
-  setActiveId: (id: TerminalId) => void;
   /** Chrome sheet props. Passed through to MobileChromeSheet when the
    *  user opens the drawer. */
   groups: PillRepoGroup[];
@@ -40,6 +36,7 @@ const MobileTileView: Component<{
   /** Soft-keyboard helper bar (Esc, Tab, arrows, etc.). */
   bottomBar?: JSX.Element;
 }> = (props) => {
+  const store = useTerminalStore();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
     y: number;
@@ -48,12 +45,13 @@ const MobileTileView: Component<{
 
   function navigate(direction: 1 | -1) {
     const ids = props.orderedIds;
-    if (ids.length < 2 || props.activeId === null) return;
-    const idx = ids.indexOf(props.activeId);
+    const active = store.activeId();
+    if (ids.length < 2 || active === null) return;
+    const idx = ids.indexOf(active);
     if (idx === -1) return;
     const next = (idx + direction + ids.length) % ids.length;
     const target = ids[next];
-    if (target) props.setActiveId(target);
+    if (target) store.setActiveId(target);
   }
 
   function onTouchStart(e: TouchEvent) {
@@ -75,8 +73,10 @@ const MobileTileView: Component<{
     navigate(dx < 0 ? 1 : -1);
   }
 
-  const activeInfo = () =>
-    props.activeId !== null ? props.getDisplayInfo(props.activeId) : undefined;
+  const activeInfo = () => {
+    const id = store.activeId();
+    return id !== null ? store.getDisplayInfo(id) : undefined;
+  };
 
   return (
     <div
@@ -117,7 +117,7 @@ const MobileTileView: Component<{
       <div class="flex-1 min-h-0 relative overflow-hidden">
         <For each={props.orderedIds}>
           {(id) => {
-            const visible = () => props.activeId === id;
+            const visible = () => store.activeId() === id;
             return (
               <div
                 class="absolute inset-0 flex flex-col"
@@ -138,10 +138,7 @@ const MobileTileView: Component<{
         appTitle={props.appTitle}
         onOpenPalette={props.onOpenPalette}
         groups={props.groups}
-        activeId={props.activeId}
-        getDisplayInfo={props.getDisplayInfo}
-        isUnread={props.isUnread}
-        onSelect={props.setActiveId}
+        onSelect={store.setActiveId}
       />
     </div>
   );

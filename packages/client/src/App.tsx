@@ -73,12 +73,7 @@ const App: Component = () => {
     isPreviewingTheme,
     handleSetTheme,
     handleShuffleTheme,
-  } = useThemeManager({
-    activeId: store.activeId,
-    terminalIds: store.terminalIds,
-    getThemeName: (id) => store.getMetadata(id)?.themeName,
-    setThemeName: crud.setThemeName,
-  });
+  } = useThemeManager();
 
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
@@ -101,17 +96,6 @@ const App: Component = () => {
     ),
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
-
-  // Shared TileTheme accessor — feeds both ChromeBar (pill bg) and
-  // TerminalCanvas (tile chrome). One source so a theme tweak flows
-  // through every surface that mirrors the tile.
-  const getChromeTileTheme = (id: TerminalId) => {
-    const t = getTerminalTheme(id);
-    return {
-      bg: t.background ?? "var(--color-surface-1)",
-      fg: t.foreground ?? "var(--color-fg)",
-    };
-  };
 
   // Fetch hostname from server; used in document title and header
   const [hostname, setHostname] = createSignal<string>();
@@ -579,13 +563,7 @@ const App: Component = () => {
           appTitle={appTitle()}
           onOpenPalette={() => openPalette()}
           groups={pillGroups()}
-          activeId={store.activeId()}
-          canvasMaximized={store.canvasMaximized()}
-          onExitMaximize={store.toggleCanvasMaximized}
-          getDisplayInfo={store.getDisplayInfo}
-          getTileTheme={getChromeTileTheme}
-          isUnread={store.isUnread}
-          onSelect={(id) => {
+          onSelectPill={(id) => {
             store.setActiveId(id);
             if (!store.canvasMaximized()) {
               const layout = store.getMetadata(id)?.canvasLayout;
@@ -638,10 +616,6 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    activeId={store.activeId()}
-                    getDisplayInfo={store.getDisplayInfo}
-                    isUnread={store.isUnread}
-                    setActiveId={store.setActiveId}
                     groups={pillGroups()}
                     status={wsStatus()}
                     appTitle={appTitle()}
@@ -653,11 +627,6 @@ const App: Component = () => {
                 .with(false, () => (
                   <TerminalCanvas
                     tileIds={store.terminalIds()}
-                    activeId={store.activeId()}
-                    canvasMaximized={store.canvasMaximized()}
-                    onToggleMaximize={store.toggleCanvasMaximized}
-                    getDisplayInfo={store.getDisplayInfo}
-                    getTileTheme={getChromeTileTheme}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     onLayoutChange={(id, layout) =>
                       crud.setCanvasLayout(id, layout)

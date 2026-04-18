@@ -8,7 +8,9 @@ import { MinimapIcon } from "../ui/Icons";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
-import { type TileTheme, tileMinimapBorder } from "./tileChrome";
+import { tileMinimapBorder } from "./tileChrome";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileTheme } from "./useTileTheme";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -29,13 +31,13 @@ export function toggleMinimap() {
 
 const CanvasMinimap: Component<{
   tileIds: string[];
-  activeId: string | null;
   layouts: Record<string, TileLayout>;
-  getTileTheme: (id: string) => TileTheme;
   /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
+  const store = useTerminalStore();
+  const tileTheme = useTileTheme();
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -148,7 +150,7 @@ const CanvasMinimap: Component<{
           <For each={props.tileIds}>
             {(id) => {
               const layout = () => props.layouts[id];
-              const theme = () => props.getTileTheme(id);
+              const theme = () => tileTheme(id);
               const pos = () => {
                 const l = layout();
                 if (!l) return null;
@@ -173,8 +175,8 @@ const CanvasMinimap: Component<{
                       class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
-                          props.activeId === id,
-                        "opacity-70": props.activeId !== id,
+                          store.activeId() === id,
+                        "opacity-70": store.activeId() !== id,
                       }}
                       style={{
                         left: `${p().x}px`,

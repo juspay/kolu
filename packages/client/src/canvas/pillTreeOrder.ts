@@ -109,3 +109,18 @@ export function groupByRepo(
 export function flatPillOrder(groups: PillRepoGroup[]): TerminalId[] {
   return groups.flatMap((g) => g.branches.map((b) => b.id));
 }
+
+/** Stable repo color: first branch in the group whose terminal has a
+ *  display color (any terminal with git context contributes one). Falls
+ *  back to the accent variable. Shared between PillTree (desktop) and
+ *  MobileChromeSheet so the two surfaces don't drift on color choice. */
+export function repoColor(
+  group: PillRepoGroup,
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+): string {
+  for (const b of group.branches) {
+    const c = getDisplayInfo(b.id)?.repoColor;
+    if (c) return c;
+  }
+  return "var(--color-accent)";
+}

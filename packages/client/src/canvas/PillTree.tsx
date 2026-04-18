@@ -13,9 +13,9 @@
 import { type Component, For, Show, createMemo } from "solid-js";
 import { match, P } from "ts-pattern";
 import type { TerminalId } from "kolu-common";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { PillRepoGroup, PillBranch } from "./pillTreeOrder";
-import type { TileTheme } from "./tileChrome";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { type PillRepoGroup, type PillBranch, repoColor } from "./pillTreeOrder";
+import { useTileTheme } from "./useTileTheme";
 import { MinimapIcon } from "../ui/Icons";
 
 const BRANCHES_PER_ROW = 3;
@@ -32,32 +32,14 @@ function chunkBranches(branches: PillBranch[]): PillBranch[][] {
 
 const PillTree: Component<{
   groups: PillRepoGroup[];
-  activeId: TerminalId | null;
-  /** When true, the workspace is in fullscreen-one-tile mode. The tree
-   *  recedes further and grows a leading "back to canvas" affordance —
-   *  the visual signal that there's a canvas behind the maximized tile.
-   *  Clicking a pill in maximized mode swaps which terminal is rendered
-   *  fullscreen (via the caller's onSelect); no pan. */
-  canvasMaximized: boolean;
-  onExitMaximize: () => void;
-  /** Lookup so each pill can colour itself by repo and surface unread/agent
-   *  glow without the tree re-deriving any of that itself. */
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  /** Theme lookup so each pill takes the tile's title-bar tint —
-   *  visually echoes the tile, doubles as a stable identity color. */
-  getTileTheme: (id: TerminalId) => TileTheme;
-  isUnread: (id: TerminalId) => boolean;
+  /** Click handler — caller decides whether to pan, swap active, etc.
+   *  Identity (active terminal, maximized mode, display info, tile theme,
+   *  unread) is read from singleton hooks inside the tree, so the tree
+   *  has zero coupling to App.tsx state wiring. */
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
-  // Stable repo color — first branch in the group always has one if any
-  // terminal in the group has git context. Falls back to accent.
-  const repoColor = (group: PillRepoGroup) => {
-    for (const b of group.branches) {
-      const c = props.getDisplayInfo(b.id)?.repoColor;
-      if (c) return c;
-    }
-    return "var(--color-accent)";
-  };
+  const store = useTerminalStore();
+  const tileTheme = useTileTheme();
 
   const empty = createMemo(() => props.groups.length === 0);
 
@@ -65,7 +47,7 @@ const PillTree: Component<{
     <Show when={!empty()}>
       <div
         data-testid="pill-tree"
-        data-maximized={props.canvasMaximized ? "" : undefined}
+        data-maximized={store.canvasMaximized() ? "" : undefined}
         // Positioning is the caller's job (ChromeBar embeds this as a
         // flex child, mobile sheet renders its own vertical list).
         // The outer fills its slot; `justify-center` on the inner
@@ -85,15 +67,15 @@ const PillTree: Component<{
             // one tile, the tree is a peripheral nav affordance; but it
             // stays readable at a glance so "there's a canvas behind
             // this" remains legible without a hover.
-            "opacity-80": !props.canvasMaximized,
-            "opacity-50": props.canvasMaximized,
+            "opacity-80": !store.canvasMaximized(),
+            "opacity-50": store.canvasMaximized(),
           }}
         >
-          <Show when={props.canvasMaximized}>
+          <Show when={store.canvasMaximized()}>
             <button
               data-testid="pill-tree-exit-maximize"
               class="flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
-              onClick={props.onExitMaximize}
+              onClick={store.toggleCanvasMaximized}
               title="Show all on canvas"
             >
               <MinimapIcon class="w-3.5 h-3.5" />
@@ -107,7 +89,7 @@ const PillTree: Component<{
                   <div
                     data-testid="pill-tree-repo"
                     class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
-                    style={{ color: repoColor(group) }}
+                    style={{ color: repoColor(group, store.getDisplayInfo) }}
                     title={group.repoName}
                   >
                     {group.repoName}
@@ -143,10 +125,10 @@ const PillTree: Component<{
                             <div class="grid grid-cols-[repeat(3,auto)] gap-1">
                               <For each={row}>
                                 {(b) => {
-                                  const info = () => props.getDisplayInfo(b.id);
-                                  const theme = () => props.getTileTheme(b.id);
-                                  const active = () => props.activeId === b.id;
-                                  const unread = () => props.isUnread(b.id);
+                                  const info = () => store.getDisplayInfo(b.id);
+                                  const theme = () => tileTheme(b.id);
+                                  const active = () => store.activeId() === b.id;
+                                  const unread = () => store.isUnread(b.id);
                                   const agentState = () =>
                                     info()?.meta.agent?.state;
                                   // Tooltip shows the cwd (matches the

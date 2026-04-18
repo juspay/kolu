@@ -24,9 +24,8 @@ import Tip from "./ui/Tip";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import PillTree from "./canvas/PillTree";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
-import type { TileTheme } from "./canvas/tileChrome";
-import type { TerminalDisplayInfo } from "./terminal/terminalDisplay";
 import type { TerminalId } from "kolu-common";
 import type { WsStatus } from "./rpc/rpc";
 
@@ -40,36 +39,33 @@ const ChromeBar: Component<{
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
-  /** Pill tree props passthrough. The tree lives inside the chrome band
-   *  so identity / controls / nav share one docked surface. */
+  /** Grouped pill tree to render in the middle. Caller owns grouping
+   *  (so the same groups feed mobile-swipe order in App.tsx). */
   groups: PillRepoGroup[];
-  activeId: TerminalId | null;
-  canvasMaximized: boolean;
-  onExitMaximize: () => void;
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined;
-  getTileTheme: (id: TerminalId) => TileTheme;
-  isUnread: (id: TerminalId) => boolean;
-  onSelect: (id: TerminalId) => void;
+  /** Click handler for a pill — caller decides whether to pan, swap
+   *  active terminal, etc. */
+  onSelectPill: (id: TerminalId) => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
+  const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
     <div
       data-testid="chrome-bar"
-      data-maximized={props.canvasMaximized ? "" : undefined}
+      data-maximized={store.canvasMaximized() ? "" : undefined}
       class="flex items-center gap-3 px-3 py-2 select-none"
       classList={{
         // Canvas mode: absolute overlay, transparent — grid shows
         // through. z-50 stays above the maximized tile (z-40) should
         // the mode flip mid-render.
-        "absolute top-0 left-0 right-0 z-50": !props.canvasMaximized,
+        "absolute top-0 left-0 right-0 z-50": !store.canvasMaximized(),
         // Maximized: docked flex-col child of the app root. Takes a
         // real row at the top so the terminal below starts BELOW the
         // chrome, not behind it — prevents the terminal's own title
         // bar from colliding with the chrome contents.
-        "relative shrink-0": props.canvasMaximized,
+        "relative shrink-0": store.canvasMaximized(),
       }}
     >
       {/* Identity: logo + app name + connection dot */}
@@ -88,16 +84,7 @@ const ChromeBar: Component<{
 
       {/* Pill tree — fills the middle, wraps as needed */}
       <div class="flex-1 min-w-0 flex justify-center">
-        <PillTree
-          groups={props.groups}
-          activeId={props.activeId}
-          canvasMaximized={props.canvasMaximized}
-          onExitMaximize={props.onExitMaximize}
-          getDisplayInfo={props.getDisplayInfo}
-          getTileTheme={props.getTileTheme}
-          isUnread={props.isUnread}
-          onSelect={props.onSelect}
-        />
+        <PillTree groups={props.groups} onSelect={props.onSelectPill} />
       </div>
 
       {/* Control cluster: inspector → settings → ⌘K */}
