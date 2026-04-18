@@ -1,18 +1,18 @@
 ---
 title: "Two lenses, one line"
-description: "When Hickey's structural-simplicity lens and Lowy's volatility lens flag the same line of code, trust the finding more than either agent alone."
+description: "When Hickey's structural-simplicity lens and Löwy's volatility lens flag the same line of code, trust the finding more than either agent alone."
 pubDate: 2026-04-19
 author: "Sridhar Ratnakumar"
 ---
 
-_When Hickey's structural-simplicity lens and Lowy's volatility lens
+_When Hickey's structural-simplicity lens and Löwy's volatility lens
 flag the same line of code, trust the finding more than either agent
 alone._
 
 The best refactor signal I've found in code review this year is when
 two independent reviewers, aimed at different axes of complexity, flag
 the same line. Not the same kind of problem. The same line. When
-Rich Hickey's "what's braided together" lens and Juval Lowy's "what
+Rich Hickey's "what's braided together" lens and Juval Löwy's "what
 changes at different rates" lens both point at it, you're not looking
 at a style issue. You're looking at a missing split.
 
@@ -67,7 +67,7 @@ a boundary that encapsulates this volatility."
 
 These sound adjacent. They aren't. Hickey is a *timeless structural*
 question: the code, right now, has a concept-duplication problem or
-it doesn't. Lowy is a *temporal* question: these two things will
+it doesn't. Löwy is a *temporal* question: these two things will
 drift in the future on clocks you can name, and the code doesn't
 know that yet. You can have one without the other. A module can be
 perfectly uncomplected and still be a volatility time-bomb — one
@@ -103,7 +103,7 @@ client caught up to the server*, *how do we avoid a flash on first
 paint* — are braided into one propagation chain. You can't touch
 any of them without thinking about the other two.
 
-Then the second Lowy pass, running independently on the same diff,
+Then the second Löwy pass, running independently on the same diff,
 said:
 
 > `canvasMaximized` collapsed three independent volatilities (client
@@ -123,7 +123,7 @@ deleted the server field, the `SavedSession` entry, the hydration
 flag, and the oRPC mutation, and moved the signal to `makePersisted`
 on `localStorage`. Across nine files: **14 insertions, 90
 deletions.** Net -76 lines. The second Hickey pass said "you
-complected three things"; the second Lowy pass said "you mis-scoped
+complected three things"; the second Löwy pass said "you mis-scoped
 three volatilities"; both said "the fix is to stop propagating it
 at all."
 
@@ -170,10 +170,10 @@ branch. Every `theme`, `activity`, `renderTitle` prop repeated in
 two places. Not a volatility issue: both branches will rev
 together, always, by definition. Pure structural duplication.
 [Extracted `renderTile(id, maximized)`](https://github.com/juspay/kolu/commit/22e42c9) —
-one helper, two call sites. Lowy had nothing to say here and
+one helper, two call sites. Löwy had nothing to say here and
 shouldn't have.
 
-**Lowy-only.** `getDisplayInfo` and `getTileTheme` were being
+**Löwy-only.** `getDisplayInfo` and `getTileTheme` were being
 drilled as props through `App.tsx → ChromeBar → PillTree`.
 Structurally, prop-drilling is not complecting — each hop passes a
 closure through cleanly. But Kolu has an explicit
@@ -203,20 +203,20 @@ semantic concept ("the canonical color for this repo") that happened
 to have two call sites. Move it to `pillTreeOrder.ts`, done. But
 I've seen Hickey-lens deduplications that collapsed two things that
 *should* rev on different clocks, and the subsequent "now I need to
-parameterize the helper" spiral is exactly what Lowy was trying to
+parameterize the helper" spiral is exactly what Löwy was trying to
 prevent.
 
-If only Lowy fires, ask: *am I drawing a boundary around a real
+If only Löwy fires, ask: *am I drawing a boundary around a real
 volatility, or around something that currently happens to look
 bounded?* The `displaySuffix` collision-detection move — from
 per-render re-derivation in the display layer to a server-side
-concern that publishes into `TerminalMetadata` — was a real Lowy
+concern that publishes into `TerminalMetadata` — was a real Löwy
 catch. Collision detection isn't a display concern; it's a
 server-side identity concern about the live terminal set. The
 display layer was recomputing what the server already knew.
 [Commit `5ac5fe2`](https://github.com/juspay/kolu/commit/5ac5fe2)
 moved it, and every client's per-render identity logic went away.
-But Lowy-lens module splits drawn for volatility that never
+But Löwy-lens module splits drawn for volatility that never
 actually revs are premature abstractions, and that's its own
 failure mode.
 
@@ -232,16 +232,16 @@ one pass. If you ask a single reader to "check for structural
 simplicity and volatility," you get a blended answer. Blended
 answers bias toward whichever axis the reader already cares about.
 Separate the passes. Hickey agent reads the diff, writes findings.
-Lowy agent reads the same diff, writes findings. You read both,
+Löwy agent reads the same diff, writes findings. You read both,
 looking for overlap. The overlap is the signal. (Both agents ship
 in [srid/agency](https://github.com/srid/agency) as subagents your
 main Claude Code session can spawn in parallel.)
 
 Another: don't expect the reviewers to agree on *fixes*. They
 agree on *locations*. Their prescriptions diverge. Hickey wants you
-to decouple the concepts. Lowy wants you to encapsulate the
+to decouple the concepts. Löwy wants you to encapsulate the
 volatilities. Sometimes those are the same edit. Sometimes Hickey
-says "split the function" and Lowy says "move the boundary," and
+says "split the function" and Löwy says "move the boundary," and
 both are right in a way that only the third, synthesizing read —
 yours — can land. The fix you ship is rarely either agent's
 literal proposal.
@@ -284,13 +284,13 @@ Ship it when both agents go quiet. Not before.
   — the volatility-decomposition reviewer. The Parnas-1972 lineage,
   the "encapsulate what changes" discipline, how to tell a real
   volatility from a cosmetic one.
-- [**PR #623 Hickey/Lowy analysis (pre-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
+- [**PR #623 Hickey/Löwy analysis (pre-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
   — the first pass, against a design sketch.
-- [**PR #623 Hickey/Lowy analysis (post-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
+- [**PR #623 Hickey/Löwy analysis (post-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
   — the second pass, against the finished diff. The binocular
   findings live here.
 - **The source texts.** Rich Hickey, [*Simple Made Easy*](https://www.infoq.com/presentations/Simple-Made-Easy/)
   (2011 talk). Juval Löwy, *Righting Software* (2019). David
   Parnas, [*On the Criteria To Be Used in Decomposing Systems into
   Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
-  (1972) — still the clearest 14 pages on why the Lowy lens works.
+  (1972) — still the clearest 14 pages on why the Löwy lens works.
