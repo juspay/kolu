@@ -1,10 +1,12 @@
-/** ChromeBar — the always-visible workspace chrome band, docked at the top.
+/** ChromeBar — the always-visible workspace chrome band, overlaid on the canvas.
  *
  *  Replaces the pre-#622 global Header. Carries app identity (logo +
  *  connection dot) on the left, the pill tree in the middle, and the
  *  global control cluster (inspector toggle, settings, command palette)
- *  on the right. Always renders as a docked top row above the canvas;
- *  there is no floating mode.
+ *  on the right. Floats above the canvas with a frosted backdrop so the
+ *  grid (and any tile that drifts under it) shows through faintly —
+ *  reinforces "the canvas extends past the chrome" rather than "chrome
+ *  caps the canvas."
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
@@ -51,11 +53,14 @@ const ChromeBar: Component<{
   return (
     <div
       data-testid="chrome-bar"
-      // No bg / border — chrome shares the canvas surface so the
-      // visual top of the workspace extends through the chrome row.
-      // Items (logo, pills, controls) carry their own backgrounds
-      // where needed.
-      class="flex items-center gap-3 px-3 py-2 select-none w-full canvas-grid-bg"
+      // Absolute overlay above the canvas: the canvas region beneath
+      // takes the full app height so tiles, grid lines, and even a
+      // maximized tile (z-40 inside canvas) read through. Fully
+      // transparent — no bg, no blur — so the canvas grid is the
+      // visible surface behind the chrome. z-50 keeps the chrome above
+      // the maximized tile so the user can always switch terminals or
+      // exit maximize without dismissing first.
+      class="absolute top-0 left-0 right-0 z-50 flex items-center gap-3 px-3 py-2 select-none"
     >
       {/* Identity: logo + app name + connection dot */}
       <div class="flex items-center gap-2 shrink-0">

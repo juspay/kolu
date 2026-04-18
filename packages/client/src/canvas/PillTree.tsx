@@ -74,7 +74,11 @@ const PillTree: Component<{
         class="group/pill-tree pointer-events-auto select-none w-full"
       >
         <div
-          class="flex flex-wrap items-start justify-center gap-x-2 gap-y-1 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+          // flex-nowrap: repos stay on a single row. Branch overflow
+          // happens INSIDE each repo (chunkBranches → multi-row grid),
+          // and that overflow is hidden at rest by a max-height cap on
+          // the rows container below — only revealed on hover.
+          class="flex flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
           classList={{
             // Deeper recess in maximized mode: the user is focused on
             // one tile, the tree is a peripheral nav affordance; but it
@@ -99,25 +103,20 @@ const PillTree: Component<{
               const rows = createMemo(() => chunkBranches(group.branches));
               return (
                 <div class="flex flex-col items-start gap-1 min-w-0">
-                  <div class="flex items-baseline gap-2">
-                    <div
-                      data-testid="pill-tree-repo"
-                      class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
-                      style={{ color: repoColor(group) }}
-                      title={group.repoName}
-                    >
-                      {group.repoName}
-                    </div>
-                    <Show when={group.branches.length > 1}>
-                      <span
-                        data-testid="pill-tree-repo-count"
-                        class="text-[0.6rem] font-mono text-fg-3 tabular-nums"
-                      >
-                        {group.branches.length}
-                      </span>
-                    </Show>
+                  <div
+                    data-testid="pill-tree-repo"
+                    class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
+                    style={{ color: repoColor(group) }}
+                    title={group.repoName}
+                  >
+                    {group.repoName}
                   </div>
-                  <div class="flex flex-col gap-0.5">
+                  {/* max-h-7 caps the visible rows to one at rest;
+                   *  hover on the pill tree (group/pill-tree) lifts the
+                   *  cap so all chunked rows reveal. overflow-hidden
+                   *  clips the rest. The leading ├─ glyph on the first
+                   *  row signals "more below" when collapsed. */}
+                  <div class="flex flex-col gap-0.5 max-h-7 overflow-hidden group-hover/pill-tree:max-h-96 transition-[max-height] duration-150">
                     <For each={rows()}>
                       {(row, rowIdx) => {
                         const isLast = () => rowIdx() === rows().length - 1;
