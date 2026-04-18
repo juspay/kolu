@@ -1,7 +1,7 @@
 ---
 title: "Two lenses, one line"
 description: "When Hickey's structural-simplicity lens and Lowy's volatility lens flag the same line of code, trust the finding more than either agent alone."
-pubDate: 2026-04-18
+pubDate: 2026-04-19
 author: "Sridhar Ratnakumar"
 ---
 
@@ -33,17 +33,19 @@ the code was done.
 
 Rich Hickey's *Simple Made Easy* gives you one question: **is this
 complected?** Are two ideas braided together in one thing, so that to
-touch one you have to touch the other? A Hickey reviewer reads code
-the way a lockpicker reads a tumbler — looking for concepts that
-shouldn't be in the same position. The output is always "split these
-apart."
+touch one you have to touch the other? A [Hickey
+reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
+reads code the way a lockpicker reads a tumbler — looking for
+concepts that shouldn't be in the same position. The output is
+always "split these apart."
 
 Juval Lowy's *Righting Software*, building on [Parnas 1972](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf),
 gives you a different question: **what changes at a different rate
-than its neighbors?** A Lowy reviewer reads code the way an actuary
-reads a portfolio — looking for things coupled to unrelated
-schedules. The output is always "draw a boundary that encapsulates
-this volatility."
+than its neighbors?** A [Lowy
+reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
+reads code the way an actuary reads a portfolio — looking for
+things coupled to unrelated schedules. The output is always "draw
+a boundary that encapsulates this volatility."
 
 These sound adjacent. They aren't. Hickey is a *timeless structural*
 question: the code, right now, has a concept-duplication problem or
@@ -213,7 +215,9 @@ simplicity and volatility," you get a blended answer. Blended
 answers bias toward whichever axis the reader already cares about.
 Separate the passes. Hickey agent reads the diff, writes findings.
 Lowy agent reads the same diff, writes findings. You read both,
-looking for overlap. The overlap is the signal.
+looking for overlap. The overlap is the signal. (Both agents ship
+in [srid/agency](https://github.com/srid/agency) as subagents your
+main Claude Code session can spawn in parallel.)
 
 Another: don't expect the reviewers to agree on *fixes*. They
 agree on *locations*. Their prescriptions diverge. Hickey wants you
@@ -248,3 +252,27 @@ it doesn't add it. If a "simplification" is making your diff
 bigger, one of your lenses is broken. Probably both.
 
 Ship it when both agents go quiet. Not before.
+
+## Further reading
+
+- [**srid/agency**](https://github.com/srid/agency) — the Claude
+  Code subagent pack that includes both reviewers. Your main
+  session spawns them in parallel and collates findings.
+- [**hickey/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
+  — the structural-simplicity reviewer. What "complected" means in
+  practice, the four axes the agent grades on, worked examples of
+  findings.
+- [**lowy/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
+  — the volatility-decomposition reviewer. The Parnas-1972 lineage,
+  the "encapsulate what changes" discipline, how to tell a real
+  volatility from a cosmetic one.
+- [**PR #623 Hickey/Lowy analysis (pre-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
+  — the first pass, against a design sketch.
+- [**PR #623 Hickey/Lowy analysis (post-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
+  — the second pass, against the finished diff. The binocular
+  findings live here.
+- **The source texts.** Rich Hickey, [*Simple Made Easy*](https://www.infoq.com/presentations/Simple-Made-Easy/)
+  (2011 talk). Juval Löwy, *Righting Software* (2019). David
+  Parnas, [*On the Criteria To Be Used in Decomposing Systems into
+  Modules*](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
+  (1972) — still the clearest 14 pages on why the Lowy lens works.
