@@ -113,10 +113,10 @@ const PillTree: Component<{
                   </div>
                   {/* max-h-7 caps the visible rows to one at rest;
                    *  hover on the pill tree (group/pill-tree) lifts the
-                   *  cap so all chunked rows reveal. overflow-hidden
-                   *  clips the rest. The leading ├─ glyph on the first
-                   *  row signals "more below" when collapsed. */}
-                  <div class="flex flex-col gap-0.5 max-h-7 overflow-hidden group-hover/pill-tree:max-h-96 transition-[max-height] duration-150">
+                   *  cap so all chunked rows reveal. gap-1 (4px) between
+                   *  rows means row 2 starts exactly at the cap edge —
+                   *  no partial pill peek bleeding through the clip. */}
+                  <div class="flex flex-col gap-1 max-h-7 overflow-hidden group-hover/pill-tree:max-h-96 transition-[max-height] duration-150">
                     <For each={rows()}>
                       {(row, rowIdx) => {
                         const isLast = () => rowIdx() === rows().length - 1;
@@ -204,6 +204,18 @@ const PillTree: Component<{
                       }}
                     </For>
                   </div>
+                  {/* "+N" hint: only when extra rows are clipped at rest.
+                   *  Hides on hover (when the cap lifts and all rows show).
+                   *  Tells the user "there's more — hover to reveal" without
+                   *  needing a separate icon or tooltip. */}
+                  <Show when={group.branches.length > BRANCHES_PER_ROW}>
+                    <span
+                      data-testid="pill-tree-more"
+                      class="ml-4 text-[0.55rem] font-mono text-fg-3 leading-none group-hover/pill-tree:hidden"
+                    >
+                      ▾ +{group.branches.length - BRANCHES_PER_ROW}
+                    </span>
+                  </Show>
                 </div>
               );
             }}
