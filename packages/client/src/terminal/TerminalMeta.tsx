@@ -36,7 +36,7 @@ const TerminalMeta: Component<{
             >
               {info().name}
             </span>
-            <Show when={info().displaySuffix}>
+            <Show when={info().meta.displaySuffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"

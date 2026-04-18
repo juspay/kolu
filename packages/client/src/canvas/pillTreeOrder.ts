@@ -18,7 +18,7 @@ export interface PillBranch {
   label: string;
   /** Short id-prefix suffix ("#a3f2") shown after the label when this
    *  terminal collides on identity with another (same repo+branch, or
-   *  same cwd for non-git). Mirrors `TerminalDisplayInfo.displaySuffix`. */
+   *  same cwd for non-git). Mirrors `meta.displaySuffix` from the server. */
   suffix?: string;
 }
 
@@ -64,7 +64,7 @@ export function groupByRepo(
     group.branches.push({
       id,
       label: meta.git?.branch ?? terminalName(meta),
-      suffix: info.displaySuffix,
+      suffix: meta.displaySuffix,
     });
     if (getLayout) {
       const layout = getLayout(id);

@@ -128,6 +128,12 @@ export const TerminalServerMetadataSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+  /** Short id-prefix suffix ("#a3f2") rendered next to the name when ≥2
+   *  terminals would otherwise collide on identity (same git repo+branch
+   *  for git-aware terminals; same cwd for the rest). Computed server-side
+   *  across the live terminal set so clients render a stable, agreed-upon
+   *  suffix without re-deriving collisions per surface. */
+  displaySuffix: z.string().optional(),
 });
 
 /**
