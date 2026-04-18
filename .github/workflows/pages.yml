@@ -6,7 +6,7 @@ name: pages
 
 on:
   push:
-    branches: [master, pure-earth]
+    branches: [master]
     paths:
       - "website/**"
       - "packages/client/favicon.svg"
