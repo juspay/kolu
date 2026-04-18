@@ -47,10 +47,14 @@ const ChromeBar: Component<{
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   return (
-    <div
+    <header
       data-testid="chrome-bar"
       data-maximized={store.canvasMaximized() ? "" : undefined}
-      class="flex items-center gap-3 px-3 py-2 select-none"
+      // pointer-events-none on the root so the transparent gaps don't
+      // eat clicks meant for the right-panel tab bar / canvas under
+      // the overlay. Interactive children (identity row, pill tree,
+      // control cluster) re-enable pointer events on themselves.
+      class="flex items-center gap-3 px-3 py-2 select-none pointer-events-none"
       classList={{
         // Canvas mode: absolute overlay, transparent — grid shows
         // through. z-50 stays above the maximized tile (z-40) should
@@ -64,7 +68,7 @@ const ChromeBar: Component<{
       }}
     >
       {/* Identity: logo + app name + connection dot */}
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
         <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
         <span class="font-semibold text-sm hidden sm:inline">
           {props.appTitle}
@@ -77,11 +81,17 @@ const ChromeBar: Component<{
         </Tip>
       </div>
 
-      {/* Pill tree — fills the middle, wraps as needed */}
-      <div class="flex-1 min-w-0 flex justify-center">{props.pillTree}</div>
+      {/* Pill tree — fills the middle, wraps as needed.
+       *  pointer-events-none here so the empty middle space (no pills,
+       *  or padding around them) lets clicks pass through to the right
+       *  panel / canvas underneath; PillTree's own outer wrapper
+       *  re-enables pointer events on the actual pill elements. */}
+      <div class="flex-1 min-w-0 flex justify-center pointer-events-none">
+        {props.pillTree}
+      </div>
 
       {/* Control cluster: inspector → settings → ⌘K */}
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="flex items-center gap-2 shrink-0 pointer-events-auto">
         <Tip
           label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
         >
@@ -127,7 +137,7 @@ const ChromeBar: Component<{
           </button>
         </Tip>
       </div>
-    </div>
+    </header>
   );
 };
 
