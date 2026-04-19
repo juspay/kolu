@@ -24,6 +24,7 @@
 
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import fixWebmDuration from "fix-webm-duration";
 
 interface SaveFilePickerOptions {
   suggestedName?: string;
@@ -80,7 +81,16 @@ let preview: Preview | null = null;
 
 interface Active {
   recorder: MediaRecorder;
-  writable: FileSystemWritableFileStream;
+  /** User-picked save destination. We hold the handle through the whole
+   *  session and only `createWritable()` on stop, after we've fixed the
+   *  WebM duration header — Chrome's MediaRecorder in streaming mode
+   *  omits the duration EBML, which leaves players showing "0:01" for
+   *  arbitrarily long files. See `stopRecording` for the fix-up. */
+  handle: FileSystemFileHandle;
+  /** All timeslice chunks emitted by the MediaRecorder. Concatenated
+   *  into a single Blob at stop time so `fix-webm-duration` can patch
+   *  the header. Memory cost ≈ 1–2 MB/min for terminal video. */
+  chunks: Blob[];
   tracks: MediaStreamTrack[];
   ticker: number;
   /** Anchor used by the ticker: `elapsed = performance.now() - anchor`.
@@ -303,7 +313,6 @@ function cancelSetup(): void {
 async function startRecording(): Promise<void> {
   if (phase() !== "setup" || !preview) return;
 
-  let sink: FileSystemWritableFileStream | null = null;
   const displayTracks: MediaStreamTrack[] = [];
   try {
     const handle = await window.showSaveFilePicker({
@@ -312,8 +321,6 @@ async function startRecording(): Promise<void> {
         { description: "WebM video", accept: { "video/webm": [".webm"] } },
       ],
     });
-    sink = await handle.createWritable();
-    const writable = sink;
 
     const display = await navigator.mediaDevices.getDisplayMedia({
       video: true,
@@ -329,8 +336,9 @@ async function startRecording(): Promise<void> {
       ...preview.stream.getAudioTracks(),
     ]);
     const recorder = new MediaRecorder(stream, { mimeType: MIME });
+    const chunks: Blob[] = [];
     recorder.ondataavailable = (ev) => {
-      if (ev.data.size > 0) void writable.write(ev.data);
+      if (ev.data.size > 0) chunks.push(ev.data);
     };
     // Browser's own "stop sharing" bar ends the video track — treat it
     // like a normal stop so the file closes cleanly.
@@ -346,7 +354,8 @@ async function startRecording(): Promise<void> {
     }, 250);
     active = {
       recorder,
-      writable,
+      handle,
+      chunks,
       tracks: [...displayTracks, ...preview.stream.getTracks()],
       ticker,
       anchor,
@@ -358,7 +367,6 @@ async function startRecording(): Promise<void> {
     toast.success("Recording started");
   } catch (err) {
     for (const t of displayTracks) t.stop();
-    if (sink) await sink.close().catch(() => {});
     if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
     // Stay in setup so the user can retry without re-granting mic/webcam.
   }
@@ -413,6 +421,8 @@ async function stopRecording(): Promise<void> {
   clearInterval(a.ticker);
   setElapsedMs(0);
 
+  const durationMs = a.pauseElapsed ?? performance.now() - a.anchor;
+
   await new Promise<void>((resolve) => {
     a.recorder.addEventListener("stop", () => resolve(), { once: true });
     try {
@@ -425,8 +435,23 @@ async function stopRecording(): Promise<void> {
   closePreview();
   closeWebcam();
   setWebcamEnabledSignal(false);
+
   try {
-    await a.writable.close();
+    // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
+    // header, so players show an arbitrary length (often 0:01). Patch the
+    // header with the real elapsed duration before writing. If the fix
+    // fails for any reason, fall back to the raw blob — a playable file
+    // with wrong duration beats no file at all.
+    const raw = new Blob(a.chunks, { type: MIME });
+    let out: Blob;
+    try {
+      out = await fixWebmDuration(raw, durationMs, { logger: false });
+    } catch {
+      out = raw;
+    }
+    const writable = await a.handle.createWritable();
+    await writable.write(out);
+    await writable.close();
     toast.success("Recording saved");
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);

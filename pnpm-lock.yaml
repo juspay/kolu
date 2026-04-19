@@ -94,6 +94,9 @@ importers:
       '@xterm/xterm':
         specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
         version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
+      fix-webm-duration:
+        specifier: ^1.0.6
+        version: 1.0.6
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -2554,6 +2557,9 @@ packages:
   find-up-simple@1.0.1:
     resolution: {integrity: sha512-afd4O7zpqHeRyg4PfDQsXmlDe2PfdHtJt6Akt8jOWaApLOZk5JXs6VMR29lz03pRe9mpykrRCYIYxaJYcfpncQ==}
     engines: {node: '>=18'}
+
+  fix-webm-duration@1.0.6:
+    resolution: {integrity: sha512-zVAqi4gE+8ywxJuAyV/rlJVX6CMtvyapEbQx6jyoeX9TMjdqAlt/FdG5d7rXSSkDVzTvS0H7CtwzHcH/vh4FPA==}
 
   for-each@0.3.5:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
@@ -6460,6 +6466,8 @@ snapshots:
       - supports-color
 
   find-up-simple@1.0.1: {}
+
+  fix-webm-duration@1.0.6: {}
 
   for-each@0.3.5:
     dependencies:
