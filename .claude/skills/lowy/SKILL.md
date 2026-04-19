@@ -122,7 +122,9 @@ If fact-check finds issues, revise before presenting to the user.
 3. **Findings** — Boundaries that track functionality rather than volatility, with blast-radius analysis. Include symmetry violations and layering inversions.
 4. **Simplifications** — Concrete restructuring to align boundaries with axes of change.
 5. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
-6. **Actions** — One entry per finding: **Fix in this PR** or **Defer `#<issue>`**. Every finding must appear here — including those labeled "pre-existing" or "orthogonal". A finding that never reaches this section has been dismissed, not deferred.
+6. **Actions** — One entry per finding, formatted so a downstream step (e.g. `/do`'s PR comment composer) can lift each entry into a table row. Each entry **starts with a short bolded finding label (≤8 words)** naming *what* is wrong, then dispositions it as **Fix in this PR** or **Defer `#<issue>`**. Every finding must appear here — including those labeled "pre-existing" or "orthogonal". A finding that never reaches this section has been dismissed, not deferred.
+
+Example: `**useViewport encapsulates ghost concern** — Fix in this PR: delete the hook, let FitAddon measure per-tile.`
 
 No findings → "No actions." Findings without actions = incomplete review.
 

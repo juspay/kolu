@@ -164,9 +164,13 @@ If fact-check finds issues with your evaluation, revise before presenting to the
 5. **Severity** — For each finding: blast radius, change friction, reasoning load.
 6. **Simplifications** — Concrete alternative for every finding.
 7. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
-8. **Actions** — One entry per finding. **Every finding from every layer must appear here** — including findings labeled "pre-existing", "orthogonal", or "not introduced by this PR". A finding that never reaches this section has been dismissed, not deferred. Each must be dispositioned as exactly one of:
+8. **Actions** — One entry per finding, formatted so a downstream step (e.g. `/do`'s PR comment composer) can lift each entry into a table row. **Every finding from every layer must appear here** — including findings labeled "pre-existing", "orthogonal", or "not introduced by this PR". A finding that never reaches this section has been dismissed, not deferred.
+
+   Each entry **starts with a short bolded finding label (≤8 words)** that names *what* is wrong, then dispositions it as exactly one of:
    - **Fix in this PR**: one-line description of what the implementation step must do. This is the default — prefer it.
    - **Defer `#<issue-number>`**: create a GitHub/forge issue for the finding first, then reference it here. "Out of scope" without an issue link is a dismissal, not a deferral. If you can't be bothered to create the issue, the finding belongs in this PR. **When running autonomously (via `/do`)**, you MUST actually create the issue (`gh issue create` or equivalent) before writing the Defer entry — do not leave it for the user. When running interactively, you may prompt the user to create the issue.
+
+   Example: `**viewportDimensions complects current+default roles** — Fix in this PR: delete the signal, replace with per-tile FitAddon measurement.`
 
    "No findings" → "No actions." But if findings exist and the actions list is empty, the evaluation is incomplete.
 

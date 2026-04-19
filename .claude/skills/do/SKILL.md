@@ -300,6 +300,25 @@ Check whether a PR already exists for this branch (`gh pr view`).
 
 2. **Post hickey/lowy results**: Post the hickey and lowy analysis as a PR comment using `gh pr comment` with a `## Hickey/Lowy Analysis` header. Always post when the steps ran, even if all findings are deferred or out of scope — reviewers should see the structural analysis.
 
+   **Format the comment with a leading findings ledger.** Compose a single table from both sub-agents' Actions sections — one row per finding — so a reviewer can see disposition at a glance without parsing paragraphs. Put each lens's prose underneath as rationale:
+
+   ```md
+   ## Hickey/Lowy Analysis
+
+   | # | Lens   | Finding                                  | Disposition       |
+   |---|--------|------------------------------------------|-------------------|
+   | 1 | Hickey | viewportDimensions complects two roles   | Fixed in this PR  |
+   | 2 | Lowy   | useViewport encapsulates ghost concern   | Deferred [#123]   |
+
+   ### Hickey rationale
+   <prose from the hickey sub-agent>
+
+   ### Lowy rationale
+   <prose from the lowy sub-agent>
+   ```
+
+   The Disposition cell mirrors the sub-agent's Actions disposition verbatim — **Fixed in this PR**, **Deferred [#N]** (linked), or **No-op** (deletion-only / subsumed by another finding). The Finding cell is the short bolded label the sub-agent emits at the start of each Actions entry. If both lenses produced zero findings, write a one-line "No findings — analysis below" instead of an empty table.
+
 **If PR already exists** (followup runs, `--from` entry points):
 
 Re-check the PR title/body against current scope. If scope changed, update via `gh pr edit` per the `forge-pr` skill.
