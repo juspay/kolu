@@ -9,9 +9,9 @@ _Complexity creeps along two axes — space and time. Hickey catches
 one; Löwy catches the other. A single-lens review only audits half
 the code._
 
-Code goes wrong along two axes, not one. The code on the page right
-now can be _spatially_ wrong — concepts braided together, names that
-mean two things, seams that aren't really seams. The same code can
+Code goes wrong along two axes, not one. The code as it stands
+right now can be _spatially_ wrong — concepts braided together,
+names that mean two things, seams that aren't really seams. The same code can
 be _temporally_ wrong — parts that will rev on different clocks,
 decisions that will be revisited, volatilities that got bound when
 they should have stayed apart. Two different defects. Two different
@@ -25,21 +25,22 @@ been perfectly satisfied with the diff.
 
 That's the practice this post is arguing for. The framing I'll use
 to justify it is that code has a _spacetime_ — two orthogonal axes
-of complexity creep, not one. Measure both, or miss half.
+of complexity creep, not one. **Measure both, or miss half.**
 
 <div class="tweet-embed">
 <blockquote class="twitter-tweet" data-dnt="true" data-theme="dark"><p lang="en" dir="ltr">I think the biggest productivity boost from AI will come when we can nearly automate the software architect out of existence.<br><br>I&#39;m refining both /hickey and /lowy toward that end — so I don&#39;t have to babysit the AI after every PR.</p>&mdash; Sridhar Ratnakumar (@sridca) <a href="https://twitter.com/sridca/status/2044792589119832082?ref_src=twsrc%5Etfw">April 16, 2026</a></blockquote>
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
 </div>
 
-I posted that two days ago. This post is the practice.
+I posted that two days ago. This post is where the refinement
+stands today — not the finish line, a snapshot mid-process.
 
 This matters more than it used to. Most of the code I ship is no
 longer typed by hand — [Claude Code](https://claude.com/claude-code)
 writes it from high-level intent, faster than line-by-line human
 review can keep up with. Diff-inspection has quietly stopped being
-the highest-leverage human activity during review; structural
-review has. And structural review is exactly what two orthogonal
+the highest-leverage human activity during review; **structural
+review** has. And structural review is exactly what two orthogonal
 agent reviewers, aimed at a finished diff and run in parallel, are
 good at. The human's remaining job is to pick the lenses, read the
 findings, and decide.
@@ -71,7 +72,7 @@ the word:
 > — Rich Hickey, [_Simple Made Easy_](https://www.infoq.com/presentations/Simple-Made-Easy/) (Strange Loop, 2011)
 
 A [Hickey reviewer](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
-reads code the way a lockpicker reads a tumbler — looking for
+reads code the way a lockpicker reads a tumbler[^2] — looking for
 concepts that shouldn't be in the same position. The output is
 always "split these apart."
 
@@ -88,13 +89,13 @@ ago:
 > Systems into Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972)
 
 A [Löwy reviewer](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
-reads code the way an actuary reads a portfolio — looking for
+reads code the way an actuary reads a portfolio[^3] — looking for
 things coupled to unrelated schedules. The output is always "draw
 a boundary that encapsulates this volatility."
 
 These sound adjacent. They aren't. Hickey is a _spatial_ question:
-the code, right now, in the snapshot on the page, has a
-concept-duplication problem or it doesn't. Löwy is a _temporal_
+the code, as a static snapshot, has a concept-duplication problem
+or it doesn't. Löwy is a _temporal_
 question: these two things will drift in the future on clocks you
 can name, and the code doesn't know that yet. Defects live on one
 axis, the other, or — rarely — both. A module can be perfectly
@@ -144,8 +145,10 @@ lens is blind to roughly half of what's actually wrong.
 
 ## A spatial defect: `borderClass`
 
-The Kolu canvas has a pill tree — one pill per terminal, grouped
-by repo. Each pill's border carries two concerns: _activity_ (is
+Kolu's UI is an infinite 2D canvas — terminals live as tiles you
+can pan and zoom around, like desktop windows in a workspace with
+no edges. Floating above it is a pill tree: one pill per
+terminal, grouped by repo. Each pill's border carries two concerns: _activity_ (is
 an agent thinking, using tools, waiting?) and _focus_ (is this the
 active terminal?). The first implementation fused them into one
 Cartesian `ts-pattern` match:
@@ -408,12 +411,12 @@ other. Splitting the difference gives you the worst of both —
 neither a clean concept nor a clean volatility boundary, just a
 compromise that fails both tests six months later.
 
-## The line
+## In a line
 
 _A single-lens review is a half-review. Code has a spacetime;
 complexity creeps along both axes._
 
-That's the whole essay. Everything else is existence proof: the
+Everything above is existence proof for that sentence: the
 `borderClass` braid that Löwy couldn't see, the `displaySuffix`
 mis-location that Hickey couldn't see, the `canvasMaximized` chain
 where both lenses happened to land on the same line. Most findings
@@ -429,35 +432,66 @@ the other thing this practice does — the fix removes code, it
 doesn't add it. If a "simplification" is making your diff bigger,
 one of your lenses is broken. Probably both.
 
-Ship when both lenses go quiet. Not before.
+**Ship when both lenses go quiet. Not before.**
 
 ## Further reading
 
+**Primary sources.**
+
+- [**Simple Made Easy**](https://www.infoq.com/presentations/Simple-Made-Easy/)
+  — Rich Hickey's 2011 Strange Loop talk. An hour of video that
+  has calcified into a programming idiom.
+- [**Volatility-Based Decomposition**](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2)
+  — Chapter 2 of Juval Löwy's _Righting Software_ (2019), free on
+  InformIT. The central concept of the book, in the author's own
+  voice.
+- [**On the Criteria To Be Used in Decomposing Systems into Modules**](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
+  — David Parnas (1972). Six pages. The paper Löwy's framework
+  builds on.
+
+**The reviewers, run as Claude Code subagents.**
+
 - [**srid/agency**](https://github.com/srid/agency) — my
   near-autonomous workflow for coding agents, packaged as an APM
-  package. Includes both reviewers; your main session spawns them
-  in parallel and collates findings.
+  package. Ships both reviewers as subagents the main session
+  spawns in parallel.
 - [**hickey/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md)
-  — the structural-simplicity reviewer. What "complected" means in
-  practice, the four axes the agent grades on, worked examples of
-  findings.
+  — the structural-simplicity reviewer's system prompt.
 - [**lowy/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
-  — the volatility-decomposition reviewer. The Parnas-1972 lineage,
-  the "encapsulate what changes" discipline, how to tell a real
-  volatility from a cosmetic one.
-- [**PR #623 Hickey/Löwy analysis (pre-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
-  — the first pass, against a design sketch.
-- [**PR #623 Hickey/Löwy analysis (post-impl)**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
-  — the second pass, against the finished diff. `borderClass`,
-  `displaySuffix`, and `canvasMaximized` are all here.
-- **The source texts.** Rich Hickey, [_Simple Made Easy_](https://www.infoq.com/presentations/Simple-Made-Easy/)
-  (2011 talk). Juval Löwy, _Righting Software_ (2019). David
-  Parnas, [_On the Criteria To Be Used in Decomposing Systems into
-  Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
-  (1972) — still the clearest six pages on why the Löwy lens works.
+  — the volatility-decomposition reviewer's system prompt.
 
-[^1]: PR #623 is an outlier in my normal workflow — a "kitchen sink"
-      PR landing a full UX redesign in one branch. I usually ship
-      smaller, single-purpose PRs. The scale is part of why the
-      third review pass caught things the earlier passes missed:
-      a big diff has room for defects that a small one doesn't.
+**The PR reviewed in this post.**
+
+- [**Pre-implementation review**](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
+  — against a design sketch.
+- [**Post-implementation review, pass 1**](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
+  — against the finished diff. `borderClass`, `displaySuffix`, and
+  `canvasMaximized` landed here.
+- [**Post-implementation review, pass 2**](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616)
+  — after revisions. `<CanvasWatermark>` and the `TerminalMeta`
+  mode-discriminator split were added here.
+
+[^1]:
+    PR #623 is an outlier in my normal workflow — a "kitchen sink"
+    PR landing a full UX redesign in one branch. I usually ship
+    smaller, single-purpose PRs. The scale is part of why the
+    third review pass caught things the earlier passes missed:
+    a big diff has room for defects that a small one doesn't.
+
+[^2]:
+    A pin tumbler lock — the kind in most doors — has a row of
+    spring-loaded pins at different heights. Picking it means
+    probing each pin one at a time with a tension wrench and a
+    pick, feeling for the one that's _binding_: caught in the
+    wrong position, blocking the cylinder from turning. The
+    whole activity is about the current state of the mechanism.
+    No past, no future. Just what's bound where, right now.
+
+[^3]:
+    An actuary evaluates a portfolio — insurance policies,
+    bonds, pensions — not by its current dollar value but by
+    the distribution of its futures: claim rates, maturity
+    schedules, how correlated each piece's movements are with
+    the others. The question isn't _what is this worth now?_
+    but _how will this distribution behave over time, and what
+    surprises are bundled together that shouldn't be?_
