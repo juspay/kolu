@@ -158,7 +158,7 @@ const RecordButton: Component = () => {
                   Paused
                 </span>
               </Show>
-              <span class="text-xs font-medium tabular-nums leading-none">
+              <span class="text-xs font-mono font-medium tabular-nums leading-none">
                 {formatElapsed(recorder.elapsedMs())}
               </span>
             </button>
