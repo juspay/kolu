@@ -493,6 +493,7 @@ async function stopRecording(): Promise<void> {
 
     toast.success(
       `Recording saved · ${formatSeconds(Math.round(durationMs / 1000))}`,
+      { description: a.handle.name },
     );
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);
