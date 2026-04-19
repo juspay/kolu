@@ -1,5 +1,5 @@
 Feature: Pill tree (terminal switcher)
-  The floating two-level pill tree replaces the focus-mode sidebar.
+  The floating two-level pill tree is the canonical terminal switcher.
   Repos are the top level, branches the second level. Sits on the canvas
   ghosted at rest; click a branch pill to pan and activate that tile.
 

@@ -107,7 +107,7 @@ When("I click the restore button", async function (this: KoluWorld) {
 });
 
 Then(
-  "there should be {int} sidebar entries",
+  "there should be {int} pill tree entries",
   async function (this: KoluWorld, expected: number) {
     const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     await this.page.waitForFunction(
@@ -120,7 +120,7 @@ Then(
     assert.strictEqual(
       actual,
       expected,
-      `Expected ${expected} sidebar entries, got ${actual}`,
+      `Expected ${expected} pill tree entries, got ${actual}`,
     );
   },
 );
@@ -129,7 +129,7 @@ Then(
 
 /** Directories used for the reversed-sort-order scenario.
  *  Array order is alphabetical; sortOrder is assigned in reverse so that
- *  a correct restore should produce sidebar order /etc, /tmp, /var
+ *  a correct restore should produce pill tree order /etc, /tmp, /var
  *  (sortOrder 1000, 2000, 3000) even though the array is /etc, /tmp, /var. */
 const ORDERED_DIRS = ["/etc", "/tmp", "/var"];
 
@@ -138,7 +138,7 @@ Given(
   async function (this: KoluWorld) {
     this.savedSessionTerminalCount = ORDERED_DIRS.length;
     // Array order: /etc(3000), /tmp(2000), /var(1000)
-    // Expected sidebar order after restore: /var, /tmp, /etc (ascending sortOrder)
+    // Expected pill tree order after restore: /var, /tmp, /etc (ascending sortOrder)
     const terminals = ORDERED_DIRS.map((cwd, i) => ({
       id: String(i),
       cwd,
@@ -150,7 +150,7 @@ Given(
 );
 
 Then(
-  "the sidebar entries should be in sort order",
+  "the pill tree entries should be in sort order",
   async function (this: KoluWorld) {
     const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     const count = await entries.count();
@@ -164,7 +164,7 @@ Then(
     assert.deepStrictEqual(
       titles,
       expected,
-      `Sidebar order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
+      `Pill tree order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
     );
   },
 );
@@ -192,7 +192,7 @@ When("I wait for the session auto-save", async function (this: KoluWorld) {
 });
 
 Then(
-  "sidebar entry {int} should be active",
+  "pill tree entry {int} should be active",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);

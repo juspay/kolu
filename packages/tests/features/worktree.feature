@@ -16,7 +16,7 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-test" in the palette
     Then the header CWD should show ".worktrees/"
-    And the sidebar should show a worktree indicator
+    And the pill tree should show a worktree indicator
     And there should be no page errors
 
   Scenario: Close terminal on worktree shows confirmation and removes worktree
@@ -27,12 +27,12 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I confirm worktree removal
-    Then the sidebar should have 1 fewer terminal entry
+    Then the pill tree should have 1 fewer terminal entry
     And there should be no page errors
 
   Scenario: Cancel worktree removal keeps the terminal
@@ -43,12 +43,12 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
     Then the header CWD should show ".worktrees/"
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I dismiss the close confirmation
-    Then the sidebar entry count should be unchanged
+    Then the pill tree entry count should be unchanged
     And there should be no page errors
 
   Scenario: Close only keeps the worktree on disk
@@ -59,12 +59,12 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
     Then the header CWD should show ".worktrees/"
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I click close only in the close confirmation
-    Then the sidebar should have 1 fewer terminal entry
+    Then the pill tree should have 1 fewer terminal entry
     And there should be no page errors
 
   # Sub-terminal create-via-palette in a worktree-spawned terminal stalls
@@ -99,10 +99,10 @@ Feature: Git worktree management
     And I select "kolu-wt-splits" in the palette
     Then the header CWD should show ".worktrees/"
     When I create a sub-terminal via command palette
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I confirm worktree removal
-    Then the sidebar should have 1 fewer terminal entry
+    Then the pill tree should have 1 fewer terminal entry
     And there should be no page errors

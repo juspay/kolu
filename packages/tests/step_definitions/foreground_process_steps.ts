@@ -1,7 +1,7 @@
 /**
  * Foreground process detection — step definitions.
  *
- * Verifies that the sidebar and header show the foreground process name,
+ * Verifies that the pill tree and header show the foreground process name,
  * driven by OSC 2 title changes from the shell preexec hook.
  */
 
@@ -9,7 +9,7 @@ import { Then, When } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 Then(
-  "the sidebar process name should contain {string}",
+  "the pill tree process name should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       (exp) => {
@@ -26,7 +26,7 @@ Then(
 );
 
 Then(
-  "the sidebar process name should be non-empty",
+  "the pill tree process name should be non-empty",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
       () => {

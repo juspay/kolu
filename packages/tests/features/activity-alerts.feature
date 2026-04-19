@@ -1,10 +1,10 @@
 Feature: Activity Alerts
-  Sidebar glow and audio when a background terminal's Claude finishes.
+  Pill tree glow and audio when a background terminal's Claude finishes.
 
   Background:
     Given the terminal is ready
 
-  Scenario: Simulated alert shows sidebar glow on background terminal
+  Scenario: Simulated alert shows pill tree glow on background terminal
     When I create a terminal
     And I simulate an activity alert
     Then a pill tree branch should be notified

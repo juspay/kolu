@@ -379,22 +379,6 @@ When(
 );
 
 Then(
-  "the sidebar should show task progress {string}",
-  async function (this: KoluWorld, expected: string) {
-    await this.page.waitForFunction(
-      (expected) => {
-        const el = document.querySelector(
-          '[data-testid="agent-task-progress"]',
-        );
-        return el?.textContent?.trim() === expected;
-      },
-      expected,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
   "the header should not show an agent indicator",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(

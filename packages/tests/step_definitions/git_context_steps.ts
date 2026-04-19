@@ -41,15 +41,18 @@ Then(
 );
 
 Then(
-  "the sidebar branch should contain {string}",
+  "the pill tree branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForTestIdText(this, "terminal-meta-branch", expected);
   },
 );
 
-Then("the sidebar should show a branch name", async function (this: KoluWorld) {
-  await waitForTestIdText(this, "terminal-meta-branch");
-});
+Then(
+  "the pill tree should show a branch name",
+  async function (this: KoluWorld) {
+    await waitForTestIdText(this, "terminal-meta-branch");
+  },
+);
 
 Then(
   "the header should not show git context",
@@ -66,14 +69,14 @@ Then(
 );
 
 Then(
-  "the sidebar label should show {string}",
+  "the pill tree label should show {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForTestIdText(this, "terminal-meta-name", expected);
   },
 );
 
 Then(
-  "the sidebar should show a worktree indicator",
+  "the pill tree should show a worktree indicator",
   async function (this: KoluWorld) {
     await this.page
       .locator('[data-testid="worktree-indicator"]')
@@ -83,7 +86,7 @@ Then(
 );
 
 Then(
-  "the sidebar should not show a worktree indicator",
+  "the pill tree should not show a worktree indicator",
   async function (this: KoluWorld) {
     const count = await this.page
       .locator('[data-testid="worktree-indicator"]')
@@ -96,19 +99,19 @@ Then(
   },
 );
 
-Then("the sidebar should not show PR info", async function (this: KoluWorld) {
+Then("the pill tree should not show PR info", async function (this: KoluWorld) {
   const count = await this.page
     .locator('[data-testid="terminal-meta-pr"]')
     .count();
   assert.strictEqual(
     count,
     0,
-    `Expected no PR info in sidebar but found ${count} PR elements`,
+    `Expected no PR info in pill tree but found ${count} PR elements`,
   );
 });
 
 Then(
-  "the sidebar should not show git context",
+  "the pill tree should not show git context",
   async function (this: KoluWorld) {
     const text = (
       await this.page
@@ -119,7 +122,7 @@ Then(
     assert.strictEqual(
       text ?? "",
       "",
-      `Expected empty branch in sidebar but found "${text}"`,
+      `Expected empty branch in pill tree but found "${text}"`,
     );
   },
 );

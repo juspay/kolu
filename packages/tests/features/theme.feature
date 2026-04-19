@@ -95,7 +95,7 @@ Feature: Theme switching
     And I create a terminal
     Then the header should show theme "Tomorrow Night"
     # Select the newly created terminal (index 1 in createdTerminalIds),
-    # then switch back to it after selecting the background terminal by sidebar position.
-    When I select sidebar entry 1
+    # then switch back to it after selecting the background terminal by pill tree position.
+    When I select pill tree entry 1
     Then the header should show theme "Dracula"
 

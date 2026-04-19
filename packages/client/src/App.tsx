@@ -610,8 +610,18 @@ const App: Component = () => {
             fallback={
               <div
                 data-testid="canvas-container"
-                class="flex-1 min-h-0 canvas-grid-bg"
+                class="relative flex-1 min-h-0 canvas-grid-bg"
               >
+                {/* Identity watermark — same as the populated canvas
+                 *  (see TerminalCanvas). Painted here so the empty
+                 *  surface still shows the workspace identity. */}
+                <div
+                  data-testid="canvas-watermark"
+                  aria-hidden="true"
+                  class="absolute top-12 left-3 z-0 font-mono text-[0.7rem] tracking-wide text-fg-3/40 pointer-events-none select-none"
+                >
+                  {appTitle()}
+                </div>
                 <EmptyState
                   savedSession={session.savedSession() ?? undefined}
                   onRestore={() => void session.handleRestoreSession()}

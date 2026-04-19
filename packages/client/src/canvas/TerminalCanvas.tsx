@@ -348,6 +348,7 @@ const TerminalCanvas: Component<{
                *  tiles the user can't see. */}
               <Show when={!store.canvasMaximized()}>
                 <div
+                  data-testid="canvas-transform"
                   style={{
                     "transform-origin": "0 0",
                     transform: viewport.canvasTransform(),

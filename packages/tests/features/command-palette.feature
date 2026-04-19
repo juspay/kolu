@@ -75,12 +75,12 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Create terminal via command palette
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "In current directory" in the palette
     Then the command palette should not be visible
-    And the sidebar should have 1 more terminal entry
+    And the pill tree should have 1 more terminal entry
     And the terminal canvas should be visible
     And there should be no page errors
 

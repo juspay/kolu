@@ -23,7 +23,7 @@ async function clickTileCloseButton(world: KoluWorld, id: string) {
 }
 
 When(
-  "I close terminal {int} via sidebar",
+  "I close terminal {int} via tile close button",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
@@ -39,7 +39,7 @@ When(
 );
 
 When(
-  "I click the sidebar close button for terminal {int}",
+  "I click the tile close button for terminal {int}",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index}`);
@@ -69,7 +69,7 @@ When(
 );
 
 Then(
-  "the sidebar should have {int} terminal entry/entries",
+  "the pill tree should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
@@ -86,7 +86,7 @@ Then("the empty state tip should be visible", async function (this: KoluWorld) {
 });
 
 Then(
-  "the sidebar should eventually have {int} terminal entry/entries",
+  "the pill tree should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     // Natural exit can take a moment — use waitForFunction for reactive check
     const sel = PILL_TREE_ENTRY_SELECTOR;

@@ -243,8 +243,8 @@ Before(async function (this: KoluWorld, scenario) {
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
-  // mounts the mobile drag handle, switches the sidebar into overlay mode).
-  // Without the tag, scenarios run in the desktop context unchanged.
+  // mounts the mobile drag handle). Without the tag, scenarios run in the
+  // desktop context unchanged.
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
   this.browser = browser;

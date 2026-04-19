@@ -97,29 +97,29 @@ When("I cancel the close confirmation", async function (this: KoluWorld) {
 });
 
 Then(
-  "the sidebar entry count should be unchanged",
+  "the pill tree entry count should be unchanged",
   async function (this: KoluWorld) {
     assert.ok(
-      this.savedSidebarCount !== undefined,
-      "Must note sidebar count first",
+      this.savedPillTreeCount !== undefined,
+      "Must note pill tree count first",
     );
     const current = await this.page.locator(PILL_TREE_ENTRY_SELECTOR).count();
     assert.strictEqual(
       current,
-      this.savedSidebarCount,
-      `Expected sidebar count unchanged at ${this.savedSidebarCount}, got ${current}`,
+      this.savedPillTreeCount,
+      `Expected pill tree count unchanged at ${this.savedPillTreeCount}, got ${current}`,
     );
   },
 );
 
 Then(
-  "the sidebar should have {int} fewer terminal entry/entries",
+  "the pill tree should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {
     assert.ok(
-      this.savedSidebarCount !== undefined,
-      "Must note sidebar count first",
+      this.savedPillTreeCount !== undefined,
+      "Must note pill tree count first",
     );
-    const expected = this.savedSidebarCount! - fewer;
+    const expected = this.savedPillTreeCount! - fewer;
     const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,

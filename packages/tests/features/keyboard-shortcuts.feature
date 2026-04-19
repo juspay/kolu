@@ -76,9 +76,9 @@ Feature: Keyboard Shortcuts
     And there should be no page errors
 
   Scenario: Create terminal with shortcut
-    Given I note the sidebar entry count
+    Given I note the pill tree entry count
     When I press the create terminal shortcut
-    Then the sidebar should have 1 more terminal entry
+    Then the pill tree should have 1 more terminal entry
     And the terminal canvas should be visible
     And there should be no page errors
 

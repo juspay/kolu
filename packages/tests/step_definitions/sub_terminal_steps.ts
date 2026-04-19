@@ -113,7 +113,7 @@ Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
     // Wait for focus to land inside a [data-sub-terminal] container directly —
-    // no indirect ID comparison with the sidebar's active entry.
+    // no indirect ID comparison with the pill tree's active entry.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: POLL_TIMEOUT },
@@ -148,13 +148,13 @@ Then(
 );
 
 Then(
-  "the sidebar entry should show sub-terminal count {int}",
+  "the active tile should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     const badge = this.page.locator(
       '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
     );
     const text = await badge.textContent({ timeout: POLL_TIMEOUT });
-    assert.strictEqual(text, `+${expected}`);
+    assert.strictEqual(text, `${expected}`);
   },
 );
 
@@ -238,7 +238,7 @@ Then(
 );
 
 Then(
-  "the sidebar entry should not show a sub-terminal count",
+  "the active tile should not show a sub-terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
       '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',

@@ -20,8 +20,8 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
-/** Pill-tree branch entries (one per terminal) — replaces the old sidebar
- *  card list as the canonical "list of terminals" affordance. */
+/** Pill-tree branch entries (one per terminal) — the canonical "list of
+ *  terminals" affordance. */
 export const PILL_TREE_ENTRY_SELECTOR = '[data-testid="pill-tree-branch"]';
 /** Per-tile elements on the canvas — one per top-level terminal. Mobile
  *  uses the mobile-tile-view body to enumerate terminals instead. */
@@ -42,7 +42,7 @@ export class KoluWorld extends World {
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
-  savedSidebarCount?: number;
+  savedPillTreeCount?: number;
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;

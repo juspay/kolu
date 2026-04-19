@@ -13,14 +13,14 @@ function hexToRgb(hex: string): string {
   return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
 }
 
-/** Select a terminal by its position in the sidebar (1-based), regardless of createdTerminalIds. */
+/** Select a terminal by its position in the pill tree (1-based), regardless of createdTerminalIds. */
 When(
-  "I select sidebar entry {int}",
+  "I select pill tree entry {int}",
   async function (this: KoluWorld, position: number) {
     const entry = this.page.locator(PILL_TREE_ENTRY_SELECTOR).nth(position - 1);
     await entry.click();
     const id = await entry.getAttribute("data-terminal-id");
-    assert.ok(id, `Sidebar entry ${position} has no terminal ID`);
+    assert.ok(id, `Pill tree entry ${position} has no terminal ID`);
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });

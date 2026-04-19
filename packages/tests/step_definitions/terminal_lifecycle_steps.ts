@@ -1,9 +1,5 @@
-/** Shared terminal lifecycle + buffer assertion steps. Lifted out of the
- *  old sidebar_steps.ts when #622 deleted the sidebar — these steps are
- *  surface-agnostic (work for canvas tiles, mobile pager, pill tree). The
- *  legacy "sidebar" wording is preserved on the count assertions because
- *  the pill tree is the user-facing terminal list now; the old phrasing
- *  still parses cleanly even though the surface name has changed. */
+/** Shared terminal lifecycle + buffer assertion steps. Surface-agnostic —
+ *  work for canvas tiles, mobile pager, and the pill tree. */
 
 import { Given, When, Then } from "@cucumber/cucumber";
 import {
@@ -40,12 +36,11 @@ Then(
 );
 
 When(
-  "I select terminal {int} in the sidebar",
+  "I select terminal {int} in the pill tree",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
-    // Click the pill-tree branch for this terminal — replaces the old
-    // sidebar card click target after #622.
+    // Click the pill-tree branch for this terminal.
     await this.page
       .locator(`${PILL_TREE_ENTRY_SELECTOR}[data-terminal-id="${id}"]`)
       .click();
@@ -57,22 +52,22 @@ When(
   },
 );
 
-Given("I note the sidebar entry count", async function (this: KoluWorld) {
-  this.savedSidebarCount = await this.page
+Given("I note the pill tree entry count", async function (this: KoluWorld) {
+  this.savedPillTreeCount = await this.page
     .locator(PILL_TREE_ENTRY_SELECTOR)
     .count();
 });
 
 Then(
-  "the sidebar should have {int} more terminal entry/entries",
+  "the pill tree should have {int} more terminal entry/entries",
   async function (this: KoluWorld, delta: number) {
-    const expected = (this.savedSidebarCount ?? 0) + delta;
+    const expected = (this.savedPillTreeCount ?? 0) + delta;
     const buttons = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     await buttons
       .nth(expected - 1)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const current = await buttons.count();
-    const baseline = this.savedSidebarCount ?? 0;
+    const baseline = this.savedPillTreeCount ?? 0;
     assert.strictEqual(
       current - baseline,
       delta,
@@ -81,5 +76,5 @@ Then(
   },
 );
 
-// "the sidebar should have N fewer terminal entries" already lives in
+// "the pill tree should have N fewer terminal entries" already lives in
 // worktree_steps.ts — don't redeclare it here.
