@@ -17,18 +17,15 @@
  *  Hidden when the File System Access API isn't available. */
 
 import { type Component, Match, Switch, Show, createSignal } from "solid-js";
-import { isRecordingSupported, useRecorder } from "./useRecorder";
+import {
+  formatElapsed,
+  isRecordingSupported,
+  useRecorder,
+} from "./useRecorder";
 import RecordPopover from "./RecordPopover";
 import { RecordIcon, PauseIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import { formatKeybind, SHORTCUTS } from "../input/keyboard";
-
-function formatElapsed(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
 
 const RecordButton: Component = () => {
   if (!isRecordingSupported()) return null;
@@ -48,9 +45,6 @@ const RecordButton: Component = () => {
     recorder.phase() === "setup" ? "Recording setup" : "Record workspace";
 
   const onIdleClick = () => {
-    console.log("[recorder] RecordButton.onIdleClick", {
-      phase: recorder.phase(),
-    });
     if (recorder.phase() === "setup") recorder.cancelSetup();
     else void recorder.openSetup();
   };
@@ -88,10 +82,6 @@ const RecordButton: Component = () => {
           </div>
         }
       >
-        {/* Segmented capsule. Internal dividers come from `divide-x`
-         *  tinted to match the current (live/paused) accent. The
-         *  capsule itself owns the halo animation — children handle
-         *  only their hover states. */}
         <div
           data-testid="record-active"
           data-phase={recorder.phase()}
@@ -125,9 +115,6 @@ const RecordButton: Component = () => {
             </button>
           </Tip>
 
-          {/* Status section — the whole segment is the stop button.
-           *  Live: static dot + elapsed mm:ss.
-           *  Paused: tiny "PAUSED" caps chip + frozen elapsed. */}
           <Tip label="Stop recording" class="flex">
             <button
               data-testid="record-stop"

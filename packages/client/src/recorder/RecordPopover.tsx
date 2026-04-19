@@ -15,6 +15,32 @@ import { useRecorder } from "./useRecorder";
 import LevelMeter from "./LevelMeter";
 import Toggle from "../ui/Toggle";
 
+const DeviceSelect: Component<{
+  testId: string;
+  devices: MediaDeviceInfo[];
+  selectedId: string;
+  fallbackLabel: (shortId: string) => string;
+  onChange: (id: string) => void;
+}> = (props) => (
+  <select
+    data-testid={props.testId}
+    class="w-full h-7 px-2 text-sm bg-surface-2 border border-edge rounded-lg text-fg cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+    value={props.selectedId}
+    onChange={(e) => props.onChange(e.currentTarget.value)}
+  >
+    <option value="default">System default</option>
+    <For each={props.devices}>
+      {(d) => (
+        <Show when={d.deviceId && d.deviceId !== "default"}>
+          <option value={d.deviceId}>
+            {d.label || props.fallbackLabel(d.deviceId.slice(0, 6))}
+          </option>
+        </Show>
+      )}
+    </For>
+  </select>
+);
+
 const RecordPopover: Component<{
   triggerRef?: HTMLElement;
 }> = (props) => {
@@ -110,25 +136,13 @@ const RecordPopover: Component<{
                 </div>
               }
             >
-              <select
-                data-testid="record-mic-select"
-                class="w-full h-7 px-2 text-sm bg-surface-2 border border-edge rounded-lg text-fg cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                value={recorder.micDeviceId()}
-                onChange={(e) => {
-                  void recorder.changeMic(e.currentTarget.value);
-                }}
-              >
-                <option value="default">System default</option>
-                <For each={recorder.micDevices()}>
-                  {(d) => (
-                    <Show when={d.deviceId && d.deviceId !== "default"}>
-                      <option value={d.deviceId}>
-                        {d.label || `Microphone ${d.deviceId.slice(0, 6)}`}
-                      </option>
-                    </Show>
-                  )}
-                </For>
-              </select>
+              <DeviceSelect
+                testId="record-mic-select"
+                devices={recorder.micDevices()}
+                selectedId={recorder.micDeviceId()}
+                fallbackLabel={(s) => `Microphone ${s}`}
+                onChange={(id) => void recorder.changeMic(id)}
+              />
             </Show>
             <LevelMeter level={recorder.micLevel()} class="h-2" />
           </div>
@@ -154,30 +168,15 @@ const RecordPopover: Component<{
               </div>
             </Show>
             <Show when={recorder.webcamEnabled() && showWebcamSelector()}>
-              <select
-                data-testid="record-webcam-select"
-                class="w-full h-7 px-2 text-sm bg-surface-2 border border-edge rounded-lg text-fg cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-                value={recorder.webcamDeviceId()}
-                onChange={(e) => {
-                  void recorder.changeWebcam(e.currentTarget.value);
-                }}
-              >
-                <option value="default">System default</option>
-                <For each={recorder.webcamDevices()}>
-                  {(d) => (
-                    <Show when={d.deviceId && d.deviceId !== "default"}>
-                      <option value={d.deviceId}>
-                        {d.label || `Camera ${d.deviceId.slice(0, 6)}`}
-                      </option>
-                    </Show>
-                  )}
-                </For>
-              </select>
+              <DeviceSelect
+                testId="record-webcam-select"
+                devices={recorder.webcamDevices()}
+                selectedId={recorder.webcamDeviceId()}
+                fallbackLabel={(s) => `Camera ${s}`}
+                onChange={(id) => void recorder.changeWebcam(id)}
+              />
             </Show>
             <Show when={recorder.webcamStream()}>
-              {/* Preview mirrors the overlay shape (circle) so the user
-               *  sees what will appear in the recording, not a different
-               *  framing. Centered in a neutral strip for breathing room. */}
               <div class="flex justify-center py-1">
                 <div class="w-32 h-32 rounded-full overflow-hidden ring-1 ring-edge bg-surface-2">
                   <video

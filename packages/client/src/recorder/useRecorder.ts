@@ -178,7 +178,8 @@ async function openPreview(deviceId: string): Promise<void> {
       // Light nonlinear shaping so talking registers visibly without
       // clipping on louder syllables.
       const rms = Math.sqrt(sum / preview.buf.length);
-      setMicLevel(Math.min(1, Math.pow(rms, 0.5) * 2));
+      const next = Math.min(1, Math.pow(rms, 0.5) * 2);
+      if (Math.abs(next - micLevel()) > 0.01) setMicLevel(next);
       preview.raf = requestAnimationFrame(tick);
     };
     preview = {
@@ -275,26 +276,12 @@ async function refreshDevices(): Promise<void> {
 // ── Setup phase ─────────────────────────────────────────────────────────
 
 async function openSetup(): Promise<void> {
-  console.log("[recorder] openSetup.enter", {
-    phase: phase(),
-    hasPreview: !!preview,
-    hasActive: !!active,
-  });
-  if (phase() !== "idle") {
-    console.log("[recorder] openSetup.skip phase not idle");
-    return;
-  }
+  if (phase() !== "idle") return;
   setPhase("setup");
   try {
     await openPreview(micDeviceId());
     await refreshDevices();
-    console.log("[recorder] openSetup.ok");
   } catch (err) {
-    console.log("[recorder] openSetup.error", {
-      isAbort: isAbort(err),
-      msg: errMsg(err),
-      err,
-    });
     if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
     setPhase("idle");
   }
@@ -357,16 +344,12 @@ async function startRecording(): Promise<void> {
     };
     // Browser's own "stop sharing" bar ends the video track — treat it
     // like a normal stop so the file closes cleanly.
-    display.getVideoTracks()[0]?.addEventListener("ended", () => {
-      void stopRecording();
-    });
+    display
+      .getVideoTracks()[0]
+      ?.addEventListener("ended", () => void stopRecording(), { once: true });
 
     const anchor = performance.now();
-    const ticker = window.setInterval(() => {
-      // When paused, the ticker is cancelled — so a live tick implies
-      // `active.pauseElapsed === null`. Safe to compute from the anchor.
-      if (active) setElapsedMs(performance.now() - active.anchor);
-    }, 250);
+    const ticker = window.setInterval(tickElapsed, 250);
     active = {
       recorder,
       handle,
@@ -423,10 +406,18 @@ function togglePause(): void {
       a.anchor = performance.now() - a.pauseElapsed;
       a.pauseElapsed = null;
     }
-    a.ticker = window.setInterval(() => {
-      if (active) setElapsedMs(performance.now() - active.anchor);
-    }, 250);
+    a.ticker = window.setInterval(tickElapsed, 250);
     setPhase("recording");
+  }
+}
+
+/** Ticker body — guarded against same-second no-ops so downstream
+ *  memos don't re-flush 4× per displayed tick. */
+function tickElapsed(): void {
+  if (!active) return;
+  const next = performance.now() - active.anchor;
+  if (Math.floor(next / 1000) !== Math.floor(elapsedMs() / 1000)) {
+    setElapsedMs(next);
   }
 }
 
@@ -475,33 +466,29 @@ async function stopRecording(): Promise<void> {
     // `fix-webm-duration` is not a streaming patcher); during recording,
     // memory stayed flat.
     const raw = await a.handle.getFile();
-    const fixLog: string[] = [];
     let out: Blob = raw;
     try {
-      out = await fixWebmDuration(raw, durationMs, {
-        logger: (msg: string) => fixLog.push(msg),
-      });
+      out = await fixWebmDuration(raw, durationMs);
     } catch (err) {
-      fixLog.push(`error: ${errMsg(err)}`);
+      toast.warning(`Duration patch failed: ${errMsg(err)}`);
     }
-    console.log("[recorder] webm-duration-fix", { durationMs, fixLog });
     // Fresh `createWritable()` defaults to truncating the file, so the
     // patched blob replaces the streamed bytes wholesale.
     const patched = await a.handle.createWritable();
     await patched.write(out);
     await patched.close();
 
-    toast.success(
-      `Recording saved · ${formatSeconds(Math.round(durationMs / 1000))}`,
-      { description: a.handle.name },
-    );
+    toast.success(`Recording saved · ${formatElapsed(durationMs)}`, {
+      description: a.handle.name,
+    });
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);
   }
 }
 
-function formatSeconds(total: number): string {
+export function formatElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000);
   const m = Math.floor(total / 60);
   const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
