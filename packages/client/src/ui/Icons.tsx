@@ -180,15 +180,21 @@ export const MenuIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Record dot — filled circle, used for the workspace record button. */
+/** Video camera — workspace record button. Paired with `ScreenshotIcon`
+ *  (still camera = snapshot, camcorder = recording). */
 export const RecordIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
-    viewBox="0 0 16 16"
-    fill="currentColor"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
     aria-hidden="true"
   >
-    <circle cx="8" cy="8" r="5" />
+    <rect x="2.5" y="7" width="13" height="10" rx="2" />
+    <path d="M15.5 11l5-3v8l-5-3z" />
   </svg>
 );
 
