@@ -27,7 +27,7 @@ const WebcamOverlay: Component = () => {
     <Show when={recorder.webcamStream()}>
       <div
         data-testid="webcam-overlay"
-        class="fixed bottom-5 right-5 z-40 w-44 h-44 rounded-full overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/10 pointer-events-none"
+        class="fixed bottom-5 right-5 z-[45] w-44 h-44 rounded-full overflow-hidden shadow-2xl shadow-black/60 ring-1 ring-white/10 pointer-events-none"
       >
         <video
           ref={videoRef}
