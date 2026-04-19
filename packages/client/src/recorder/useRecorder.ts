@@ -81,16 +81,15 @@ let preview: Preview | null = null;
 
 interface Active {
   recorder: MediaRecorder;
-  /** User-picked save destination. We hold the handle through the whole
-   *  session and only `createWritable()` on stop, after we've fixed the
-   *  WebM duration header — Chrome's MediaRecorder in streaming mode
-   *  omits the duration EBML, which leaves players showing "0:01" for
-   *  arbitrarily long files. See `stopRecording` for the fix-up. */
+  /** User-picked save destination. Kept for the post-stop read-back +
+   *  duration patch cycle. */
   handle: FileSystemFileHandle;
-  /** All timeslice chunks emitted by the MediaRecorder. Concatenated
-   *  into a single Blob at stop time so `fix-webm-duration` can patch
-   *  the header. Memory cost ≈ 1–2 MB/min for terminal video. */
-  chunks: Blob[];
+  /** Streaming sink for WebM chunks during recording — keeps memory
+   *  flat regardless of duration. At stop, we close this, read the
+   *  completed file back via `handle.getFile()`, patch the WebM
+   *  SegmentInfo.Duration header that Chrome's MediaRecorder omits
+   *  in streaming mode, and overwrite with a fresh writable. */
+  writable: FileSystemWritableFileStream;
   tracks: MediaStreamTrack[];
   ticker: number;
   /** Anchor used by the ticker: `elapsed = performance.now() - anchor`.
@@ -328,6 +327,7 @@ async function startRecording(): Promise<void> {
   if (phase() !== "setup" || !preview) return;
 
   const displayTracks: MediaStreamTrack[] = [];
+  let openedWritable: FileSystemWritableFileStream | null = null;
   try {
     const handle = await window.showSaveFilePicker({
       suggestedName: `kolu-${timestamp()}.webm`,
@@ -335,6 +335,8 @@ async function startRecording(): Promise<void> {
         { description: "WebM video", accept: { "video/webm": [".webm"] } },
       ],
     });
+    const writable = await handle.createWritable();
+    openedWritable = writable;
 
     const display = await navigator.mediaDevices.getDisplayMedia({
       video: true,
@@ -350,9 +352,8 @@ async function startRecording(): Promise<void> {
       ...preview.stream.getAudioTracks(),
     ]);
     const recorder = new MediaRecorder(stream, { mimeType: MIME });
-    const chunks: Blob[] = [];
     recorder.ondataavailable = (ev) => {
-      if (ev.data.size > 0) chunks.push(ev.data);
+      if (ev.data.size > 0) void writable.write(ev.data);
     };
     // Browser's own "stop sharing" bar ends the video track — treat it
     // like a normal stop so the file closes cleanly.
@@ -369,18 +370,20 @@ async function startRecording(): Promise<void> {
     active = {
       recorder,
       handle,
-      chunks,
+      writable,
       tracks: [...displayTracks, ...preview.stream.getTracks()],
       ticker,
       anchor,
       pauseElapsed: null,
     };
+    openedWritable = null; // ownership transferred to `active`
     setElapsedMs(0);
     setPhase("recording");
     recorder.start(TIMESLICE_MS);
     toast.success("Recording started");
   } catch (err) {
     for (const t of displayTracks) t.stop();
+    if (openedWritable) await openedWritable.close().catch(() => {});
     if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
     // Stay in setup so the user can retry without re-granting mic/webcam.
   }
@@ -460,11 +463,18 @@ async function stopRecording(): Promise<void> {
   setWebcamEnabledSignal(false);
 
   try {
+    // Close the streaming writable so every pending `write()` queued
+    // from `ondataavailable` is flushed to disk before we read the
+    // file back for the duration-fix pass.
+    await a.writable.close();
+
     // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
-    // header, so players show an arbitrary length (often 0:01). Patch the
-    // header before writing. Logger messages go to console for diagnosis;
-    // the toast surfaces filename + an Open action via blob URL.
-    const raw = new Blob(a.chunks, { type: MIME });
+    // header, so players show an arbitrary length (often 0:01). Read
+    // the just-flushed file back into memory, patch the header, and
+    // overwrite. Peak memory is the full file briefly (unavoidable —
+    // `fix-webm-duration` is not a streaming patcher); during recording,
+    // memory stayed flat.
+    const raw = await a.handle.getFile();
     const fixLog: string[] = [];
     let out: Blob = raw;
     try {
@@ -475,9 +485,11 @@ async function stopRecording(): Promise<void> {
       fixLog.push(`error: ${errMsg(err)}`);
     }
     console.log("[recorder] webm-duration-fix", { durationMs, fixLog });
-    const writable = await a.handle.createWritable();
-    await writable.write(out);
-    await writable.close();
+    // Fresh `createWritable()` defaults to truncating the file, so the
+    // patched blob replaces the streamed bytes wholesale.
+    const patched = await a.handle.createWritable();
+    await patched.write(out);
+    await patched.close();
 
     // Blob URL = one-click preview. Browsers hide the full filesystem
     // path (FSA security), so the filename is the best locator we can
