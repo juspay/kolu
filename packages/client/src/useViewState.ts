@@ -39,6 +39,12 @@ export function useViewState() {
     }),
   );
 
+  /** The single writer for `canvasMaximized`. Two call sites invoke it
+   *  (CanvasTile maximize button, PillTree minimap-icon-as-restore);
+   *  every other consumer (ChromeBar dock decision, TerminalCanvas
+   *  branch gate, PillTree opacity) is a passive reader. If a third
+   *  writer ever appears, route it through here so the source-of-truth
+   *  stays singular. Tracked: kolu#628. */
   function toggleCanvasMaximized() {
     setCanvasMaximizedSignal((prev) => !prev);
   }
