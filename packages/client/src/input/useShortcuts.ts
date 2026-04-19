@@ -26,6 +26,7 @@ interface ShortcutDeps {
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   canvasCenterActive: () => void;
+  toggleRecordingPause: () => void;
 }
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -186,6 +187,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
     deps.canvasCenterActive();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.toggleRecordingPause.keybind)) {
+    deps.toggleRecordingPause();
     return true;
   }
 

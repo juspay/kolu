@@ -1,21 +1,26 @@
-/** Workspace screen + mic recording with pre-record mic setup.
+/** Workspace screen + mic (+ optional webcam) recording with pre-record
+ *  setup and pause/resume.
  *
  *  Capture target: the current browser tab via
  *  `getDisplayMedia({ preferCurrentTab: true, selfBrowserSurface: "include" })`.
- *  That collapses the browser's multi-surface picker into a single
- *  "Share this tab" confirmation. The recording then contains the whole
- *  Kolu UI — chrome bar, pill tree, canvas, everything — so if the user
- *  wants to record a single terminal they just maximize it first.
+ *  The browser's multi-surface picker collapses to a single "Share this
+ *  tab" confirmation. The recording contains the whole Kolu UI — chrome
+ *  bar, pill tree, canvas, and (if enabled) a fixed-corner webcam overlay
+ *  baked into the DOM. If the user wants to record one terminal they
+ *  just maximize it first.
  *
  *  Phases:
  *    idle     → nothing going on.
- *    setup    → mic stream is open for device preview + level meter.
- *               The user can pick a different mic before committing.
- *    recording → MediaRecorder is streaming 2s WebM (VP9/Opus) chunks
- *               directly into an FSA-picked file handle.
+ *    setup    → mic stream open for device preview + level meter.
+ *               Optional webcam stream open if the user toggled it on.
+ *    recording → MediaRecorder streams 2s WebM (VP9/Opus) chunks into
+ *               the FSA-picked file handle.
+ *    paused   → MediaRecorder.pause() — no chunks emitted; elapsed timer
+ *               freezes. Webcam + mic streams stay open for preview
+ *               continuity.
  *
  *  Chromium-only by design (`showSaveFilePicker`, `preferCurrentTab`,
- *  FSA). `isRecordingSupported()` hides the entry points elsewhere. */
+ *  FSA). `isRecordingSupported()` hides entry points elsewhere. */
 
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -47,7 +52,7 @@ declare global {
 const MIME = "video/webm;codecs=vp9,opus";
 const TIMESLICE_MS = 2000;
 
-type Phase = "idle" | "setup" | "recording";
+type Phase = "idle" | "setup" | "recording" | "paused";
 
 const [phase, setPhase] = createSignal<Phase>("idle");
 const [elapsedMs, setElapsedMs] = createSignal(0);
@@ -55,6 +60,13 @@ const [micDevices, setMicDevices] = createSignal<MediaDeviceInfo[]>([]);
 const [micDeviceId, setMicDeviceIdSignal] = createSignal<string>("default");
 const [micLevel, setMicLevel] = createSignal(0);
 const [micError, setMicError] = createSignal<string | null>(null);
+
+const [webcamEnabled, setWebcamEnabledSignal] = createSignal(false);
+const [webcamStream, setWebcamStream] = createSignal<MediaStream | null>(null);
+const [webcamDevices, setWebcamDevices] = createSignal<MediaDeviceInfo[]>([]);
+const [webcamDeviceId, setWebcamDeviceIdSignal] =
+  createSignal<string>("default");
+const [webcamError, setWebcamError] = createSignal<string | null>(null);
 
 interface Preview {
   stream: MediaStream;
@@ -71,6 +83,11 @@ interface Active {
   writable: FileSystemWritableFileStream;
   tracks: MediaStreamTrack[];
   ticker: number;
+  /** Anchor used by the ticker: `elapsed = performance.now() - anchor`.
+   *  Mutated on resume to subtract paused duration. */
+  anchor: number;
+  /** Snapshot taken at pause; restored on resume by rewinding `anchor`. */
+  pauseElapsed: number | null;
 }
 let active: Active | null = null;
 
@@ -93,10 +110,18 @@ export function useRecorder() {
     micDeviceId,
     micLevel,
     micError,
+    webcamEnabled,
+    webcamStream,
+    webcamDevices,
+    webcamDeviceId,
+    webcamError,
     openSetup,
     changeMic,
+    toggleWebcam,
+    changeWebcam,
     cancelSetup,
     startRecording,
+    togglePause,
     stop: stopRecording,
   };
 }
@@ -113,9 +138,11 @@ function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// ── Mic preview ─────────────────────────────────────────────────────────
+
 /** Open a mic stream for the given deviceId and attach an AnalyserNode.
- *  Runs an rAF loop that publishes the current RMS level to `micLevel`
- *  (0..1, roughly). Re-entrant: closes any existing preview first. */
+ *  Runs an rAF loop that publishes the current RMS level to `micLevel`.
+ *  Re-entrant: closes any existing preview first. */
 async function openPreview(deviceId: string): Promise<void> {
   closePreview();
   try {
@@ -170,19 +197,74 @@ function closePreview(): void {
   setMicLevel(0);
 }
 
-/** Populate the device list once permission is granted. Before the first
- *  successful getUserMedia, device labels are empty strings. */
+// ── Webcam ──────────────────────────────────────────────────────────────
+
+/** Open a webcam stream on the given deviceId. Re-entrant. */
+async function openWebcam(deviceId: string): Promise<void> {
+  closeWebcam();
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId === "default" ? true : { deviceId: { exact: deviceId } },
+      audio: false,
+    });
+    setWebcamStream(stream);
+    setWebcamError(null);
+  } catch (err) {
+    setWebcamError(errMsg(err));
+    throw err;
+  }
+}
+
+function closeWebcam(): void {
+  const s = webcamStream();
+  if (!s) return;
+  for (const t of s.getTracks()) t.stop();
+  setWebcamStream(null);
+}
+
+async function toggleWebcam(): Promise<void> {
+  if (webcamEnabled()) {
+    setWebcamEnabledSignal(false);
+    closeWebcam();
+    return;
+  }
+  try {
+    await openWebcam(webcamDeviceId());
+    await refreshDevices();
+    setWebcamEnabledSignal(true);
+  } catch (err) {
+    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+    setWebcamEnabledSignal(false);
+  }
+}
+
+async function changeWebcam(deviceId: string): Promise<void> {
+  setWebcamDeviceIdSignal(deviceId);
+  if (!webcamEnabled()) return;
+  try {
+    await openWebcam(deviceId);
+  } catch (err) {
+    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+  }
+}
+
+// ── Device enumeration ──────────────────────────────────────────────────
+
+/** Populate both device lists. Labels are only populated after the
+ *  relevant getUserMedia permission has been granted. */
 async function refreshDevices(): Promise<void> {
   try {
     const all = await navigator.mediaDevices.enumerateDevices();
     setMicDevices(all.filter((d) => d.kind === "audioinput"));
+    setWebcamDevices(all.filter((d) => d.kind === "videoinput"));
   } catch {
-    setMicDevices([]);
+    // Leave current lists as-is — an enumeration failure shouldn't wipe
+    // a previously-populated list.
   }
 }
 
-/** Enter setup phase: open preview on the default mic, enumerate devices.
- *  Called when the chrome-bar record button is clicked from idle. */
+// ── Setup phase ─────────────────────────────────────────────────────────
+
 async function openSetup(): Promise<void> {
   if (phase() !== "idle") return;
   setPhase("setup");
@@ -208,12 +290,16 @@ async function changeMic(deviceId: string): Promise<void> {
 function cancelSetup(): void {
   if (phase() !== "setup") return;
   closePreview();
+  closeWebcam();
+  setWebcamEnabledSignal(false);
   setPhase("idle");
 }
 
+// ── Recording phase ─────────────────────────────────────────────────────
+
 /** Commit: save-picker → screen-picker → MediaRecorder over the existing
  *  preview audio stream. If anything goes wrong mid-flight, return to
- *  setup phase with the preview still live so the user can retry. */
+ *  setup phase with preview + webcam still live so the user can retry. */
 async function startRecording(): Promise<void> {
   if (phase() !== "setup" || !preview) return;
 
@@ -252,19 +338,19 @@ async function startRecording(): Promise<void> {
       void stopRecording();
     });
 
-    const startedAt = performance.now();
-    const ticker = window.setInterval(
-      () => setElapsedMs(performance.now() - startedAt),
-      250,
-    );
-    // Keep `preview` alive — its analyser keeps feeding the level meter,
-    // and we deliberately don't re-open a second mic stream (one device
-    // handle for preview + record).
+    const anchor = performance.now();
+    const ticker = window.setInterval(() => {
+      // When paused, the ticker is cancelled — so a live tick implies
+      // `active.pauseElapsed === null`. Safe to compute from the anchor.
+      if (active) setElapsedMs(performance.now() - active.anchor);
+    }, 250);
     active = {
       recorder,
       writable,
       tracks: [...displayTracks, ...preview.stream.getTracks()],
       ticker,
+      anchor,
+      pauseElapsed: null,
     };
     setElapsedMs(0);
     setPhase("recording");
@@ -274,7 +360,38 @@ async function startRecording(): Promise<void> {
     for (const t of displayTracks) t.stop();
     if (sink) await sink.close().catch(() => {});
     if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
-    // Stay in setup so the user can retry without re-granting mic.
+    // Stay in setup so the user can retry without re-granting mic/webcam.
+  }
+}
+
+function togglePause(): void {
+  const a = active;
+  if (!a) return;
+  if (phase() === "recording") {
+    try {
+      a.recorder.pause();
+    } catch {
+      return;
+    }
+    clearInterval(a.ticker);
+    a.pauseElapsed = performance.now() - a.anchor;
+    setElapsedMs(a.pauseElapsed);
+    setPhase("paused");
+  } else if (phase() === "paused") {
+    try {
+      a.recorder.resume();
+    } catch {
+      return;
+    }
+    // Rewind the anchor so `now - anchor` resumes from the paused snapshot.
+    if (a.pauseElapsed !== null) {
+      a.anchor = performance.now() - a.pauseElapsed;
+      a.pauseElapsed = null;
+    }
+    a.ticker = window.setInterval(() => {
+      if (active) setElapsedMs(performance.now() - active.anchor);
+    }, 250);
+    setPhase("recording");
   }
 }
 
@@ -296,6 +413,8 @@ async function stopRecording(): Promise<void> {
   });
   for (const t of a.tracks) t.stop();
   closePreview();
+  closeWebcam();
+  setWebcamEnabledSignal(false);
   try {
     await a.writable.close();
     toast.success("Recording saved");

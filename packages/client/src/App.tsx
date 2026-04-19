@@ -38,6 +38,8 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
 import { screenshotTerminal } from "./screenshotTerminal";
+import WebcamOverlay from "./recorder/WebcamOverlay";
+import { useRecorder } from "./recorder/useRecorder";
 import { ScreenshotIcon, SearchIcon } from "./ui/Icons";
 import Tip from "./ui/Tip";
 
@@ -202,6 +204,7 @@ const App: Component = () => {
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
+    toggleRecordingPause: () => useRecorder().togglePause(),
   });
 
   function openPalette() {
@@ -466,6 +469,7 @@ const App: Component = () => {
     >
       <Title>{appTitle()}</Title>
       <TransportOverlay />
+      <WebcamOverlay />
       <Toaster
         position="bottom-right"
         theme={colorScheme()}
