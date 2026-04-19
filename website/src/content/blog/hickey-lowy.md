@@ -27,11 +27,21 @@ That's the practice this post is arguing for. The framing I'll use
 to justify it is that code has a _spacetime_ — two orthogonal axes
 of complexity creep, not one. Measure both, or miss half.
 
+This matters more than it used to. Most of the code I ship is no
+longer typed by hand — [Claude Code](https://claude.com/claude-code)
+writes it from high-level intent, faster than line-by-line human
+review can keep up with. Diff-inspection has quietly stopped being
+the highest-leverage human activity during review; structural
+review has. And structural review is exactly what two orthogonal
+agent reviewers, aimed at a finished diff and run in parallel, are
+good at. The human's remaining job is to pick the lenses, read the
+findings, and decide.
+
 I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)
 of [Kolu](https://github.com/juspay/kolu), a canvas-only UX redesign.
-I drove the iterations; [Claude Code](https://claude.com/claude-code)
-wrote every line piecemeal, and the two reviewers are themselves
-Claude Code subagents spawned from the same session. The reviewers
+I drove the iterations; Claude Code wrote every line piecemeal,
+and the two reviewers are themselves Claude Code subagents spawned
+from the same session. The reviewers
 ran twice: [once before any code was written](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685),
 and [once after a day of design iteration](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
 had settled into a committed diff. The second pass turned up five
