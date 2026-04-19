@@ -38,3 +38,22 @@ Feature: Mobile chrome drawer
     Then the command palette should be visible
     And the mobile chrome sheet should not be visible
     And there should be no page errors
+
+  @mobile
+  Scenario: Dragging down on the pull handle opens the drawer
+    # The grip visually invites a drag; this proves the drag gesture on the
+    # handle opens the sheet even when the touch never resolves to a click.
+    When I drag down on the mobile pull handle
+    Then the mobile chrome sheet should be visible
+    And there should be no page errors
+
+  @mobile
+  Scenario: Dragging the sheet up past the dismiss threshold closes it
+    # Corvu attaches the drag-to-dismiss handlers to Drawer.Content; for a
+    # `side="top"` drawer the dismiss direction is upward. Open, drag the
+    # sheet up most of its height, release — the sheet should snap closed.
+    When I tap the mobile pull handle
+    Then the mobile chrome sheet should be visible
+    When I drag the mobile chrome sheet up to dismiss
+    Then the mobile chrome sheet should not be visible
+    And there should be no page errors
