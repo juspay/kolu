@@ -16,23 +16,34 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-Then("a sidebar entry should be notified", async function (this: KoluWorld) {
-  const notified = this.page.locator('[data-testid="sidebar"] [data-unread]');
+Then("a pill tree branch should be notified", async function (this: KoluWorld) {
+  const notified = this.page.locator(
+    '[data-testid="pill-tree-branch"][data-unread]',
+  );
   await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
-Then("no sidebar entry should be notified", async function (this: KoluWorld) {
-  // Double frame wait to flush SolidJS reactivity + any pending DOM updates
-  await this.waitForFrame();
-  await this.waitForFrame();
-  const count = await this.page
-    .locator('[data-testid="sidebar"] [data-unread]')
-    .count();
-  assert.strictEqual(count, 0, `Expected no notified entries, found ${count}`);
-});
+Then(
+  "no pill tree branch should be notified",
+  async function (this: KoluWorld) {
+    // Double frame wait to flush SolidJS reactivity + any pending DOM updates
+    await this.waitForFrame();
+    await this.waitForFrame();
+    const count = await this.page
+      .locator('[data-testid="pill-tree-branch"][data-unread]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no notified entries, found ${count}`,
+    );
+  },
+);
 
-When("I click the notified sidebar entry", async function (this: KoluWorld) {
-  const notified = this.page.locator('[data-testid="sidebar"] [data-unread]');
+When("I click the notified pill tree branch", async function (this: KoluWorld) {
+  const notified = this.page.locator(
+    '[data-testid="pill-tree-branch"][data-unread]',
+  );
   await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await notified.first().click();
   await this.waitForFrame();

@@ -203,21 +203,6 @@ export const appRouter = t.router({
       }
     }),
 
-    onActivityChange: t.terminal.onActivityChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      const entry = requireTerminal(input.id);
-      yield { kind: "snapshot" as const, samples: [...entry.activityHistory] };
-      for await (const sample of subscribeForTerminal_(
-        "activity",
-        input.id,
-        signal,
-      )) {
-        yield { kind: "delta" as const, sample };
-      }
-    }),
-
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
       for await (const exitCode of subscribeForTerminal_(

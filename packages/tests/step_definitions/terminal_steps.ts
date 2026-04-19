@@ -4,10 +4,10 @@ import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
-/** Count terminals by reading sidebar entries from the DOM. */
+/** Count terminals by reading canvas tile entries from the DOM. */
 async function countTerminals(world: KoluWorld) {
   return world.page
-    .locator('[data-testid="sidebar"] [data-terminal-id]')
+    .locator('[data-testid="canvas-tile"][data-terminal-id]')
     .count();
 }
 

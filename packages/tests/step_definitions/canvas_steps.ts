@@ -2,56 +2,13 @@ import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
-const TOGGLE_SELECTOR = '[data-testid="canvas-mode-toggle"]';
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_TOGGLE_SELECTOR = '[data-testid="minimap-toggle"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
-
-// ── Actions ──
-
-When("I click the canvas mode toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator(TOGGLE_SELECTOR);
-  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await toggle.click();
-  await this.waitForFrame();
-});
-
-// ── Assertions ──
-
-Then(
-  "the canvas mode toggle should show {string}",
-  async function (this: KoluWorld, label: string) {
-    const toggle = this.page.locator(TOGGLE_SELECTOR);
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await this.page.waitForFunction(
-      ({ sel, expected }: { sel: string; expected: string }) => {
-        const el = document.querySelector(sel);
-        return el?.textContent?.trim() === expected;
-      },
-      { sel: TOGGLE_SELECTOR, expected: label },
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
-Then(
-  "the canvas mode toggle should not be visible",
-  async function (this: KoluWorld) {
-    // On mobile, the toggle is hidden via `hidden sm:flex` — check it's not visible
-    await this.page.waitForFunction(
-      (sel: string) => {
-        const el = document.querySelector(sel);
-        if (!el) return true;
-        const style = getComputedStyle(el);
-        return style.display === "none";
-      },
-      TOGGLE_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
+const TILE_SELECTOR = '[data-testid="canvas-tile"]';
+const TILE_TITLEBAR_SELECTOR = '[data-testid="canvas-tile-titlebar"]';
 
 Then(
   "the canvas grid background should be visible",
@@ -267,14 +224,18 @@ When(
 
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
-/** Read the inner canvas div's transform (scale(z) translate(x, y)). Stable
- *  string identity is enough to prove pan/zoom did or didn't change. */
+/** Read the inner canvas transform div's transform (scale(z) translate(x, y)).
+ *  Stable string identity is enough to prove pan/zoom did or didn't change.
+ *  The transform div carries `data-testid="canvas-transform"` — querying by
+ *  testid (rather than `firstElementChild`) keeps this robust against
+ *  sibling overlays (watermark, future canvas-level chrome). */
 async function readCanvasTransform(world: KoluWorld): Promise<string> {
-  return await world.page.evaluate((sel: string) => {
-    const container = document.querySelector(sel);
-    const inner = container?.firstElementChild as HTMLElement | null;
+  return await world.page.evaluate(() => {
+    const inner = document.querySelector(
+      '[data-testid="canvas-transform"]',
+    ) as HTMLElement | null;
     return inner?.style.transform ?? "";
-  }, CANVAS_SELECTOR);
+  });
 }
 
 When("I record the canvas transform", async function (this: KoluWorld) {
@@ -486,12 +447,13 @@ Then(
     const before = (this as unknown as { __canvasTransform?: string })
       .__canvasTransform;
     await this.page.waitForFunction(
-      ({ sel, prev }: { sel: string; prev: string }) => {
-        const container = document.querySelector(sel);
-        const inner = container?.firstElementChild as HTMLElement | null;
+      (prev: string) => {
+        const inner = document.querySelector(
+          '[data-testid="canvas-transform"]',
+        ) as HTMLElement | null;
         return inner !== null && inner.style.transform !== prev;
       },
-      { sel: CANVAS_SELECTOR, prev: before ?? "" },
+      before ?? "",
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -543,11 +505,14 @@ When("I click the minimap toggle", async function (this: KoluWorld) {
 
 When("I save the canvas viewport state", async function (this: KoluWorld) {
   const state = await this.page.evaluate((sel: string) => {
-    const el = document.querySelector(sel);
-    if (!el) return null;
+    const container = document.querySelector(sel);
+    const inner = document.querySelector(
+      '[data-testid="canvas-transform"]',
+    ) as HTMLElement | null;
+    if (!container) return null;
     return {
-      zoom: el.getAttribute("data-zoom"),
-      transform: (el.firstElementChild as HTMLElement)?.style.transform,
+      zoom: container.getAttribute("data-zoom"),
+      transform: inner?.style.transform,
     };
   }, CANVAS_SELECTOR);
   (this as any).__savedViewportState = state;
@@ -576,14 +541,13 @@ Then(
       transform: string | null;
     } | null;
     await this.page.waitForFunction(
-      ({ sel, prev }: { sel: string; prev: { transform: string | null } }) => {
-        const el = document.querySelector(sel);
-        if (!el) return false;
-        const transform = (el.firstElementChild as HTMLElement)?.style
-          .transform;
-        return transform !== prev.transform;
+      (prev: { transform: string | null }) => {
+        const inner = document.querySelector(
+          '[data-testid="canvas-transform"]',
+        ) as HTMLElement | null;
+        return inner !== null && inner.style.transform !== prev.transform;
       },
-      { sel: CANVAS_SELECTOR, prev: { transform: saved?.transform ?? null } },
+      { transform: saved?.transform ?? null },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -800,3 +764,58 @@ Then(
     );
   },
 );
+
+// ── Tile maximize ──
+
+When(
+  "I double-click the title bar of canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    // Synthesize a `dblclick` event directly on the title bar in page
+    // context — Playwright's real-mouse dblclick contends with the
+    // PillTree overlay and the parent tile's drag activator on a
+    // maximized tile (its position changes from absolute → fixed mid-
+    // sequence). Dispatching the event bypasses both.
+    await this.page.evaluate((i) => {
+      const bars = document.querySelectorAll(
+        '[data-testid="canvas-tile-titlebar"]',
+      );
+      const bar = bars.item(i) as HTMLElement | null;
+      if (!bar) throw new Error(`titlebar ${i + 1} not found`);
+      bar.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+      );
+    }, index - 1);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "canvas tile {int} should be maximized",
+  async function (this: KoluWorld, index: number) {
+    const tile = this.page.locator(TILE_SELECTOR).nth(index - 1);
+    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const tiles = document.querySelectorAll(sel);
+        return [...tiles].some(
+          (t) => t.getAttribute("data-maximized") === "true",
+        );
+      },
+      TILE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then("no canvas tile should be maximized", async function (this: KoluWorld) {
+  await this.page.waitForFunction(
+    (sel: string) => {
+      const tiles = document.querySelectorAll(sel);
+      return ![...tiles].some(
+        (t) => t.getAttribute("data-maximized") === "true",
+      );
+    },
+    TILE_SELECTOR,
+    { timeout: POLL_TIMEOUT },
+  );
+});

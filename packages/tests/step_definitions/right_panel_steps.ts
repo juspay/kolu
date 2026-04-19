@@ -11,13 +11,6 @@ When("I press the toggle inspector shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-When("I click the edge strip", async function (this: KoluWorld) {
-  const strip = this.page.locator('[data-testid="right-panel-strip"]');
-  await strip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await strip.click();
-  await this.waitForFrame();
-});
-
 When(
   "I click the inspector toggle icon in the header",
   async function (this: KoluWorld) {
@@ -26,16 +19,6 @@ When(
     const toggle = this.page.locator(
       'header button[aria-label*="Toggle inspector"]',
     );
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await toggle.click();
-    await this.waitForFrame();
-  },
-);
-
-When(
-  "I click the desktop sidebar toggle icon",
-  async function (this: KoluWorld) {
-    const toggle = this.page.locator('[data-testid="sidebar-toggle-desktop"]');
     await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await toggle.click();
     await this.waitForFrame();
@@ -65,11 +48,6 @@ Then("the right panel should be visible", async function (this: KoluWorld) {
 Then("the right panel should not be visible", async function (this: KoluWorld) {
   const panel = this.page.locator('[data-testid="right-panel"]');
   await panel.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
-});
-
-Then("the edge strip should be visible", async function (this: KoluWorld) {
-  const strip = this.page.locator('[data-testid="right-panel-strip"]');
-  await strip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then(

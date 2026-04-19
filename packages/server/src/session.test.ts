@@ -30,7 +30,10 @@ describe("session persistence", () => {
   });
 
   it("round-trips a saved session", () => {
-    saveSession({ terminals: [terminal], activeTerminalId: null });
+    saveSession({
+      terminals: [terminal],
+      activeTerminalId: null,
+    });
     const session = getSavedSession();
     expect(session).not.toBeNull();
     expect(session!.terminals).toHaveLength(1);
@@ -44,9 +47,15 @@ describe("session persistence", () => {
   });
 
   it("clears session when saving empty terminals", () => {
-    saveSession({ terminals: [terminal], activeTerminalId: null });
+    saveSession({
+      terminals: [terminal],
+      activeTerminalId: null,
+    });
     expect(getSavedSession()).not.toBeNull();
-    saveSession({ terminals: [], activeTerminalId: null });
+    saveSession({
+      terminals: [],
+      activeTerminalId: null,
+    });
     expect(getSavedSession()).toBeNull();
   });
 
@@ -81,7 +90,10 @@ describe("session persistence", () => {
   });
 
   it("clearSavedSession removes the session", () => {
-    saveSession({ terminals: [terminal], activeTerminalId: null });
+    saveSession({
+      terminals: [terminal],
+      activeTerminalId: null,
+    });
     expect(getSavedSession()).not.toBeNull();
     clearSavedSession();
     expect(getSavedSession()).toBeNull();

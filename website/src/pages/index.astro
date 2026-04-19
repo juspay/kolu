@@ -28,15 +28,15 @@ const features = [
   },
   {
     num: '03',
-    key: 'canvas-mode',
-    title: 'Canvas mode',
-    body: 'Drag terminals around an infinite 2D canvas like desktop windows. Pan, zoom, snap-to-grid. Or stick with the classic sidebar layout — your call.',
+    key: 'canvas',
+    title: 'Infinite canvas',
+    body: "Every terminal is a draggable, resizable tile on a 2D canvas. Pan, zoom, snap-to-grid. A floating two-level pill tree (repo → branches) overlays the top — ghosted at rest, hover to navigate. On phones, the active tile fills the screen and you swipe between terminals.",
   },
   {
     num: '04',
     key: 'agent-status',
     title: 'Live agent status',
-    body: 'Detects Claude Code and OpenCode sessions: thinking, tool use, waiting. Surfaced in header and sidebar with session titles and activity sparklines.',
+    body: "Detects Claude Code and OpenCode sessions: thinking, tool use, waiting. Each terminal's pill in the navigation tree spins a repo-colored border while the agent is working and breathes when it's waiting on you, so a glance tells you which agent needs attention.",
   },
   {
     num: '05',
@@ -122,7 +122,7 @@ const features = [
   <section class="mx-auto max-w-[68rem] px-6 py-20">
     <div class="mb-14 flex items-baseline justify-between">
       <p class="eyebrow">what you get</p>
-      <p class="mono text-[0.72rem] text-ink-faint">06 principles</p>
+      <p class="mono text-[0.72rem] text-ink-faint">06 features</p>
     </div>
 
     <ul class="grid md:grid-cols-2 gap-px bg-rule">

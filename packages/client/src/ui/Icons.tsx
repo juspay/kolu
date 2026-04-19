@@ -4,7 +4,7 @@
  * Keep alphabetically sorted when adding new icons.
  */
 
-import type { Component } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
@@ -345,10 +345,60 @@ export const GitBranchIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Maximize — outline square for "fill the canvas with the active tile". */
+export const MaximizeIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
+  </svg>
+);
+
+/** Restore — nested squares for "return to the tiled canvas view". */
+export const RestoreIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <rect x="5" y="2.5" width="8.5" height="8.5" rx="1" />
+    <rect x="2.5" y="5" width="8.5" height="8.5" rx="1" />
+  </svg>
+);
+
 /** Pin icon — filled pushpin for panel pin/unpin toggle. */
 export const PinIcon: Component<{ class?: string }> = (props) => (
   <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 16 16" fill="currentColor">
     <path d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1-.707.707l-.586-.586-3.535 3.536.354 3.182a.5.5 0 0 1-.854.39L7.05 10.293 3.11 14.233a.5.5 0 0 1-.707-.707l3.94-3.94-2.753-2.753a.5.5 0 0 1 .39-.854l3.182.354L10.697 2.8l-.586-.586a.5.5 0 0 1 .146-.854l-.429.638z" />
+  </svg>
+);
+
+/** Inspector toggle — square with a divider on the right edge.
+ *  Filled-right when active to indicate the right panel is open. */
+export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
+  <svg
+    class="w-3.5 h-3.5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="15" y1="3" x2="15" y2="21" />
+    <Show when={props.active}>
+      <rect x="15" y="3" width="6" height="18" rx="0" />
+    </Show>
   </svg>
 );
 
@@ -367,5 +417,17 @@ export const WorktreeIcon: Component<{ class?: string }> = (props) => (
       stroke-width="1.5"
       d="M12 6v4c0 2-2 4-6 8M12 10c0 2 2 4 6 8"
     />
+  </svg>
+);
+
+export const PlusIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+  >
+    <path stroke-linecap="round" d="M12 5v14M5 12h14" />
   </svg>
 );

@@ -3,16 +3,7 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-  ActivitySample,
-} from "kolu-common";
-import {
-  ACTIVITY_IDLE_THRESHOLD_S,
-  ACTIVITY_WINDOW_MS,
-} from "kolu-common/config";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { log } from "./log.ts";
 import {
   CLIPBOARD_SHIM_DIR,
@@ -35,14 +26,6 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Whether the terminal is currently producing output. Server-side only —
-   *  published to clients via the dedicated "activity" channel, not metadata. */
-  busy: boolean;
-  /** Rolling window of activity transitions — server-side only.
-   *  Sent as snapshot on activity subscription connect (for sparkline seed). */
-  activityHistory: ActivitySample[];
-  /** Timer that flips busy→false after idle threshold. */
-  idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
@@ -51,7 +34,6 @@ export interface TerminalProcess {
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
-const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 const SORT_GAP = 1000;
 
 /** Next sortOrder for a group (top-level or siblings of a parent). */
@@ -68,40 +50,6 @@ function nextSortOrder(parentId?: string): number {
   return max + SORT_GAP;
 }
 
-/** Append a sample and trim entries older than the rolling window. Returns the sample. */
-function pushActivitySample(
-  entry: TerminalProcess,
-  active: boolean,
-): ActivitySample {
-  const now = Date.now();
-  const cutoff = now - ACTIVITY_WINDOW_MS;
-  const h = entry.activityHistory;
-  // Drop samples outside the window (array is chronological)
-  const keep = h.findIndex(([t]) => t >= cutoff);
-  if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
-  const sample: ActivitySample = [now, active];
-  h.push(sample);
-  return sample;
-}
-
-/** Mark terminal busy and reset the idle timer.
- *  Publishes [epochMs, isActive] on the dedicated "activity" channel — avoids
- *  serializing the full metadata object on every keystroke. */
-function touchActivity(entry: TerminalProcess, terminalId: string): void {
-  if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.busy) {
-    entry.busy = true;
-    const sample = pushActivitySample(entry, true);
-    publishForTerminal("activity", terminalId, sample);
-  }
-  entry.idleTimer = setTimeout(() => {
-    entry.busy = false;
-    const sample = pushActivitySample(entry, false);
-    publishForTerminal("activity", terminalId, sample);
-  }, IDLE_MS);
-}
-
-/** Build a session snapshot from current terminal state. */
 /** Build a session snapshot from current terminal + client-reported state. */
 export function snapshotSession(): {
   terminals: SavedTerminal[];
@@ -134,6 +82,50 @@ function emitListChanged(): void {
   publishSystem("terminal-list", listTerminals());
 }
 
+/** Identity tuple — two terminals "collide" iff this matches. Git-aware
+ *  terminals key on (repo, branch); the rest fall back to cwd. Mirrors the
+ *  user-facing notion of "same place" — opening the same branch twice
+ *  should look distinguishable, but two unrelated cwds never need a suffix. */
+function identityKey(m: TerminalMetadata): string {
+  return m.git ? `git|${m.git.repoName}|${m.git.branch}` : `cwd|${m.cwd}`;
+}
+
+/** Recompute `displaySuffix` for every terminal. Mutates each entry's
+ *  metadata in place; returns the ids whose suffix flipped so callers
+ *  can fan out per-terminal `metadata` republishes. Cheap O(N) — runs
+ *  on every metadata mutation (collisions can change with any cwd/git
+ *  update) and the delta gate keeps the network quiet. */
+export function recomputeDisplaySuffixes(): TerminalId[] {
+  const counts = new Map<string, number>();
+  for (const entry of terminals.values()) {
+    const k = identityKey(entry.info.meta);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const changed: TerminalId[] = [];
+  for (const [id, entry] of terminals.entries()) {
+    const m = entry.info.meta;
+    const next =
+      (counts.get(identityKey(m)) ?? 0) > 1 ? `#${id.slice(0, 4)}` : undefined;
+    if (m.displaySuffix !== next) {
+      m.displaySuffix = next;
+      changed.push(id);
+    }
+  }
+  return changed;
+}
+
+/** Lifecycle-side companion to `recomputeDisplaySuffixes`: recompute and
+ *  publish per-terminal metadata for every terminal whose suffix flipped.
+ *  Used on create/kill, where no metadata publish would otherwise fire
+ *  for the OTHER terminals whose collision status just changed. */
+function publishSuffixChanges(): void {
+  const changed = recomputeDisplaySuffixes();
+  for (const id of changed) {
+    const entry = terminals.get(id);
+    if (entry) publishForTerminal("metadata", id, { ...entry.info.meta });
+  }
+}
+
 /** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
 export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   const id = crypto.randomUUID();
@@ -145,8 +137,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     id,
     {
       onData: (data) => {
-        const entry = terminals.get(id);
-        if (entry) touchActivity(entry, id);
         publishForTerminal("data", id, data);
       },
       // On natural exit: notify clients, then remove from server state
@@ -154,7 +144,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
         if (entry) {
-          if (entry.idleTimer) clearTimeout(entry.idleTimer);
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
@@ -163,6 +152,7 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) {
+          publishSuffixChanges();
           emitChanged();
           emitListChanged();
         }
@@ -202,8 +192,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       meta,
     },
     handle,
-    busy: true,
-    activityHistory: [[Date.now(), true] as ActivitySample],
     clipboardDir,
     stopProviders: () => {},
   };
@@ -212,6 +200,9 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
+  // New terminal can collide with an existing one — fan out metadata
+  // republishes for any terminal whose suffix just flipped on or off.
+  publishSuffixChanges();
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -250,11 +241,13 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   if (!entry) return undefined;
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
-  if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
+  // Removing a terminal can resolve a collision — fan out metadata
+  // republishes so the survivor's suffix clears.
+  publishSuffixChanges();
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -346,7 +339,6 @@ export function killAllTerminals(): void {
   const entries = [...terminals.values()];
   terminals.clear();
   for (const entry of entries) {
-    if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);

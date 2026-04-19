@@ -68,9 +68,8 @@ const STREAM_RETRY: ClientRetryPluginContext = {
 export const stream = {
   preferences: (signal?: AbortSignal) =>
     client.preferences.get(undefined, { signal, context: STREAM_RETRY }),
-  /** Server-derived activity feed (recent repos + recent agents). Distinct
-   *  from per-terminal activity (`terminalActivity` below) — that's a
-   *  high-frequency PTY-output sparkline tied to one terminal. */
+  /** Server-derived activity feed (recent repos + recent agents). Used
+   *  by the command palette for "recent cwds" and similar entries. */
   activityFeed: (signal?: AbortSignal) =>
     client.activity.get(undefined, { signal, context: STREAM_RETRY }),
   session: (signal?: AbortSignal) =>
@@ -79,8 +78,6 @@ export const stream = {
     client.terminal.list(undefined, { signal, context: STREAM_RETRY }),
   metadata: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onMetadataChange({ id }, { signal, context: STREAM_RETRY }),
-  terminalActivity: (id: TerminalId, signal?: AbortSignal) =>
-    client.terminal.onActivityChange({ id }, { signal, context: STREAM_RETRY }),
   exit: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onExit({ id }, { signal, context: STREAM_RETRY }),
   attach: (

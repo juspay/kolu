@@ -37,7 +37,7 @@ Feature: Agent-aware worktree creation
     And I select "kolu-wt-agent-run" in the palette
     And I select "claude --dangerously-skip-permissions" in the palette
     Then the header CWD should show ".worktrees/"
-    And the sidebar should show a worktree indicator
+    And the pill tree should show a worktree indicator
     # The new terminal is active; its buffer contains the agent command
     # (echoed by the shell at the first prompt after rc init settles).
     And the screen state should contain "claude --dangerously-skip-permissions"
@@ -52,5 +52,5 @@ Feature: Agent-aware worktree creation
     And I select "kolu-wt-agent-plain" in the palette
     And I select "Plain shell" in the palette
     Then the header CWD should show ".worktrees/"
-    And the sidebar should show a worktree indicator
+    And the pill tree should show a worktree indicator
     And there should be no page errors

@@ -20,7 +20,6 @@ import {
   TerminalReorderInputSchema,
   TerminalSetParentInputSchema,
   TerminalMetadataSchema,
-  ActivityStreamEventSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
   ServerInfoSchema,
@@ -72,14 +71,6 @@ export const contract = oc.router({
     onMetadataChange: oc
       .input(TerminalAttachInputSchema)
       .output(eventIterator(TerminalMetadataSchema)),
-    // Stream activity transitions as a discriminated union. First yield
-    // on every (re)subscribe is `{ kind: "snapshot", samples: [...] }`
-    // carrying the full retained history; subsequent yields are
-    // `{ kind: "delta", sample }`. Clients replace on snapshot, append
-    // on delta — reconnect-safe by construction.
-    onActivityChange: oc
-      .input(TerminalAttachInputSchema)
-      .output(eventIterator(ActivityStreamEventSchema)),
     // Save image data to the terminal's clipboard shim for Ctrl+V paste
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
     // Kill a single terminal

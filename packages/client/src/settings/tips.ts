@@ -12,11 +12,12 @@ export interface Tip {
   text: string;
 }
 
-/** Build the sidebar-switch tip dynamically using the terminal's position. */
-export function sidebarSwitchTip(index: number): Tip {
+/** Built when the user clicks a pill in the floating tree — surfaces the
+ *  numeric switch shortcut so they learn the keyboard path. */
+export function pillTreeSwitchTip(index: number): Tip {
   const key = (index + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   return {
-    id: "sidebar-switch",
+    id: "pill-tree-switch",
     text: `Tip: ${formatKeybind(SHORTCUTS[`switchTo${key}`].keybind)} switches directly`,
   };
 }
@@ -41,7 +42,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-sub",
     text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
-  { id: "amb-drag", text: "Drag sidebar entries to reorder terminals" },
+  {
+    id: "amb-pill-tree",
+    text: "Hover the pill tree at the top of the canvas to switch terminals — click a branch pill to pan to it",
+  },
   {
     id: "amb-mru",
     text: `${formatKeybind(SHORTCUTS.cycleTerminalMru.keybind)} cycles terminals in most-recently-used order`,
@@ -67,24 +71,24 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
   },
   {
-    id: "amb-canvas",
-    text: "Click the grid icon in the header to switch to Canvas mode — drag and resize terminals freely",
-  },
-  {
     id: "amb-canvas-zoom",
-    text: "In Canvas mode, pinch or Ctrl+scroll to zoom. Two-finger scroll to pan.",
+    text: "Pinch or Ctrl+scroll to zoom the canvas. Two-finger scroll to pan.",
   },
   {
     id: "amb-canvas-hand",
-    text: "In Canvas mode, middle-click and drag to pan freely in any direction",
+    text: "Middle-click and drag to pan the canvas freely in any direction",
   },
   {
     id: "amb-canvas-shift-pan",
-    text: "In Canvas mode, hold Shift and drag (or scroll) to pan — even over a terminal tile",
+    text: "Hold Shift and drag (or scroll) to pan the canvas — even over a terminal tile",
   },
   {
     id: "amb-canvas-minimap",
-    text: "In Canvas mode, toggle the minimap via the grid icon for a bird's-eye view",
+    text: "Toggle the minimap via its grid icon (bottom-left) for a bird's-eye view of every tile",
+  },
+  {
+    id: "amb-tile-maximize",
+    text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
   },
   {
     id: "amb-pwa-install",

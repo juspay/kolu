@@ -23,6 +23,8 @@ Each event corresponds to one GitHub status post by `just ci`. The `description`
 
 `just ci` is bound to the Monitor's lifetime — **stopping the monitor kills `just ci` mid-run**. Let it run to completion.
 
+**Never read `just ci` stdout/stderr directly** (no `cat`, `tail`, `head`, `Read` on its output file). The combined stream is enormous and interleaves every parallel step, so it's not useful for diagnosis. The authoritative source is `.logs/<short-sha>/<step>@<system>.log` — one file per step, written by `just ci` itself. For diagnostics, read those files (the failing event's `description` carries the path).
+
 > **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
 
 ## Verification
@@ -72,5 +74,3 @@ If a test fails once but passes on retry, post a comment on [issue #320](https:/
 Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
 Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
 Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
-
-**Never pipe CI to `tail` or `head`** — broken pipes kill the CI process mid-run.

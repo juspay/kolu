@@ -69,7 +69,7 @@ function showStartupTip() {
 
 /**
  * Wire up state-driven tip triggers. Call once from the app root.
- * Event-driven tips (sidebar click, theme button) stay at their call sites.
+ * Event-driven tips (pill click, theme button) stay at their call sites.
  */
 function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
   // Startup tip — once, 1s after first terminal appears

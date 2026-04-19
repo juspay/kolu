@@ -240,7 +240,7 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
 });
 
 Then(
-  "the header should show an agent indicator with state {string}",
+  "the tile chrome should show an agent indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
     // Polled check with periodic mock-file re-touch — see nudgeMockFiles().
     // Same total budget as a bare waitForFunction(POLL_TIMEOUT); we just slice
@@ -250,7 +250,9 @@ Then(
     while (Date.now() - start < POLL_TIMEOUT) {
       nudgeMockFiles();
       last = await this.page.evaluate(() => {
-        const el = document.querySelector('[data-testid="agent-indicator"]');
+        const el = document.querySelector(
+          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+        );
         return el?.getAttribute("data-agent-state") ?? null;
       });
       if (last === expectedState) return;
@@ -262,50 +264,32 @@ Then(
   },
 );
 
-/** Assert an agent-indicator exists within the given container testid. */
-async function expectAgentIndicatorIn(world: KoluWorld, testId: string) {
-  await world.page.waitForFunction(
-    (testId) =>
-      document.querySelector(
-        `[data-testid="${testId}"] [data-testid="agent-indicator"]`,
-      ) !== null,
-    testId,
-    { timeout: POLL_TIMEOUT },
-  );
-}
-
 Then(
-  "the sidebar should show an agent indicator",
+  "the tile chrome should not show an agent indicator",
   async function (this: KoluWorld) {
-    await expectAgentIndicatorIn(this, "sidebar");
+    await this.page.waitForFunction(
+      () =>
+        document.querySelector(
+          '[data-testid="canvas-tile"] [data-testid="agent-indicator"]',
+        ) === null,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
 Then(
-  "the sidebar should show a terminal preview",
-  async function (this: KoluWorld) {
-    const sidebar = this.page.locator('[data-testid="sidebar"]');
-    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
-    await preview.first().waitFor({ state: "visible", timeout: 10_000 });
-    const count = await preview.count();
-    assert.ok(count > 0, "Expected at least one sidebar preview");
-  },
-);
-
-Then(
-  "the sidebar should not show a terminal preview",
-  async function (this: KoluWorld) {
-    const sidebar = this.page.locator('[data-testid="sidebar"]');
-    const preview = sidebar.locator('[data-testid="sidebar-preview"]');
-    await preview.first().waitFor({ state: "hidden", timeout: 10_000 });
-  },
-);
-
-When(
-  "I set the agent previews mode to {string}",
-  async function (this: KoluWorld, mode: string) {
-    await this.page.click(`[data-testid="sidebar-agent-previews-${mode}"]`);
-    await this.waitForFrame();
+  "the tile chrome should show task progress {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (txt) => {
+        const el = document.querySelector(
+          '[data-testid="agent-task-progress"]',
+        );
+        return el?.textContent?.includes(txt) ?? false;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
@@ -391,22 +375,6 @@ When(
     }
     // Append task lines to existing transcript
     fs.appendFileSync(mockTranscriptPath, buildTaskLines(tasks));
-  },
-);
-
-Then(
-  "the sidebar should show task progress {string}",
-  async function (this: KoluWorld, expected: string) {
-    await this.page.waitForFunction(
-      (expected) => {
-        const el = document.querySelector(
-          '[data-testid="agent-task-progress"]',
-        );
-        return el?.textContent?.trim() === expected;
-      },
-      expected,
-      { timeout: POLL_TIMEOUT },
-    );
   },
 );
 

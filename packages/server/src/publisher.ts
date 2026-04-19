@@ -11,7 +11,6 @@ import type {
   TerminalInfo,
   TerminalMetadata,
   GitInfo,
-  ActivitySample,
   Preferences,
   ActivityFeed,
   SavedSession,
@@ -22,8 +21,6 @@ import { log } from "./log.ts";
 type TerminalChannels = {
   /** All server-derived terminal state — client-facing aggregated channel */
   metadata: TerminalMetadata;
-  /** Activity transition [epochMs, isActive] — high frequency, separate from metadata */
-  activity: ActivitySample;
   /** CWD changed (OSC 7 from PTY) — triggers git provider */
   cwd: string;
   /** Terminal title changed (OSC 0/2 from PTY) — triggers process provider */

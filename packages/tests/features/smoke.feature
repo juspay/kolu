@@ -3,7 +3,7 @@ Feature: Smoke
 
   Scenario: Page loads with branding
     When I open the app
-    Then the header should contain "kolu"
+    Then the canvas watermark should contain "kolu"
 
   Scenario: Health endpoint responds
     When I request "/api/health"

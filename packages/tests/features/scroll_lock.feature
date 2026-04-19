@@ -49,7 +49,7 @@ Feature: Scroll lock
     When I create a terminal
     And I generate 200 lines of output
     And I create a terminal
-    And I select terminal 1 in the sidebar
+    And I select terminal 1 in the pill tree
     Then the terminal should be scrolled to the bottom
 
   Scenario: Disabling scroll lock prevents freezing

@@ -28,7 +28,11 @@ import type {
   TerminalServerMetadata,
   TerminalClientMetadata,
 } from "kolu-common";
-import type { TerminalProcess } from "../terminals.ts";
+import {
+  type TerminalProcess,
+  recomputeDisplaySuffixes,
+  getTerminal,
+} from "../terminals.ts";
 import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { opencodeProvider } from "kolu-opencode";
@@ -56,7 +60,12 @@ export function createMetadata(
 /** Log + publish the current metadata snapshot and trigger debounced
  *  session auto-save. Shared tail for both `updateServerMetadata` and
  *  `updateClientMetadata` so the publish/audit path is identical regardless
- *  of who wrote the fields. */
+ *  of who wrote the fields.
+ *
+ *  Also recomputes `displaySuffix` across the live set: any cwd/git
+ *  change can flip another terminal between "unique" and "collision"
+ *  status. Affected terminals get their own metadata republish so each
+ *  per-terminal stream stays in sync. */
 function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   const m = entry.info.meta;
   log.debug(
@@ -73,7 +82,13 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
     },
     "metadata publish",
   );
+  const suffixChanges = recomputeDisplaySuffixes();
   publishForTerminal("metadata", terminalId, { ...m });
+  for (const id of suffixChanges) {
+    if (id === terminalId) continue; // already published above
+    const other = getTerminal(id);
+    if (other) publishForTerminal("metadata", id, { ...other.info.meta });
+  }
   publishSystem("terminals:dirty", {});
 }
 

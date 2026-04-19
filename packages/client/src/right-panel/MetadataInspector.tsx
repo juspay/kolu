@@ -5,7 +5,7 @@ import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata } from "kolu-common";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
-import ChecksIndicator from "../sidebar/ChecksIndicator";
+import ChecksIndicator from "../terminal/ChecksIndicator";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
 import Section from "../ui/Section";
 import Row from "../ui/Row";

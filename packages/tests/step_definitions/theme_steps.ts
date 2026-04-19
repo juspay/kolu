@@ -1,7 +1,7 @@
 import { When, Then } from "@cucumber/cucumber";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   MOD_KEY,
   POLL_TIMEOUT,
 } from "../support/world.ts";
@@ -13,14 +13,14 @@ function hexToRgb(hex: string): string {
   return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
 }
 
-/** Select a terminal by its position in the sidebar (1-based), regardless of createdTerminalIds. */
+/** Select a terminal by its position in the pill tree (1-based), regardless of createdTerminalIds. */
 When(
-  "I select sidebar entry {int}",
+  "I select pill tree entry {int}",
   async function (this: KoluWorld, position: number) {
-    const entry = this.page.locator(SIDEBAR_ENTRY_SELECTOR).nth(position - 1);
+    const entry = this.page.locator(PILL_TREE_ENTRY_SELECTOR).nth(position - 1);
     await entry.click();
     const id = await entry.getAttribute("data-terminal-id");
-    assert.ok(id, `Sidebar entry ${position} has no terminal ID`);
+    assert.ok(id, `Pill tree entry ${position} has no terminal ID`);
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
@@ -30,16 +30,18 @@ When(
 Then(
   "the terminal background should be {string}",
   async function (this: KoluWorld, expectedColor: string) {
-    // The terminal viewport div has inline background-color set by the active theme.
-    // waitForFunction since theme change involves async reset + screen state restore.
+    // The active canvas tile carries the terminal theme's background as
+    // an inline style (replaces the focus-mode viewport wrapper that owned
+    // it before #622). waitForFunction tolerates the async theme reset +
+    // screen state restore.
     const expectedRgb = hexToRgb(expectedColor);
     await this.page.waitForFunction(
       (expected) => {
-        const container = document.querySelector(
-          '[data-testid="terminal-viewport"]',
-        );
-        return container
-          ? getComputedStyle(container).backgroundColor === expected
+        const tile = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"]',
+        ) as HTMLElement | null;
+        return tile
+          ? getComputedStyle(tile).backgroundColor === expected
           : false;
       },
       expectedRgb,
@@ -60,7 +62,7 @@ When("I press the shuffle theme shortcut", async function (this: KoluWorld) {
 When(
   "I press the shuffle theme shortcut {int} times",
   async function (this: KoluWorld, count: number) {
-    const themeName = this.page.locator('[data-testid="theme-name"]');
+    const themeName = this.page.locator('[data-testid="tile-theme-pill"]');
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const initial = (await themeName.textContent()) ?? "";
     this.shuffleHistory = [initial];
@@ -72,7 +74,7 @@ When(
       // keypress would race and capture the prior theme.
       await this.page.waitForFunction(
         (prev) => {
-          const el = document.querySelector('[data-testid="theme-name"]');
+          const el = document.querySelector('[data-testid="tile-theme-pill"]');
           return (el?.textContent ?? "") !== prev;
         },
         before,
@@ -98,11 +100,11 @@ Then(
 Then(
   "the header theme should differ from {string}",
   async function (this: KoluWorld, notExpected: string) {
-    const themeName = this.page.locator('[data-testid="theme-name"]');
+    const themeName = this.page.locator('[data-testid="tile-theme-pill"]');
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       (not) => {
-        const el = document.querySelector('[data-testid="theme-name"]');
+        const el = document.querySelector('[data-testid="tile-theme-pill"]');
         const text = el?.textContent ?? "";
         return text.length > 0 && text !== not;
       },
@@ -113,21 +115,33 @@ Then(
 );
 
 When("I click the theme name in the header", async function (this: KoluWorld) {
-  const themeButton = this.page.locator('[data-testid="theme-name"]');
+  const themeButton = this.page
+    .locator(
+      '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+    )
+    .first();
   await themeButton.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await themeButton.click();
+  await themeButton.click({ force: true });
   await this.waitForFrame();
 });
 
 Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {
-    const themeName = this.page.locator('[data-testid="theme-name"]');
+    // The theme pill lives on the active tile's chrome now (#622) — every
+    // tile has its own pill, so query the one inside the active tile.
+    const themeName = this.page
+      .locator(
+        '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+      )
+      .first();
     await themeName.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await this.page.waitForFunction(
       (expected) => {
-        const el = document.querySelector('[data-testid="theme-name"]');
-        return el?.textContent === expected;
+        const el = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="tile-theme-pill"]',
+        );
+        return el?.textContent?.trim() === expected;
       },
       expectedTheme,
       { timeout: POLL_TIMEOUT },

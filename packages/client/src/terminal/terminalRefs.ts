@@ -3,8 +3,8 @@
  *  Handlers outside the Terminal component sometimes need the live xterm
  *  instance or one of its addons — e.g. "Export session as PDF" needs the
  *  SerializeAddon to produce themed HTML. Rather than drill callbacks through
- *  TerminalPane or reach into the DOM, Terminal.tsx registers its refs here
- *  on mount and unregisters on cleanup. The `__xterm` DOM attachment on the
+ *  CanvasTile or reach into the DOM, Terminal.tsx registers its refs here on
+ *  mount and unregisters on cleanup. The `__xterm` DOM attachment on the
  *  container stays as an e2e-only affordance; production code looks up refs
  *  by id through this module. */
 

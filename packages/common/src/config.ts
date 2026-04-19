@@ -23,12 +23,6 @@ export const DEFAULT_FONT_SIZE = 14;
  *  is small, so 50K is low tens of MB per terminal in the worst case. */
 export const DEFAULT_SCROLLBACK = 50_000;
 
-/** Seconds of no PTY output before a terminal is considered idle/sleeping. */
-export const ACTIVITY_IDLE_THRESHOLD_S = 5;
-
-/** Rolling window for activity history (ms). Both server and client use this. */
-export const ACTIVITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
-
 /** Default preference values — single source of truth for server and client. */
 export const DEFAULT_PREFERENCES: Preferences = {
   seenTips: [],
@@ -37,8 +31,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
-  sidebarAgentPreviews: "attention",
-  canvasMode: false,
   terminalRenderer: "auto",
   rightPanel: {
     collapsed: true,

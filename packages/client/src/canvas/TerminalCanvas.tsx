@@ -17,6 +17,7 @@
 import {
   type Component,
   For,
+  Show,
   createEffect,
   createMemo,
   createSignal,
@@ -28,15 +29,19 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
+import type { TerminalId } from "kolu-common";
 import type { TileLayout } from "./TileLayout";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
-import CanvasTile, { type TileTheme } from "./CanvasTile";
+import CanvasTile from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
+import CanvasWatermark from "./CanvasWatermark";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { useTileTheme } from "./useTileTheme";
 
-const DEFAULT_W = 700;
-const DEFAULT_H = 500;
+const DEFAULT_W = 800;
+const DEFAULT_H = 540;
 const CASCADE_OFFSET = 30;
 const MIN_W = 300;
 const MIN_H = 200;
@@ -53,25 +58,29 @@ function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
 }
 
 const TerminalCanvas: Component<{
-  tileIds: string[];
-  activeId: string | null;
-  getTileTheme: (id: string) => TileTheme;
+  tileIds: TerminalId[];
+  /** Optional corner watermark (e.g. `kolu@host`) painted in the
+   *  top-left of the canvas. Stays outside the pan/zoom transform so
+   *  it reads as a fixed identity mark on the surface, not a tile. */
+  watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
-  getLayout: (id: string) => TileLayout | undefined;
+  getLayout: (id: TerminalId) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
-  onLayoutChange: (id: string, layout: TileLayout) => void;
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  renderTileTitle: (id: string) => JSX.Element;
+  onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
+  onSelect: (id: TerminalId) => void;
+  onClose: (id: TerminalId) => void;
+  renderTileTitle: (id: TerminalId) => JSX.Element;
   /** Optional title-bar actions injected between the title and the close
-   *  button — e.g. the screenshot button. */
-  renderTileTitleActions?: (id: string) => JSX.Element;
+   *  button — e.g. the screenshot button, theme pill, agent indicator. */
+  renderTileTitleActions?: (id: TerminalId) => JSX.Element;
   /** `active` is passed as an accessor so the subtree doesn't remount on
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
-  renderTileBody: (id: string, active: () => boolean) => JSX.Element;
+  renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
+  const store = useTerminalStore();
+  const tileTheme = useTileTheme();
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -239,9 +248,10 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // On first mount at the default origin, pan so the tile bounding box is
-  // centered — prevents restored sessions (whose tiles may live far from
-  // (0,0)) from opening with the viewport empty.
+  // On first mount at the default origin, pan so the persisted active tile
+  // is centered (matches what a pill-tree click does). If there's no
+  // active tile, fall back to centering the bounding box of all tiles so
+  // restored sessions whose tiles live far from (0,0) don't open empty.
   let containerRef!: HTMLDivElement;
   const isDefaultViewport = () =>
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
@@ -249,6 +259,12 @@ const TerminalCanvas: Component<{
   createEffect(() => {
     const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
+    const active = store.activeId();
+    const activeLayout = active ? layoutOf(active) : undefined;
+    if (activeLayout) {
+      requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
+      return;
+    }
     let minX = Infinity,
       minY = Infinity,
       maxX = -Infinity,
@@ -283,44 +299,73 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
-        <div
-          style={{
-            "transform-origin": "0 0",
-            transform: viewport.canvasTransform(),
-          }}
-        >
-          <For each={props.tileIds}>
-            {(id) => (
-              <CanvasTile
-                id={id}
-                active={props.activeId === id}
-                theme={props.getTileTheme(id)}
-                onSelect={() => props.onSelect(id)}
-                onClose={() => props.onClose(id)}
-                renderTitle={() => props.renderTileTitle(id)}
-                renderTitleActions={
-                  props.renderTileTitleActions
-                    ? () => props.renderTileTitleActions!(id)
-                    : undefined
-                }
-                renderBody={() =>
-                  props.renderTileBody(id, () => props.activeId === id)
-                }
-                layouts={layouts()}
-                startResize={startResize}
-                zoom={viewport.zoom}
-              />
-            )}
-          </For>
-        </div>
+        <Show when={props.watermark}>
+          {(text) => <CanvasWatermark text={text()} />}
+        </Show>
+        {/* renderTile: one definition shared by tiled and maximized
+         *  branches — the only difference is the `maximized` boolean
+         *  and (for tiled) the active-state read derived from store. */}
+        {(() => {
+          const renderTile = (id: TerminalId, maximized: boolean) => (
+            <CanvasTile
+              id={id}
+              active={maximized || store.activeId() === id}
+              maximized={maximized}
+              theme={tileTheme(id)}
+              onSelect={() => props.onSelect(id)}
+              onClose={() => props.onClose(id)}
+              onToggleMaximize={store.toggleCanvasMaximized}
+              renderTitle={() => props.renderTileTitle(id)}
+              renderTitleActions={
+                props.renderTileTitleActions
+                  ? () => props.renderTileTitleActions!(id)
+                  : undefined
+              }
+              renderBody={() =>
+                props.renderTileBody(id, () => store.activeId() === id)
+              }
+              layouts={layouts()}
+              startResize={startResize}
+              zoom={viewport.zoom}
+            />
+          );
+          return (
+            <>
+              {/* Tiled canvas — tiles live inside the pan/zoom transform.
+               *  Hidden entirely when maximized; no reason to paint
+               *  tiles the user can't see. */}
+              <Show when={!store.canvasMaximized()}>
+                <div
+                  data-testid="canvas-transform"
+                  style={{
+                    "transform-origin": "0 0",
+                    transform: viewport.canvasTransform(),
+                  }}
+                >
+                  <For each={props.tileIds}>
+                    {(id) => renderTile(id, false)}
+                  </For>
+                </div>
+              </Show>
 
-        <CanvasMinimap
-          tileIds={props.tileIds}
-          activeId={props.activeId}
-          layouts={layouts()}
-          getTileTheme={props.getTileTheme}
-          onSelect={props.onSelect}
-        />
+              {/* Maximized view — only the active tile, outside any
+               *  transform, covering the canvas via `absolute inset-0`. */}
+              <Show when={store.canvasMaximized() && store.activeId()} keyed>
+                {(id) => renderTile(id, true)}
+              </Show>
+            </>
+          );
+        })()}
+
+        {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
+         *  since there's nothing spatial to summarize. */}
+        <Show when={!store.canvasMaximized()}>
+          <CanvasMinimap
+            tileIds={props.tileIds}
+            layouts={layouts()}
+            onSelect={props.onSelect}
+          />
+        </Show>
       </div>
     </DragDropProvider>
   );

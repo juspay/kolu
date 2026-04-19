@@ -1,7 +1,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import {
   KoluWorld,
-  SIDEBAR_ENTRY_SELECTOR,
+  PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 import * as assert from "node:assert";
@@ -101,26 +101,26 @@ When("I click the restore button", async function (this: KoluWorld) {
   // for a reactive DOM check instead of locator.waitFor.
   await this.page.waitForFunction(
     (sel) => document.querySelectorAll(sel).length > 0,
-    SIDEBAR_ENTRY_SELECTOR,
+    PILL_TREE_ENTRY_SELECTOR,
     { timeout: 20000 },
   );
 });
 
 Then(
-  "there should be {int} sidebar entries",
+  "there should be {int} pill tree entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
+    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: SIDEBAR_ENTRY_SELECTOR, count: expected },
+      { selector: PILL_TREE_ENTRY_SELECTOR, count: expected },
       { timeout: 15000 },
     );
     const actual = await entries.count();
     assert.strictEqual(
       actual,
       expected,
-      `Expected ${expected} sidebar entries, got ${actual}`,
+      `Expected ${expected} pill tree entries, got ${actual}`,
     );
   },
 );
@@ -129,7 +129,7 @@ Then(
 
 /** Directories used for the reversed-sort-order scenario.
  *  Array order is alphabetical; sortOrder is assigned in reverse so that
- *  a correct restore should produce sidebar order /etc, /tmp, /var
+ *  a correct restore should produce pill tree order /etc, /tmp, /var
  *  (sortOrder 1000, 2000, 3000) even though the array is /etc, /tmp, /var. */
 const ORDERED_DIRS = ["/etc", "/tmp", "/var"];
 
@@ -138,7 +138,7 @@ Given(
   async function (this: KoluWorld) {
     this.savedSessionTerminalCount = ORDERED_DIRS.length;
     // Array order: /etc(3000), /tmp(2000), /var(1000)
-    // Expected sidebar order after restore: /var, /tmp, /etc (ascending sortOrder)
+    // Expected pill tree order after restore: /var, /tmp, /etc (ascending sortOrder)
     const terminals = ORDERED_DIRS.map((cwd, i) => ({
       id: String(i),
       cwd,
@@ -150,9 +150,9 @@ Given(
 );
 
 Then(
-  "the sidebar entries should be in sort order",
+  "the pill tree entries should be in sort order",
   async function (this: KoluWorld) {
-    const entries = this.page.locator(SIDEBAR_ENTRY_SELECTOR);
+    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     const count = await entries.count();
     const titles: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -164,7 +164,7 @@ Then(
     assert.deepStrictEqual(
       titles,
       expected,
-      `Sidebar order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
+      `Pill tree order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
     );
   },
 );
@@ -192,14 +192,14 @@ When("I wait for the session auto-save", async function (this: KoluWorld) {
 });
 
 Then(
-  "sidebar entry {int} should be active",
+  "pill tree entry {int} should be active",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
     await this.page.waitForFunction(
       (tid: string) => {
         const entry = document.querySelector(
-          `[data-testid="sidebar"] [data-terminal-id="${tid}"]`,
+          `[data-testid="canvas-tile"][data-terminal-id="${tid}"]`,
         );
         return entry?.hasAttribute("data-active") ?? false;
       },
