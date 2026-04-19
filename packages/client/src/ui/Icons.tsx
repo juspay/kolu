@@ -180,6 +180,66 @@ export const MenuIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Pause icon — two vertical bars. Used inside the recording pill. */
+export const PauseIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <rect x="4" y="3" width="3" height="10" rx="0.5" />
+    <rect x="9" y="3" width="3" height="10" rx="0.5" />
+  </svg>
+);
+
+/** Resume/play icon — right-pointing triangle. Mirrors `PauseIcon`. */
+export const ResumeIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M5 3l8 5-8 5z" />
+  </svg>
+);
+
+/** Webcam icon — rounded rectangle with a lens. Toggles the PiP overlay. */
+export const WebcamIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="2.5" y="5" width="19" height="13" rx="3" />
+    <circle cx="12" cy="11.5" r="3" />
+  </svg>
+);
+
+/** Video camera — workspace record button. Paired with `ScreenshotIcon`
+ *  (still camera = snapshot, camcorder = recording). */
+export const RecordIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="2.5" y="7" width="13" height="10" rx="2" />
+    <path d="M15.5 11l5-3v8l-5-3z" />
+  </svg>
+);
+
 /** Camera icon — terminal screenshot button. */
 export const ScreenshotIcon: Component<{ class?: string }> = (props) => (
   <svg
