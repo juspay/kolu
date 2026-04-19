@@ -21,6 +21,11 @@ const SWIPE_THRESHOLD = 60;
 /** Vertical drift cap — if the user moved more vertically than horizontally,
  *  treat the gesture as a scroll, not a swipe. */
 const VERTICAL_TOLERANCE_RATIO = 0.7;
+/** Minimum downward pull (px) on the handle before the drawer commits to
+ *  opening. Sits above the browser's tap-slop (≈10px so no click fires once
+ *  we cross it) and below a casual finger jitter so a real tap still opens
+ *  via `Drawer.Trigger`'s click path. */
+const PULL_OPEN_THRESHOLD = 24;
 
 const MobileTileView: Component<{
   /** Pill-tree-ordered ids — same source as the desktop pill tree, so swipe
@@ -43,6 +48,9 @@ const MobileTileView: Component<{
     y: number;
   } | null>(null);
   const [sheetOpen, setSheetOpen] = createSignal(false);
+  // Pull-handle drag state. Not reactive — only `onPullTouch*` reads it.
+  // `null` when no active pull gesture; otherwise the starting clientY.
+  let pullStartY: number | null = null;
 
   function navigate(direction: 1 | -1) {
     const ids = props.orderedIds;
@@ -91,14 +99,35 @@ const MobileTileView: Component<{
         onTouchEnd={onTouchEnd}
       >
         {/* Pull-handle row — drag-bar + compact identity strip. Tap to
-         *  open the drawer (Corvu's Trigger). `onTouchStart`
-         *  stopPropagation keeps the wrapper's horizontal-swipe handler
-         *  from treating a tap on the handle as a tile-cycle gesture. */}
+         *  open the drawer (Corvu's Trigger); downward-drag past
+         *  `PULL_OPEN_THRESHOLD` also opens, matching the affordance the
+         *  drag-grip suggests. `onTouchStart` stopPropagation keeps the
+         *  wrapper's horizontal-swipe handler from treating a tap on the
+         *  handle as a tile-cycle gesture. */}
         <Drawer.Trigger
           data-testid="mobile-pull-handle"
           class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
           aria-label="Open navigation"
-          onTouchStart={(e: TouchEvent) => e.stopPropagation()}
+          onTouchStart={(e: TouchEvent) => {
+            e.stopPropagation();
+            const t = e.touches[0];
+            pullStartY = t ? t.clientY : null;
+          }}
+          onTouchMove={(e: TouchEvent) => {
+            if (pullStartY === null || sheetOpen()) return;
+            const t = e.touches[0];
+            if (!t) return;
+            if (t.clientY - pullStartY >= PULL_OPEN_THRESHOLD) {
+              // preventDefault suppresses the synthesized click that would
+              // otherwise re-toggle the drawer closed via Drawer.Trigger.
+              e.preventDefault();
+              setSheetOpen(true);
+              pullStartY = null;
+            }
+          }}
+          onTouchEnd={() => {
+            pullStartY = null;
+          }}
         >
           <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
           <div class="flex items-center gap-2 w-full">
