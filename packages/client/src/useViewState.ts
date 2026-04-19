@@ -2,8 +2,8 @@
  *  Which terminal is selected, which have unread completions, MRU switch
  *  history. Active terminal is reported to server for session snapshots
  *  and restored via useSessionRestore on reconnect.
- *  Viewport grid lives in `useViewport.ts` — it's shared across
- *  every main terminal, not keyed per id. */
+ *  Terminal grid dimensions are per-instance — each xterm measures its
+ *  own container via FitAddon. */
 
 import { createSignal, createEffect, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";

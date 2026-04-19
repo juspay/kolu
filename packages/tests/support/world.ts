@@ -46,6 +46,7 @@ export class KoluWorld extends World {
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;
+  snapshotCols?: Record<string, number>;
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];
   shuffleHistory: string[] = [];
