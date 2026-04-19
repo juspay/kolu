@@ -42,13 +42,12 @@ of [Kolu](https://github.com/juspay/kolu), a canvas-only UX redesign.
 I drove the iterations; Claude Code wrote every line piecemeal,
 and the two reviewers are themselves Claude Code subagents spawned
 from the same session. The reviewers
-ran twice: [once before any code was written](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685),
-and [once after a day of design iteration](https://github.com/juspay/kolu/pull/623#issuecomment-4274565406)
-had settled into a committed diff. The second pass turned up five
-Hickey findings, four Löwy findings, and one case where both
-lenses agreed on a piece of state that would have shipped
-otherwise. Most of the useful signal came from the one-axis
-findings — which is the story this post is built around.
+ran [once before any code was written](https://github.com/juspay/kolu/pull/623#issuecomment-4272457685)
+and then [twice against the committed diff](https://github.com/juspay/kolu/pull/623#issuecomment-4274952616)
+as revisions went in. Across the post-implementation passes, most
+findings hit one axis — with a handful of cases where both lenses
+agreed on a piece of code that would have shipped otherwise. The
+one-axis findings are the story this post is built around.
 
 ## What the two lenses are
 
@@ -314,24 +313,27 @@ defect registers in both projections of the invariant — the
 factoring is wrong at a level that shows up both spatially (right
 now, in the propagation chain) and temporally (in the mismatched
 clocks the fields were bound to). Call it **binocular agreement**.
-It's a particularly sharp signal when it happens. But it's also
-rare. In PR #623, one case out of ten. The other nine — like
-`borderClass` and `displaySuffix` — were single-axis. That's
-the common shape.
+It's a particularly sharp signal when it happens. It's also the
+minority. In PR #623, binocular findings were outnumbered several-
+to-one by single-axis ones across three review passes — and the
+binocular cases that did surface tended to come from later passes,
+because revisions keep introducing the defects both lenses catch
+together. Most findings, including the two centerpieces of this
+post, were single-axis. That's the common shape.
 
 ## Why the two passes catch different things
 
-The first-round reviews ran before any code was written, against a
-design sketch. They caught the obvious structural risks — terminal
-identity scattered across `PillTree`, `CanvasTile` and
+The pre-implementation reviews ran before any code was written,
+against a design sketch. They caught the obvious structural risks
+— terminal identity scattered across `PillTree`, `CanvasTile` and
 `CanvasMinimap`; the mobile-vs-desktop split turning into scattered
 conditionals. All of them got designed around before the first
 line of code.
 
-The second-round reviews ran against the finished diff. They found
-a completely different set of issues — the ones that only emerge
-after implementation has taste-decided its way through twenty
-design micro-choices. Pre-implementation review is cheap; it
+The post-implementation reviews ran against the committed diff,
+then again after revisions. They found a completely different set
+of issues — the ones that only emerge after implementation has
+taste-decided its way through twenty design micro-choices. Pre-implementation review is cheap; it
 catches categories. Post-implementation review is expensive; it
 catches what specific design iterations did to the architecture
 while nobody was looking. Both the `borderClass` braid and the
