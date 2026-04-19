@@ -21,11 +21,6 @@ const SWIPE_THRESHOLD = 60;
 /** Vertical drift cap — if the user moved more vertically than horizontally,
  *  treat the gesture as a scroll, not a swipe. */
 const VERTICAL_TOLERANCE_RATIO = 0.7;
-/** Vertical pull (px) on the closed pull-handle before we open the drawer.
- *  Corvu's Trigger is tap-only out of the box; this thin handler turns a
- *  downward drag on the handle into "open." Once open, Corvu owns the
- *  drag-to-dismiss gesture on Drawer.Content. */
-const PULL_OPEN_THRESHOLD = 24;
 
 const MobileTileView: Component<{
   /** Pill-tree-ordered ids — same source as the desktop pill tree, so swipe
@@ -45,12 +40,6 @@ const MobileTileView: Component<{
   const store = useTerminalStore();
   const [touchStart, setTouchStart] = createSignal<{
     x: number;
-    y: number;
-  } | null>(null);
-  /** Pull-handle's own touch tracker — kept separate from the wrapper's
-   *  horizontal-swipe tracker so a downward pull on the handle can't
-   *  accidentally trigger a tile-cycle. */
-  const [handleTouchStart, setHandleTouchStart] = createSignal<{
     y: number;
   } | null>(null);
   const [sheetOpen, setSheetOpen] = createSignal(false);
@@ -91,13 +80,7 @@ const MobileTileView: Component<{
   };
 
   return (
-    <Drawer
-      side="top"
-      open={sheetOpen()}
-      onOpenChange={setSheetOpen}
-      // Allow drag-to-dismiss on the open drawer. Corvu owns this; we
-      // only handle the inverse (drag-to-open) on the closed trigger.
-    >
+    <Drawer side="top" open={sheetOpen()} onOpenChange={setSheetOpen}>
       <div
         data-testid="mobile-tile-view"
         class="flex-1 min-h-0 flex flex-col relative"
@@ -107,32 +90,15 @@ const MobileTileView: Component<{
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {/* Pull-handle row — drag-bar + compact identity strip. Tap or
-         *  pull-down opens the drawer (Corvu's Trigger handles tap; the
-         *  touch handlers below open on a downward drag). Always visible
-         *  so the chrome affordance is discoverable. */}
+        {/* Pull-handle row — drag-bar + compact identity strip. Tap to
+         *  open the drawer (Corvu's Trigger). `onTouchStart`
+         *  stopPropagation keeps the wrapper's horizontal-swipe handler
+         *  from treating a tap on the handle as a tile-cycle gesture. */}
         <Drawer.Trigger
           data-testid="mobile-pull-handle"
           class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
           aria-label="Open navigation"
-          onTouchStart={(e: TouchEvent) => {
-            const t = e.touches[0];
-            if (t) setHandleTouchStart({ y: t.clientY });
-            // Don't bubble to the wrapper's horizontal-swipe handler —
-            // a vertical pull from the handle is its own gesture.
-            e.stopPropagation();
-          }}
-          onTouchMove={(e: TouchEvent) => {
-            const start = handleTouchStart();
-            if (!start || sheetOpen()) return;
-            const t = e.touches[0];
-            if (!t) return;
-            if (t.clientY - start.y > PULL_OPEN_THRESHOLD) {
-              setSheetOpen(true);
-              setHandleTouchStart(null);
-            }
-          }}
-          onTouchEnd={() => setHandleTouchStart(null)}
+          onTouchStart={(e: TouchEvent) => e.stopPropagation()}
         >
           <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
           <div class="flex items-center gap-2 w-full">
