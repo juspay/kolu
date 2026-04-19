@@ -491,33 +491,8 @@ async function stopRecording(): Promise<void> {
     await patched.write(out);
     await patched.close();
 
-    // Open action re-reads the saved file from disk on click — we keep
-    // only the small `FileSystemFileHandle` reference in the closure,
-    // not the full blob. Browsers still require a blob URL to open a
-    // new tab (FSA hides the real path), but it lives only long enough
-    // for window.open to navigate.
-    const handle = a.handle;
     toast.success(
       `Recording saved · ${formatSeconds(Math.round(durationMs / 1000))}`,
-      {
-        description: handle.name,
-        duration: 30_000,
-        action: {
-          label: "Open",
-          onClick: () => {
-            void (async () => {
-              try {
-                const file = await handle.getFile();
-                const url = URL.createObjectURL(file);
-                window.open(url, "_blank", "noopener,noreferrer");
-                setTimeout(() => URL.revokeObjectURL(url), 60_000);
-              } catch (err) {
-                toast.error(`Open failed: ${errMsg(err)}`);
-              }
-            })();
-          },
-        },
-      },
     );
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);
