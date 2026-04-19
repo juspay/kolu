@@ -128,6 +128,13 @@ const MobileTileView: Component<{
           onTouchEnd={() => {
             pullStartY = null;
           }}
+          // `touchcancel` fires (not `touchend`) when the OS interrupts the
+          // gesture — e.g. an incoming call or a system dialog. Without this
+          // the stale `pullStartY` would survive until the next touchstart
+          // clobbers it; harmless today but the lifecycle deserves honesty.
+          onTouchCancel={() => {
+            pullStartY = null;
+          }}
         >
           <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
           <div class="flex items-center gap-2 w-full">
