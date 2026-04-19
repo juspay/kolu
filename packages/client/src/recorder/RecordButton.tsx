@@ -1,11 +1,24 @@
-/** Workspace record button. Idle: single RecordIcon that opens the setup
- *  popover. Recording/paused: three-button cluster — pause toggle, a
- *  status pill (click to stop), and a webcam toggle. */
+/** Workspace record button.
+ *
+ *  Two visual states:
+ *
+ *    idle / setup  — a single 28×28 square holding the camcorder icon.
+ *    recording /   — a segmented capsule: [pause · dot+time · webcam].
+ *    paused         When live, a soft outer halo breathes outward
+ *                   (see `.record-capsule-live` in index.css). When
+ *                   paused, the capsule shifts red→amber and the halo
+ *                   is suppressed; the middle section reads "PAUSED"
+ *                   in place of the level strip.
+ *
+ *  Click targets: the pause/webcam ends toggle their respective state;
+ *  the middle section is the stop button. Keyboard: `⌘⇧.` toggles
+ *  pause↔resume (registered as `toggleRecordingPause`).
+ *
+ *  Hidden when the File System Access API isn't available. */
 
 import { type Component, Match, Switch, Show } from "solid-js";
 import { isRecordingSupported, useRecorder } from "./useRecorder";
 import RecordPopover from "./RecordPopover";
-import LevelMeter from "./LevelMeter";
 import { RecordIcon, PauseIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import { formatKeybind, SHORTCUTS } from "../input/keyboard";
@@ -24,11 +37,11 @@ const RecordButton: Component = () => {
 
   const isActive = () =>
     recorder.phase() === "recording" || recorder.phase() === "paused";
+  const isLive = () => recorder.phase() === "recording";
+  const isPaused = () => recorder.phase() === "paused";
 
-  const idleLabel = () => {
-    if (recorder.phase() === "setup") return "Recording setup";
-    return "Record workspace";
-  };
+  const idleLabel = () =>
+    recorder.phase() === "setup" ? "Recording setup" : "Record workspace";
 
   const onIdleClick = () => {
     if (recorder.phase() === "setup") recorder.cancelSetup();
@@ -36,9 +49,12 @@ const RecordButton: Component = () => {
   };
 
   const pauseLabel = () =>
-    recorder.phase() === "paused"
+    isPaused()
       ? `Resume (${formatKeybind(SHORTCUTS.toggleRecordingPause.keybind)})`
       : `Pause (${formatKeybind(SHORTCUTS.toggleRecordingPause.keybind)})`;
+
+  const webcamLabel = () =>
+    recorder.webcamEnabled() ? "Hide webcam" : "Show webcam";
 
   return (
     <>
@@ -65,80 +81,92 @@ const RecordButton: Component = () => {
           </div>
         }
       >
+        {/* Segmented capsule. Internal dividers come from `divide-x`
+         *  tinted to match the current (live/paused) accent. The
+         *  capsule itself owns the halo animation — children handle
+         *  only their hover states. */}
         <div
-          class="pointer-events-auto flex items-center gap-1"
           data-testid="record-active"
           data-phase={recorder.phase()}
+          class="pointer-events-auto flex items-stretch h-7 rounded-lg overflow-hidden"
+          classList={{
+            "bg-danger/10 divide-x divide-danger/20 record-capsule-live":
+              isLive(),
+            "bg-warning/10 divide-x divide-warning/25": isPaused(),
+          }}
         >
           {/* Pause / resume */}
-          <Tip label={pauseLabel()}>
+          <Tip label={pauseLabel()} class="flex">
             <button
               data-testid="record-pause"
-              class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              classList={{
+                "text-danger hover:bg-danger/15": isLive(),
+                "text-warning hover:bg-warning/20": isPaused(),
+              }}
               onClick={() => recorder.togglePause()}
               aria-label={pauseLabel()}
             >
               <Switch>
-                <Match when={recorder.phase() === "recording"}>
+                <Match when={isLive()}>
                   <PauseIcon />
                 </Match>
-                <Match when={recorder.phase() === "paused"}>
+                <Match when={isPaused()}>
                   <ResumeIcon />
                 </Match>
               </Switch>
             </button>
           </Tip>
 
-          {/* Status pill — click to stop. Color shifts amber when paused
-           *  so the frozen timer has an obvious explanation. */}
-          <Tip label="Stop recording">
+          {/* Status section — the whole segment is the stop button.
+           *  Live: static dot + elapsed mm:ss.
+           *  Paused: tiny "PAUSED" caps chip + frozen elapsed. */}
+          <Tip label="Stop recording" class="flex">
             <button
               data-testid="record-stop"
-              class="h-7 flex items-center gap-1.5 px-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="flex items-center gap-1.5 px-2.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               classList={{
-                "bg-danger/15 text-danger hover:bg-danger/25":
-                  recorder.phase() === "recording",
-                "bg-warning/15 text-warning hover:bg-warning/25":
-                  recorder.phase() === "paused",
+                "text-danger hover:bg-danger/15": isLive(),
+                "text-warning hover:bg-warning/20": isPaused(),
               }}
               onClick={() => void recorder.stop()}
               aria-label="Stop recording"
             >
               <span
-                class="w-2 h-2 rounded-full"
+                class="w-1.5 h-1.5 rounded-full"
                 classList={{
-                  "bg-danger animate-pulse": recorder.phase() === "recording",
-                  "bg-warning": recorder.phase() === "paused",
+                  "bg-danger": isLive(),
+                  "bg-warning": isPaused(),
                 }}
               />
-              <span class="text-xs tabular-nums">
-                {formatElapsed(recorder.elapsedMs())}
-              </span>
-              <Show when={recorder.phase() === "recording"}>
-                <LevelMeter level={recorder.micLevel()} class="h-1 w-10" />
-              </Show>
-              <Show when={recorder.phase() === "paused"}>
-                <span class="text-xs font-medium uppercase tracking-wider">
+              <Show when={isPaused()}>
+                <span class="text-[0.625rem] font-semibold uppercase tracking-[0.12em] leading-none">
                   Paused
                 </span>
               </Show>
+              <span class="text-xs font-medium tabular-nums leading-none">
+                {formatElapsed(recorder.elapsedMs())}
+              </span>
             </button>
           </Tip>
 
-          {/* Webcam toggle — usable during recording and paused. */}
-          <Tip label={recorder.webcamEnabled() ? "Hide webcam" : "Show webcam"}>
+          {/* Webcam toggle — end cap. */}
+          <Tip label={webcamLabel()} class="flex">
             <button
               data-testid="record-webcam"
-              class="h-7 w-7 flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+              class="w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               classList={{
-                "bg-surface-2 text-fg": recorder.webcamEnabled(),
-                "text-fg-2 hover:text-fg hover:bg-surface-2":
-                  !recorder.webcamEnabled(),
+                "text-danger hover:bg-danger/15":
+                  isLive() && !recorder.webcamEnabled(),
+                "text-danger bg-danger/15":
+                  isLive() && recorder.webcamEnabled(),
+                "text-warning hover:bg-warning/20":
+                  isPaused() && !recorder.webcamEnabled(),
+                "text-warning bg-warning/20":
+                  isPaused() && recorder.webcamEnabled(),
               }}
               onClick={() => void recorder.toggleWebcam()}
-              aria-label={
-                recorder.webcamEnabled() ? "Hide webcam" : "Show webcam"
-              }
+              aria-label={webcamLabel()}
               aria-pressed={recorder.webcamEnabled()}
             >
               <WebcamIcon />

@@ -144,6 +144,25 @@ body {
     oklch(from var(--card-color) l calc(c * 1.5) h / 0.7);
 }
 
+/* ── Record capsule ─────────────────────────────────────────── */
+/* A soft box-shadow halo that grows outward and fades, emulating
+ * the universal "live indicator" pulse. Uses ease-out so the ring
+ * feels like a gentle emission, not a hard beat. Paused state
+ * drops the animation entirely. */
+@keyframes record-capsule-breathe {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 50%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px
+      color-mix(in srgb, var(--color-danger) 0%, transparent);
+  }
+}
+
+.record-capsule-live {
+  animation: record-capsule-breathe 2s ease-out infinite;
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */
