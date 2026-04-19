@@ -29,6 +29,9 @@ pkgs.mkShell {
     pnpm
     tsx
     nixpkgs-fmt
+    # `uv` provides `uvx`, used by agents/ai.just to run APM from
+    # git+https without a global install (see ci::apm-sync).
+    uv
     # prettier is provided by pnpm (same version) — no need for a nix copy.
     # Use `pnpm exec prettier` or ensure `just install` has been run.
     # node-gyp toolchain — required by `pnpm install` to recompile node-pty
