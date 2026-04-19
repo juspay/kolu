@@ -1,9 +1,15 @@
 # Run recipes from project root, not agents/
 set working-directory := '..'
 
+# Enter nix develop only when not already inside it — mirrors the root
+# justfile's pattern. `uvx` lives in the devshell (see shell.nix), so
+# these recipes need to enter it when invoked from a bare shell (e.g.
+# `just ci` → `just ai::apm-sync`).
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
+
 # Pinned to juspay's fork while the hook-idempotency fix (microsoft/apm#708)
 # is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
-apm_cmd := 'uvx --from git+https://github.com/microsoft/apm apm'
+apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm apm'
 
 # Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
 apm:
