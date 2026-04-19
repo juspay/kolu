@@ -7,7 +7,6 @@ import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import { shortenCwd } from "../path";
 
 /** "normal" = interactive (compact text, PR links).
  *  "readonly" = display-only (larger text, no links).
@@ -35,18 +34,23 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row — `name suffix [worktree-icon] cwd [progress]`.
+          {/* Name row — `name suffix [worktree-icon] [fg-title] [progress]`.
            *  Sub-count lives on the title-bar split toggle (one source
            *  of truth for "this tile has children"); the agent task
            *  progress bar owns the right slot when an agent is running.
            *  The agent state itself (Thinking/Tool use/Waiting) is
            *  shown by the title bar's agent indicator button — no
-           *  separate agent row here. */}
-          <div class={`flex items-center gap-1.5 ${nameClass()} min-w-0`}>
+           *  separate agent row here. CWD is implicit (tooltip on the
+           *  repo name) — visible space is reserved for the OSC 2
+           *  process title. */}
+          <div
+            class={`flex items-center gap-1.5 min-h-7 ${nameClass()} min-w-0`}
+          >
             <span
               data-testid="terminal-meta-name"
-              class="truncate min-w-0"
+              class="truncate shrink-0 max-w-[20ch]"
               style={{ color: info().repoColor }}
+              title={info().meta.cwd}
             >
               {info().name}
             </span>
@@ -116,14 +120,18 @@ const TerminalMeta: Component<{
                 </a>
               )}
             </Show>
-            <Show when={full() && info().meta.cwd}>
-              {(cwd) => (
+            {/* Foreground process title — OSC 2 string when present.
+             *  Replaces what used to be the cwd slot; cwd is now a
+             *  tooltip on the repo name. `flex-1` so it fills until
+             *  the progress bar (when shown) eats its right edge. */}
+            <Show when={full() && info().meta.foreground}>
+              {(fg) => (
                 <span
-                  data-testid="terminal-meta-cwd"
-                  class="text-xs font-mono text-fg-3 truncate min-w-0"
-                  title={cwd()}
+                  data-testid="process-name"
+                  class="text-xs text-fg-3 truncate min-w-0 flex-1"
+                  title={fg().title ?? fg().name}
                 >
-                  {shortenCwd(cwd())}
+                  {fg().title ?? fg().name}
                 </span>
               )}
             </Show>
@@ -213,39 +221,6 @@ const TerminalMeta: Component<{
                 </Show>
               </div>
             )}
-          </Show>
-
-          {/* Foreground process/title row — OSC 2 process title when
-           *  present and not just a duplicate of the cwd we already
-           *  show on the name row. */}
-          <Show when={full() && info().meta.foreground}>
-            {(fg) => {
-              const text = () => fg().title ?? fg().name;
-              const isCwd = () => {
-                const cwd = info().meta.cwd;
-                if (!cwd) return false;
-                const t = text();
-                return t === cwd || t === shortenCwd(cwd);
-              };
-              return (
-                <Show when={!isCwd()}>
-                  <div
-                    class="flex items-center gap-2 min-w-0 mt-1"
-                    classList={{
-                      "mt-auto": mode() === "readonly",
-                    }}
-                  >
-                    <span
-                      class="text-xs text-fg-3 truncate min-w-0 flex-1"
-                      data-testid="process-name"
-                      title={text()}
-                    >
-                      {text()}
-                    </span>
-                  </div>
-                </Show>
-              );
-            }}
           </Show>
         </>
       )}
