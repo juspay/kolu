@@ -276,6 +276,11 @@ async function refreshDevices(): Promise<void> {
 // ── Setup phase ─────────────────────────────────────────────────────────
 
 async function openSetup(): Promise<void> {
+  console.debug("[recorder] openSetup", {
+    phase: phase(),
+    hasPreview: !!preview,
+    hasActive: !!active,
+  });
   if (phase() !== "idle") return;
   setPhase("setup");
   try {
@@ -423,14 +428,23 @@ async function stopRecording(): Promise<void> {
 
   const durationMs = a.pauseElapsed ?? performance.now() - a.anchor;
 
-  await new Promise<void>((resolve) => {
-    a.recorder.addEventListener("stop", () => resolve(), { once: true });
-    try {
-      a.recorder.stop();
-    } catch {
-      resolve();
-    }
-  });
+  // Race-safe recorder shutdown. If `recorder.state` is already
+  // "inactive" (e.g. display track ended fired our handler which
+  // re-entered stopRecording after MediaRecorder already auto-stopped),
+  // calling stop() throws AND the stop event has already fired — so a
+  // naive `await new Promise(...)` with an addEventListener hangs
+  // forever, blocking the rest of cleanup (`closePreview` et al) and
+  // leaking the mic stream into the next session.
+  if (a.recorder.state !== "inactive") {
+    await new Promise<void>((resolve) => {
+      a.recorder.addEventListener("stop", () => resolve(), { once: true });
+      try {
+        a.recorder.stop();
+      } catch {
+        resolve();
+      }
+    });
+  }
   for (const t of a.tracks) t.stop();
   closePreview();
   closeWebcam();
