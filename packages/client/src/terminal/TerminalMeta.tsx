@@ -50,7 +50,12 @@ const TerminalMeta: Component<{
             >
               {info().name}
             </span>
-            <Show when={info().meta.displaySuffix}>
+            {/* Suffix gates on the same `meta.displaySuffix` source as
+             *  the pill tree, but only renders in non-compact contexts.
+             *  The pill tree needs disambiguation because it lists peers
+             *  side-by-side; the mobile pull-handle shows a single
+             *  focused terminal, so the suffix is just noise there. */}
+            <Show when={full() && info().meta.displaySuffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"
@@ -93,16 +98,23 @@ const TerminalMeta: Component<{
             </Show>
             {/* PR number — compact mode only (full mode renders the
              *  whole PR row below). Just `#N` so the strip stays one
-             *  line; tooltip carries the full title. */}
+             *  line; tooltip carries the full title. Anchor so taps
+             *  on the number open the PR; stopPropagation keeps the
+             *  enclosing pull-handle (Drawer.Trigger) from toggling. */}
             <Show when={!full() && info().meta.pr}>
               {(pr) => (
-                <span
+                <a
                   data-testid="terminal-meta-pr-compact"
-                  class="text-xs font-mono text-fg-3 shrink-0"
+                  href={pr().url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
                   title={`#${pr().number} ${pr().title}`}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                 >
                   #{pr().number}
-                </span>
+                </a>
               )}
             </Show>
             <Show when={full() && info().meta.cwd}>

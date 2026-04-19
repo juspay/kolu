@@ -97,6 +97,11 @@ const MobileChromeSheet: Component<{
                         "bg-accent/20 text-fg font-medium": active(),
                         "text-fg-2": !active(),
                       }}
+                      // stopPropagation on pointerdown keeps Corvu Drawer's
+                      // drag-to-dismiss handler on Drawer.Content from
+                      // claiming the gesture — without this, any micro-drag
+                      // during a tap suppresses the click event.
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => handleSelect(b.id)}
                     >
                       <span
@@ -118,11 +123,15 @@ const MobileChromeSheet: Component<{
         </For>
       </div>
 
-      {/* Control cluster — palette, settings, inspector */}
+      {/* Control cluster — palette, settings, inspector. Each button
+       *  stops propagation on pointerdown so Corvu Drawer's drag handler
+       *  on Drawer.Content can't claim the tap as the start of a drag
+       *  (which would suppress the click). */}
       <div class="flex items-center gap-2 px-3 py-2 border-t border-edge/50">
         <button
           data-testid="palette-trigger"
           class="flex-1 h-9 flex items-center justify-center gap-2 text-sm text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
             props.onOpenPalette();
             props.onClose();
@@ -136,6 +145,7 @@ const MobileChromeSheet: Component<{
             ref={settingsTriggerRef}
             data-testid="settings-trigger"
             class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setSettingsOpen(!settingsOpen())}
             aria-label="Settings"
           >
@@ -153,6 +163,7 @@ const MobileChromeSheet: Component<{
           classList={{
             "bg-surface-3 text-fg": !rightPanel.collapsed(),
           }}
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
             rightPanel.togglePanel();
             props.onClose();
