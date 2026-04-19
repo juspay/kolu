@@ -44,6 +44,9 @@ const RecordButton: Component = () => {
     recorder.phase() === "setup" ? "Recording setup" : "Record workspace";
 
   const onIdleClick = () => {
+    console.log("[recorder] RecordButton.onIdleClick", {
+      phase: recorder.phase(),
+    });
     if (recorder.phase() === "setup") recorder.cancelSetup();
     else void recorder.openSetup();
   };

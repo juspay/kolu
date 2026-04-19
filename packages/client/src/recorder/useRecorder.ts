@@ -276,17 +276,26 @@ async function refreshDevices(): Promise<void> {
 // ── Setup phase ─────────────────────────────────────────────────────────
 
 async function openSetup(): Promise<void> {
-  console.debug("[recorder] openSetup", {
+  console.log("[recorder] openSetup.enter", {
     phase: phase(),
     hasPreview: !!preview,
     hasActive: !!active,
   });
-  if (phase() !== "idle") return;
+  if (phase() !== "idle") {
+    console.log("[recorder] openSetup.skip phase not idle");
+    return;
+  }
   setPhase("setup");
   try {
     await openPreview(micDeviceId());
     await refreshDevices();
+    console.log("[recorder] openSetup.ok");
   } catch (err) {
+    console.log("[recorder] openSetup.error", {
+      isAbort: isAbort(err),
+      msg: errMsg(err),
+      err,
+    });
     if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
     setPhase("idle");
   }
