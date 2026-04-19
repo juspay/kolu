@@ -439,28 +439,49 @@ async function stopRecording(): Promise<void> {
   try {
     // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
     // header, so players show an arbitrary length (often 0:01). Patch the
-    // header before writing. Logger messages are captured into the toast
-    // so we can see whether the library found the section to patch.
+    // header before writing. Logger messages go to console for diagnosis;
+    // the toast surfaces filename + an Open action via blob URL.
     const raw = new Blob(a.chunks, { type: MIME });
     const fixLog: string[] = [];
     let out: Blob = raw;
-    let fixNote = "";
     try {
       out = await fixWebmDuration(raw, durationMs, {
         logger: (msg: string) => fixLog.push(msg),
       });
-      fixNote = fixLog.join(" · ") || "no log";
     } catch (err) {
-      fixNote = `error: ${errMsg(err)}`;
+      fixLog.push(`error: ${errMsg(err)}`);
     }
     console.log("[recorder] webm-duration-fix", { durationMs, fixLog });
     const writable = await a.handle.createWritable();
     await writable.write(out);
     await writable.close();
-    toast.success(`Recording saved (${Math.round(durationMs / 1000)}s)`, {
-      description: fixNote,
-    });
+
+    // Blob URL = one-click preview. Browsers hide the full filesystem
+    // path (FSA security), so the filename is the best locator we can
+    // show. Revoke the URL after five minutes — long enough for the
+    // user to click, short enough not to hold a reference forever.
+    const url = URL.createObjectURL(out);
+    setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+    toast.success(
+      `Recording saved · ${formatSeconds(Math.round(durationMs / 1000))}`,
+      {
+        description: a.handle.name,
+        duration: 30_000,
+        action: {
+          label: "Open",
+          onClick: () => {
+            window.open(url, "_blank", "noopener,noreferrer");
+          },
+        },
+      },
+    );
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);
   }
+}
+
+function formatSeconds(total: number): string {
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
