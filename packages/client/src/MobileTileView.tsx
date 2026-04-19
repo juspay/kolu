@@ -12,7 +12,7 @@ import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
 import type { WsStatus } from "./rpc/rpc";
-import TerminalMeta from "./terminal/TerminalMeta";
+import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import MobileChromeSheet from "./MobileChromeSheet";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
@@ -108,7 +108,7 @@ const MobileTileView: Component<{
             >
               {(info) => (
                 <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
-                  <TerminalMeta info={info()} mode="compact" />
+                  <TerminalMetaCompact info={info()} />
                 </div>
               )}
             </Show>

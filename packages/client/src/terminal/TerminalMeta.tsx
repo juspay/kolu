@@ -1,6 +1,14 @@
-/** Terminal metadata display — name, branch, PR, agent task progress.
- *  Shared between the canvas tile title bar (full mode) and the mobile
- *  pull-handle (compact mode). */
+/** Terminal metadata for the canvas tile title bar — two rows:
+ *
+ *    Row 1: name [suffix] [worktree] [foreground] [agent progress]
+ *    Row 2: branch [PR icon checks #N title]
+ *
+ *  The mobile pull-handle has its own one-row layout — see
+ *  `TerminalMetaCompact`. Reusing one component across both was an
+ *  abstraction that complected mount-site context with rendering
+ *  decisions; the two layouts are different enough to warrant
+ *  separate components, with shared bits (skeleton, agent progress)
+ *  exported below for reuse. */
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
@@ -8,28 +16,10 @@ import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
-/** "normal" = interactive (compact text, PR links).
- *  "readonly" = display-only (larger text, no links).
- *  "compact" = name row only (mobile pull-handle); drops cwd, branch row,
- *   PR row, foreground row. */
-export type TerminalMetaMode = "normal" | "readonly" | "compact";
-
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
-  mode?: TerminalMetaMode;
 }> = (props) => {
-  const mode = () => props.mode ?? "normal";
-  /** Compact mode (mobile pull-handle) renders the name row only —
-   *  branch/PR/foreground/cwd live in the chrome sheet, not on
-   *  the always-visible strip. */
-  const full = () => mode() !== "compact";
-  const nameClass = () =>
-    mode() === "normal" || mode() === "compact"
-      ? "text-sm font-medium"
-      : "text-base font-semibold";
-  const detailClass = () => (mode() === "normal" ? "text-xs" : "text-sm");
   const i = () => props.info;
-
   return (
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
@@ -43,23 +33,9 @@ const TerminalMeta: Component<{
            *  separate agent row here. CWD is implicit (tooltip on the
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
-          <div
-            class={`flex items-center gap-1.5 min-h-7 ${nameClass()} min-w-0`}
-          >
-            <span
-              data-testid="terminal-meta-name"
-              class="truncate shrink-0 max-w-[20ch]"
-              style={{ color: info().repoColor }}
-              title={info().meta.cwd}
-            >
-              {info().name}
-            </span>
-            {/* Suffix gates on the same `meta.displaySuffix` source as
-             *  the pill tree, but only renders in non-compact contexts.
-             *  The pill tree needs disambiguation because it lists peers
-             *  side-by-side; the mobile pull-handle shows a single
-             *  focused terminal, so the suffix is just noise there. */}
-            <Show when={full() && info().meta.displaySuffix}>
+          <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <NameSpan info={info()} />
+            <Show when={info().meta.displaySuffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"
@@ -70,61 +46,14 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={info().meta.git}>
-              {(git) => (
-                <>
-                  <Show when={git().isWorktree}>
-                    <span
-                      data-testid="worktree-indicator"
-                      class="text-fg-3 shrink-0"
-                      title="Worktree"
-                    >
-                      <WorktreeIcon />
-                    </span>
-                  </Show>
-                  {/* Compact mode mirrors the pill tree: repo + branch.
-                   *  The dedicated branch+PR row below is suppressed in
-                   *  compact. */}
-                  <Show when={!full()}>
-                    <Tip label={git().branch}>
-                      <span
-                        data-testid="terminal-meta-branch"
-                        class="text-xs truncate min-w-0"
-                        style={{ color: info().branchColor }}
-                        classList={{ "text-fg-2": !info().branchColor }}
-                      >
-                        {git().branch}
-                      </span>
-                    </Tip>
-                  </Show>
-                </>
-              )}
-            </Show>
-            {/* PR number — compact mode only (full mode renders the PR
-             *  inline with branch below). Anchor so taps open the PR;
-             *  stopPropagation keeps the enclosing pull-handle
-             *  (Drawer.Trigger) from toggling. */}
-            <Show when={!full() && info().meta.pr}>
-              {(pr) => (
-                <a
-                  data-testid="terminal-meta-pr-compact"
-                  href={pr().url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
-                  title={`#${pr().number} ${pr().title}`}
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  #{pr().number}
-                </a>
-              )}
+            <Show when={info().meta.git?.isWorktree}>
+              <WorktreeBadge />
             </Show>
             {/* Foreground process title — OSC 2 string when present.
              *  Replaces what used to be the cwd slot; cwd is now a
              *  tooltip on the repo name. `flex-1` so it fills until
              *  the progress bar (when shown) eats its right edge. */}
-            <Show when={full() && info().meta.foreground}>
+            <Show when={info().meta.foreground}>
               {(fg) => (
                 <span
                   data-testid="process-name"
@@ -135,51 +64,29 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            {/* Agent task progress — slim bar + N/M to the right of the
-             *  name row. Only when the agent reports task progress;
-             *  otherwise the right slot is empty. */}
             <Show when={info().meta.agent?.taskProgress}>
               {(tp) => (
-                <div
-                  data-testid="agent-task-progress"
-                  class="ml-auto flex items-center gap-1.5 shrink-0 w-24"
-                  title={`${tp().completed}/${tp().total} tasks completed`}
-                >
-                  <div class="flex-1 h-1 rounded-full bg-fg/10 overflow-hidden">
-                    <div
-                      class="h-full rounded-full bg-busy transition-all duration-300"
-                      style={{
-                        width: `${tp().total > 0 ? (tp().completed / tp().total) * 100 : 0}%`,
-                      }}
-                    />
-                  </div>
-                  <span class="text-[0.65rem] text-fg-2 tabular-nums">
-                    {tp().completed}/{tp().total}
-                  </span>
-                </div>
+                <AgentTaskProgress
+                  completed={tp().completed}
+                  total={tp().total}
+                />
               )}
             </Show>
           </div>
 
           {/* Branch + PR — combined row. Tooltip on branch shows full
            *  name when truncated. PR (if present) follows inline:
-           *  state icon, checks indicator, #N (linked in normal mode),
-           *  truncated title. */}
+           *  state icon, checks indicator, linked #N, truncated title. */}
           <Show
-            when={full() && info().meta.git}
+            when={info().meta.git}
             fallback={
-              <Show when={full()}>
-                <div
-                  data-testid="terminal-meta-branch"
-                  class={`${detailClass()} text-fg-2`}
-                >
-                  {"\u00A0"}
-                </div>
-              </Show>
+              <div data-testid="terminal-meta-branch" class="text-xs text-fg-2">
+                {"\u00A0"}
+              </div>
             }
           >
             {(git) => (
-              <div class={`flex items-center gap-1.5 min-w-0 ${detailClass()}`}>
+              <div class="flex items-center gap-1.5 min-w-0 text-xs">
                 <Tip label={git().branch}>
                   <span
                     data-testid="terminal-meta-branch"
@@ -201,20 +108,15 @@ const TerminalMeta: Component<{
                       <Show when={pr().checks}>
                         {(checks) => <ChecksIndicator status={checks()} />}
                       </Show>
-                      <Show
-                        when={mode() === "normal"}
-                        fallback={<span class="shrink-0">#{pr().number}</span>}
+                      <a
+                        href={pr().url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="hover:text-accent shrink-0"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <a
-                          href={pr().url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="hover:text-accent shrink-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          #{pr().number}
-                        </a>
-                      </Show>
+                        #{pr().number}
+                      </a>
                       <span class="truncate">{pr().title}</span>
                     </span>
                   )}
@@ -228,7 +130,111 @@ const TerminalMeta: Component<{
   );
 };
 
-/** Skeleton placeholder shown while metadata query is pending. */
+/** Mobile pull-handle one-row variant — repo + branch + #PR inline.
+ *  Mirrors what the pill tree shows for a focused terminal; the full
+ *  branch/PR/foreground details live in the chrome sheet that the
+ *  pull-handle opens. */
+export const TerminalMetaCompact: Component<{
+  info: TerminalDisplayInfo | undefined;
+}> = (props) => {
+  const i = () => props.info;
+  return (
+    <Show when={i()} fallback={<TerminalMetaSkeleton />}>
+      {(info) => (
+        <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+          <NameSpan info={info()} />
+          <Show when={info().meta.git?.isWorktree}>
+            <WorktreeBadge />
+          </Show>
+          <Show when={info().meta.git}>
+            {(git) => (
+              <Tip label={git().branch}>
+                <span
+                  data-testid="terminal-meta-branch"
+                  class="text-xs truncate min-w-0"
+                  style={{ color: info().branchColor }}
+                  classList={{ "text-fg-2": !info().branchColor }}
+                >
+                  {git().branch}
+                </span>
+              </Tip>
+            )}
+          </Show>
+          {/* Anchor stops propagation so a tap on the PR doesn't toggle
+           *  the enclosing Drawer.Trigger. */}
+          <Show when={info().meta.pr}>
+            {(pr) => (
+              <a
+                data-testid="terminal-meta-pr-compact"
+                href={pr().url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
+                title={`#${pr().number} ${pr().title}`}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                #{pr().number}
+              </a>
+            )}
+          </Show>
+          <Show when={info().meta.agent?.taskProgress}>
+            {(tp) => (
+              <AgentTaskProgress
+                completed={tp().completed}
+                total={tp().total}
+              />
+            )}
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+};
+
+const NameSpan: Component<{ info: TerminalDisplayInfo }> = (props) => (
+  <span
+    data-testid="terminal-meta-name"
+    class="truncate shrink-0 max-w-[20ch]"
+    style={{ color: props.info.repoColor }}
+    title={props.info.meta.cwd}
+  >
+    {props.info.name}
+  </span>
+);
+
+const WorktreeBadge: Component = () => (
+  <span
+    data-testid="worktree-indicator"
+    class="text-fg-3 shrink-0"
+    title="Worktree"
+  >
+    <WorktreeIcon />
+  </span>
+);
+
+const AgentTaskProgress: Component<{ completed: number; total: number }> = (
+  props,
+) => (
+  <div
+    data-testid="agent-task-progress"
+    class="ml-auto flex items-center gap-1.5 shrink-0 w-24"
+    title={`${props.completed}/${props.total} tasks completed`}
+  >
+    <div class="flex-1 h-1 rounded-full bg-fg/10 overflow-hidden">
+      <div
+        class="h-full rounded-full bg-busy transition-all duration-300"
+        style={{
+          width: `${props.total > 0 ? (props.completed / props.total) * 100 : 0}%`,
+        }}
+      />
+    </div>
+    <span class="text-[0.65rem] text-fg-2 tabular-nums">
+      {props.completed}/{props.total}
+    </span>
+  </div>
+);
+
 const TerminalMetaSkeleton: Component = () => (
   <div class="animate-pulse space-y-1.5">
     <div class="h-3.5 w-24 bg-surface-2 rounded" />
