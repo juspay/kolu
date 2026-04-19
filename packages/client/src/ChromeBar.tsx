@@ -22,6 +22,7 @@ import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 import SettingsPopover from "./settings/SettingsPopover";
+import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { WsStatus } from "./rpc/rpc";
@@ -106,6 +107,7 @@ const ChromeBar: Component<{
        *  area covered when the cluster overlaps the right panel pass
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
+        <RecordButton />
         <Tip
           label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
         >
