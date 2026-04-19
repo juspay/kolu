@@ -167,14 +167,19 @@ const RecordPopover: Component<{
               </select>
             </Show>
             <Show when={recorder.webcamStream()}>
-              <div class="rounded-lg overflow-hidden border border-edge aspect-video bg-surface-2">
-                <video
-                  ref={webcamVideoRef}
-                  autoplay
-                  muted
-                  playsinline
-                  class="w-full h-full object-cover scale-x-[-1]"
-                />
+              {/* Preview mirrors the overlay shape (circle) so the user
+               *  sees what will appear in the recording, not a different
+               *  framing. Centered in a neutral strip for breathing room. */}
+              <div class="flex justify-center py-1">
+                <div class="w-32 h-32 rounded-full overflow-hidden ring-1 ring-edge bg-surface-2">
+                  <video
+                    ref={webcamVideoRef}
+                    autoplay
+                    muted
+                    playsinline
+                    class="w-full h-full object-cover scale-x-[-1]"
+                  />
+                </div>
               </div>
             </Show>
           </div>
