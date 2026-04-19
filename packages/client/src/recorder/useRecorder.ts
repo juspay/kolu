@@ -28,6 +28,7 @@
 
 import { batch, createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { P, match } from "ts-pattern";
 import fixWebmDuration from "fix-webm-duration";
 import {
   closeMicPreview,
@@ -254,42 +255,46 @@ async function startRecording(): Promise<void> {
 function togglePause(): void {
   const s = session;
   if (!s) return;
-  if (phase() === "recording") {
-    // Belt-and-suspenders pause: pause the encoder AND disable every
-    // source track so nothing sneaks through under browsers' varying
-    // interpretations of the paused state.
-    try {
-      s.recorder.pause();
-    } catch (err) {
-      toast.error(`Pause failed: ${errMsg(err)}`);
-      return;
-    }
-    for (const t of s.tracks) t.enabled = false;
-    stopTicker();
-    setPausedAt(performance.now());
-    setPhase("paused");
-  } else if (phase() === "paused") {
-    for (const t of s.tracks) t.enabled = true;
-    try {
-      s.recorder.resume();
-    } catch (err) {
-      toast.error(`Resume failed: ${errMsg(err)}`);
-      return;
-    }
-    // Rewind anchor by the paused duration so the memo picks back up
-    // from where it froze.
-    batch(() => {
-      const p = pausedAt();
-      const a = anchor();
-      if (p !== null && a !== null) {
-        setAnchor(performance.now() - (p - a));
+  match(phase())
+    .with("recording", () => {
+      // Belt-and-suspenders pause: pause the encoder AND disable every
+      // source track so nothing sneaks through under browsers' varying
+      // interpretations of the paused state.
+      try {
+        s.recorder.pause();
+      } catch (err) {
+        toast.error(`Pause failed: ${errMsg(err)}`);
+        return;
       }
-      setPausedAt(null);
-      setNow(performance.now());
-    });
-    startTicker();
-    setPhase("recording");
-  }
+      for (const t of s.tracks) t.enabled = false;
+      stopTicker();
+      setPausedAt(performance.now());
+      setPhase("paused");
+    })
+    .with("paused", () => {
+      for (const t of s.tracks) t.enabled = true;
+      try {
+        s.recorder.resume();
+      } catch (err) {
+        toast.error(`Resume failed: ${errMsg(err)}`);
+        return;
+      }
+      // Rewind anchor by the paused duration so the memo picks back up
+      // from where it froze.
+      batch(() => {
+        const p = pausedAt();
+        const a = anchor();
+        if (p !== null && a !== null) {
+          setAnchor(performance.now() - (p - a));
+        }
+        setPausedAt(null);
+        setNow(performance.now());
+      });
+      startTicker();
+      setPhase("recording");
+    })
+    .with(P.union("idle", "setup"), () => {})
+    .exhaustive();
 }
 
 function startTicker(): void {
