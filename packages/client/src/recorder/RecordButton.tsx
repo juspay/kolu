@@ -16,7 +16,7 @@
  *
  *  Hidden when the File System Access API isn't available. */
 
-import { type Component, Match, Switch, Show } from "solid-js";
+import { type Component, Match, Switch, Show, createSignal } from "solid-js";
 import { isRecordingSupported, useRecorder } from "./useRecorder";
 import RecordPopover from "./RecordPopover";
 import { RecordIcon, PauseIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
@@ -33,7 +33,11 @@ function formatElapsed(ms: number): string {
 const RecordButton: Component = () => {
   if (!isRecordingSupported()) return null;
   const recorder = useRecorder();
-  let triggerRef: HTMLButtonElement | undefined;
+  // Signal-based ref so the popover can re-read the current DOM node
+  // reactively. A plain `let` ref wouldn't track re-mounts of the
+  // idle button after recording↔idle cycles — the popover ended up
+  // positioned against a detached node, rendering off-screen.
+  const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
 
   const isActive = () =>
     recorder.phase() === "recording" || recorder.phase() === "paused";
@@ -67,7 +71,7 @@ const RecordButton: Component = () => {
           <div class="pointer-events-auto">
             <Tip label={idleLabel()}>
               <button
-                ref={triggerRef}
+                ref={setTriggerEl}
                 data-testid="record-toggle"
                 data-phase={recorder.phase()}
                 class="h-7 w-7 flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -177,7 +181,7 @@ const RecordButton: Component = () => {
           </Tip>
         </div>
       </Show>
-      <RecordPopover triggerRef={triggerRef} />
+      <RecordPopover triggerRef={triggerEl()} />
     </>
   );
 };

@@ -31,6 +31,14 @@ const RecordPopover: Component<{
     setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
   };
 
+  // Reposition whenever the popover opens OR the trigger element
+  // reference changes. With signal-backed trigger ref from RecordButton,
+  // remounts of the idle button (after record↔idle cycles) flow through
+  // here so the popover doesn't end up anchored to a detached element.
+  createEffect(() => {
+    if (open() && props.triggerRef) updatePos();
+  });
+
   // Keep the preview `<video>` in sync with the webcam stream signal.
   createEffect(() => {
     const s = recorder.webcamStream();
