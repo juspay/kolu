@@ -22,6 +22,7 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import AgentIndicator from "./terminal/AgentIndicator";
 import TerminalCanvas from "./canvas/TerminalCanvas";
+import CanvasWatermark from "./canvas/CanvasWatermark";
 import PillTree from "./canvas/PillTree";
 import { groupByRepo, flatPillOrder } from "./canvas/pillTreeOrder";
 import MobileTileView from "./MobileTileView";
@@ -612,16 +613,7 @@ const App: Component = () => {
                 data-testid="canvas-container"
                 class="relative flex-1 min-h-0 canvas-grid-bg"
               >
-                {/* Identity watermark — same as the populated canvas
-                 *  (see TerminalCanvas). Painted here so the empty
-                 *  surface still shows the workspace identity. */}
-                <div
-                  data-testid="canvas-watermark"
-                  aria-hidden="true"
-                  class="absolute top-12 left-3 z-0 font-mono text-[0.7rem] tracking-wide text-fg-3/40 pointer-events-none select-none"
-                >
-                  {appTitle()}
-                </div>
+                <CanvasWatermark text={appTitle()} />
                 <EmptyState
                   savedSession={session.savedSession() ?? undefined}
                   onRestore={() => void session.handleRestoreSession()}

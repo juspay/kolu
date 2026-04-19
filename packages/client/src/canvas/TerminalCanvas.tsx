@@ -36,6 +36,7 @@ import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import CanvasTile from "./CanvasTile";
 import CanvasMinimap from "./CanvasMinimap";
+import CanvasWatermark from "./CanvasWatermark";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileTheme } from "./useTileTheme";
 
@@ -298,21 +299,8 @@ const TerminalCanvas: Component<{
           "background-size": viewport.gridBgSize(),
         }}
       >
-        {/* Identity watermark — top-left, just below the chrome bar so
-         *  it doesn't collide with the logo. The chrome bar is ~44px tall
-         *  in overlay mode; `top-12` (48px) clears it with a hairline of
-         *  breathing room. Low opacity, mono; pointer-events-none so
-         *  drags/clicks pass through to the canvas. */}
         <Show when={props.watermark}>
-          {(text) => (
-            <div
-              data-testid="canvas-watermark"
-              aria-hidden="true"
-              class="absolute top-12 left-3 z-0 font-mono text-[0.7rem] tracking-wide text-fg-3/40 pointer-events-none select-none"
-            >
-              {text()}
-            </div>
-          )}
+          {(text) => <CanvasWatermark text={text()} />}
         </Show>
         {/* renderTile: one definition shared by tiled and maximized
          *  branches — the only difference is the `maximized` boolean
