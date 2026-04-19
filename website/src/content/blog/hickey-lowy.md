@@ -27,6 +27,13 @@ That's the practice this post is arguing for. The framing I'll use
 to justify it is that code has a _spacetime_ — two orthogonal axes
 of complexity creep, not one. Measure both, or miss half.
 
+<div class="tweet-embed">
+<blockquote class="twitter-tweet" data-dnt="true" data-theme="dark"><p lang="en" dir="ltr">I think the biggest productivity boost from AI will come when we can nearly automate the software architect out of existence.<br><br>I&#39;m refining both /hickey and /lowy toward that end — so I don&#39;t have to babysit the AI after every PR.</p>&mdash; Sridhar Ratnakumar (@sridca) <a href="https://twitter.com/sridca/status/2044792589119832082?ref_src=twsrc%5Etfw">April 16, 2026</a></blockquote>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+</div>
+
+I posted that two days ago. This post is the practice.
+
 This matters more than it used to. Most of the code I ship is no
 longer typed by hand — [Claude Code](https://claude.com/claude-code)
 writes it from high-level intent, faster than line-by-line human
@@ -37,7 +44,7 @@ agent reviewers, aimed at a finished diff and run in parallel, are
 good at. The human's remaining job is to pick the lenses, read the
 findings, and decide.
 
-I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)
+I ran both reviewers on [PR #623](https://github.com/juspay/kolu/pull/623)[^1]
 of [Kolu](https://github.com/juspay/kolu), a canvas-only UX redesign.
 I drove the iterations; Claude Code wrote every line piecemeal,
 and the two reviewers are themselves Claude Code subagents spawned
@@ -409,8 +416,8 @@ complexity creeps along both axes._
 That's the whole essay. Everything else is existence proof: the
 `borderClass` braid that Löwy couldn't see, the `displaySuffix`
 mis-location that Hickey couldn't see, the `canvasMaximized` chain
-where both lenses happened to land on the same line. Nine findings
-on one axis. One finding on both. A team that had run only Hickey
+where both lenses happened to land on the same line. Most findings
+on one axis. A handful on both. A team that had run only Hickey
 would have shipped with `displaySuffix` recomputed per render on
 every client forever. A team that had run only Löwy would have
 shipped with a `borderClass` pattern match that intruded on every
@@ -448,3 +455,9 @@ Ship when both lenses go quiet. Not before.
   Parnas, [_On the Criteria To Be Used in Decomposing Systems into
   Modules_](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
   (1972) — still the clearest six pages on why the Löwy lens works.
+
+[^1]: PR #623 is an outlier in my normal workflow — a "kitchen sink"
+      PR landing a full UX redesign in one branch. I usually ship
+      smaller, single-purpose PRs. The scale is part of why the
+      third review pass caught things the earlier passes missed:
+      a big diff has room for defects that a small one doesn't.
