@@ -151,7 +151,7 @@ export const SHORTCUTS = {
     label: "Center on active tile",
   },
   toggleRecordingPause: {
-    keybind: { key: " ", code: "Space", mod: true, shift: true },
+    keybind: { key: ".", code: "Period", mod: true, shift: true },
     label: "Pause / resume recording",
   },
 } as const satisfies Record<string, Shortcut>;

@@ -368,19 +368,29 @@ function togglePause(): void {
   const a = active;
   if (!a) return;
   if (phase() === "recording") {
+    // Belt-and-suspenders pause:
+    //  1. MediaRecorder.pause() — spec-correct, stops encoding entirely.
+    //  2. Disable every source track. If a browser in some build emits
+    //     frames anyway during `paused` state, the content is at least
+    //     black + silent. Re-enabled on resume before the recorder resumes
+    //     so the first post-pause chunk has live content.
     try {
       a.recorder.pause();
-    } catch {
+    } catch (err) {
+      toast.error(`Pause failed: ${errMsg(err)}`);
       return;
     }
+    for (const t of a.tracks) t.enabled = false;
     clearInterval(a.ticker);
     a.pauseElapsed = performance.now() - a.anchor;
     setElapsedMs(a.pauseElapsed);
     setPhase("paused");
   } else if (phase() === "paused") {
+    for (const t of a.tracks) t.enabled = true;
     try {
       a.recorder.resume();
-    } catch {
+    } catch (err) {
+      toast.error(`Resume failed: ${errMsg(err)}`);
       return;
     }
     // Rewind the anchor so `now - anchor` resumes from the paused snapshot.
