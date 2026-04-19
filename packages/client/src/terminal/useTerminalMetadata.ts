@@ -1,11 +1,8 @@
 /** Terminal metadata — subscriptions for server-derived state.
  *
- *  Two subscription types per terminal:
- *  - Metadata: slow-changing state (CWD, git, PR, agent status).
- *    Each event replaces the previous — only current state matters.
- *  - Activity: high-frequency busy/idle transitions.
- *    Events accumulate into an array for sparkline rendering. Server yields
- *    a history snapshot on connect, then individual [epochMs, boolean] samples.
+ *  One subscription per terminal: metadata (slow-changing state — CWD,
+ *  git, PR, agent status). Each event replaces the previous; only
+ *  current state matters.
  *
  *  Terminal IDs are derived from the live list subscription data.
  *  Order is derived from metadata sortOrder — no separate ordering state.
@@ -16,35 +13,21 @@
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { toast } from "solid-sonner";
-import { match } from "ts-pattern";
 import {
   createSubscription,
   type Subscription,
 } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-  ActivitySample,
-  ActivityStreamEvent,
-} from "kolu-common";
-import { ACTIVITY_WINDOW_MS } from "kolu-common/config";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
 
-/** Max samples retained per terminal.
- *  At ~20 samples/min during active use, 200 covers ~10 min — well beyond
- *  the 5-min display window. Prevents unbounded growth in long sessions. */
-const MAX_ACTIVITY_CHUNKS = 200;
-
 /** Subscriptions created per terminal via mapArray — disposed when the terminal leaves the list. */
 interface PerTerminalSubs {
   id: TerminalId;
   meta: Subscription<TerminalMetadata>;
-  activity: Subscription<ActivitySample[]>;
 }
 
 export function useTerminalMetadata(deps: {
@@ -63,29 +46,7 @@ export function useTerminalMetadata(deps: {
     const meta = createSubscription(() => stream.metadata(id), {
       onError: (err) => toast.error(`Metadata error: ${err.message}`),
     });
-    // Snapshot replaces, delta appends — every re-subscribe begins with
-    // a fresh snapshot, so reconnect-safety is structural (no dedupe).
-    const activity = createSubscription<ActivityStreamEvent, ActivitySample[]>(
-      () => stream.terminalActivity(id),
-      {
-        reduce: (acc, event) => {
-          const cutoff = Date.now() - ACTIVITY_WINDOW_MS;
-          return match(event)
-            .with({ kind: "snapshot" }, ({ samples }) =>
-              samples.filter(([t]) => t >= cutoff).slice(-MAX_ACTIVITY_CHUNKS),
-            )
-            .with({ kind: "delta" }, ({ sample }) =>
-              [...acc.filter(([t]) => t >= cutoff), sample].slice(
-                -MAX_ACTIVITY_CHUNKS,
-              ),
-            )
-            .exhaustive();
-        },
-        initial: [] as ActivitySample[],
-        onError: (err) => toast.error(`Activity error: ${err.message}`),
-      },
-    );
-    return { id, meta, activity };
+    return { id, meta };
   });
 
   function findSub(id: TerminalId): PerTerminalSubs | undefined {
@@ -98,10 +59,6 @@ export function useTerminalMetadata(deps: {
     return (
       findSub(id)?.meta() ?? deps.listSub()?.find((t) => t.id === id)?.meta
     );
-  }
-
-  function getActivityHistory(id: TerminalId): ActivitySample[] {
-    return findSub(id)?.activity() ?? [];
   }
 
   // --- Order derived from metadata sortOrder ---
@@ -135,12 +92,7 @@ export function useTerminalMetadata(deps: {
   });
 
   const displayInfos = createMemo(() =>
-    buildTerminalDisplayInfos(
-      terminalIds(),
-      getMetadata,
-      getActivityHistory,
-      getSubTerminalIds,
-    ),
+    buildTerminalDisplayInfos(terminalIds(), getMetadata, getSubTerminalIds),
   );
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
@@ -155,7 +107,6 @@ export function useTerminalMetadata(deps: {
 
   return {
     getMetadata,
-    getActivityHistory,
     terminalIds,
     getSubTerminalIds,
     activeMeta,

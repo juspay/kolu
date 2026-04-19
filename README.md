@@ -14,7 +14,7 @@ Two principles shape what kolu is and isn't:
 
 **Agent-agnostic.** The terminal is the universal interface. Kolu doesn't wrap a specific model or lock you into one CLI — `claude`, `opencode`, or whatever ships next week all work the same way, because they're just programs you run in a shell. There's no agent registry to update, no adapter to write, no vendor lock-in. Any new agent CLI picks up first-class features automatically: run it once in any kolu terminal and the next time you create a worktree, it appears in the sub-palette as a launch option — no configuration, no per-agent code. You can always drop to a plain shell without leaving the app.
 
-**Auto-detected, zero setup.** Kolu populates its UI by watching what you already do — the repos you `cd` into, the agents you run, the sessions you save — not by asking you to configure it. Recent repos track `cd` events, branch / PR / CI status derive from the terminal's CWD, Claude Code state is read from the foreground pid, recent agent CLIs come from preexec command marks emitted by kolu's shell integration, and activity sparklines come from pty output. If kolu knows something, it's because the shell already told it. The surface grows with your workflow, not with a preferences pane.
+**Auto-detected, zero setup.** Kolu populates its UI by watching what you already do — the repos you `cd` into, the agents you run, the sessions you save — not by asking you to configure it. Recent repos track `cd` events, branch / PR / CI status derive from the terminal's CWD, Claude Code state is read from the foreground pid, and recent agent CLIs come from preexec command marks emitted by kolu's shell integration. If kolu knows something, it's because the shell already told it. The surface grows with your workflow, not with a preferences pane.
 
 ## Usage
 
@@ -64,7 +64,6 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
 - GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
 - Per-repo color coding on the pill tree and tile chrome via golden-angle hue spacing
-- Activity sparklines per terminal (5-minute rolling window)
 
 ### Claude Code Status
 
@@ -140,10 +139,10 @@ pnpm monorepo:
 
 All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `packages/common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Two communication patterns:
 
-| Pattern            | Semantics                                  | Client integration                    | Used for                                                   |
-| ------------------ | ------------------------------------------ | ------------------------------------- | ---------------------------------------------------------- |
-| Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder`     |
-| Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, activity sparklines, server state |
+| Pattern            | Semantics                                  | Client integration                    | Used for                                               |
+| ------------------ | ------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
+| Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder` |
+| Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, server state                  |
 
 Subscriptions use [`createSubscription`](packages/client/src/rpc/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
 

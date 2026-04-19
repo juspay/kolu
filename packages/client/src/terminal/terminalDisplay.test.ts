@@ -4,7 +4,7 @@ import {
   terminalName,
   buildTerminalDisplayInfos,
 } from "./terminalDisplay";
-import type { TerminalMetadata, GitInfo, ActivitySample } from "kolu-common";
+import type { TerminalMetadata, GitInfo } from "kolu-common";
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
@@ -82,7 +82,6 @@ describe("buildTerminalDisplayInfos", () => {
       [],
       () => undefined,
       () => [],
-      () => [],
     );
     expect(result.size).toBe(0);
   });
@@ -92,7 +91,6 @@ describe("buildTerminalDisplayInfos", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1"],
       () => meta,
-      () => [] as ActivitySample[],
       () => [],
     );
     expect(result.size).toBe(1);
@@ -107,7 +105,6 @@ describe("buildTerminalDisplayInfos", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1"],
       () => makeMeta(),
-      () => [] as ActivitySample[],
       () => ["sub-1", "sub-2"],
     );
     expect(result.get("id-1")!.subCount).toBe(2);
@@ -117,7 +114,6 @@ describe("buildTerminalDisplayInfos", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1", "id-2"],
       (id) => (id === "id-1" ? makeMeta() : undefined),
-      () => [] as ActivitySample[],
       () => [],
     );
     expect(result.size).toBe(1);

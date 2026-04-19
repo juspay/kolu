@@ -1,8 +1,8 @@
 /** Terminal display info — everything needed to render a terminal in any surface.
- *  Combines server metadata with client-derived properties (colors, activity, sub-count). */
+ *  Combines server metadata with client-derived properties (colors, sub-count). */
 
 import { cwdBasename } from "../path";
-import type { TerminalId, TerminalMetadata, ActivitySample } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */
@@ -10,7 +10,6 @@ export type TerminalDisplayInfo = {
   repoColor?: string;
   branchColor?: string;
   meta: TerminalMetadata;
-  activityHistory: ActivitySample[];
   subCount: number;
 };
 
@@ -29,14 +28,13 @@ export function terminalName(meta: TerminalMetadata): string {
 }
 
 /** Build display info for all terminals. Resolves colors from the full
- *  terminal list (global hue uniqueness) and bundles activity + sub-count
- *  so consumers get one complete object. The identity-collision
+ *  terminal list (global hue uniqueness) and bundles sub-count so
+ *  consumers get one complete object. The identity-collision
  *  `displaySuffix` lives on `meta` — server computes it across the live
  *  set so every client renders the same value. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  getActivityHistory: (id: TerminalId) => ActivitySample[],
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
   const repoKeys = new Set<string>();
@@ -68,7 +66,6 @@ export function buildTerminalDisplayInfos(
       meta,
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
-      activityHistory: getActivityHistory(id),
       subCount: getSubTerminalIds(id).length,
     });
   }

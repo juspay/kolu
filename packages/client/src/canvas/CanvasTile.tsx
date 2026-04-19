@@ -37,10 +37,6 @@ const CanvasTile: Component<{
   /** When true, the tile fills the canvas viewport (fixed inset-0) and
    *  drag/resize are disabled. Toggled by double-clicking the title bar. */
   maximized: boolean;
-  /** "active" if the terminal emitted output recently, "sleeping" otherwise.
-   *  Drives the data-activity attribute that e2e + UI states key off (the
-   *  pre-#622 sidebar exposed this; tests still reach for it). */
-  activity?: "active" | "sleeping";
   theme: TileTheme;
   onSelect: () => void;
   onClose: () => void;
@@ -93,7 +89,6 @@ const CanvasTile: Component<{
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
       data-maximized={props.maximized ? "true" : undefined}
-      data-activity={props.activity}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
         // Maximized stays `absolute inset-0` so it fills the canvas

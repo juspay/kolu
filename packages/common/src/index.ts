@@ -163,30 +163,6 @@ export const TerminalMetadataSchema = TerminalServerMetadataSchema.merge(
   TerminalClientMetadataSchema,
 );
 
-// --- Activity ---
-
-/** A timestamped activity transition: [epochMs, isActive]. */
-export const ActivitySampleSchema = z.tuple([z.number(), z.boolean()]);
-export type ActivitySample = z.infer<typeof ActivitySampleSchema>;
-
-/**
- * `onActivityChange` stream contract: the first yield on every
- * (re)subscribe is a `snapshot` of retained history; every later yield
- * is a `delta`. Clients replace on snapshot, append on delta — so
- * re-subscribe after a reconnect restores state without duplication.
- */
-export const ActivityStreamEventSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("snapshot"),
-    samples: z.array(ActivitySampleSchema),
-  }),
-  z.object({
-    kind: z.literal("delta"),
-    sample: ActivitySampleSchema,
-  }),
-]);
-export type ActivityStreamEvent = z.infer<typeof ActivityStreamEventSchema>;
-
 // --- Terminal ---
 
 export const TerminalInfoSchema = z.object({

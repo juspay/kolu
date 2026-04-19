@@ -1,20 +1,18 @@
-/** Terminal metadata display — name, branch, PR, agent status, activity.
- *  Shared between Sidebar entries and Mission Control cards. */
+/** Terminal metadata display — name, branch, PR, agent task progress.
+ *  Shared between the canvas tile title bar (full mode) and the mobile
+ *  pull-handle (compact mode). */
 
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./ChecksIndicator";
-import AgentIndicator from "./AgentIndicator";
-import ActivityGraph from "./ActivityGraph";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import type { AgentInfo } from "kolu-common";
 import { shortenCwd } from "../path";
 
 /** "normal" = interactive (compact text, PR links).
  *  "readonly" = display-only (larger text, no links).
- *  "compact" = name row only (mobile pull-handle); drops cwd, branch,
- *   PR, agent, foreground rows. */
+ *  "compact" = name row only (mobile pull-handle); drops cwd, branch row,
+ *   PR row, foreground row. */
 export type TerminalMetaMode = "normal" | "readonly" | "compact";
 
 const TerminalMeta: Component<{
@@ -23,7 +21,7 @@ const TerminalMeta: Component<{
 }> = (props) => {
   const mode = () => props.mode ?? "normal";
   /** Compact mode (mobile pull-handle) renders the name row only —
-   *  branch/PR/agent/foreground/cwd live in the chrome sheet, not on
+   *  branch/PR/foreground/cwd live in the chrome sheet, not on
    *  the always-visible strip. */
   const full = () => mode() !== "compact";
   const nameClass = () =>
@@ -37,11 +35,13 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row — `name suffix [worktree-icon] cwd [activity]`.
+          {/* Name row — `name suffix [worktree-icon] cwd [progress]`.
            *  Sub-count lives on the title-bar split toggle (one source
-           *  of truth for "this tile has children"); the activity
-           *  sparkline owns the right slot so the title bar reads
-           *  name → activity → window controls in a single line. */}
+           *  of truth for "this tile has children"); the agent task
+           *  progress bar owns the right slot when an agent is running.
+           *  The agent state itself (Thinking/Tool use/Waiting) is
+           *  shown by the title bar's agent indicator button — no
+           *  separate agent row here. */}
           <div class={`flex items-center gap-1.5 ${nameClass()} min-w-0`}>
             <span
               data-testid="terminal-meta-name"
@@ -78,9 +78,9 @@ const TerminalMeta: Component<{
                       <WorktreeIcon />
                     </span>
                   </Show>
-                  {/* Compact mode mirrors the pill tree: repo + branch
-                   *  (+ suffix above when ambiguous). The dedicated
-                   *  branch row below is suppressed in compact. */}
+                  {/* Compact mode mirrors the pill tree: repo + branch.
+                   *  The dedicated branch+PR row below is suppressed in
+                   *  compact. */}
                   <Show when={!full()}>
                     <Tip label={git().branch}>
                       <span
@@ -96,11 +96,10 @@ const TerminalMeta: Component<{
                 </>
               )}
             </Show>
-            {/* PR number — compact mode only (full mode renders the
-             *  whole PR row below). Just `#N` so the strip stays one
-             *  line; tooltip carries the full title. Anchor so taps
-             *  on the number open the PR; stopPropagation keeps the
-             *  enclosing pull-handle (Drawer.Trigger) from toggling. */}
+            {/* PR number — compact mode only (full mode renders the PR
+             *  inline with branch below). Anchor so taps open the PR;
+             *  stopPropagation keeps the enclosing pull-handle
+             *  (Drawer.Trigger) from toggling. */}
             <Show when={!full() && info().meta.pr}>
               {(pr) => (
                 <a
@@ -128,16 +127,36 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
-            <Show when={info().activityHistory.length > 0}>
-              <div class="ml-auto w-16 shrink-0">
-                <ActivityGraph samples={info().activityHistory} />
-              </div>
+            {/* Agent task progress — slim bar + N/M to the right of the
+             *  name row. Only when the agent reports task progress;
+             *  otherwise the right slot is empty. */}
+            <Show when={info().meta.agent?.taskProgress}>
+              {(tp) => (
+                <div
+                  data-testid="agent-task-progress"
+                  class="ml-auto flex items-center gap-1.5 shrink-0 w-24"
+                  title={`${tp().completed}/${tp().total} tasks completed`}
+                >
+                  <div class="flex-1 h-1 rounded-full bg-fg/10 overflow-hidden">
+                    <div
+                      class="h-full rounded-full bg-busy transition-all duration-300"
+                      style={{
+                        width: `${tp().total > 0 ? (tp().completed / tp().total) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                  <span class="text-[0.65rem] text-fg-2 tabular-nums">
+                    {tp().completed}/{tp().total}
+                  </span>
+                </div>
+              )}
             </Show>
           </div>
 
-          {/* Branch — tooltip shows full name when truncated. Hidden in
-           *  compact mode (mobile pull-handle) so the strip stays a
-           *  single visible row. */}
+          {/* Branch + PR — combined row. Tooltip on branch shows full
+           *  name when truncated. PR (if present) follows inline:
+           *  state icon, checks indicator, #N (linked in normal mode),
+           *  truncated title. */}
           <Show
             when={full() && info().meta.git}
             fallback={
@@ -152,108 +171,54 @@ const TerminalMeta: Component<{
             }
           >
             {(git) => (
-              <Tip label={git().branch}>
-                <div
-                  data-testid="terminal-meta-branch"
-                  class={`${detailClass()} truncate`}
-                  style={{ color: info().branchColor }}
-                  classList={{ "text-fg-2": !info().branchColor }}
-                >
-                  {git().branch}
-                </div>
-              </Tip>
-            )}
-          </Show>
-
-          {/* PR info */}
-          <Show when={full() && info().meta.pr}>
-            {(pr) => (
-              <div
-                class={`flex items-center gap-1 ${detailClass()} text-fg-2 truncate`}
-                data-testid="terminal-meta-pr"
-                title={`#${pr().number} ${pr().title}`}
-              >
-                <PrStateIcon state={pr().state} class="w-3 h-3" />
-                <Show when={pr().checks}>
-                  {(checks) => <ChecksIndicator status={checks()} />}
-                </Show>
-                <Show
-                  when={mode() === "normal"}
-                  fallback={<span class="shrink-0">#{pr().number}</span>}
-                >
-                  <a
-                    href={pr().url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="hover:text-accent shrink-0"
-                    onClick={(e) => e.stopPropagation()}
+              <div class={`flex items-center gap-1.5 min-w-0 ${detailClass()}`}>
+                <Tip label={git().branch}>
+                  <span
+                    data-testid="terminal-meta-branch"
+                    class="truncate shrink-0 max-w-[16ch]"
+                    style={{ color: info().branchColor }}
+                    classList={{ "text-fg-2": !info().branchColor }}
                   >
-                    #{pr().number}
-                  </a>
-                </Show>
-                <span class="truncate">{pr().title}</span>
-              </div>
-            )}
-          </Show>
-
-          {/* Agent indicator — own row when active. For Claude Code, the
-           *  summary line carries the SDK-derived display title (custom title ›
-           *  auto-summary › first prompt) so a glance at the card tells you
-           *  _what_ the agent is working on, not just that it's working. */}
-          <Show when={full() && info().meta.agent}>
-            {(agent) => (
-              <div class="mt-1">
-                <div class="flex items-center gap-1.5">
-                  <AgentIndicator agent={agent()} />
-                  <Show when={agent().taskProgress}>
-                    {(tp) => (
-                      <div
-                        data-testid="agent-task-progress"
-                        class="flex items-center gap-1.5 flex-1 min-w-0"
-                        title={`${tp().completed}/${tp().total} tasks completed`}
-                      >
-                        <div class="flex-1 h-1 rounded-full bg-fg/10 min-w-8 overflow-hidden">
-                          <div
-                            class="h-full rounded-full bg-busy transition-all duration-300"
-                            style={{
-                              width: `${tp().total > 0 ? (tp().completed / tp().total) * 100 : 0}%`,
-                            }}
-                          />
-                        </div>
-                        <span class="text-xs text-fg-2 tabular-nums shrink-0">
-                          {tp().completed}/{tp().total}
-                        </span>
-                      </div>
-                    )}
-                  </Show>
-                </div>
-                <Show when={agent().summary}>
-                  {(summary) => (
-                    <div
-                      data-testid="agent-summary"
-                      class="text-xs text-fg-3 truncate mt-0.5"
-                      title={summary()}
+                    {git().branch}
+                  </span>
+                </Tip>
+                <Show when={info().meta.pr}>
+                  {(pr) => (
+                    <span
+                      class="flex items-center gap-1 text-fg-2 truncate min-w-0"
+                      data-testid="terminal-meta-pr"
+                      title={`#${pr().number} ${pr().title}`}
                     >
-                      {summary()}
-                    </div>
+                      <PrStateIcon state={pr().state} class="w-3 h-3" />
+                      <Show when={pr().checks}>
+                        {(checks) => <ChecksIndicator status={checks()} />}
+                      </Show>
+                      <Show
+                        when={mode() === "normal"}
+                        fallback={<span class="shrink-0">#{pr().number}</span>}
+                      >
+                        <a
+                          href={pr().url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="hover:text-accent shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          #{pr().number}
+                        </a>
+                      </Show>
+                      <span class="truncate">{pr().title}</span>
+                    </span>
                   )}
                 </Show>
               </div>
             )}
           </Show>
 
-          {/* Foreground process/title row — carries only the OSC 2
-           *  process title when present (the activity sparkline lives
-           *  on the name row). Suppressed when the agent summary row
-           *  above already shows a near-duplicate string, or when the
-           *  title is just the cwd (already displayed on row 1). */}
-          <Show
-            when={
-              full() &&
-              !(info().meta.agent && info().meta.agent!.summary) &&
-              info().meta.foreground
-            }
-          >
+          {/* Foreground process/title row — OSC 2 process title when
+           *  present and not just a duplicate of the cwd we already
+           *  show on the name row. */}
+          <Show when={full() && info().meta.foreground}>
             {(fg) => {
               const text = () => fg().title ?? fg().name;
               const isCwd = () => {

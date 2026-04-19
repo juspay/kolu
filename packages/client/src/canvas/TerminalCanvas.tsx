@@ -323,11 +323,6 @@ const TerminalCanvas: Component<{
               id={id}
               active={maximized || store.activeId() === id}
               maximized={maximized}
-              activity={
-                store.getDisplayInfo(id)?.activityHistory.at(-1)?.[1]
-                  ? "active"
-                  : "sleeping"
-              }
               theme={tileTheme(id)}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}

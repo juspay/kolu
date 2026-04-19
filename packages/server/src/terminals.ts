@@ -3,16 +3,7 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type {
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-  ActivitySample,
-} from "kolu-common";
-import {
-  ACTIVITY_IDLE_THRESHOLD_S,
-  ACTIVITY_WINDOW_MS,
-} from "kolu-common/config";
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { log } from "./log.ts";
 import {
   CLIPBOARD_SHIM_DIR,
@@ -35,14 +26,6 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Whether the terminal is currently producing output. Server-side only —
-   *  published to clients via the dedicated "activity" channel, not metadata. */
-  busy: boolean;
-  /** Rolling window of activity transitions — server-side only.
-   *  Sent as snapshot on activity subscription connect (for sparkline seed). */
-  activityHistory: ActivitySample[];
-  /** Timer that flips busy→false after idle threshold. */
-  idleTimer?: ReturnType<typeof setTimeout>;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
@@ -51,7 +34,6 @@ export interface TerminalProcess {
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
-const IDLE_MS = ACTIVITY_IDLE_THRESHOLD_S * 1000;
 const SORT_GAP = 1000;
 
 /** Next sortOrder for a group (top-level or siblings of a parent). */
@@ -66,39 +48,6 @@ function nextSortOrder(parentId?: string): number {
     }
   }
   return max + SORT_GAP;
-}
-
-/** Append a sample and trim entries older than the rolling window. Returns the sample. */
-function pushActivitySample(
-  entry: TerminalProcess,
-  active: boolean,
-): ActivitySample {
-  const now = Date.now();
-  const cutoff = now - ACTIVITY_WINDOW_MS;
-  const h = entry.activityHistory;
-  // Drop samples outside the window (array is chronological)
-  const keep = h.findIndex(([t]) => t >= cutoff);
-  if (keep !== 0) h.splice(0, keep === -1 ? h.length : keep);
-  const sample: ActivitySample = [now, active];
-  h.push(sample);
-  return sample;
-}
-
-/** Mark terminal busy and reset the idle timer.
- *  Publishes [epochMs, isActive] on the dedicated "activity" channel — avoids
- *  serializing the full metadata object on every keystroke. */
-function touchActivity(entry: TerminalProcess, terminalId: string): void {
-  if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  if (!entry.busy) {
-    entry.busy = true;
-    const sample = pushActivitySample(entry, true);
-    publishForTerminal("activity", terminalId, sample);
-  }
-  entry.idleTimer = setTimeout(() => {
-    entry.busy = false;
-    const sample = pushActivitySample(entry, false);
-    publishForTerminal("activity", terminalId, sample);
-  }, IDLE_MS);
 }
 
 /** Build a session snapshot from current terminal + client-reported state. */
@@ -188,8 +137,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
     id,
     {
       onData: (data) => {
-        const entry = terminals.get(id);
-        if (entry) touchActivity(entry, id);
         publishForTerminal("data", id, data);
       },
       // On natural exit: notify clients, then remove from server state
@@ -197,7 +144,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
         tlog.info({ exitCode }, "exited");
         const entry = terminals.get(id);
         if (entry) {
-          if (entry.idleTimer) clearTimeout(entry.idleTimer);
           entry.stopProviders();
           cleanupClipboardDir(entry.clipboardDir);
         }
@@ -246,8 +192,6 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
       meta,
     },
     handle,
-    busy: true,
-    activityHistory: [[Date.now(), true] as ActivitySample],
     clipboardDir,
     stopProviders: () => {},
   };
@@ -297,7 +241,6 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   if (!entry) return undefined;
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
-  if (entry.idleTimer) clearTimeout(entry.idleTimer);
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
@@ -396,7 +339,6 @@ export function killAllTerminals(): void {
   const entries = [...terminals.values()];
   terminals.clear();
   for (const entry of entries) {
-    if (entry.idleTimer) clearTimeout(entry.idleTimer);
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.clipboardDir);
