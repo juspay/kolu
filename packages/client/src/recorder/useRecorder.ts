@@ -439,20 +439,27 @@ async function stopRecording(): Promise<void> {
   try {
     // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
     // header, so players show an arbitrary length (often 0:01). Patch the
-    // header with the real elapsed duration before writing. If the fix
-    // fails for any reason, fall back to the raw blob — a playable file
-    // with wrong duration beats no file at all.
+    // header before writing. Logger messages are captured into the toast
+    // so we can see whether the library found the section to patch.
     const raw = new Blob(a.chunks, { type: MIME });
-    let out: Blob;
+    const fixLog: string[] = [];
+    let out: Blob = raw;
+    let fixNote = "";
     try {
-      out = await fixWebmDuration(raw, durationMs, { logger: false });
-    } catch {
-      out = raw;
+      out = await fixWebmDuration(raw, durationMs, {
+        logger: (msg: string) => fixLog.push(msg),
+      });
+      fixNote = fixLog.join(" · ") || "no log";
+    } catch (err) {
+      fixNote = `error: ${errMsg(err)}`;
     }
+    console.log("[recorder] webm-duration-fix", { durationMs, fixLog });
     const writable = await a.handle.createWritable();
     await writable.write(out);
     await writable.close();
-    toast.success("Recording saved");
+    toast.success(`Recording saved (${Math.round(durationMs / 1000)}s)`, {
+      description: fixNote,
+    });
   } catch (err) {
     toast.error(`Save failed: ${errMsg(err)}`);
   }
