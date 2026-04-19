@@ -42,7 +42,6 @@ import { createScrollLock } from "../scrollLock";
 import { isTouch } from "../useMobile";
 import { usePreferences } from "../settings/usePreferences";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { viewportDimensions, setViewportDimensions } from "../useViewport";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import {
@@ -262,23 +261,6 @@ const Terminal: Component<{
     }
   }
 
-  // Main terminals inherit the viewport grid while they're hidden.
-  // FitAddon can't measure a display:none container, so hidden instances
-  // trust the value the visible terminal's FitAddon already published.
-  // Sub-terminals measure their own pane via fit() and never read from
-  // this signal. Visible main terminals ignore this too — their fit() is
-  // authoritative, not a follower.
-  createEffect(
-    on(
-      () => (props.isSub ? undefined : viewportDimensions()),
-      (dims) => {
-        if (!terminal || props.visible || !dims) return;
-        terminal.resize(dims.cols, dims.rows);
-      },
-      { defer: true },
-    ),
-  );
-
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -348,14 +330,11 @@ const Terminal: Component<{
     ),
   );
 
-  /** Push the terminal's current cols×rows to the world: publish to the
-   *  shared viewport signal (main terminals only — sub-terminals have
-   *  their own grid) and resize the server-side PTY so node-pty matches. */
+  /** Resize the server-side PTY so node-pty matches the xterm grid. */
   async function publishDimensions() {
     if (!terminal) return;
     const { cols, rows } = terminal;
     if (cols <= 0 || rows <= 0) return;
-    if (props.visible && !props.isSub) setViewportDimensions(cols, rows);
     try {
       await client.terminal.resize({ id: props.terminalId, cols, rows });
     } catch {
@@ -552,18 +531,13 @@ const Terminal: Component<{
       term.onResize(() => void publishDimensions());
 
       // FitAddon.fit() only works when the container has real pixel
-      // dimensions. Hidden main terminals live inside a display:none ancestor
+      // dimensions. Hidden terminals live inside a display:none ancestor
       // (see `hidden` classList on the wrapper below), so we can't measure
-      // them — instead inherit whatever cols×rows the visible main terminal
-      // already published to the viewport signal. Hidden sub-terminals have
-      // no shared signal to read, so they wait until they become visible.
-      // Fixes #398 (non-active sidebar previews stuck at 80×24 on cold load).
+      // them — they wait at xterm's 80×24 default until they become visible,
+      // at which point the visibility effect below calls debouncedFit().
       if (props.visible) {
         fitAddon.fit();
         if (props.focused !== false) term.focus();
-      } else if (!props.isSub) {
-        const vp = viewportDimensions();
-        if (vp) term.resize(vp.cols, vp.rows);
       }
 
       // Track user-initiated focus for "remember last focused" in sub-panel
@@ -592,15 +566,12 @@ const Terminal: Component<{
         "Terminal attach",
       );
 
-      // fit() and term.resize() above only fire onResize when the grid
-      // actually changes. If xterm's default 80×24 already matched the
-      // target, the listener didn't run — publish manually. Skip when we
-      // haven't sized ourselves yet (hidden main terminal before the
-      // viewport signal arrives, or hidden sub-terminal): publishing the
-      // untouched 80×24 default would corrupt the viewport signal and
-      // send a bogus PTY resize.
-      const sized = props.visible || (!props.isSub && viewportDimensions());
-      if (sized) void publishDimensions();
+      // fit() above only fires onResize when the grid actually changes.
+      // If xterm's default 80×24 already matched the fit target, the listener
+      // didn't run — publish manually so the PTY matches. Hidden terminals
+      // stay at 80×24 until they become visible; the visibility effect below
+      // runs debouncedFit() and publishes then.
+      if (props.visible) void publishDimensions();
 
       // Filter terminal query responses from onData before sending to PTY.
       // The server's headless xterm already answers these; duplicates arriving
