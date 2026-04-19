@@ -17,6 +17,7 @@
  *  Hidden when the File System Access API isn't available. */
 
 import { type Component, Match, Switch, Show, createSignal } from "solid-js";
+import { match } from "ts-pattern";
 import {
   formatElapsed,
   isRecordingSupported,
@@ -56,6 +57,25 @@ const RecordButton: Component = () => {
 
   const webcamLabel = () =>
     recorder.webcamEnabled() ? "Hide webcam" : "Show webcam";
+
+  // Exhaustive over live/paused × webcamEnabled. ts-pattern's
+  // `.exhaustive()` fires a compile error if Phase ever grows.
+  const webcamBtnAccent = () =>
+    match({
+      phase: recorder.phase() as "recording" | "paused",
+      on: recorder.webcamEnabled(),
+    })
+      .with(
+        { phase: "recording", on: false },
+        () => "text-danger hover:bg-danger/15",
+      )
+      .with({ phase: "recording", on: true }, () => "text-danger bg-danger/15")
+      .with(
+        { phase: "paused", on: false },
+        () => "text-warning hover:bg-warning/20",
+      )
+      .with({ phase: "paused", on: true }, () => "text-warning bg-warning/20")
+      .exhaustive();
 
   return (
     <>
@@ -148,17 +168,7 @@ const RecordButton: Component = () => {
           <Tip label={webcamLabel()} class="flex">
             <button
               data-testid="record-webcam"
-              class="w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-              classList={{
-                "text-danger hover:bg-danger/15":
-                  isLive() && !recorder.webcamEnabled(),
-                "text-danger bg-danger/15":
-                  isLive() && recorder.webcamEnabled(),
-                "text-warning hover:bg-warning/20":
-                  isPaused() && !recorder.webcamEnabled(),
-                "text-warning bg-warning/20":
-                  isPaused() && recorder.webcamEnabled(),
-              }}
+              class={`w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${webcamBtnAccent()}`}
               onClick={() => void recorder.toggleWebcam()}
               aria-label={webcamLabel()}
               aria-pressed={recorder.webcamEnabled()}
