@@ -120,6 +120,17 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 - <kbd>Ctrl+V</kbd> pastes images into Claude Code via server-side clipboard shims
 
+### Screen recording
+
+Record the Kolu tab — whole canvas or a single maximized terminal — with microphone and optional webcam PiP, straight to a local `.webm` file. Chromium-only (uses the File System Access API).
+
+- **One-click setup popover** — mic picker with live 8-segment RMS level meter, webcam toggle + device picker + circular preview, all in a compact popover anchored to the chrome-bar record button
+- **Streaming to disk** — chunks flow from `MediaRecorder` into a `FileSystemWritableFileStream` continuously, so memory stays flat regardless of recording length. A partial `.webm` survives a browser crash (recoverable with ffmpeg)
+- **Duration-fix pass** — Chrome's `MediaRecorder` omits the WebM `SegmentInfo.Duration` header in streaming mode, which makes players show a ~1 second duration. At stop, the saved file is read back, patched via [`fix-webm-duration`](https://github.com/yusitnikov/fix-webm-duration), and rewritten
+- **Pause / resume** — <kbd>⌘⇧.</kbd> toggles; the segmented recording capsule in the chrome bar shifts red → amber and the breathing halo suppresses while paused
+- **Webcam PiP overlay** — when enabled, a circular mirrored `<video>` pins to the bottom-right above maximized tiles but below the chrome bar, and is baked into the recording by the tab-capture stream (no offscreen compositing)
+- **Browser picker collapses** — `getDisplayMedia({ preferCurrentTab: true, selfBrowserSurface: "include" })` turns the multi-surface picker into a single "Share this tab" confirmation
+
 ## Architecture
 
 pnpm monorepo:
