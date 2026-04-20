@@ -95,7 +95,11 @@ For each finding: file, line, one-line risk, concrete fix. If no issues, say so 
 
 ## Pass 3: Elegance
 
-Review the changes for elegance and simplicity. For each iteration (run 3 iterations):
+Review the changes for elegance and simplicity.
+
+**If running under Claude Code** (the `Skill` tool is available): invoke the bundled `/simplify` skill via the Skill tool. It runs three parallel lenses — reuse, quality, efficiency — over the current diff and applies fixes. Prefer this path.
+
+**On other harnesses** (no `/simplify` available), run the inline loop instead. For each iteration (run 3 iterations):
 
 1. **Understand** — Read through the changed files. Note patterns, repetition, unnecessary complexity, non-idiomatic code.
 2. **Research** — Use WebSearch/WebFetch to research what simple, elegant (yet readable!) code looks like for the relevant technology.
