@@ -66,10 +66,9 @@ export type {
 const TerminalIdSchema = z.string().uuid();
 
 // --- GitHub PR context ---
-// Schemas + helpers live in ./pr.ts so clients can runtime-import them via
-// `kolu-common/pr` without pulling the full kolu-common module graph
-// (which re-exports kolu-claude-code and transitively drags node-only
-// `@anthropic-ai/claude-agent-sdk` into the browser bundle).
+// Owned by kolu-github (mirrors the kolu-git re-export pattern above). The
+// `kolu-common/pr` subpath also re-exports these for browser clients that
+// want to avoid pulling kolu-claude-code → @anthropic-ai/claude-agent-sdk.
 import {
   GitHubCheckStatusSchema,
   GitHubPrStateSchema,
@@ -83,7 +82,7 @@ import {
   prUnavailableSource,
   reasonForGhCode,
   reasonForSource,
-} from "./pr.ts";
+} from "kolu-github";
 export {
   GitHubCheckStatusSchema,
   GitHubPrStateSchema,
@@ -103,7 +102,7 @@ export type {
   PrResult,
   GhUnavailableCode,
   PrUnavailableSource,
-} from "./pr.ts";
+} from "kolu-github";
 
 // --- AI coding agent context ---
 

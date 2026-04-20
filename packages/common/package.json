@@ -24,6 +24,7 @@
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
     "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
     "anyagent": "workspace:*",
     "kolu-opencode": "workspace:*",
     "ts-pattern": "^5.9.0",

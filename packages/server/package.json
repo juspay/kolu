@@ -28,6 +28,7 @@
     "kolu-claude-code": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
     "kolu-opencode": "workspace:*",
     "node-pty": "^1.0.0",
     "pino": "^10.3.1",
