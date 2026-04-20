@@ -139,6 +139,14 @@ const TerminalCanvas: Component<{
   // The pending seed makes the tile paint at the cascade position on its
   // first render — without it, there would be a (0,0) frame while waiting
   // for the server's metadata echo.
+  //
+  // Contract: the default-cascade runs only for tiles whose `getLayout(id)`
+  // is falsy on their first appearance in `tileIds`. Callers that intend
+  // to preserve a pre-existing layout (session restore, tile clone, …) are
+  // responsible for making `getLayout(id)` return it by then — e.g. by
+  // seeding server metadata before the list snapshot yields (#642). Any
+  // path that seeds AFTER the first `tileIds` fire will lose to this
+  // cascade and overwrite the intended layout.
   createEffect(
     on(
       () => props.tileIds,
