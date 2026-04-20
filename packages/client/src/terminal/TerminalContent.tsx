@@ -35,8 +35,6 @@ const TerminalContent: Component<{
   /** Called when user focuses any terminal in this pane (click, keyboard).
    *  Canvas mode uses this to set the active tile. */
   onFocus?: () => void;
-  /** Detach the right-side browser region from this terminal (#633). */
-  onCloseBrowser?: (id: TerminalId) => void;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -78,10 +76,6 @@ const TerminalContent: Component<{
   // the same metadata stream as subPanel. Reads through the same getter
   // the caller passes so the component doesn't bind to a specific store.
   const browser = () => props.getMetadata(props.terminalId)?.browser;
-  const hasBrowser = () => {
-    const b = browser();
-    return b !== undefined && !b.collapsed;
-  };
 
   function handleBrowserSizesChange(sizes: number[]) {
     const b = browser();
@@ -192,7 +186,7 @@ const TerminalContent: Component<{
   // split directly — no wrapper overhead. The browser's own panelSize
   // lives on terminal metadata so it survives reload (see #633 pivot).
   return (
-    <Show when={hasBrowser() && browser()} fallback={verticalSplit()} keyed>
+    <Show when={browser()} fallback={verticalSplit()} keyed>
       {(b) => (
         <Resizable
           orientation="horizontal"
@@ -217,11 +211,7 @@ const TerminalContent: Component<{
             class="min-h-0 overflow-hidden"
             minSize={0.15}
           >
-            <BrowserRegion
-              terminalId={props.terminalId}
-              browser={b}
-              onDetach={() => props.onCloseBrowser?.(props.terminalId)}
-            />
+            <BrowserRegion terminalId={props.terminalId} browser={b} />
           </Resizable.Panel>
         </Resizable>
       )}

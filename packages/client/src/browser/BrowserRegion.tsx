@@ -12,13 +12,21 @@
  *  Regardless of probe result the header always offers an "open
  *  externally" button so the escape hatch is unconditional. */
 
-import { type Component, Show, createEffect, createSignal, on } from "solid-js";
+import {
+  type Component,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+} from "solid-js";
 import type { TerminalId, BrowserRegion } from "kolu-common";
 import { toast } from "solid-sonner";
 import { client } from "../rpc/rpc";
 import { resolveTileUrl } from "./resolveTileUrl";
 import { OpenExternalIcon, ReloadIcon, GlobeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
+import { TILE_BUTTON_CLASS } from "../ui/tileButton";
 
 /** Bump this counter on the iframe `src` attribute to force a reload
  *  without recreating the element — `location.reload()` on a cross-origin
@@ -34,28 +42,25 @@ function appendReloadNonce(url: string, nonce: number): string {
   }
 }
 
-const CHROME_BUTTON_CLASS =
-  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
-
 const BrowserRegionComponent: Component<{
   terminalId: TerminalId;
   browser: BrowserRegion;
-  onDetach: () => void;
 }> = (props) => {
   const rawUrl = () => props.browser.url;
-  const resolved = () => resolveTileUrl(rawUrl());
+  const resolved = createMemo(() => resolveTileUrl(rawUrl()));
   const [reloadNonce, setReloadNonce] = createSignal(0);
-  const src = () => appendReloadNonce(resolved(), reloadNonce());
+  const src = createMemo(() => appendReloadNonce(resolved(), reloadNonce()));
   const [draft, setDraft] = createSignal(rawUrl());
 
   // Keep the URL-bar draft in sync with the committed URL (e.g. session
-  // restore or cross-client update); only reset when the draft equals the
-  // previous committed value so in-flight user edits aren't clobbered.
-  let lastCommitted = rawUrl();
+  // restore or cross-client update); only reset when the draft matches
+  // the previous committed value so in-flight user edits aren't clobbered.
+  // `on`'s `prevInput` parameter gives us the last rawUrl without a
+  // module-local mutable; we return `next` from the effect so the second
+  // run sees the prior committed value cleanly.
   createEffect(
-    on(rawUrl, (next) => {
-      if (draft() === lastCommitted) setDraft(next);
-      lastCommitted = next;
+    on(rawUrl, (next, prev) => {
+      if (prev !== undefined && draft() === prev) setDraft(next);
     }),
   );
 
@@ -99,13 +104,21 @@ const BrowserRegionComponent: Component<{
       );
   }
 
-  const hostLabel = () => {
+  function detach() {
+    void client.terminal
+      .clearBrowser({ id: props.terminalId })
+      .catch((err: Error) =>
+        toast.error(`Failed to close browser: ${err.message}`),
+      );
+  }
+
+  const hostLabel = createMemo(() => {
     try {
       return new URL(resolved()).host || rawUrl();
     } catch {
       return rawUrl() || "new browser";
     }
-  };
+  });
 
   return (
     <div
@@ -149,7 +162,7 @@ const BrowserRegionComponent: Component<{
         <Tip label="Reload">
           <button
             data-testid="browser-region-reload"
-            class={`${CHROME_BUTTON_CLASS} w-7`}
+            class={`${TILE_BUTTON_CLASS} w-7`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onClick={() => setReloadNonce((n) => n + 1)}
             aria-label="Reload"
@@ -163,7 +176,7 @@ const BrowserRegionComponent: Component<{
             href={rawUrl() || "about:blank"}
             target="_blank"
             rel="noopener noreferrer"
-            class={`${CHROME_BUTTON_CLASS} w-7`}
+            class={`${TILE_BUTTON_CLASS} w-7`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             aria-label="Open in a new tab"
           >
@@ -173,9 +186,9 @@ const BrowserRegionComponent: Component<{
         <Tip label="Close browser">
           <button
             data-testid="browser-region-close"
-            class={`${CHROME_BUTTON_CLASS} w-7`}
+            class={`${TILE_BUTTON_CLASS} w-7`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
-            onClick={() => props.onDetach()}
+            onClick={() => detach()}
             aria-label="Close browser"
           >
             ×

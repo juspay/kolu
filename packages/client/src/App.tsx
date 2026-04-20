@@ -14,7 +14,7 @@ import {
   Show,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { Toaster, toast } from "solid-sonner";
+import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import { isMobile } from "./useMobile";
 import ChromeBar from "./ChromeBar";
@@ -220,43 +220,6 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Toggle the right-side browser region on a terminal (#633): attach
-   *  it with a default initial URL when absent, detach it when present.
-   *  Mirrors `handleToggleSubPanel`'s open-or-close shape — the chrome
-   *  button is a single affordance that reflects current state. */
-  function handleToggleBrowser(id: TerminalId) {
-    const existing = store.getMetadata(id)?.browser;
-    if (existing && !existing.collapsed) {
-      void client.terminal
-        .clearBrowser({ id })
-        .catch((err: Error) =>
-          toast.error(`Failed to close browser: ${err.message}`),
-        );
-      return;
-    }
-    void client.terminal
-      .setBrowser({
-        id,
-        browser: existing
-          ? { ...existing, collapsed: false }
-          : { url: "", collapsed: false, panelSize: 0.5 },
-      })
-      .catch((err: Error) =>
-        toast.error(`Failed to open browser: ${err.message}`),
-      );
-  }
-
-  /** Detach the right-side browser region. The region's own × calls this
-   *  directly (plumbed through `TerminalContent.onCloseBrowser`); the
-   *  title-bar globe button goes through `handleToggleBrowser` instead. */
-  function handleCloseBrowser(id: TerminalId) {
-    void client.terminal
-      .clearBrowser({ id })
-      .catch((err: Error) =>
-        toast.error(`Failed to close browser: ${err.message}`),
-      );
-  }
-
   /** Close a terminal. Top-level terminals show a confirmation dialog;
    *  splits (sub-terminals) are killed directly — they are ephemeral
    *  sub-panes, like browser tabs, and should never pop the worktree
@@ -341,7 +304,6 @@ const App: Component = () => {
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
         onFocus={() => store.setActiveId(id)}
-        onCloseBrowser={handleCloseBrowser}
       />
     );
   }
@@ -364,7 +326,6 @@ const App: Component = () => {
         }
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
-        onCloseBrowser={handleCloseBrowser}
       />
     );
   }
@@ -578,7 +539,6 @@ const App: Component = () => {
                         onToggleSubPanel={handleToggleSubPanel}
                         onOpenSearch={() => setSearchOpen(true)}
                         onScreenshot={handleScreenshotTerminal}
-                        onToggleBrowser={handleToggleBrowser}
                       />
                     )}
                     renderTileBody={renderCanvasTileBody}

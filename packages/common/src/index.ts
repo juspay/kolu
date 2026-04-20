@@ -120,13 +120,12 @@ export const SubPanelStateSchema = z.object({
  *  A terminal may carry a 0-or-1 right-side browser iframe, peer to its
  *  optional bottom sub-panel. Lives on client metadata because the write
  *  authority is user input (URL bar) — same class of state as `subPanel`.
+ *  Absence of the field IS the "collapsed" state; there's no separate bit.
  *
  *  `panelSize` is the browser's fraction of the tile's horizontal width
- *  (0–1). `collapsed` is kept as a bit independent of presence so the
- *  user can temporarily hide the browser without losing the URL. */
+ *  (0–1), persisted across reloads. */
 export const BrowserRegionSchema = z.object({
   url: z.string(),
-  collapsed: z.boolean(),
   panelSize: z.number(),
 });
 

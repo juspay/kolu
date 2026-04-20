@@ -19,10 +19,8 @@
 export function resolveTileUrl(url: string): string {
   const trimmed = url.trim();
   if (trimmed === "") return trimmed;
-  return hasScheme(trimmed) ? trimmed : `https://${trimmed}`;
-}
-
-/** RFC 3986 scheme: `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":"`. */
-function hasScheme(url: string): boolean {
-  return /^[a-z][a-z0-9+\-.]*:/i.test(url);
+  // `URL.canParse(x)` without a base returns true only for absolute URLs
+  // (those carrying a scheme). Matches the intent of "does this already
+  // have a scheme?" without hand-rolling the RFC 3986 regex.
+  return URL.canParse(trimmed) ? trimmed : `https://${trimmed}`;
 }
