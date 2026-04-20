@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveCheckStatus, prResultEqual, classifyGhError } from "./github.ts";
-import type { GitHubPrInfo, PrResult } from "kolu-common";
+import type { GitHubPrInfo, PrResult } from "./schemas.ts";
 
 describe("deriveCheckStatus", () => {
   it("returns null for undefined rollup", () => {
