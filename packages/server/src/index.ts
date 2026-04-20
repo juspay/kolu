@@ -10,6 +10,7 @@ import { WebSocketServer } from "ws";
 import { resolve } from "node:path";
 import { createServer as createHttpsServer } from "node:https";
 import { DEFAULT_PORT } from "kolu-common/config";
+import { previewHttpProxy, createPreviewWsProxy } from "kolu-preview";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
 import { initSessionAutoSave } from "./session.ts";
@@ -81,6 +82,19 @@ app.use(
       onResBindings: (c) => ({ res: { status: c.res.status } }),
       onResLevel: () => "debug",
     },
+  }),
+);
+
+// --- Phase 1 preview proxy (#633) ---
+// Requests whose Host header looks like `<port>.preview.<anything>` are
+// proxied to `127.0.0.1:<port>` — dev-server preview alongside the
+// terminal running it. Implementation lives in kolu-preview; the middle-
+// ware installs before app routes so it shortcuts cleanly.
+let tlsEnabled = false;
+app.use(
+  previewHttpProxy({
+    isTls: () => tlsEnabled,
+    log: { warn: (obj, msg) => log.warn(obj, msg) },
   }),
 );
 
@@ -173,6 +187,7 @@ if (clientDist) {
 // --- TLS setup ---
 const { host, port } = argv.flags;
 const tlsOptions = await resolveTlsOptions(argv.flags);
+tlsEnabled = !!tlsOptions;
 
 // --- Start server ---
 const server = serve(
@@ -227,7 +242,17 @@ wss.on("connection", (ws) => {
   });
 });
 
+// --- Phase 1 preview WebSocket passthrough (#633) ---
+// HMR needs WS too. Preview subdomain upgrades are handed to kolu-preview
+// *before* oRPC's own ws routing, so dev-server traffic never hits app code.
+const previewWs = createPreviewWsProxy({
+  warn: (obj, msg) => log.warn(obj, msg),
+  error: (obj, msg) => log.error(obj, msg),
+});
+
 server.on("upgrade", (req, socket, head) => {
+  if (previewWs.handle(req, socket, head)) return;
+
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
     wss.handleUpgrade(req, socket, head, (ws) => {
