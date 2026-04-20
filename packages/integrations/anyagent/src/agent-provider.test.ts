@@ -9,6 +9,7 @@ describe("agentInfoEqual", () => {
     model: "claude-opus-4-6",
     summary: "Refactor sidebar layout",
     taskProgress: null,
+    contextTokens: null,
   };
 
   it("returns true for identical references", () => {
@@ -35,6 +36,8 @@ describe("agentInfoEqual", () => {
     { field: "summary", value: "Different topic" },
     { field: "summary", value: null },
     { field: "taskProgress", value: { total: 3, completed: 1 } },
+    { field: "contextTokens", value: 42_000 },
+    { field: "contextTokens", value: 0 },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(
       agentInfoEqual(claude, { ...claude, [field]: value } as AgentInfoShape),
@@ -49,6 +52,7 @@ describe("agentInfoEqual", () => {
       model: null,
       summary: null,
       taskProgress: null,
+      contextTokens: null,
     };
     expect(agentInfoEqual(claude, opencode)).toBe(false);
   });

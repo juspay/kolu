@@ -103,6 +103,7 @@ export function createOpenCodeWatcher(
       model: derived.model,
       summary,
       taskProgress,
+      contextTokens: derived.contextTokens,
     };
 
     if (agentInfoEqual(lastInfo, info)) return;

@@ -39,6 +39,12 @@ export const ClaudeCodeInfoSchema = z.object({
   /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
    *  null when no tasks have been created in the session. */
   taskProgress: TaskProgressSchema.nullable(),
+  /** Running context-window token count: sum of input + cache_creation +
+   *  cache_read on the latest assistant entry's `message.usage`. Null when
+   *  the transcript has no assistant entries yet, or the entry lacks usage
+   *  (e.g. synthetic entries from /compact). Window size is not encoded —
+   *  consumers render the raw count compact ("47k"). */
+  contextTokens: z.number().nullable(),
 });
 
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
@@ -183,18 +189,39 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 
 // --- State derivation ---
 
-/** Derive Claude Code state from the last relevant JSONL message. */
-export function deriveState(
-  lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
-  // Walk backwards to find the last assistant or user message
+/** Anthropic usage subset from `message.usage` on assistant entries — the
+ *  three input-side counters we sum for the running context-token total.
+ *  Matches the shape emitted by the Claude Code transcript JSONL. */
+type UsageShape = {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+};
+
+/** Derive Claude Code state from the last relevant JSONL message.
+ *
+ *  Walks backwards for the newest `assistant` or `user` entry. Returns
+ *  `contextTokens` from the same assistant entry's `message.usage` (sum
+ *  of input + cache_creation + cache_read) — one walk, one parse. User
+ *  entries return `contextTokens: null` because usage lives on assistant
+ *  entries. */
+export function deriveState(lines: string[]): {
+  state: ClaudeCodeInfo["state"];
+  model: string | null;
+  contextTokens: number | null;
+} | null {
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const entry: {
         type?: string;
-        message?: { stop_reason?: string | null; model?: string | null };
+        message?: {
+          stop_reason?: string | null;
+          model?: string | null;
+          usage?: UsageShape;
+        };
       } = JSON.parse(lines[i]!);
       const model = entry.message?.model ?? null;
+      const contextTokens = sumUsageTokens(entry.message?.usage);
       const result = match({
         type: entry.type,
         stopReason: entry.message?.stop_reason ?? null,
@@ -202,18 +229,22 @@ export function deriveState(
         .with({ type: "assistant", stopReason: "end_turn" }, () => ({
           state: "waiting" as const,
           model,
+          contextTokens,
         }))
         .with({ type: "assistant", stopReason: "tool_use" }, () => ({
           state: "tool_use" as const,
           model,
+          contextTokens,
         }))
         .with({ type: "assistant" }, () => ({
           state: "thinking" as const,
           model,
+          contextTokens,
         }))
         .with({ type: "user" }, () => ({
           state: "thinking" as const,
           model: null,
+          contextTokens: null,
         }))
         .otherwise(() => null);
       if (result !== null) return result;
@@ -222,6 +253,19 @@ export function deriveState(
     }
   }
   return null;
+}
+
+/** Sum the three input-side token counters that together represent what
+ *  the model had to read for the turn. Absent fields count as 0. Returns
+ *  null when no usage object is present (e.g. synthetic transcript
+ *  entries). */
+function sumUsageTokens(usage: UsageShape | undefined): number | null {
+  if (!usage) return null;
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0)
+  );
 }
 
 // --- Task extraction ---

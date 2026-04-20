@@ -1,7 +1,8 @@
-/** AI agent state indicator — logo + state label. Logo animates when active.
- *  Renders the appropriate icon per agent kind (Claude Code, OpenCode). */
+/** AI agent state indicator — logo + state label + compact context-token
+ *  count. Logo animates when active. Renders the appropriate icon per agent
+ *  kind (Claude Code, OpenCode). */
 
-import type { Component } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { AgentInfo } from "kolu-common";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
@@ -22,6 +23,13 @@ const stateConfig: Record<
   waiting: { color: "text-warning", animation: "animate-pulse" },
 };
 
+/** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
+ *  needed. `maximumFractionDigits: 1` keeps "1.2M" but avoids "47.0K". */
+const tokenFormat = new Intl.NumberFormat("en", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const cfg = () => stateConfig[props.agent.state];
   const Icon = () => agentIcons[props.agent.kind];
@@ -39,6 +47,20 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
         <Dynamic component={Icon()} class="w-3 h-3" />
       </span>
       <span class="hidden sm:inline">{label()}</span>
+      {/* `!= null` (not truthy) so a legitimate `0` — e.g. a synthetic
+       *  assistant entry with a zeroed usage block — still renders. We
+       *  only want to hide when telemetry is *absent*, not when it's
+       *  zero. The `!` is safe inside the Show body (SolidJS re-runs
+       *  this subtree when contextTokens flips to null). */}
+      <Show when={props.agent.contextTokens != null}>
+        <span
+          data-testid="agent-context-tokens"
+          class="tabular-nums text-fg-3"
+          title={`Context: ${props.agent.contextTokens!.toLocaleString()} tokens`}
+        >
+          {tokenFormat.format(props.agent.contextTokens!)}
+        </span>
+      </Show>
     </span>
   );
 };

@@ -45,6 +45,11 @@ export const OpenCodeInfoSchema = z.object({
   summary: z.string().nullable(),
   /** Todo progress from OpenCode's `todo` table. null when no todos. */
   taskProgress: TaskProgressSchema.nullable(),
+  /** Running context-window token count from the latest assistant
+   *  message's `tokens.total` field (OpenCode emits it pre-summed).
+   *  Null when the latest message is a user turn or the agent has not
+   *  yet produced an assistant reply. */
+  contextTokens: z.number().nullable(),
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
@@ -228,12 +233,17 @@ interface MessageData {
   providerID?: string;
   finish?: string;
   time?: { created?: number; completed?: number };
+  /** Present on assistant messages once OpenCode has accounted the turn.
+   *  `total` is the running session token count, pre-summed by the
+   *  provider — we just pass it through. */
+  tokens?: { total?: number };
 }
 
 /** State derived from message JSON content only. */
 export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
   model: string | null;
+  contextTokens: number | null;
 };
 
 /** Full derived state including the message ID for scoping
@@ -288,6 +298,7 @@ export function parseMessageState(data: string): ParsedMessageState | null {
     .with({ role: "user" }, () => ({
       state: "thinking" as const,
       model: null,
+      contextTokens: null,
     }))
     .with({ role: "assistant" }, (m) => {
       const model = m.modelID
@@ -295,14 +306,15 @@ export function parseMessageState(data: string): ParsedMessageState | null {
           ? `${m.providerID}/${m.modelID}`
           : m.modelID
         : null;
+      const contextTokens = m.tokens?.total ?? null;
       // Assistant message with completion timestamp + clean stop = waiting
       if (m.time?.completed && m.finish === "stop") {
-        return { state: "waiting" as const, model };
+        return { state: "waiting" as const, model, contextTokens };
       }
       // Otherwise still working (no completion yet, or non-stop finish
       // reason like "tool-calls"). The watcher upgrades "thinking" to
       // "tool_use" when hasRunningTools() finds active tool parts.
-      return { state: "thinking" as const, model };
+      return { state: "thinking" as const, model, contextTokens };
     })
     .otherwise(() => null);
 }

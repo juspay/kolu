@@ -29,6 +29,7 @@ describe("deriveState", () => {
       expect(deriveState([line])).toEqual({
         state: expected,
         model: "claude-opus-4-6",
+        contextTokens: null,
       });
     },
   );
@@ -41,12 +42,17 @@ describe("deriveState", () => {
     expect(deriveState([line])).toEqual({
       state: "thinking",
       model: "claude-opus-4-6",
+      contextTokens: null,
     });
   });
 
   it("returns thinking for user message", () => {
     const line = JSON.stringify({ type: "user" });
-    expect(deriveState([line])).toEqual({ state: "thinking", model: null });
+    expect(deriveState([line])).toEqual({
+      state: "thinking",
+      model: null,
+      contextTokens: null,
+    });
   });
 
   it("uses last relevant message (walks backwards)", () => {
@@ -58,6 +64,7 @@ describe("deriveState", () => {
     expect(deriveState([user, assistant])).toEqual({
       state: "waiting",
       model: "claude-opus-4-6",
+      contextTokens: null,
     });
   });
 
@@ -67,6 +74,43 @@ describe("deriveState", () => {
     expect(deriveState([user, system])).toEqual({
       state: "thinking",
       model: null,
+      contextTokens: null,
+    });
+  });
+
+  it("sums input + cache_creation + cache_read from assistant usage", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "end_turn",
+        model: "claude-opus-4-7",
+        usage: {
+          input_tokens: 6,
+          cache_creation_input_tokens: 810,
+          cache_read_input_tokens: 28663,
+          output_tokens: 380,
+        },
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "waiting",
+      model: "claude-opus-4-7",
+      contextTokens: 29479,
+    });
+  });
+
+  it("tolerates missing usage fields (treats absent as zero)", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        model: "claude-opus-4-7",
+        usage: { cache_read_input_tokens: 27871 },
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "thinking",
+      model: "claude-opus-4-7",
+      contextTokens: 27871,
     });
   });
 
@@ -78,6 +122,7 @@ describe("deriveState", () => {
     expect(deriveState(["not json", valid])).toEqual({
       state: "waiting",
       model: "claude-opus-4-6",
+      contextTokens: null,
     });
   });
 
