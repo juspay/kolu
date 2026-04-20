@@ -115,6 +115,21 @@ export const SubPanelStateSchema = z.object({
   panelSize: z.number(),
 });
 
+/** Browser-region state attached to a terminal tile (issue #633).
+ *
+ *  A terminal may carry a 0-or-1 right-side browser iframe, peer to its
+ *  optional bottom sub-panel. Lives on client metadata because the write
+ *  authority is user input (URL bar) — same class of state as `subPanel`.
+ *
+ *  `panelSize` is the browser's fraction of the tile's horizontal width
+ *  (0–1). `collapsed` is kept as a bit independent of presence so the
+ *  user can temporarily hide the browser without losing the URL. */
+export const BrowserRegionSchema = z.object({
+  url: z.string(),
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
 /**
  * Server-derived metadata — populated by providers from external state
  * (git working tree, PTY foreground process, agent CLI transcripts).
@@ -152,6 +167,10 @@ export const TerminalClientMetadataSchema = z.object({
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
   subPanel: SubPanelStateSchema.optional(),
+  /** Right-side browser iframe attached to this terminal (#633). Absent
+   *  when no browser is attached; peer to `subPanel` which sits at the
+   *  bottom. One browser max per terminal. */
+  browser: BrowserRegionSchema.optional(),
 });
 
 /**
@@ -169,6 +188,34 @@ export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
   meta: TerminalMetadataSchema,
+});
+
+// --- Terminal-attached browser region (issue #633) ---
+
+/** Attach or update the right-side browser region on a terminal. */
+export const TerminalSetBrowserInputSchema = z.object({
+  id: TerminalIdSchema,
+  browser: BrowserRegionSchema,
+});
+
+/** Detach the browser region from a terminal. */
+export const TerminalClearBrowserInputSchema = z.object({
+  id: TerminalIdSchema,
+});
+
+/** HEAD-probe a URL for XFO / CSP frame-ancestors restrictions. Server-
+ *  side so the client isn't exposed to the target's CORS policy. */
+export const TerminalProbeBrowserUrlInputSchema = z.object({
+  url: z.string(),
+});
+
+export const TerminalProbeBrowserUrlOutputSchema = z.object({
+  /** True if the HEAD probe found `X-Frame-Options: DENY|SAMEORIGIN` or a
+   *  restrictive `Content-Security-Policy: frame-ancestors 'none'|'self'`.
+   *  Treated as a hint — the UI always offers an "Open externally" escape. */
+  blocked: z.boolean(),
+  /** Short reason for display when blocked (e.g. "X-Frame-Options: DENY"). */
+  reason: z.string().optional(),
 });
 
 export const TerminalResizeInputSchema = z.object({
@@ -287,6 +334,8 @@ export const SavedTerminalSchema = z.object({
       panelSize: z.number(),
     })
     .optional(),
+  /** Browser region attached to this terminal at save time (#633). */
+  browser: BrowserRegionSchema.optional(),
 });
 
 export const SavedSessionSchema = z.object({
@@ -380,6 +429,10 @@ export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type BrowserRegion = z.infer<typeof BrowserRegionSchema>;
+export type TerminalProbeBrowserUrlOutput = z.infer<
+  typeof TerminalProbeBrowserUrlOutputSchema
+>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;

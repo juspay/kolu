@@ -14,7 +14,7 @@ import {
   Show,
 } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { Toaster } from "solid-sonner";
+import { Toaster, toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { isMobile } from "./useMobile";
 import ChromeBar from "./ChromeBar";
@@ -220,6 +220,34 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
+  /** Attach the right-side browser region to a terminal (#633). Opens
+   *  with a default initial URL when none is yet set. No-op if already
+   *  attached — the right affordance then is to focus its URL bar, which
+   *  happens because BrowserRegion auto-focuses on mount. */
+  function handleOpenBrowser(id: TerminalId) {
+    const existing = store.getMetadata(id)?.browser;
+    if (existing && !existing.collapsed) return;
+    void client.terminal
+      .setBrowser({
+        id,
+        browser: existing
+          ? { ...existing, collapsed: false }
+          : { url: "", collapsed: false, panelSize: 0.5 },
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to open browser: ${err.message}`),
+      );
+  }
+
+  /** Detach the right-side browser region (closes its panel). */
+  function handleCloseBrowser(id: TerminalId) {
+    void client.terminal
+      .clearBrowser({ id })
+      .catch((err: Error) =>
+        toast.error(`Failed to close browser: ${err.message}`),
+      );
+  }
+
   /** Close a terminal. Top-level terminals show a confirmation dialog;
    *  splits (sub-terminals) are killed directly — they are ephemeral
    *  sub-panes, like browser tabs, and should never pop the worktree
@@ -304,6 +332,7 @@ const App: Component = () => {
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
         onFocus={() => store.setActiveId(id)}
+        onCloseBrowser={handleCloseBrowser}
       />
     );
   }
@@ -326,6 +355,7 @@ const App: Component = () => {
         }
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
+        onCloseBrowser={handleCloseBrowser}
       />
     );
   }
@@ -539,6 +569,7 @@ const App: Component = () => {
                         onToggleSubPanel={handleToggleSubPanel}
                         onOpenSearch={() => setSearchOpen(true)}
                         onScreenshot={handleScreenshotTerminal}
+                        onOpenBrowser={handleOpenBrowser}
                       />
                     )}
                     renderTileBody={renderCanvasTileBody}

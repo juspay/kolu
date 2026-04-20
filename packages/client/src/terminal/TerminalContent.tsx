@@ -1,5 +1,5 @@
 /** TerminalContent — shared terminal rendering: main terminal + resizable
- *  sub-panel with tab bar and child terminals.
+ *  bottom sub-panel + optional right-side browser region (#633).
  *
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
@@ -10,6 +10,9 @@ import type { ITheme } from "@xterm/xterm";
 import Terminal from "./Terminal";
 import SubPanelTabBar from "./SubPanelTabBar";
 import { useSubPanel } from "./useSubPanel";
+import BrowserRegion from "../browser/BrowserRegion";
+import { client } from "../rpc/rpc";
+import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 
 const TerminalContent: Component<{
@@ -32,6 +35,8 @@ const TerminalContent: Component<{
   /** Called when user focuses any terminal in this pane (click, keyboard).
    *  Canvas mode uses this to set the active tile. */
   onFocus?: () => void;
+  /** Detach the right-side browser region from this terminal (#633). */
+  onCloseBrowser?: (id: TerminalId) => void;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -69,7 +74,39 @@ const TerminalContent: Component<{
     props.onFocus?.();
   }
 
-  return (
+  // Right-side browser region state — optional, per-terminal, comes from
+  // the same metadata stream as subPanel. Reads through the same getter
+  // the caller passes so the component doesn't bind to a specific store.
+  const browser = () => props.getMetadata(props.terminalId)?.browser;
+  const hasBrowser = () => {
+    const b = browser();
+    return b !== undefined && !b.collapsed;
+  };
+
+  function handleBrowserSizesChange(sizes: number[]) {
+    const b = browser();
+    if (!b) return;
+    // sizes[1] is the browser's fraction (right panel). Ignore tiny
+    // intermediate values the same way the vertical split does.
+    const next = sizes[1];
+    if (
+      next === undefined ||
+      next < 0.05 ||
+      Math.abs(next - b.panelSize) < 0.01
+    ) {
+      return;
+    }
+    void client.terminal
+      .setBrowser({
+        id: props.terminalId,
+        browser: { ...b, panelSize: next },
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to save browser layout: ${err.message}`),
+      );
+  }
+
+  const verticalSplit = () => (
     <Resizable
       orientation="vertical"
       sizes={
@@ -148,6 +185,47 @@ const TerminalContent: Component<{
         </div>
       </Resizable.Panel>
     </Resizable>
+  );
+
+  // Outer horizontal split: terminal+sub-panel on the left, browser on
+  // the right. When no browser is attached, just render the vertical
+  // split directly — no wrapper overhead. The browser's own panelSize
+  // lives on terminal metadata so it survives reload (see #633 pivot).
+  return (
+    <Show when={hasBrowser() && browser()} fallback={verticalSplit()} keyed>
+      {(b) => (
+        <Resizable
+          orientation="horizontal"
+          sizes={[1 - b.panelSize, b.panelSize]}
+          onSizesChange={handleBrowserSizesChange}
+          class="flex-1 min-h-0"
+        >
+          <Resizable.Panel
+            as="div"
+            class="min-h-0 overflow-hidden flex flex-col"
+            minSize={0.2}
+          >
+            {verticalSplit()}
+          </Resizable.Panel>
+          <Resizable.Handle
+            data-testid="browser-resize-handle"
+            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+            aria-label="Resize browser region"
+          />
+          <Resizable.Panel
+            as="div"
+            class="min-h-0 overflow-hidden"
+            minSize={0.15}
+          >
+            <BrowserRegion
+              terminalId={props.terminalId}
+              browser={b}
+              onDetach={() => props.onCloseBrowser?.(props.terminalId)}
+            />
+          </Resizable.Panel>
+        </Resizable>
+      )}
+    </Show>
   );
 };
 

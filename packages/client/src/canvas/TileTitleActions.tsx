@@ -18,7 +18,12 @@ import { useSubPanel } from "../terminal/useSubPanel";
 import { useThemeManager } from "../useThemeManager";
 import { useTips } from "../settings/useTips";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "../ui/Icons";
+import {
+  GlobeIcon,
+  ScreenshotIcon,
+  SearchIcon,
+  SplitToggleIcon,
+} from "../ui/Icons";
 import Tip from "../ui/Tip";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
@@ -37,6 +42,8 @@ const TileTitleActions: Component<{
   onOpenSearch: () => void;
   /** Screenshot the given terminal. */
   onScreenshot: (id: TerminalId) => void;
+  /** Attach the right-side browser region to this terminal (#633). */
+  onOpenBrowser: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
@@ -50,6 +57,8 @@ const TileTitleActions: Component<{
   const subCount = () => store.getSubTerminalIds(props.id).length;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
+  const browserAttached = () =>
+    meta()?.browser !== undefined && !meta()?.browser?.collapsed;
 
   return (
     <>
@@ -92,6 +101,24 @@ const TileTitleActions: Component<{
           </Tip>
         )}
       </Show>
+      <Tip label={browserAttached() ? "Browser open" : "Open browser →"}>
+        <button
+          data-testid="tile-open-browser"
+          class={`${TILE_BUTTON_CLASS} w-7`}
+          classList={{ "bg-black/20": browserAttached() }}
+          style={{ color: "var(--color-fg-3, currentColor)" }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            store.setActiveId(props.id);
+            props.onOpenBrowser(props.id);
+          }}
+          aria-label="Open browser"
+          disabled={browserAttached()}
+        >
+          <GlobeIcon />
+        </button>
+      </Tip>
       <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
         <button
           data-testid="tile-split-toggle"

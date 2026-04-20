@@ -159,6 +159,14 @@ export function useSessionRestore(deps: {
         if (t.subPanel) {
           subPanel.seedPanel(newId, t.subPanel);
         }
+        if (t.browser) {
+          // Right-side browser region (#633) rides on the terminal now.
+          void client.terminal
+            .setBrowser({ id: newId, browser: t.browser })
+            .catch((err: Error) =>
+              toast.error(`Failed to restore browser: ${err.message}`),
+            );
+        }
       }
       // Restore active terminal
       if (session.activeTerminalId) {
