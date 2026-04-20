@@ -226,10 +226,21 @@ export const SetActiveTerminalInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
 });
 
-export const TerminalCreateInputSchema = z.object({
-  cwd: z.string().optional(),
-  parentId: TerminalIdSchema.optional(),
+/** Client-owned metadata supplied at create time. Seeded onto the new
+ *  terminal's `meta` before the first `terminal.list` yield, so session
+ *  restore can't race the canvas default-cascade effect (#642). */
+export const InitialTerminalMetadataSchema = z.object({
+  themeName: z.string().optional(),
+  canvasLayout: CanvasLayoutSchema.optional(),
+  subPanel: SubPanelStateSchema.optional(),
 });
+
+export const TerminalCreateInputSchema = z
+  .object({
+    cwd: z.string().optional(),
+    parentId: TerminalIdSchema.optional(),
+  })
+  .merge(InitialTerminalMetadataSchema);
 
 export const TerminalAttachInputSchema = z.object({ id: TerminalIdSchema });
 export const TerminalAttachOutputSchema = z.string();
@@ -399,6 +410,9 @@ export type TerminalClientMetadata = z.infer<
   typeof TerminalClientMetadataSchema
 >;
 export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
+export type InitialTerminalMetadata = z.infer<
+  typeof InitialTerminalMetadataSchema
+>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;

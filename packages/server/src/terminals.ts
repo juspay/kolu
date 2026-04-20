@@ -3,7 +3,12 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import type {
+  InitialTerminalMetadata,
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common";
 import { log } from "./log.ts";
 import {
   CLIPBOARD_SHIM_DIR,
@@ -126,8 +131,16 @@ function publishSuffixChanges(): void {
   }
 }
 
-/** Create a new terminal, spawn a PTY process. Optionally set initial CWD and parent. */
-export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
+/** Create a new terminal, spawn a PTY process. `initial` seeds
+ *  client-owned metadata onto `meta` before the first `emitListChanged()`,
+ *  so the list snapshot already carries it — used by session restore
+ *  to avoid racing post-hoc `setCanvasLayout` / `setTheme` / `setSubPanel`
+ *  RPCs against the client's canvas-cascade effect (#642). */
+export function createTerminal(
+  cwd?: string,
+  parentId?: string,
+  initial?: InitialTerminalMetadata,
+): TerminalInfo {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
   const clipboardDir = createClipboardDir(id);
@@ -185,6 +198,11 @@ export function createTerminal(cwd?: string, parentId?: string): TerminalInfo {
 
   const meta = createMetadata(handle.cwd, nextSortOrder(parentId));
   if (parentId) meta.parentId = parentId;
+  // Seed client-owned initial metadata BEFORE emitListChanged so the
+  // first list snapshot carries these fields (see #642).
+  if (initial?.themeName) meta.themeName = initial.themeName;
+  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
+  if (initial?.subPanel) meta.subPanel = initial.subPanel;
   const entry: TerminalProcess = {
     info: {
       id,
