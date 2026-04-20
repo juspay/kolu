@@ -81,6 +81,43 @@ export const GitHubPrInfoSchema = z.object({
   checks: GitHubCheckStatusSchema.nullable(),
 });
 
+/** PR resolution state.
+ *
+ *  Decomplects three distinct conditions that `GitHubPrInfo | null` used to
+ *  collapse into one value:
+ *    pending     — resolver is running (or stale after a branch change)
+ *    ok          — resolver succeeded; a PR exists for this branch
+ *    absent      — resolver succeeded; no PR for this branch (expected case)
+ *    unavailable — resolver couldn't run (gh missing, not authenticated, timed out)
+ *
+ *  The UI needs to distinguish "absent" (nothing to show) from "unavailable"
+ *  (show a warning with `reason`). Keeping the provenance in the same field
+ *  as the value avoids a sibling-flag invariant.
+ *
+ *  Analogous schemas for git/agent/foreground are not introduced yet — their
+ *  failure modes don't currently surface as user-actionable warnings. If they
+ *  do, mirror this shape per-provider rather than inventing a cross-cutting
+ *  status registry (see PR description for #148). */
+export const PrResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("pending") }),
+  z.object({ kind: z.literal("ok"), value: GitHubPrInfoSchema }),
+  z.object({ kind: z.literal("absent") }),
+  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
+]);
+export type PrResult = z.infer<typeof PrResultSchema>;
+
+/** Extract the `GitHubPrInfo` when `kind === "ok"`, else `null`.
+ *  Lets SolidJS `<Show when={prValue(meta.pr)}>` work without tripping on the
+ *  object-truthy trap (every variant is a non-null object). */
+export function prValue(pr: PrResult): GitHubPrInfo | null {
+  return pr.kind === "ok" ? pr.value : null;
+}
+
+/** Extract the unavailability reason when `kind === "unavailable"`, else `null`. */
+export function prUnavailableReason(pr: PrResult): string | null {
+  return pr.kind === "unavailable" ? pr.reason : null;
+}
+
 // --- AI coding agent context ---
 
 export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
@@ -123,7 +160,8 @@ export const SubPanelStateSchema = z.object({
 export const TerminalServerMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
-  pr: GitHubPrInfoSchema.nullable(),
+  /** GitHub PR resolution — discriminated union (see PrResultSchema). */
+  pr: PrResultSchema,
   /** AI coding agent status (Claude Code, OpenCode, etc.). */
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */

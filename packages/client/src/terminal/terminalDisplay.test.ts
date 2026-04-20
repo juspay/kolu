@@ -10,7 +10,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/home/user/project",
     git: null,
-    pr: null,
+    pr: { kind: "pending" },
     agent: null,
     foreground: null,
     sortOrder: 0,

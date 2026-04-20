@@ -13,6 +13,7 @@ import {
   GitHubPrStateSchema,
   type GitHubPrInfo,
   type GitInfo,
+  type PrResult,
 } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
@@ -108,6 +109,43 @@ interface GhPrViewResult {
   statusCheckRollup?: Parameters<typeof deriveCheckStatus>[0];
 }
 
+/** Classify a `gh pr view` failure.
+ *
+ *  `gh pr view` exits non-zero for a genuine "no PR on this branch" (common,
+ *  expected) AND for environmental failures (binary missing, not
+ *  authenticated, hit timeout). The original code collapsed all of these into
+ *  a single `null` — distinguish them here so the UI can surface the
+ *  actionable ones. Only a positive match on gh's "no pull requests found"
+ *  stderr counts as absent; anything else unrecognized is treated as
+ *  unavailable rather than silently shown as "no PR." */
+export function classifyGhError(err: unknown): PrResult {
+  const e = err as {
+    code?: string | number;
+    killed?: boolean;
+    signal?: string;
+    stderr?: string;
+  };
+  if (e.code === "ENOENT") {
+    return { kind: "unavailable", reason: "gh: not installed" };
+  }
+  // execFile sets killed=true when the timeout fires and sends SIGTERM.
+  if (e.killed === true || e.signal === "SIGTERM") {
+    return { kind: "unavailable", reason: "gh: timed out" };
+  }
+  const stderr = (e.stderr ?? "").toLowerCase();
+  if (
+    stderr.includes("not logged in") ||
+    stderr.includes("authentication") ||
+    stderr.includes("gh auth login")
+  ) {
+    return { kind: "unavailable", reason: "gh: not authenticated" };
+  }
+  if (stderr.includes("no pull requests found")) {
+    return { kind: "absent" };
+  }
+  return { kind: "unavailable", reason: "gh: unknown error" };
+}
+
 /**
  * Look up the GitHub PR for the current branch.
  *
@@ -116,7 +154,7 @@ interface GhPrViewResult {
  * --head <name>` which matches by branch name alone and picks up unrelated
  * fork PRs.
  */
-async function resolveGitHubPr(repoRoot: string): Promise<GitHubPrInfo | null> {
+async function resolveGitHubPr(repoRoot: string): Promise<PrResult> {
   try {
     const { stdout } = await execFileAsync(
       "gh",
@@ -125,34 +163,40 @@ async function resolveGitHubPr(repoRoot: string): Promise<GitHubPrInfo | null> {
     );
     const data = JSON.parse(stdout) as GhPrViewResult;
     return {
-      number: data.number,
-      title: data.title,
-      url: data.url,
-      state: GitHubPrStateSchema.parse(data.state.toLowerCase()),
-      checks: deriveCheckStatus(data.statusCheckRollup),
+      kind: "ok",
+      value: {
+        number: data.number,
+        title: data.title,
+        url: data.url,
+        state: GitHubPrStateSchema.parse(data.state.toLowerCase()),
+        checks: deriveCheckStatus(data.statusCheckRollup),
+      },
     };
   } catch (err) {
-    // gh pr view exits non-zero when no PR exists for the branch — expected.
-    // Also catches gh-not-installed / auth failures; debug-log so they're discoverable.
-    log.debug({ err: String(err) }, "no PR for current branch");
-    return null;
+    const result = classifyGhError(err);
+    log.debug({ err: String(err), result: result.kind }, "gh pr view failed");
+    return result;
   }
 }
 
-/** Compare two GitHubPrInfo values for equality. */
-export function prInfoEqual(
-  a: GitHubPrInfo | null,
-  b: GitHubPrInfo | null,
-): boolean {
+/** Compare two PR resolution states for equality. */
+export function prResultEqual(a: PrResult, b: PrResult): boolean {
   if (a === b) return true;
-  if (!a || !b) return false;
-  return (
-    a.number === b.number &&
-    a.title === b.title &&
-    a.url === b.url &&
-    a.state === b.state &&
-    a.checks === b.checks
-  );
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "ok" && b.kind === "ok") {
+    return (
+      a.value.number === b.value.number &&
+      a.value.title === b.value.title &&
+      a.value.url === b.value.url &&
+      a.value.state === b.value.state &&
+      a.value.checks === b.value.checks
+    );
+  }
+  if (a.kind === "unavailable" && b.kind === "unavailable") {
+    return a.reason === b.reason;
+  }
+  // "pending" and "absent" have no payload — kind equality is enough.
+  return true;
 }
 
 /**
@@ -188,13 +232,13 @@ export function startGitHubPrProvider(
     );
     lastBranch = branch;
     lastRepoRoot = repoRoot;
-    // Clear pr first — the previous value is tied to the old branch and is
+    // Mark pr pending — the previous value is tied to the old branch and is
     // now stale. If we still have a repo, the async resolve below will
-    // overwrite with the new branch's pr (or null). If we don't, the clear
-    // is the final state.
-    if (entry.info.meta.pr !== null) {
+    // overwrite with the new branch's result. If we don't, pending is the
+    // final state until a new repo is attached.
+    if (entry.info.meta.pr.kind !== "pending") {
       updateServerMetadata(entry, terminalId, (m) => {
-        m.pr = null;
+        m.pr = { kind: "pending" };
       });
     }
     if (branch && repoRoot) {
@@ -204,11 +248,16 @@ export function startGitHubPrProvider(
 
   async function resolve(repoRoot: string) {
     const pr = await resolveGitHubPr(repoRoot);
-    if (prInfoEqual(pr, entry.info.meta.pr)) return;
+    if (prResultEqual(pr, entry.info.meta.pr)) return;
     plog.debug(
-      pr
-        ? { pr: pr.number, title: pr.title, state: pr.state, checks: pr.checks }
-        : { pr: null },
+      pr.kind === "ok"
+        ? {
+            pr: pr.value.number,
+            title: pr.value.title,
+            state: pr.value.state,
+            checks: pr.value.checks,
+          }
+        : { pr: pr.kind },
       "pr info updated",
     );
     updateServerMetadata(entry, terminalId, (m) => {

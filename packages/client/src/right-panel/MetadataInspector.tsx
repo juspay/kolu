@@ -3,8 +3,17 @@
 
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { TerminalMetadata } from "kolu-common";
-import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
+import {
+  type TerminalMetadata,
+  prValue,
+  prUnavailableReason,
+} from "kolu-common";
+import {
+  PrStateIcon,
+  TerminalIcon,
+  WarningIcon,
+  WorktreeIcon,
+} from "../ui/Icons";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
 import Section from "../ui/Section";
@@ -71,7 +80,7 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Pull Request */}
-          <Show when={meta().pr}>
+          <Show when={prValue(meta().pr)}>
             {(pr) => (
               <Section title="Pull Request">
                 <div class="space-y-0.5">
@@ -98,6 +107,21 @@ const MetadataInspector: Component<{
                     )}
                   </Show>
                 </div>
+              </Section>
+            )}
+          </Show>
+          <Show when={prUnavailableReason(meta().pr)}>
+            {(reason) => (
+              <Section title="Pull Request">
+                <Row label="Status" variant="badge">
+                  <span
+                    data-testid="inspector-pr-unavailable"
+                    class="inline-flex items-center gap-1.5 text-fg-2"
+                  >
+                    <WarningIcon class="w-3.5 h-3.5" />
+                    <span>{reason()}</span>
+                  </span>
+                </Row>
               </Section>
             )}
           </Show>
