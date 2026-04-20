@@ -53,7 +53,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: ef43565bd2cbe89c340c9c90a2cd3d30b4cf4416
+  resolved_commit: 9030052fb7fd7465205cb8be5ce6a8cb61609306
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -76,4 +76,4 @@ dependencies:
     .claude/commands/talk.md: sha256:ea870e64c4b4d6ec064c73c0087638dd2b9c41d0216105a2c72a77065d869fdd
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:b9d316555a1509eabb610d32cccdcd1dacaf926b2fd831a3178c30d283756d69
     .claude/rules/apm-sources.md: sha256:8707579e05e2a39f01278b2d225f3cb2ec97912c65c94aa57e5830954f98eab1
-  content_hash: sha256:2639d04b22560b9717363376fa3f6d87848836d75a06883bceffadffd56e60c4
+  content_hash: sha256:ee30cce4ace673235462e70f5f1c0070a0ec101fa2054134d72ad46a33d4eccd
