@@ -181,6 +181,45 @@ Given(
   },
 );
 
+// --- Canvas layout restore scenario ---
+
+Given(
+  "a saved session with canvas layout at x={int} y={int} w={int} h={int}",
+  async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
+    this.savedSessionTerminalCount = 1;
+    const terminals = [
+      { id: "0", cwd: os.homedir(), canvasLayout: { x, y, w, h } },
+    ];
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this.page, terminals);
+  },
+);
+
+Then(
+  "the canvas tile should be at x={int} y={int} w={int} h={int}",
+  async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
+    // Poll — the tile's inline style may briefly reflect a pending layout
+    // while the server's metadata echo is in flight on first paint.
+    await this.page.waitForFunction(
+      (expected) => {
+        const tile = document.querySelector<HTMLElement>(
+          '[data-testid="canvas-tile"]',
+        );
+        if (!tile) return false;
+        const s = tile.style;
+        return (
+          s.left === `${expected.x}px` &&
+          s.top === `${expected.y}px` &&
+          s.width === `${expected.w}px` &&
+          s.height === `${expected.h}px`
+        );
+      },
+      { x, y, w, h },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // --- Refresh preserves the active terminal ---
 
 /** The server debounces session auto-save by 500ms after the last change

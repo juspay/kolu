@@ -80,7 +80,11 @@ export const appRouter = t.router({
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd, input.parentId),
+      createTerminal(input.cwd, input.parentId, {
+        themeName: input.themeName,
+        canvasLayout: input.canvasLayout,
+        subPanel: input.subPanel,
+      }),
     ),
     list: t.terminal.list.handler(async function* ({ signal }) {
       yield listTerminals();

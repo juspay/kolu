@@ -11,7 +11,11 @@ import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { usePreferences } from "../settings/usePreferences";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import type { TerminalId, CanvasLayout } from "kolu-common";
+import type {
+  CanvasLayout,
+  InitialTerminalMetadata,
+  TerminalId,
+} from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {
@@ -102,11 +106,13 @@ export function useTerminalCrud(deps: {
 
   /** Create a new terminal on the server and make it active.
    *  Returns the new terminal ID (for session restore mapping).
-   *  When `themeName` is provided (e.g. session restore), it overrides
-   *  the shuffle-theme preference so only one setTheme RPC fires. */
+   *  `initial` carries client-owned metadata to seed atomically on the
+   *  server — used by session restore so the first `terminal.list`
+   *  yield already carries the saved theme / canvas layout / sub-panel
+   *  state, closing the race with the canvas cascade effect (#642). */
   async function handleCreate(
     cwd?: string,
-    themeName?: string,
+    initial?: InitialTerminalMetadata,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -119,18 +125,24 @@ export function useTerminalCrud(deps: {
           (id) => store.getMetadata(id)?.themeName,
         )
       : null;
-    const info = await client.terminal.create({ cwd }).catch((err: Error) => {
-      toast.error(`Failed to create terminal: ${err.message}`);
-      throw err;
-    });
     const theme =
-      themeName ??
+      initial?.themeName ??
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
+    const info = await client.terminal
+      .create({
+        cwd,
+        themeName: theme,
+        canvasLayout: initial?.canvasLayout,
+        subPanel: initial?.subPanel,
+      })
+      .catch((err: Error) => {
+        toast.error(`Failed to create terminal: ${err.message}`);
+        throw err;
+      });
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
-    if (theme) setThemeName(info.id, theme);
     showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
     return info.id;
   }

@@ -4,14 +4,22 @@ import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { useSubPanel } from "./useSubPanel";
 import { useSavedSession } from "../settings/useSavedSession";
-import { client, lifecycle } from "../rpc/rpc";
-import type { TerminalId, TerminalInfo, SavedSession } from "kolu-common";
+import { lifecycle } from "../rpc/rpc";
+import type {
+  InitialTerminalMetadata,
+  TerminalId,
+  TerminalInfo,
+  SavedSession,
+} from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
-  handleCreate: (cwd?: string, themeName?: string) => Promise<TerminalId>;
+  handleCreate: (
+    cwd?: string,
+    initial?: InitialTerminalMetadata,
+  ) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
@@ -135,30 +143,26 @@ export function useSessionRestore(deps: {
       const subTerminals = session.terminals
         .filter((t) => t.parentId)
         .sort(bySortOrder);
+      // Seed each new terminal with its saved metadata atomically at create
+      // time — the server embeds it into the first `terminal.list` snapshot,
+      // so the canvas cascade effect sees the saved layout on its first run
+      // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd, t.themeName);
+        const newId = await deps.handleCreate(t.cwd, {
+          themeName: t.themeName,
+          canvasLayout: t.canvasLayout,
+          subPanel: t.subPanel,
+        });
         oldToNew.set(t.id, newId);
+        // Client-side sub-panel state (activeSubTab, focusTarget) isn't
+        // server-persisted — seed it locally so the restored panel reopens
+        // to the same tab. The server-persisted fields (collapsed, panelSize)
+        // ride along via handleCreate above.
+        if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
-      }
-      // Restore canvas layouts and sub-panel state under the new terminal IDs.
-      // Canvas layouts go straight to the server — the metadata subscription
-      // delivers them back to the canvas for rendering.
-      for (const t of session.terminals) {
-        const newId = oldToNew.get(t.id);
-        if (!newId) continue;
-        if (t.canvasLayout) {
-          void client.terminal
-            .setCanvasLayout({ id: newId, layout: t.canvasLayout })
-            .catch((err: Error) =>
-              toast.error(`Failed to restore canvas layout: ${err.message}`),
-            );
-        }
-        if (t.subPanel) {
-          subPanel.seedPanel(newId, t.subPanel);
-        }
       }
       // Restore active terminal
       if (session.activeTerminalId) {
