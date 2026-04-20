@@ -29,3 +29,9 @@ export type {
 } from "./schemas.ts";
 
 export { deriveCheckStatus, classifyGhError, prResultEqual } from "./github.ts";
+
+export {
+  resolveGitHubPr,
+  subscribeGitHubPr,
+  type GitHubPrWatcher,
+} from "./resolve.ts";

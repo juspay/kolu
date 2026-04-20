@@ -4,10 +4,11 @@ GitHub PR resolution — Zod schemas, gh-error classifier, CI-status deriver. Pu
 
 ## Modules
 
-| Module       | Exports                                                                                   | Purpose                                   |
-| ------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------- |
-| `schemas.ts` | `GitHubPrInfoSchema`, `PrResultSchema`, `PrUnavailableSourceSchema`, `reasonForSource`, … | Zod schemas + provider-neutral `PrResult` |
-| `github.ts`  | `deriveCheckStatus`, `classifyGhError`, `prResultEqual`                                   | Pure helpers — no I/O                     |
+| Module       | Exports                                                                                   | Purpose                                                         |
+| ------------ | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `schemas.ts` | `GitHubPrInfoSchema`, `PrResultSchema`, `PrUnavailableSourceSchema`, `reasonForSource`, … | Zod schemas + provider-neutral `PrResult`                       |
+| `github.ts`  | `deriveCheckStatus`, `classifyGhError`, `prResultEqual`                                   | Pure helpers — no I/O                                           |
+| `resolve.ts` | `resolveGitHubPr`, `subscribeGitHubPr`                                                    | `gh pr view` spawn + branch-change watcher with 30s poll (Node) |
 
 ## Neutral-vs-gh-specific layout
 
@@ -15,7 +16,13 @@ GitHub PR resolution — Zod schemas, gh-error classifier, CI-status deriver. Pu
 
 ## Server integration
 
-The server's `meta/github.ts` wraps `classifyGhError` and `deriveCheckStatus` with process spawning via `KOLU_GH_BIN` (pinned by Nix in `nix/env.nix`). It subscribes to each terminal's `git:` channel, calls `gh pr view` on branch changes, and publishes `PrResult` through the metadata publisher.
+The server's `meta/github.ts` is a thin adapter around `subscribeGitHubPr`:
+
+1. Calls `subscribeGitHubPr(onChange, log)` — the integration owns the `gh pr view` spawn, branch-change dedup, pending-on-branch-change emission, the 30s polling loop, and failure classification/logging.
+2. On each terminal's `git:` channel emit, calls `watcher.setGit(repoRoot, branch)` — the integration handles dedup internally.
+3. On `onChange`, publishes the resolved `PrResult` into terminal metadata via `updateServerMetadata`.
+
+`KOLU_GH_BIN` is pinned by Nix in `nix/env.nix` and read lazily by `resolve.ts` (first call, not at module load — so browser bundles that reach through `kolu-common/pr` don't blow up on `process.env` access).
 
 ## Consumer imports
 

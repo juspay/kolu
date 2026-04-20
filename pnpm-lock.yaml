@@ -240,6 +240,9 @@ importers:
 
   packages/integrations/github:
     dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
