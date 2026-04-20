@@ -246,6 +246,7 @@ wss.on("connection", (ws) => {
 // HMR needs WS too. Preview subdomain upgrades are handed to kolu-preview
 // *before* oRPC's own ws routing, so dev-server traffic never hits app code.
 const previewWs = createPreviewWsProxy({
+  warn: (obj, msg) => log.warn(obj, msg),
   error: (obj, msg) => log.error(obj, msg),
 });
 
