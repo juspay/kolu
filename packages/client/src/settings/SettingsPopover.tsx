@@ -8,6 +8,7 @@ import Toggle from "../ui/Toggle";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
+import SettingRow, { type Hint } from "./SettingRow";
 import { usePreferences } from "./usePreferences";
 import { useColorScheme, type ColorScheme } from "./useColorScheme";
 import type { Preferences } from "kolu-common";
@@ -17,6 +18,13 @@ const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "dark", label: "Dark" },
   { value: "system", label: "System" },
 ];
+
+/** Reactive hint table — re-read on every color-scheme change. */
+const SCHEME_HINT: Record<ColorScheme, Hint> = {
+  light: { text: "Light UI at all times." },
+  dark: { text: "Dark UI at all times." },
+  system: { text: "Match your OS appearance." },
+};
 
 /** Auto  = system chooses per tile (WebGL on focused, DOM on others).
  *  WebGL = WebGL on every tile (higher throughput; reintroduces #575
@@ -29,6 +37,17 @@ const RENDERER_OPTIONS: readonly SegmentedControlOption<
   { value: "webgl", label: "WebGL" },
   { value: "dom", label: "DOM" },
 ];
+
+/** Reactive hint table — re-read on every renderer change. "warn" tone flags
+ *  the WebGL-every-tile context-thrash trade-off surfaced in #636. */
+const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
+  auto: { text: "WebGL on focused tiles, DOM elsewhere." },
+  webgl: {
+    text: "WebGL on every tile — may thrash past ~16 terminals.",
+    tone: "warn",
+  },
+  dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
+};
 
 const SettingsPopover: Component<{
   open: boolean;
@@ -76,72 +95,76 @@ const SettingsPopover: Component<{
             updatePos();
           }}
           data-testid="settings-popover"
-          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[200px] space-y-3"
+          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-4 min-w-[280px] space-y-4"
           style={{
             top: `${pos().top}px`,
             right: `${pos().right}px`,
             "background-color": "var(--color-surface-1)",
           }}
         >
-          {/* Color scheme */}
-          <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="text-fg-2">Theme</span>
+          <SettingRow label="Theme" hint={SCHEME_HINT[colorScheme()]}>
             <SegmentedControl
               options={SCHEME_OPTIONS}
               value={colorScheme()}
               onChange={setColorScheme}
               testIdPrefix="color-scheme"
             />
-          </div>
-          {/* Shuffle theme — auto-pick a perceptually-distinct background
-           *  for each new terminal so the sidebar at rest looks variegated
-           *  instead of a sea of look-alikes. */}
-          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-            <span class="text-fg-2">Shuffle theme</span>
+          </SettingRow>
+          <SettingRow
+            label="Shuffle theme"
+            hint={{ text: "New terminals pick a distinct background tint." }}
+          >
             <Toggle
               testId="shuffle-theme-toggle"
               enabled={preferences().shuffleTheme}
               onChange={(on) => updatePreferences({ shuffleTheme: on })}
             />
-          </label>
-          {/* Scroll lock */}
-          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-            <span class="text-fg-2">Scroll lock</span>
+          </SettingRow>
+          <SettingRow
+            label="Scroll lock"
+            hint={{
+              text: "Hold new output while scrolled up; release at bottom.",
+            }}
+          >
             <Toggle
               testId="scroll-lock-toggle"
               enabled={preferences().scrollLock}
               onChange={(on) => updatePreferences({ scrollLock: on })}
             />
-          </label>
-          {/* Activity alerts */}
-          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-            <span class="text-fg-2">Activity alerts</span>
+          </SettingRow>
+          <SettingRow
+            label="Activity alerts"
+            hint={{
+              text: "Sound + notification when a background terminal finishes.",
+            }}
+          >
             <Toggle
               testId="activity-alerts-toggle"
               enabled={preferences().activityAlerts}
               onChange={(on) => updatePreferences({ activityAlerts: on })}
             />
-          </label>
-          {/* Terminal renderer — Auto (WebGL on focused tile), WebGL (all
-           *  tiles), or DOM (all tiles). */}
-          <div class="flex items-center justify-between gap-3 text-sm">
-            <span class="text-fg-2">Renderer</span>
+          </SettingRow>
+          <SettingRow
+            label="Renderer"
+            hint={RENDERER_HINT[preferences().terminalRenderer]}
+          >
             <SegmentedControl
               options={RENDERER_OPTIONS}
               value={preferences().terminalRenderer}
               onChange={(v) => updatePreferences({ terminalRenderer: v })}
               testIdPrefix="terminal-renderer"
             />
-          </div>
-          {/* Startup tips */}
-          <label class="flex items-center justify-between gap-3 cursor-pointer text-sm">
-            <span class="text-fg-2">Startup tips</span>
+          </SettingRow>
+          <SettingRow
+            label="Startup tips"
+            hint={{ text: "Show a random tip when Kolu launches." }}
+          >
             <Toggle
               testId="startup-tips-toggle"
               enabled={preferences().startupTips}
               onChange={(on) => updatePreferences({ startupTips: on })}
             />
-          </label>
+          </SettingRow>
         </div>
       </Portal>
     </Show>
