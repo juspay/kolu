@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./pr": "./src/pr.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -25,6 +26,7 @@
     "kolu-git": "workspace:*",
     "anyagent": "workspace:*",
     "kolu-opencode": "workspace:*",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   }
 }

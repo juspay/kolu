@@ -8,6 +8,7 @@ import ModalDialog from "./ui/ModalDialog";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { prValue } from "kolu-common/pr";
 
 export interface CloseConfirmTarget {
   id: TerminalId;
@@ -86,7 +87,7 @@ const CloseConfirm: Component<{
             )}
           </Show>
 
-          <Show when={props.target?.meta.pr}>
+          <Show when={props.target ? prValue(props.target.meta.pr) : null}>
             {(pr) => (
               <a
                 href={pr().url}
