@@ -6,9 +6,11 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
 import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { pinoLogger } from "hono-pino";
-import { WebSocketServer } from "ws";
+import { WebSocket as WsClient, WebSocketServer } from "ws";
 import { resolve } from "node:path";
+import type { IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import type { Duplex } from "node:stream";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { appRouter } from "./router.ts";
 import { log } from "./log.ts";
@@ -313,7 +315,106 @@ wss.on("connection", (ws) => {
   });
 });
 
+// --- Phase 1 preview WebSocket passthrough (#633) ---
+// Preview subdomains need WS upgrades too — Vite / Next HMR connects back
+// to the page's origin for live reload. Dial a client WS to the upstream
+// dev server and pipe frames both ways. Separate WebSocketServer instance
+// so we don't attach oRPC's connection handler to these sockets.
+const previewWss = new WebSocketServer({ noServer: true });
+
+function proxyPreviewWsUpgrade(
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+  port: number,
+): void {
+  previewWss.handleUpgrade(req, socket, head, (downstream) => {
+    const target = `ws://127.0.0.1:${port}${req.url ?? "/"}`;
+    const proto = req.headers["sec-websocket-protocol"];
+    const origin = req.headers["origin"];
+    const upstream = new WsClient(target, {
+      headers: {
+        ...(proto && { "sec-websocket-protocol": String(proto) }),
+        ...(origin && { origin: String(origin) }),
+      },
+    });
+
+    // Pipe downstream → upstream once upstream is open. Buffer any frames
+    // the browser sends before the upstream handshake completes.
+    const pending: Array<{ data: WsClient.RawData; isBinary: boolean }> = [];
+    let upstreamOpen = false;
+
+    downstream.on("message", (data, isBinary) => {
+      if (upstreamOpen && upstream.readyState === upstream.OPEN) {
+        upstream.send(data, { binary: isBinary });
+      } else {
+        pending.push({ data, isBinary });
+      }
+    });
+
+    upstream.on("open", () => {
+      upstreamOpen = true;
+      for (const { data, isBinary } of pending) {
+        upstream.send(data, { binary: isBinary });
+      }
+      pending.length = 0;
+    });
+
+    upstream.on("message", (data, isBinary) => {
+      if (downstream.readyState === downstream.OPEN) {
+        downstream.send(data, { binary: isBinary });
+      }
+    });
+
+    const closeBoth = (code?: number, reason?: Buffer) => {
+      const c = code ?? 1000;
+      const r = reason ?? Buffer.from("");
+      if (
+        downstream.readyState === downstream.OPEN ||
+        downstream.readyState === downstream.CONNECTING
+      ) {
+        downstream.close(c, r);
+      }
+      if (
+        upstream.readyState === upstream.OPEN ||
+        upstream.readyState === upstream.CONNECTING
+      ) {
+        upstream.close(c, r);
+      }
+    };
+
+    downstream.on("close", (code, reason) => closeBoth(code, reason));
+    upstream.on("close", (code, reason) => closeBoth(code, reason));
+    downstream.on("error", (err) => {
+      log.error({ err, port }, "preview ws downstream error");
+      closeBoth(1011);
+    });
+    upstream.on("error", (err) => {
+      log.error({ err, port }, "preview ws upstream error");
+      closeBoth(1011);
+    });
+  });
+}
+
 server.on("upgrade", (req, socket, head) => {
+  // Preview subdomain takes priority over path-based oRPC WS. Same Host-
+  // header pattern as the HTTP proxy middleware — keep the two in sync.
+  const host = req.headers.host ?? "";
+  const previewMatch = host.match(PREVIEW_HOST_RE);
+  if (previewMatch) {
+    const previewPort = Number(previewMatch[1]);
+    if (
+      !Number.isInteger(previewPort) ||
+      previewPort < 1024 ||
+      previewPort > 65535
+    ) {
+      socket.destroy();
+      return;
+    }
+    proxyPreviewWsUpgrade(req, socket, head, previewPort);
+    return;
+  }
+
   const url = new URL(req.url ?? "", `http://${req.headers.host}`);
   if (url.pathname === "/rpc/ws") {
     wss.handleUpgrade(req, socket, head, (ws) => {
