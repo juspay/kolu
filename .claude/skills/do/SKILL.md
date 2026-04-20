@@ -298,12 +298,12 @@ Check whether a PR already exists for this branch (`gh pr view`).
 
    **MANDATORY**: Load the `forge-pr` skill (via Skill tool) BEFORE writing the PR title/body.
 
-2. **Post hickey/lowy results**: Post the hickey and lowy analysis as a PR comment using `gh pr comment` with a `## Hickey/Lowy Analysis` header. Always post when the steps ran, even if all findings are deferred or out of scope — reviewers should see the structural analysis.
+2. **Post hickey/lowy results**: Post the hickey and lowy analysis as a PR comment using `gh pr comment` with a `## [Hickey/Lowy](https://kolu.dev/blog/hickey-lowy/) Analysis` header (the heading links to the blog post explaining the two lenses, mirroring how the final step status comment links `/do` to the agency repo). Always post when the steps ran, even if all findings are deferred or out of scope — reviewers should see the structural analysis.
 
    **Format the comment with a leading findings ledger.** Compose a single table from both sub-agents' Actions sections — one row per finding — so a reviewer can see disposition at a glance without parsing paragraphs. Put each lens's prose underneath as rationale:
 
    ```md
-   ## Hickey/Lowy Analysis
+   ## [Hickey/Lowy](https://kolu.dev/blog/hickey-lowy/) Analysis
 
    | # | Lens   | Finding                                  | Disposition       |
    |---|--------|------------------------------------------|-------------------|
