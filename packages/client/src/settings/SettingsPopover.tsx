@@ -18,12 +18,15 @@ const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "system", label: "System" },
 ];
 
-/** WebGL = system chooses per tile (WebGL on focused, DOM on others).
- *  DOM = force DOM everywhere; no font shift on focus swap. */
+/** Auto  = system chooses per tile (WebGL on focused, DOM on others).
+ *  WebGL = WebGL on every tile (higher throughput; reintroduces #575
+ *          context-budget risk with many terminals).
+ *  DOM   = force DOM everywhere; no font shift on focus swap. */
 const RENDERER_OPTIONS: readonly SegmentedControlOption<
   Preferences["terminalRenderer"]
 >[] = [
-  { value: "auto", label: "WebGL" },
+  { value: "auto", label: "Auto" },
+  { value: "webgl", label: "WebGL" },
   { value: "dom", label: "DOM" },
 ];
 
@@ -119,7 +122,8 @@ const SettingsPopover: Component<{
               onChange={(on) => updatePreferences({ activityAlerts: on })}
             />
           </label>
-          {/* Terminal renderer — WebGL (focused tile) vs DOM everywhere */}
+          {/* Terminal renderer — Auto (WebGL on focused tile), WebGL (all
+           *  tiles), or DOM (all tiles). */}
           <div class="flex items-center justify-between gap-3 text-sm">
             <span class="text-fg-2">Renderer</span>
             <SegmentedControl

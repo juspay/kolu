@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.15.0";
+const SCHEMA_VERSION = "1.16.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -270,6 +270,11 @@ export const store = new Conf<PersistedState>({
       const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;
       store.set("preferences", rest as Preferences);
     },
+    // terminalRenderer enum widened from ["auto","dom"] to ["auto","webgl","dom"].
+    // Existing on-disk values ("auto" and "dom") are valid literals of the
+    // widened enum, so no value transformation is required. The bump is
+    // recorded here for the ladder's sake (see .claude/rules/state.md).
+    "1.16.0": () => {},
   },
 });
 
