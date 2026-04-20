@@ -75,6 +75,7 @@ import {
   GitHubPrStateSchema,
   GitHubPrInfoSchema,
   PrResultSchema,
+  PrUnavailableCodeSchema,
   prValue,
   prUnavailableReason,
 } from "./pr.ts";
@@ -83,10 +84,11 @@ export {
   GitHubPrStateSchema,
   GitHubPrInfoSchema,
   PrResultSchema,
+  PrUnavailableCodeSchema,
   prValue,
   prUnavailableReason,
 };
-export type { GitHubPrInfo, PrResult } from "./pr.ts";
+export type { GitHubPrInfo, PrResult, PrUnavailableCode } from "./pr.ts";
 
 // --- AI coding agent context ---
 

@@ -23,6 +23,21 @@ export const GitHubPrInfoSchema = z.object({
 });
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 
+/** Typed failure code for the `unavailable` PrResult variant.
+ *
+ *  A discriminator separate from the human-readable `reason` so UI callers
+ *  that want to dispatch per-failure (e.g. "show `gh auth login` button only
+ *  for `not-authenticated`") can `match(pr.code).exhaustive()` and get a
+ *  compile error if a new code is added without a handler — rather than
+ *  string-comparing the display text and silently breaking on typo. */
+export const PrUnavailableCodeSchema = z.enum([
+  "not-installed",
+  "not-authenticated",
+  "timed-out",
+  "unknown",
+]);
+export type PrUnavailableCode = z.infer<typeof PrUnavailableCodeSchema>;
+
 /** PR resolution state.
  *
  *  Decomplects distinct conditions that `GitHubPrInfo | null` used to
@@ -44,7 +59,11 @@ export const PrResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("pending") }),
   z.object({ kind: z.literal("ok"), value: GitHubPrInfoSchema }),
   z.object({ kind: z.literal("absent") }),
-  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
+  z.object({
+    kind: z.literal("unavailable"),
+    code: PrUnavailableCodeSchema,
+    reason: z.string(),
+  }),
 ]);
 export type PrResult = z.infer<typeof PrResultSchema>;
 

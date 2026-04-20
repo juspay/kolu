@@ -116,15 +116,33 @@ describe("prResultEqual", () => {
     ).toBe(false);
   });
 
-  it("compares unavailable reasons", () => {
-    const a: PrResult = { kind: "unavailable", reason: "gh: not installed" };
-    const b: PrResult = { kind: "unavailable", reason: "gh: not installed" };
+  it("compares unavailable by code (stable across reason text changes)", () => {
+    const a: PrResult = {
+      kind: "unavailable",
+      code: "not-installed",
+      reason: "gh: not installed",
+    };
+    const b: PrResult = {
+      kind: "unavailable",
+      code: "not-installed",
+      reason: "gh: not installed",
+    };
     const c: PrResult = {
       kind: "unavailable",
+      code: "not-authenticated",
       reason: "gh: not authenticated",
     };
+    // Same code + reason → equal.
     expect(prResultEqual(a, b)).toBe(true);
+    // Different code → not equal.
     expect(prResultEqual(a, c)).toBe(false);
+    // Same code, different reason text → still equal (code is the identity).
+    const aTweaked: PrResult = {
+      kind: "unavailable",
+      code: "not-installed",
+      reason: "gh CLI not found",
+    };
+    expect(prResultEqual(a, aTweaked)).toBe(true);
   });
 });
 
@@ -133,6 +151,7 @@ describe("classifyGhError", () => {
     const result = classifyGhError({ code: "ENOENT" });
     expect(result).toEqual({
       kind: "unavailable",
+      code: "not-installed",
       reason: "gh: not installed",
     });
   });
@@ -143,7 +162,11 @@ describe("classifyGhError", () => {
       signal: "SIGTERM",
       code: null,
     });
-    expect(result).toEqual({ kind: "unavailable", reason: "gh: timed out" });
+    expect(result).toEqual({
+      kind: "unavailable",
+      code: "timed-out",
+      reason: "gh: timed out",
+    });
   });
 
   it.each([
@@ -154,6 +177,7 @@ describe("classifyGhError", () => {
     const result = classifyGhError({ code: 1, stderr });
     expect(result).toEqual({
       kind: "unavailable",
+      code: "not-authenticated",
       reason: "gh: not authenticated",
     });
   });
@@ -176,6 +200,7 @@ describe("classifyGhError", () => {
   ])("flags unrecognized $label as unavailable", ({ input }) => {
     expect(classifyGhError(input)).toEqual({
       kind: "unavailable",
+      code: "unknown",
       reason: "gh: unknown error",
     });
   });

@@ -9,4 +9,8 @@
 {
   KOLU_FONTS_DIR          = pkgs.kolu-fonts;
   KOLU_CLIPBOARD_SHIM_DIR = "${pkgs.kolu-clipboard-shims}/bin";
+  # Pinned gh binary — the server's GitHub provider reads this and falls
+  # back to PATH lookup when unset (dev shells, non-Nix installs). See
+  # packages/server/src/meta/github.ts for the read site.
+  KOLU_GH_BIN             = "${pkgs.gh}/bin/gh";
 }

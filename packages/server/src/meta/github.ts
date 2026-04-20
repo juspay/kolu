@@ -4,6 +4,23 @@
  * Subscribes to "git:<id>" (not the aggregated "metadata" channel).
  * Publishes via updateServerMetadata() — no downstream providers depend on PR changes.
  * Also polls periodically (PRs can be created/updated externally at any time).
+ *
+ * ┌─ FUTURE: PrProvider extraction ──────────────────────────────────────┐
+ * │ When Bitbucket (`bkt`) support lands (srid/agency#10), the forge-    │
+ * │ specific bits here — `GH_BIN`, `gh pr view` invocation, gh-stderr    │
+ * │ classifier — get pulled behind a narrow `PrProvider` interface:      │
+ * │                                                                      │
+ * │   interface PrProvider {                                             │
+ * │     readonly kind: "gh" | "bkt";                                     │
+ * │     resolve(repoRoot: string): Promise<PrResult>;                    │
+ * │   }                                                                  │
+ * │                                                                      │
+ * │ Dispatch by forge detection (origin remote URL — same axis that      │
+ * │ `/do`'s forge step uses). `PrResult` stays shared; each impl owns    │
+ * │ its own classifier + pinned binary env var (`KOLU_GH_BIN`,           │
+ * │ `KOLU_BKT_BIN`). Don't extract before the second impl exists —       │
+ * │ the bkt stderr taxonomy is what will tell you where the seam goes.   │
+ * └──────────────────────────────────────────────────────────────────────┘
  */
 
 import { execFile } from "node:child_process";
@@ -24,6 +41,12 @@ const execFileAsync = promisify(execFile);
 
 const POLL_INTERVAL_MS = 30_000;
 const GH_TIMEOUT_MS = 5_000;
+
+/** Pinned `gh` binary path. The Nix wrapper sets `KOLU_GH_BIN` to the exact
+ *  `${pkgs.gh}/bin/gh` store path (see `nix/env.nix`) so the packaged kolu
+ *  runs a known gh regardless of the user's `PATH`. Dev shells and non-Nix
+ *  installs fall through to the bare name (PATH lookup). */
+const GH_BIN = process.env.KOLU_GH_BIN ?? "gh";
 
 /**
  * Derive combined check status from statusCheckRollup entries.
@@ -126,11 +149,19 @@ export function classifyGhError(err: unknown): PrResult {
     stderr?: string;
   };
   if (e.code === "ENOENT") {
-    return { kind: "unavailable", reason: "gh: not installed" };
+    return {
+      kind: "unavailable",
+      code: "not-installed",
+      reason: "gh: not installed",
+    };
   }
   // execFile sets killed=true when the timeout fires and sends SIGTERM.
   if (e.killed === true || e.signal === "SIGTERM") {
-    return { kind: "unavailable", reason: "gh: timed out" };
+    return {
+      kind: "unavailable",
+      code: "timed-out",
+      reason: "gh: timed out",
+    };
   }
   const stderr = (e.stderr ?? "").toLowerCase();
   if (
@@ -138,12 +169,20 @@ export function classifyGhError(err: unknown): PrResult {
     stderr.includes("authentication") ||
     stderr.includes("gh auth login")
   ) {
-    return { kind: "unavailable", reason: "gh: not authenticated" };
+    return {
+      kind: "unavailable",
+      code: "not-authenticated",
+      reason: "gh: not authenticated",
+    };
   }
   if (stderr.includes("no pull requests found")) {
     return { kind: "absent" };
   }
-  return { kind: "unavailable", reason: "gh: unknown error" };
+  return {
+    kind: "unavailable",
+    code: "unknown",
+    reason: "gh: unknown error",
+  };
 }
 
 /**
@@ -157,7 +196,7 @@ export function classifyGhError(err: unknown): PrResult {
 async function resolveGitHubPr(repoRoot: string): Promise<PrResult> {
   try {
     const { stdout } = await execFileAsync(
-      "gh",
+      GH_BIN,
       ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
       { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
     );
@@ -193,7 +232,9 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
     );
   }
   if (a.kind === "unavailable" && b.kind === "unavailable") {
-    return a.reason === b.reason;
+    // Compare by code (the typed discriminator) — reason is display text
+    // derived 1:1 from code, so code-equality is the identity check.
+    return a.code === b.code;
   }
   // "pending" and "absent" have no payload — kind equality is enough.
   return true;
