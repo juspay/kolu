@@ -84,30 +84,90 @@ app.use(
   }),
 );
 
-// --- SPIKE: Phase 1 subdomain dispatch test (#633 Phase 1) ---
-// Matches Host headers of the form `<port>.preview.<anything>` and returns
-// a debug page. Confirms: (1) sslip.io DNS resolves the IP-encoded subdomain,
-// (2) the browser reaches Kolu's Hono server at the same bound port, (3) the
-// Host header survives the hop. Throw-away — delete once Phase 1 replaces it
-// with a real proxy.
+// --- Phase 1 preview proxy (#633) ---
+// Requests whose Host header looks like `<port>.preview.<anything>` are
+// proxied to `127.0.0.1:<port>`. Dev-server preview alongside the terminal
+// running it — e.g. `pureintent:7692` serves Kolu, and
+// `5173.preview.100-122-32-106.sslip.io:7692` proxies the Vite dev server.
+//
+// Why subdomain and not path-prefix: Vite/Next/Astro HMR assume absolute
+// paths for assets and WebSocket URLs. A path-prefix proxy breaks them; a
+// subdomain proxy preserves the illusion of a dedicated origin.
+//
+// Framing headers (`X-Frame-Options`, CSP `frame-ancestors`) are stripped
+// from the upstream response so the iframe can embed the dev server.
+// Safe because the proxy only talks to `127.0.0.1` and the browser tile
+// already documents that sandbox is relaxed for trusted localhost content.
+const PREVIEW_HOST_RE = /^(\d+)\.preview\./;
 app.use(async (c, next) => {
   const host = c.req.header("host") ?? "";
-  const match = host.match(/^(\d+)\.preview\./);
+  const match = host.match(PREVIEW_HOST_RE);
   if (!match) return next();
-  const port = match[1];
-  return c.html(
-    `<!doctype html>
-<html>
-<head><title>kolu preview spike</title></head>
-<body style="font-family: monospace; padding: 2rem; background: #111; color: #0f0">
-  <h1>✓ preview dispatch works</h1>
-  <p>target port: <b>${port}</b></p>
-  <p>host header: <b>${host}</b></p>
-  <p>request path: <b>${c.req.path}</b></p>
-  <p>next step: extend this handler to proxy to <code>127.0.0.1:${port}</code>.</p>
-</body>
-</html>`,
-  );
+  const port = Number(match[1]);
+  // Unprivileged port range only. Blocks 0, well-known services (<1024),
+  // and bogus values. Stronger SSRF controls (announced-port allowlist)
+  // land with Phase 2.
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    return c.text(`preview: invalid port ${match[1]}`, 400);
+  }
+
+  const source = new URL(c.req.url);
+  const target = `http://127.0.0.1:${port}${source.pathname}${source.search}`;
+
+  // Strip hop-by-hop + the incoming Host; fetch sets its own.
+  const upstreamHeaders = new Headers(c.req.raw.headers);
+  for (const hdr of [
+    "host",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+  ]) {
+    upstreamHeaders.delete(hdr);
+  }
+  upstreamHeaders.set("x-forwarded-host", host);
+  upstreamHeaders.set("x-forwarded-proto", tlsOptions ? "https" : "http");
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method: c.req.method,
+      headers: upstreamHeaders,
+      body: c.req.raw.body,
+      // Node's undici requires duplex: "half" when body is a stream.
+      // Without this, fetch throws TypeError for request bodies.
+      ...(c.req.raw.body ? { duplex: "half" } : {}),
+      redirect: "manual",
+    } as RequestInit);
+  } catch (err) {
+    log.warn({ err, target }, "preview proxy upstream unreachable");
+    return c.text(`preview: upstream 127.0.0.1:${port} unreachable`, 502);
+  }
+
+  // Remove restrictive framing directives so the iframe embeds cleanly.
+  // Dev servers rarely set these, but some middleware stacks do.
+  const responseHeaders = new Headers(upstream.headers);
+  responseHeaders.delete("x-frame-options");
+  const csp = responseHeaders.get("content-security-policy");
+  if (csp) {
+    const cleaned = csp
+      .split(";")
+      .filter((d) => !/^\s*frame-ancestors\b/i.test(d))
+      .join(";")
+      .trim();
+    if (cleaned === "") responseHeaders.delete("content-security-policy");
+    else responseHeaders.set("content-security-policy", cleaned);
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders,
+  });
 });
 
 // --- oRPC plugins ---
