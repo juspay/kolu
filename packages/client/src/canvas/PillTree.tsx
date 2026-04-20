@@ -20,6 +20,7 @@ import {
   repoColor,
 } from "./pillTreeOrder";
 import { useTileTheme } from "./useTileTheme";
+import { useViewPosture } from "./useViewPosture";
 import { MinimapIcon, PlusIcon } from "../ui/Icons";
 
 const BRANCHES_PER_ROW = 3;
@@ -49,11 +50,12 @@ const PillTree: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const posture = useViewPosture();
 
   return (
     <div
       data-testid="pill-tree"
-      data-maximized={store.canvasMaximized() ? "" : undefined}
+      data-maximized={posture.maximized() ? "" : undefined}
       // Positioning is the caller's job (ChromeBar embeds this as a
       // flex child, mobile sheet renders its own vertical list).
       // The outer fills its slot; `justify-center` on the inner
@@ -78,15 +80,15 @@ const PillTree: Component<{
           // one tile, the tree is a peripheral nav affordance; but it
           // stays readable at a glance so "there's a canvas behind
           // this" remains legible without a hover.
-          "opacity-80": !store.canvasMaximized(),
-          "opacity-50": store.canvasMaximized(),
+          "opacity-80": !posture.maximized(),
+          "opacity-50": posture.maximized(),
         }}
       >
-        <Show when={store.canvasMaximized()}>
+        <Show when={posture.maximized()}>
           <button
             data-testid="pill-tree-exit-maximize"
             class="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
-            onClick={store.toggleCanvasMaximized}
+            onClick={posture.toggle}
             title="Show all on canvas"
           >
             <MinimapIcon class="w-3.5 h-3.5" />

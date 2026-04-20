@@ -39,6 +39,7 @@ import CanvasMinimap from "./CanvasMinimap";
 import CanvasWatermark from "./CanvasWatermark";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileTheme } from "./useTileTheme";
+import { useViewPosture } from "./useViewPosture";
 
 const DEFAULT_W = 800;
 const DEFAULT_H = 540;
@@ -81,6 +82,7 @@ const TerminalCanvas: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const posture = useViewPosture();
 
   /** Pending per-tile layout overrides — used for three cases, all bridging
    *  a gap until the server's metadata echo arrives:
@@ -314,7 +316,7 @@ const TerminalCanvas: Component<{
               theme={tileTheme(id)}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}
-              onToggleMaximize={store.toggleCanvasMaximized}
+              onToggleMaximize={posture.toggle}
               renderTitle={() => props.renderTileTitle(id)}
               renderTitleActions={
                 props.renderTileTitleActions
@@ -334,7 +336,7 @@ const TerminalCanvas: Component<{
               {/* Tiled canvas — tiles live inside the pan/zoom transform.
                *  Hidden entirely when maximized; no reason to paint
                *  tiles the user can't see. */}
-              <Show when={!store.canvasMaximized()}>
+              <Show when={!posture.maximized()}>
                 <div
                   data-testid="canvas-transform"
                   style={{
@@ -350,7 +352,7 @@ const TerminalCanvas: Component<{
 
               {/* Maximized view — only the active tile, outside any
                *  transform, covering the canvas via `absolute inset-0`. */}
-              <Show when={store.canvasMaximized() && store.activeId()} keyed>
+              <Show when={posture.maximized() && store.activeId()} keyed>
                 {(id) => renderTile(id, true)}
               </Show>
             </>
@@ -359,7 +361,7 @@ const TerminalCanvas: Component<{
 
         {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
          *  since there's nothing spatial to summarize. */}
-        <Show when={!store.canvasMaximized()}>
+        <Show when={!posture.maximized()}>
           <CanvasMinimap
             tileIds={props.tileIds}
             layouts={layouts()}

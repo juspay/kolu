@@ -240,6 +240,21 @@ export const RecordIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Rectangle with a horizontal divider — tile split-toggle button. */
+export const SplitToggleIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="3" y1="13" x2="21" y2="13" />
+  </svg>
+);
+
 /** Camera icon — terminal screenshot button. */
 export const ScreenshotIcon: Component<{ class?: string }> = (props) => (
   <svg
