@@ -43,11 +43,20 @@ const execFileAsync = promisify(execFile);
 const POLL_INTERVAL_MS = 30_000;
 const GH_TIMEOUT_MS = 5_000;
 
-/** Pinned `gh` binary path. The Nix wrapper sets `KOLU_GH_BIN` to the exact
- *  `${pkgs.gh}/bin/gh` store path (see `nix/env.nix`) so the packaged kolu
- *  runs a known gh regardless of the user's `PATH`. Dev shells and non-Nix
- *  installs fall through to the bare name (PATH lookup). */
-const GH_BIN = process.env.KOLU_GH_BIN ?? "gh";
+/** Pinned `gh` binary path. `KOLU_GH_BIN` is set by both the packaged
+ *  wrapper and the dev shell via `nix/env.nix` → `shell.nix` / `default.nix`.
+ *  Nix is the only supported runtime; fail fast if the env var is missing
+ *  rather than silently falling through to PATH (which would resolve to a
+ *  different `gh` than the one kolu ships with). */
+const GH_BIN = (() => {
+  const v = process.env.KOLU_GH_BIN;
+  if (!v) {
+    throw new Error(
+      "KOLU_GH_BIN is not set. Run kolu through the Nix wrapper or `nix develop`.",
+    );
+  }
+  return v;
+})();
 
 /**
  * Derive combined check status from statusCheckRollup entries.

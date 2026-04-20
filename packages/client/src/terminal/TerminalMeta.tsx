@@ -10,12 +10,12 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
-import { type Component, Show, createSignal } from "solid-js";
-import { prValue, prUnavailableSource, reasonForSource } from "kolu-common/pr";
+import { type Component, Show } from "solid-js";
+import { prValue, prUnavailableSource } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
-import { PrStateIcon, WarningIcon, WorktreeIcon } from "../ui/Icons";
-import PrUnavailablePopover from "./PrUnavailablePopover";
+import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
@@ -207,44 +207,6 @@ export const TerminalMetaCompact: Component<{
         </div>
       )}
     </Show>
-  );
-};
-
-/** ⚠ button that opens PrUnavailablePopover on click. Each render site owns
- *  its own open state + triggerRef — canvas tile chrome and mobile pull-handle
- *  show the icon simultaneously for the same terminal, and they should each
- *  anchor their popover to their own trigger rather than share one. */
-const PrUnavailableButton: Component<{
-  source: Parameters<typeof PrUnavailablePopover>[0]["source"];
-  testId: string;
-}> = (props) => {
-  const [open, setOpen] = createSignal(false);
-  const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
-  const reason = () => reasonForSource(props.source);
-  return (
-    <>
-      <button
-        ref={setTriggerEl}
-        type="button"
-        data-testid={props.testId}
-        class="flex items-center text-fg-3 shrink-0 cursor-pointer hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
-        title={reason()}
-        aria-label={reason()}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <WarningIcon class="w-3 h-3" />
-      </button>
-      <PrUnavailablePopover
-        open={open()}
-        onOpenChange={setOpen}
-        triggerRef={triggerEl()}
-        source={props.source}
-      />
-    </>
   );
 };
 

@@ -1,24 +1,10 @@
-/** Recovery-instructions popover for `PrResult.kind === "unavailable"`.
- *
- *  Click the ⚠ on a terminal's title bar; this panel explains *why* the PR
- *  lookup is broken and (when actionable) gives a copy-paste command to fix
- *  it. Dispatch happens in two layers:
- *
- *    1. `ProviderUnavailableContent` matches on `source.provider` — today
- *       only `"gh"`, but `.exhaustive()` will compile-error when bkt adds
- *       its schema arm. Each provider gets its own content component (see
- *       `GhUnavailableContent` below), so bkt's recovery UX can differ
- *       freely without fitting a shared mold.
- *    2. `GhUnavailableContent` matches on the gh code enum and renders
- *       per-failure prose + an optional copy-command button.
- *
- *  `ProviderUnavailableContent` is exported so the right-panel inspector can
- *  render the same recovery UI inline (no click required — the inspector has
- *  the real estate for it).
- *
- *  Portal + click-outside + Escape mirror `settings/SettingsPopover.tsx`'s
- *  pattern — there is no Corvu Popover in the repo, and the settings panel is
- *  the canonical reference for anchored floating UI. */
+/** Click-to-open recovery-instructions popover + button trigger for
+ *  `PrResult.kind === "unavailable"`. Dispatch happens in two layers:
+ *  `ProviderUnavailableContent` matches on `source.provider` (today only
+ *  `"gh"`), delegating to a per-provider content component so bkt's future
+ *  recovery UX doesn't need to fit a shared mold. Portal + click-outside +
+ *  Escape mirror `settings/SettingsPopover.tsx` — no Corvu Popover in the
+ *  repo, and the settings panel is the canonical anchored-floating pattern. */
 
 import { type Component, Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -26,12 +12,11 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import { match } from "ts-pattern";
 import type { GhUnavailableCode, PrUnavailableSource } from "kolu-common";
 import { reasonForSource } from "kolu-common/pr";
+import { writeTextToClipboard } from "./clipboard";
+import { WarningIcon } from "../ui/Icons";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 
-/** Top-level dispatch: renders the appropriate per-provider content.
- *  Shared between the popover (click-to-open, terminal title bar) and the
- *  inspector (always-visible, right panel). */
 export const ProviderUnavailableContent: Component<{
   source: PrUnavailableSource;
 }> = (props) =>
@@ -41,9 +26,6 @@ export const ProviderUnavailableContent: Component<{
     ))
     .exhaustive();
 
-/** gh-specific recovery content. When bkt lands, a sibling
- *  `BktUnavailableContent` component handles its own codes; the dispatch in
- *  `ProviderUnavailableContent` grows one arm. */
 const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
   props,
 ) => {
@@ -51,13 +33,13 @@ const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      await writeTextToClipboard(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Browsers block clipboard writes outside secure contexts / without a
-      // user gesture — falling through silently is acceptable here because
-      // the command string is still visible and selectable in the panel.
+      // Both clipboard paths (navigator.clipboard + execCommand fallback in
+      // writeTextToClipboard) failed — the command string is still visible
+      // and selectable in the panel, so silently continuing is acceptable.
     }
   };
 
@@ -200,5 +182,43 @@ const CopyCommand: Component<{
     </span>
   </button>
 );
+
+/** ⚠ button + its popover, one component per render site. Owns its own
+ *  open-state signal and trigger ref — canvas tile chrome and mobile
+ *  pull-handle show the icon for the same terminal simultaneously and each
+ *  must anchor their popover to their own trigger rather than share one. */
+export const PrUnavailableButton: Component<{
+  source: PrUnavailableSource;
+  testId: string;
+}> = (props) => {
+  const [open, setOpen] = createSignal(false);
+  const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
+  const reason = () => reasonForSource(props.source);
+  return (
+    <>
+      <button
+        ref={setTriggerEl}
+        type="button"
+        data-testid={props.testId}
+        class="flex items-center text-fg-3 shrink-0 cursor-pointer hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
+        title={reason()}
+        aria-label={reason()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <WarningIcon class="w-3 h-3" />
+      </button>
+      <PrUnavailablePopover
+        open={open()}
+        onOpenChange={setOpen}
+        triggerRef={triggerEl()}
+        source={props.source}
+      />
+    </>
+  );
+};
 
 export default PrUnavailablePopover;
