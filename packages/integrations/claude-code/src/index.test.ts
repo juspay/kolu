@@ -135,7 +135,11 @@ describe("deriveState", () => {
       type: "assistant",
       message: { stop_reason: "end_turn" },
     });
-    expect(deriveState([line])).toEqual({ state: "waiting", model: null });
+    expect(deriveState([line])).toEqual({
+      state: "waiting",
+      model: null,
+      contextTokens: null,
+    });
   });
 });
 
