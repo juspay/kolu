@@ -124,14 +124,18 @@ const TerminalMeta: Component<{
                 </Show>
                 <Show when={prUnavailableReason(info().meta.pr)}>
                   {(reason) => (
-                    <Tip label={reason()}>
-                      <span
-                        data-testid="terminal-meta-pr-unavailable"
-                        class="flex items-center text-fg-3 shrink-0"
-                      >
-                        <WarningIcon class="w-3 h-3" />
-                      </span>
-                    </Tip>
+                    // Native `title` rather than <Tip>: Tip's Corvu trigger
+                    // applies `role="button"`, which Tailwind preflight styles
+                    // with `cursor: pointer` — a misleading affordance while
+                    // this element is not (yet) clickable. Swap back to Tip
+                    // when the recovery-instructions popover lands.
+                    <span
+                      data-testid="terminal-meta-pr-unavailable"
+                      class="flex items-center text-fg-3 shrink-0"
+                      title={reason()}
+                    >
+                      <WarningIcon class="w-3 h-3" />
+                    </span>
                   )}
                 </Show>
               </div>
