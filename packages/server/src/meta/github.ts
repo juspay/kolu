@@ -211,9 +211,29 @@ async function resolveGitHubPr(repoRoot: string): Promise<PrResult> {
     };
   } catch (err) {
     const result = classifyGhError(err);
-    log.debug({ err: String(err), result: result.kind }, "gh pr view failed");
+    logGhResolveFailure(err, result);
     return result;
   }
+}
+
+/** Route a failed `gh pr view` result to the appropriate log level.
+ *  absent = expected (branch has no PR) → debug.
+ *  unavailable with code `unknown` = an actual unexpected error → error.
+ *  unavailable with any other code = degraded-but-recoverable → warn. */
+function logGhResolveFailure(err: unknown, result: PrResult): void {
+  const ctx = { err: String(err), result: result.kind };
+  if (result.kind === "absent") {
+    log.debug(ctx, "gh pr view: no PR for branch");
+    return;
+  }
+  if (result.kind === "unavailable" && result.source.code === "unknown") {
+    log.error(ctx, "gh pr view: unknown error");
+    return;
+  }
+  log.warn(
+    result.kind === "unavailable" ? { ...ctx, code: result.source.code } : ctx,
+    "gh pr view: unavailable",
+  );
 }
 
 /** Compare two PR resolution states for equality. */

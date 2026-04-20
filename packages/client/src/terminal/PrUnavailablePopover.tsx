@@ -10,6 +10,7 @@ import { type Component, Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { match } from "ts-pattern";
+import { toast } from "solid-sonner";
 import type { GhUnavailableCode, PrUnavailableSource } from "kolu-common";
 import { reasonForSource } from "kolu-common/pr";
 import { writeTextToClipboard } from "./clipboard";
@@ -36,10 +37,8 @@ const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
       await writeTextToClipboard(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Both clipboard paths (navigator.clipboard + execCommand fallback in
-      // writeTextToClipboard) failed — the command string is still visible
-      // and selectable in the panel, so silently continuing is acceptable.
+    } catch (err) {
+      toast.error(`Couldn't copy: ${(err as Error).message}`);
     }
   };
 

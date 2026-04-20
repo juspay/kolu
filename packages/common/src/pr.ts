@@ -13,6 +13,7 @@
  *  generalize when bkt's API dictates. See srid/agency#10. */
 
 import { z } from "zod";
+import { match } from "ts-pattern";
 
 export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
 
@@ -84,20 +85,13 @@ export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
 export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
 
 /** Display string for any unavailable source — dispatches on provider to the
- *  provider's own reason lookup. The `never` fall-through gives compile-time
- *  exhaustiveness without pulling in `ts-pattern` (which isn't a kolu-common
- *  dependency — this module ships in the browser bundle). When bkt lands,
- *  adding a provider arm to `PrUnavailableSourceSchema` will compile-error
- *  the `never` branch here until a matching arm is added. */
+ *  provider's own reason lookup. `.exhaustive()` forces a compile error when
+ *  bkt adds its arm to `PrUnavailableSourceSchema` until a matching `.with`
+ *  lands here. */
 export function reasonForSource(source: PrUnavailableSource): string {
-  switch (source.provider) {
-    case "gh":
-      return reasonForGhCode(source.code);
-    default: {
-      const _exhaustive: never = source.provider;
-      return _exhaustive;
-    }
-  }
+  return match(source)
+    .with({ provider: "gh" }, ({ code }) => reasonForGhCode(code))
+    .exhaustive();
 }
 
 // --- PrResult ---
