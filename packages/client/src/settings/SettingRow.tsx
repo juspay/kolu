@@ -1,37 +1,40 @@
 /** One row in SettingsPopover — label + control on top, optional hint underneath.
- *  The hint is what makes the popover self-documenting: static strings for
- *  toggles, per-value tables for segmented controls (see SettingsPopover.tsx).
- *  `tone: "warn"` flags a trade-off (e.g. WebGL-every-tile context thrash). */
+ *  Label is the hero (`text-fg font-medium`); hint recedes (`text-fg-3/70`) so
+ *  attention lands on the control, not the copy. TONE_CONFIG owns both the
+ *  color class and the glyph prefix so a new tone entry updates both in one
+ *  place. Default tone is "muted". */
 
 import { type Component, type JSX, Show } from "solid-js";
 
-export type Hint = { text: string; tone?: "muted" | "warn" };
+const TONE_CONFIG = {
+  muted: { colorClass: "text-fg-3/70", glyph: "" },
+  warn: { colorClass: "text-warning", glyph: "⚠ " },
+} as const;
+
+export type Hint = { text: string; tone?: keyof typeof TONE_CONFIG };
 
 const SettingRow: Component<{
   label: string;
   hint?: Hint;
   children: JSX.Element;
 }> = (props) => (
-  <div class="text-sm">
-    <div class="flex items-center justify-between gap-3">
-      <span class="text-fg-2">{props.label}</span>
+  <div>
+    <div class="flex items-center justify-between gap-4">
+      <span class="text-sm font-medium text-fg">{props.label}</span>
       {props.children}
     </div>
     <Show when={props.hint}>
-      {(hint) => (
-        <p
-          class={
-            hint().tone === "warn"
-              ? "mt-1 text-xs text-warning"
-              : "mt-1 text-xs text-fg-3"
-          }
-        >
-          <Show when={hint().tone === "warn"}>
-            <span aria-hidden="true">⚠ </span>
-          </Show>
-          {hint().text}
-        </p>
-      )}
+      {(hint) => {
+        const cfg = () => TONE_CONFIG[hint().tone ?? "muted"];
+        return (
+          <p class={`mt-1.5 text-xs leading-relaxed ${cfg().colorClass}`}>
+            <Show when={cfg().glyph}>
+              <span aria-hidden="true">{cfg().glyph}</span>
+            </Show>
+            {hint().text}
+          </p>
+        );
+      }}
     </Show>
   </div>
 );

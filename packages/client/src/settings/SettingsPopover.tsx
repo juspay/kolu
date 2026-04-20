@@ -19,6 +19,7 @@ const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "system", label: "System" },
 ];
 
+/** Reactive hint table — re-read on every color-scheme change. */
 const SCHEME_HINT: Record<ColorScheme, Hint> = {
   light: { text: "Light UI at all times." },
   dark: { text: "Dark UI at all times." },
@@ -37,6 +38,8 @@ const RENDERER_OPTIONS: readonly SegmentedControlOption<
   { value: "dom", label: "DOM" },
 ];
 
+/** Reactive hint table — re-read on every renderer change. "warn" tone flags
+ *  the WebGL-every-tile context-thrash trade-off surfaced in #636. */
 const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
   auto: { text: "WebGL on focused tiles, DOM elsewhere." },
   webgl: {
@@ -44,19 +47,6 @@ const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
     tone: "warn",
   },
   dom: { text: "DOM renderer; lowest GPU, stable font on focus." },
-};
-
-const SHUFFLE_HINT: Hint = {
-  text: "New terminals pick a distinct background tint.",
-};
-const SCROLL_LOCK_HINT: Hint = {
-  text: "Hold new output while scrolled up; release at bottom.",
-};
-const ACTIVITY_ALERTS_HINT: Hint = {
-  text: "Sound + notification when a background terminal finishes.",
-};
-const STARTUP_TIPS_HINT: Hint = {
-  text: "Show a random tip when Kolu launches.",
 };
 
 const SettingsPopover: Component<{
@@ -105,7 +95,7 @@ const SettingsPopover: Component<{
             updatePos();
           }}
           data-testid="settings-popover"
-          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[240px] space-y-3"
+          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-4 min-w-[280px] space-y-4"
           style={{
             top: `${pos().top}px`,
             right: `${pos().right}px`,
@@ -120,21 +110,34 @@ const SettingsPopover: Component<{
               testIdPrefix="color-scheme"
             />
           </SettingRow>
-          <SettingRow label="Shuffle theme" hint={SHUFFLE_HINT}>
+          <SettingRow
+            label="Shuffle theme"
+            hint={{ text: "New terminals pick a distinct background tint." }}
+          >
             <Toggle
               testId="shuffle-theme-toggle"
               enabled={preferences().shuffleTheme}
               onChange={(on) => updatePreferences({ shuffleTheme: on })}
             />
           </SettingRow>
-          <SettingRow label="Scroll lock" hint={SCROLL_LOCK_HINT}>
+          <SettingRow
+            label="Scroll lock"
+            hint={{
+              text: "Hold new output while scrolled up; release at bottom.",
+            }}
+          >
             <Toggle
               testId="scroll-lock-toggle"
               enabled={preferences().scrollLock}
               onChange={(on) => updatePreferences({ scrollLock: on })}
             />
           </SettingRow>
-          <SettingRow label="Activity alerts" hint={ACTIVITY_ALERTS_HINT}>
+          <SettingRow
+            label="Activity alerts"
+            hint={{
+              text: "Sound + notification when a background terminal finishes.",
+            }}
+          >
             <Toggle
               testId="activity-alerts-toggle"
               enabled={preferences().activityAlerts}
@@ -152,7 +155,10 @@ const SettingsPopover: Component<{
               testIdPrefix="terminal-renderer"
             />
           </SettingRow>
-          <SettingRow label="Startup tips" hint={STARTUP_TIPS_HINT}>
+          <SettingRow
+            label="Startup tips"
+            hint={{ text: "Show a random tip when Kolu launches." }}
+          >
             <Toggle
               testId="startup-tips-toggle"
               enabled={preferences().startupTips}
