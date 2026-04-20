@@ -10,7 +10,6 @@ describe("parseMessageState", () => {
     expect(parseMessageState(data)).toEqual({
       state: "thinking",
       model: null,
-      contextTokens: null,
     });
   });
 
@@ -25,7 +24,6 @@ describe("parseMessageState", () => {
     expect(parseMessageState(data)).toEqual({
       state: "waiting",
       model: "litellm/glm-latest",
-      contextTokens: null,
     });
   });
 
@@ -39,7 +37,6 @@ describe("parseMessageState", () => {
     expect(parseMessageState(data)).toEqual({
       state: "thinking",
       model: "litellm/glm-latest",
-      contextTokens: null,
     });
   });
 
@@ -54,7 +51,6 @@ describe("parseMessageState", () => {
     expect(parseMessageState(data)).toEqual({
       state: "thinking",
       model: "anthropic/claude-sonnet-4-5",
-      contextTokens: null,
     });
   });
 
@@ -68,23 +64,6 @@ describe("parseMessageState", () => {
     expect(parseMessageState(data)).toEqual({
       state: "waiting",
       model: "glm-latest",
-      contextTokens: null,
-    });
-  });
-
-  it("extracts tokens.total from an assistant message", () => {
-    const data = JSON.stringify({
-      role: "assistant",
-      modelID: "big-pickle",
-      providerID: "opencode",
-      finish: "stop",
-      time: { created: 1, completed: 2 },
-      tokens: { total: 16006, input: 376, output: 94 },
-    });
-    expect(parseMessageState(data)).toEqual({
-      state: "waiting",
-      model: "opencode/big-pickle",
-      contextTokens: 16006,
     });
   });
 

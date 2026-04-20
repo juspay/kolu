@@ -30,6 +30,16 @@ const tokenFormat = new Intl.NumberFormat("en", {
   maximumFractionDigits: 1,
 });
 
+/** Tooltip body for the token badge. Includes the model when known so
+ *  hover reveals both "how much" and "on what" — useful when the user
+ *  has multiple agents in flight with different models. Model is
+ *  skipped (not rendered as "unknown") when the JSONL/DB hasn't pinned
+ *  a name yet, rather than noise up the tooltip. */
+function contextTokensTooltip(tokens: number, model: string | null): string {
+  const count = `Context: ${tokens.toLocaleString()} tokens`;
+  return model ? `${count} · ${model}` : count;
+}
+
 const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const cfg = () => stateConfig[props.agent.state];
   const Icon = () => agentIcons[props.agent.kind];
@@ -56,7 +66,10 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
         <span
           data-testid="agent-context-tokens"
           class="tabular-nums text-fg-3"
-          title={`Context: ${props.agent.contextTokens!.toLocaleString()} tokens`}
+          title={contextTokensTooltip(
+            props.agent.contextTokens!,
+            props.agent.model,
+          )}
         >
           {tokenFormat.format(props.agent.contextTokens!)}
         </span>

@@ -17,6 +17,7 @@ import {
   type OpenCodeInfo,
   type OpenCodeSession,
   deriveSessionState,
+  getLatestAssistantContextTokens,
   getSessionTitle,
   getSessionTaskProgress,
   hasRunningTools,
@@ -95,6 +96,11 @@ export function createOpenCodeWatcher(
     // (e.g. OpenCode auto-generating a title after the first exchange)
     // are picked up live, not stuck at the snapshot from session match.
     const summary = getSessionTitle(session.id, log, db) ?? session.title;
+    // Context-token total comes from its own query — the latest assistant
+    // message's tokens.total, which survives a newer user prompt (Thinking
+    // state). Using derived.state's single-message lens would blank the
+    // count whenever the user is typing.
+    const contextTokens = getLatestAssistantContextTokens(session.id, log, db);
 
     const info: OpenCodeInfo = {
       kind: "opencode",
@@ -103,7 +109,7 @@ export function createOpenCodeWatcher(
       model: derived.model,
       summary,
       taskProgress,
-      contextTokens: derived.contextTokens,
+      contextTokens,
     };
 
     if (agentInfoEqual(lastInfo, info)) return;

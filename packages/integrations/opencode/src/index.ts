@@ -189,6 +189,54 @@ export function getSessionTaskProgress(
   );
 }
 
+// --- Context-token lookup ---
+
+/**
+ * Read the latest assistant message's running context-token total from
+ * `tokens.total`. Independent of `deriveSessionState` because the signals
+ * terminate differently: state pivots on the newest message of any role,
+ * but the token total only lives on assistant messages — using the single
+ * latest message would blank the count whenever the user's prompt is the
+ * newest row (Thinking state).
+ *
+ * One indexed query against (session_id, time_created). `json_extract`
+ * forces per-row blob inspection, but the walker stops at the first match
+ * — in practice 1–3 rows.
+ */
+export function getLatestAssistantContextTokens(
+  sessionId: string,
+  log?: Logger,
+  db?: DatabaseSync,
+): number | null {
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1",
+        )
+        .get(sessionId) as { data: string } | undefined;
+      if (!row) return null;
+      let parsed: MessageData;
+      try {
+        parsed = JSON.parse(row.data) as MessageData;
+      } catch (err) {
+        // OpenCode writes this JSON itself, so a parse failure is a real
+        // anomaly — surface it rather than silently blanking the badge.
+        log?.error(
+          { err, sessionId },
+          "opencode assistant message.data parse failed",
+        );
+        return null;
+      }
+      return parsed.tokens?.total ?? null;
+    },
+    "opencode context-tokens query failed",
+    { sessionId },
+    log,
+    db,
+  );
+}
+
 // --- Tool detection ---
 
 /**
@@ -239,11 +287,13 @@ interface MessageData {
   tokens?: { total?: number };
 }
 
-/** State derived from message JSON content only. */
+/** State derived from message JSON content only. Token telemetry is a
+ *  separate signal (see `getLatestAssistantContextTokens`) because the
+ *  latest-message lens this function provides doesn't match the
+ *  latest-assistant-message lens that context accounting needs. */
 export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
   model: string | null;
-  contextTokens: number | null;
 };
 
 /** Full derived state including the message ID for scoping
@@ -298,7 +348,6 @@ export function parseMessageState(data: string): ParsedMessageState | null {
     .with({ role: "user" }, () => ({
       state: "thinking" as const,
       model: null,
-      contextTokens: null,
     }))
     .with({ role: "assistant" }, (m) => {
       const model = m.modelID
@@ -306,15 +355,14 @@ export function parseMessageState(data: string): ParsedMessageState | null {
           ? `${m.providerID}/${m.modelID}`
           : m.modelID
         : null;
-      const contextTokens = m.tokens?.total ?? null;
       // Assistant message with completion timestamp + clean stop = waiting
       if (m.time?.completed && m.finish === "stop") {
-        return { state: "waiting" as const, model, contextTokens };
+        return { state: "waiting" as const, model };
       }
       // Otherwise still working (no completion yet, or non-stop finish
       // reason like "tool-calls"). The watcher upgrades "thinking" to
       // "tool_use" when hasRunningTools() finds active tool parts.
-      return { state: "thinking" as const, model, contextTokens };
+      return { state: "thinking" as const, model };
     })
     .otherwise(() => null);
 }
