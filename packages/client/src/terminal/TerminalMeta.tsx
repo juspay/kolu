@@ -11,7 +11,7 @@
  *  exported below for reuse. */
 
 import { type Component, Show, createSignal } from "solid-js";
-import { prValue, prUnavailable } from "kolu-common/pr";
+import { prValue, prUnavailableSource, reasonForSource } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WarningIcon, WorktreeIcon } from "../ui/Icons";
@@ -123,11 +123,10 @@ const TerminalMeta: Component<{
                     </span>
                   )}
                 </Show>
-                <Show when={prUnavailable(info().meta.pr)}>
-                  {(unavail) => (
+                <Show when={prUnavailableSource(info().meta.pr)}>
+                  {(source) => (
                     <PrUnavailableButton
-                      code={unavail().code}
-                      reason={unavail().reason}
+                      source={source()}
                       testId="terminal-meta-pr-unavailable"
                     />
                   )}
@@ -189,11 +188,10 @@ export const TerminalMetaCompact: Component<{
               </a>
             )}
           </Show>
-          <Show when={prUnavailable(info().meta.pr)}>
-            {(unavail) => (
+          <Show when={prUnavailableSource(info().meta.pr)}>
+            {(source) => (
               <PrUnavailableButton
-                code={unavail().code}
-                reason={unavail().reason}
+                source={source()}
                 testId="terminal-meta-pr-unavailable-compact"
               />
             )}
@@ -217,12 +215,12 @@ export const TerminalMetaCompact: Component<{
  *  show the icon simultaneously for the same terminal, and they should each
  *  anchor their popover to their own trigger rather than share one. */
 const PrUnavailableButton: Component<{
-  code: Parameters<typeof PrUnavailablePopover>[0]["code"];
-  reason: string;
+  source: Parameters<typeof PrUnavailablePopover>[0]["source"];
   testId: string;
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
   const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
+  const reason = () => reasonForSource(props.source);
   return (
     <>
       <button
@@ -230,8 +228,8 @@ const PrUnavailableButton: Component<{
         type="button"
         data-testid={props.testId}
         class="flex items-center text-fg-3 shrink-0 cursor-pointer hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
-        title={props.reason}
-        aria-label={props.reason}
+        title={reason()}
+        aria-label={reason()}
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
@@ -244,8 +242,7 @@ const PrUnavailableButton: Component<{
         open={open()}
         onOpenChange={setOpen}
         triggerRef={triggerEl()}
-        code={props.code}
-        reason={props.reason}
+        source={props.source}
       />
     </>
   );

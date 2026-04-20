@@ -2,12 +2,19 @@
  *
  *  Click the ⚠ on a terminal's title bar; this panel explains *why* the PR
  *  lookup is broken and (when actionable) gives a copy-paste command to fix
- *  it. Content dispatched per-`code` via `match(...).exhaustive()` so new
- *  PrUnavailableCode variants force a compile-time edit here.
+ *  it. Dispatch happens in two layers:
  *
- *  The inner dispatch is exported as `PrUnavailableContent` so the right-panel
- *  inspector can render the same recovery UI inline (no click required — the
- *  inspector has the real estate for it).
+ *    1. `ProviderUnavailableContent` matches on `source.provider` — today
+ *       only `"gh"`, but `.exhaustive()` will compile-error when bkt adds
+ *       its schema arm. Each provider gets its own content component (see
+ *       `GhUnavailableContent` below), so bkt's recovery UX can differ
+ *       freely without fitting a shared mold.
+ *    2. `GhUnavailableContent` matches on the gh code enum and renders
+ *       per-failure prose + an optional copy-command button.
+ *
+ *  `ProviderUnavailableContent` is exported so the right-panel inspector can
+ *  render the same recovery UI inline (no click required — the inspector has
+ *  the real estate for it).
  *
  *  Portal + click-outside + Escape mirror `settings/SettingsPopover.tsx`'s
  *  pattern — there is no Corvu Popover in the repo, and the settings panel is
@@ -17,16 +24,29 @@ import { type Component, Show, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { match } from "ts-pattern";
-import type { PrUnavailableCode } from "kolu-common";
+import type { GhUnavailableCode, PrUnavailableSource } from "kolu-common";
+import { reasonForSource } from "kolu-common/pr";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 
-/** Dispatches per-`code` recovery content — heading, prose, optional copy
- *  button. Shared between the popover (click-to-open, terminal title bar) and
- *  the inspector (always-visible, right panel). */
-export const PrUnavailableContent: Component<{
-  code: PrUnavailableCode;
-}> = (props) => {
+/** Top-level dispatch: renders the appropriate per-provider content.
+ *  Shared between the popover (click-to-open, terminal title bar) and the
+ *  inspector (always-visible, right panel). */
+export const ProviderUnavailableContent: Component<{
+  source: PrUnavailableSource;
+}> = (props) =>
+  match(props.source)
+    .with({ provider: "gh" }, ({ code }) => (
+      <GhUnavailableContent code={code} />
+    ))
+    .exhaustive();
+
+/** gh-specific recovery content. When bkt lands, a sibling
+ *  `BktUnavailableContent` component handles its own codes; the dispatch in
+ *  `ProviderUnavailableContent` grows one arm. */
+const GhUnavailableContent: Component<{ code: GhUnavailableCode }> = (
+  props,
+) => {
   const [copied, setCopied] = createSignal(false);
 
   const copy = async (text: string) => {
@@ -108,8 +128,7 @@ const PrUnavailablePopover: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   triggerRef?: HTMLElement;
-  code: PrUnavailableCode;
-  reason: string;
+  source: PrUnavailableSource;
 }> = (props) => {
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, left: 0 });
@@ -149,7 +168,7 @@ const PrUnavailablePopover: Component<{
           }}
           data-testid="pr-unavailable-popover"
           role="dialog"
-          aria-label={props.reason}
+          aria-label={reasonForSource(props.source)}
           class="fixed z-50 bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-3 w-[280px] space-y-2 text-xs"
           style={{
             top: `${pos().top}px`,
@@ -157,7 +176,7 @@ const PrUnavailablePopover: Component<{
             "background-color": "var(--color-surface-1)",
           }}
         >
-          <PrUnavailableContent code={props.code} />
+          <ProviderUnavailableContent source={props.source} />
         </div>
       </Portal>
     </Show>

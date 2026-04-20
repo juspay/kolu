@@ -1,10 +1,16 @@
-/** GitHub PR metadata — schemas + helpers.
+/** PR metadata — schemas + helpers.
  *
  *  Lives in its own module (exposed as `kolu-common/pr`) so clients can
- *  runtime-import `prValue` / `prUnavailableReason` without dragging the
- *  full kolu-common module graph — which re-exports kolu-claude-code and
- *  transitively pulls `@anthropic-ai/claude-agent-sdk` (a Node-only package)
- *  into the browser bundle. */
+ *  runtime-import helpers without dragging the full kolu-common module graph
+ *  — which re-exports kolu-claude-code and transitively pulls
+ *  `@anthropic-ai/claude-agent-sdk` (a Node-only package) into the browser
+ *  bundle.
+ *
+ *  Provider tagging: the `unavailable` variant carries a `source` tagged by
+ *  `provider` so a future bkt (Bitbucket CLI) resolver can contribute its own
+ *  code namespace alongside gh's. `PrResult.ok`'s shape is still gh-specific
+ *  (`GitHubPrInfoSchema`) because we don't yet know bkt's PR response shape;
+ *  generalize when bkt's API dictates. See srid/agency#10. */
 
 import { z } from "zod";
 
@@ -23,20 +29,78 @@ export const GitHubPrInfoSchema = z.object({
 });
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 
-/** Typed failure code for the `unavailable` PrResult variant.
+// --- gh-specific unavailable code ---
+
+/** Typed gh-failure code for the `unavailable` PrResult variant.
  *
- *  A discriminator separate from the human-readable `reason` so UI callers
- *  that want to dispatch per-failure (e.g. "show `gh auth login` button only
- *  for `not-authenticated`") can `match(pr.code).exhaustive()` and get a
- *  compile error if a new code is added without a handler — rather than
- *  string-comparing the display text and silently breaking on typo. */
-export const PrUnavailableCodeSchema = z.enum([
+ *  A discriminator separate from any human-readable display text so UI
+ *  callers that want to dispatch per-failure can `match(code).exhaustive()`
+ *  and get a compile error when a new code is added without a handler —
+ *  rather than string-comparing display text and silently breaking on typo.
+ *
+ *  Named with the `Gh` prefix so a parallel `BktUnavailableCodeSchema` lives
+ *  alongside this one when bkt lands; `PrUnavailableSourceSchema` already
+ *  reserves the `provider` discriminator for the tagged-union extension. */
+export const GhUnavailableCodeSchema = z.enum([
   "not-installed",
   "not-authenticated",
   "timed-out",
   "unknown",
 ]);
-export type PrUnavailableCode = z.infer<typeof PrUnavailableCodeSchema>;
+export type GhUnavailableCode = z.infer<typeof GhUnavailableCodeSchema>;
+
+/** Display text for a gh unavailable code — single source of truth. Defined
+ *  as a fresh `Record<GhUnavailableCode, string>` literal (not wrapped in
+ *  `match`) so TypeScript's required/excess-property checks enforce both
+ *  sides of exhaustiveness — adding a code without updating this table
+ *  fails compilation, and removing one leaves a dead key that also fails. */
+const GH_REASONS: Record<GhUnavailableCode, string> = {
+  "not-installed": "gh: not installed",
+  "not-authenticated": "gh: not authenticated",
+  "timed-out": "gh: timed out",
+  unknown: "gh: unknown error",
+};
+
+export function reasonForGhCode(code: GhUnavailableCode): string {
+  return GH_REASONS[code];
+}
+
+// --- Provider-tagged unavailable source ---
+
+export const GhUnavailableSchema = z.object({
+  provider: z.literal("gh"),
+  code: GhUnavailableCodeSchema,
+});
+
+/** Which provider classified the failure, plus that provider's typed code.
+ *
+ *  Today only `gh`; a sibling `BktUnavailableSchema` joins this union when
+ *  bkt support lands (srid/agency#10). UI dispatch sites that render
+ *  recovery instructions should `match(source.provider).exhaustive()` so
+ *  adding a new provider arm forces every render site to handle it. */
+export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
+  GhUnavailableSchema,
+]);
+export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
+
+/** Display string for any unavailable source — dispatches on provider to the
+ *  provider's own reason lookup. The `never` fall-through gives compile-time
+ *  exhaustiveness without pulling in `ts-pattern` (which isn't a kolu-common
+ *  dependency — this module ships in the browser bundle). When bkt lands,
+ *  adding a provider arm to `PrUnavailableSourceSchema` will compile-error
+ *  the `never` branch here until a matching arm is added. */
+export function reasonForSource(source: PrUnavailableSource): string {
+  switch (source.provider) {
+    case "gh":
+      return reasonForGhCode(source.code);
+    default: {
+      const _exhaustive: never = source.provider;
+      return _exhaustive;
+    }
+  }
+}
+
+// --- PrResult ---
 
 /** PR resolution state.
  *
@@ -45,11 +109,13 @@ export type PrUnavailableCode = z.infer<typeof PrUnavailableCodeSchema>;
  *    pending     — resolver is running (or stale after a branch change)
  *    ok          — resolver succeeded; a PR exists for this branch
  *    absent      — resolver succeeded; no PR for this branch (expected case)
- *    unavailable — resolver couldn't run (gh missing, not authenticated, timed out)
+ *    unavailable — resolver couldn't run; `source` carries the provider +
+ *                  typed failure code, and the display reason is derived by
+ *                  `reasonForSource`.
  *
  *  The UI needs to distinguish "absent" (nothing to show) from "unavailable"
- *  (show a warning with `reason`). Keeping the provenance in the same field
- *  as the value avoids a sibling-flag invariant.
+ *  (show a warning with recovery instructions). Keeping the provenance in
+ *  the same field as the value avoids a sibling-flag invariant.
  *
  *  Analogous schemas for git/agent/foreground are not introduced yet — their
  *  failure modes don't currently surface as user-actionable warnings. If they
@@ -61,8 +127,7 @@ export const PrResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("absent") }),
   z.object({
     kind: z.literal("unavailable"),
-    code: PrUnavailableCodeSchema,
-    reason: z.string(),
+    source: PrUnavailableSourceSchema,
   }),
 ]);
 export type PrResult = z.infer<typeof PrResultSchema>;
@@ -74,19 +139,14 @@ export function prValue(pr: PrResult): GitHubPrInfo | null {
   return pr.kind === "ok" ? pr.value : null;
 }
 
-/** Extract the unavailability reason when `kind === "unavailable"`, else `null`. */
+/** Extract the display reason when `kind === "unavailable"`, else `null`. */
 export function prUnavailableReason(pr: PrResult): string | null {
-  return pr.kind === "unavailable" ? pr.reason : null;
+  return pr.kind === "unavailable" ? reasonForSource(pr.source) : null;
 }
 
-/** Extract the full unavailable payload (typed `code` + display `reason`) when
- *  `kind === "unavailable"`, else `null`. Use this when the UI needs to
- *  dispatch on code (e.g. render different recovery instructions per
- *  failure); `prUnavailableReason` is enough for a plain string tooltip. */
-export function prUnavailable(
-  pr: PrResult,
-): { code: PrUnavailableCode; reason: string } | null {
-  return pr.kind === "unavailable"
-    ? { code: pr.code, reason: pr.reason }
-    : null;
+/** Extract the tagged source when `kind === "unavailable"`, else `null`. Use
+ *  this when the UI needs to dispatch on provider/code; `prUnavailableReason`
+ *  is enough for a plain string tooltip. */
+export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
+  return pr.kind === "unavailable" ? pr.source : null;
 }

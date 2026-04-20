@@ -116,56 +116,38 @@ describe("prResultEqual", () => {
     ).toBe(false);
   });
 
-  it("compares unavailable by code (stable across reason text changes)", () => {
+  it("compares unavailable by tagged source (provider + code)", () => {
     const a: PrResult = {
       kind: "unavailable",
-      code: "not-installed",
-      reason: "gh: not installed",
+      source: { provider: "gh", code: "not-installed" },
     };
     const b: PrResult = {
       kind: "unavailable",
-      code: "not-installed",
-      reason: "gh: not installed",
+      source: { provider: "gh", code: "not-installed" },
     };
     const c: PrResult = {
       kind: "unavailable",
-      code: "not-authenticated",
-      reason: "gh: not authenticated",
+      source: { provider: "gh", code: "not-authenticated" },
     };
-    // Same code + reason → equal.
     expect(prResultEqual(a, b)).toBe(true);
-    // Different code → not equal.
     expect(prResultEqual(a, c)).toBe(false);
-    // Same code, different reason text → still equal (code is the identity).
-    const aTweaked: PrResult = {
-      kind: "unavailable",
-      code: "not-installed",
-      reason: "gh CLI not found",
-    };
-    expect(prResultEqual(a, aTweaked)).toBe(true);
   });
 });
 
 describe("classifyGhError", () => {
   it("classifies ENOENT as not installed", () => {
-    const result = classifyGhError({ code: "ENOENT" });
-    expect(result).toEqual({
+    expect(classifyGhError({ code: "ENOENT" })).toEqual({
       kind: "unavailable",
-      code: "not-installed",
-      reason: "gh: not installed",
+      source: { provider: "gh", code: "not-installed" },
     });
   });
 
   it("classifies timeout (killed) as timed out", () => {
-    const result = classifyGhError({
-      killed: true,
-      signal: "SIGTERM",
-      code: null,
-    });
-    expect(result).toEqual({
+    expect(
+      classifyGhError({ killed: true, signal: "SIGTERM", code: null }),
+    ).toEqual({
       kind: "unavailable",
-      code: "timed-out",
-      reason: "gh: timed out",
+      source: { provider: "gh", code: "timed-out" },
     });
   });
 
@@ -174,20 +156,19 @@ describe("classifyGhError", () => {
     "error connecting to github.com\nTry authentication with: gh auth login",
     "authentication required",
   ])("classifies auth-failure stderr %# as not authenticated", (stderr) => {
-    const result = classifyGhError({ code: 1, stderr });
-    expect(result).toEqual({
+    expect(classifyGhError({ code: 1, stderr })).toEqual({
       kind: "unavailable",
-      code: "not-authenticated",
-      reason: "gh: not authenticated",
+      source: { provider: "gh", code: "not-authenticated" },
     });
   });
 
   it("classifies gh's 'no pull requests found' as absent", () => {
-    const result = classifyGhError({
-      code: 1,
-      stderr: 'no pull requests found for branch "my-branch"',
-    });
-    expect(result).toEqual({ kind: "absent" });
+    expect(
+      classifyGhError({
+        code: 1,
+        stderr: 'no pull requests found for branch "my-branch"',
+      }),
+    ).toEqual({ kind: "absent" });
   });
 
   it.each([
@@ -200,8 +181,7 @@ describe("classifyGhError", () => {
   ])("flags unrecognized $label as unavailable", ({ input }) => {
     expect(classifyGhError(input)).toEqual({
       kind: "unavailable",
-      code: "unknown",
-      reason: "gh: unknown error",
+      source: { provider: "gh", code: "unknown" },
     });
   });
 });

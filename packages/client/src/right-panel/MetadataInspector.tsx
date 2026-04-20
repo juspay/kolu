@@ -4,10 +4,10 @@
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { TerminalMetadata } from "kolu-common";
-import { prValue, prUnavailable } from "kolu-common/pr";
+import { prValue, prUnavailableSource } from "kolu-common/pr";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import ChecksIndicator from "../terminal/ChecksIndicator";
-import { PrUnavailableContent } from "../terminal/PrUnavailablePopover";
+import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
 import Section from "../ui/Section";
 import Row from "../ui/Row";
@@ -103,14 +103,14 @@ const MetadataInspector: Component<{
               </Section>
             )}
           </Show>
-          <Show when={prUnavailable(meta().pr)}>
-            {(unavail) => (
+          <Show when={prUnavailableSource(meta().pr)}>
+            {(source) => (
               <Section title="Pull Request">
                 <div
                   data-testid="inspector-pr-unavailable"
                   class="space-y-2 text-xs"
                 >
-                  <PrUnavailableContent code={unavail().code} />
+                  <ProviderUnavailableContent source={source()} />
                 </div>
               </Section>
             )}

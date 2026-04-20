@@ -75,22 +75,35 @@ import {
   GitHubPrStateSchema,
   GitHubPrInfoSchema,
   PrResultSchema,
-  PrUnavailableCodeSchema,
+  GhUnavailableCodeSchema,
+  GhUnavailableSchema,
+  PrUnavailableSourceSchema,
   prValue,
   prUnavailableReason,
-  prUnavailable,
+  prUnavailableSource,
+  reasonForGhCode,
+  reasonForSource,
 } from "./pr.ts";
 export {
   GitHubCheckStatusSchema,
   GitHubPrStateSchema,
   GitHubPrInfoSchema,
   PrResultSchema,
-  PrUnavailableCodeSchema,
+  GhUnavailableCodeSchema,
+  GhUnavailableSchema,
+  PrUnavailableSourceSchema,
   prValue,
   prUnavailableReason,
-  prUnavailable,
+  prUnavailableSource,
+  reasonForGhCode,
+  reasonForSource,
 };
-export type { GitHubPrInfo, PrResult, PrUnavailableCode } from "./pr.ts";
+export type {
+  GitHubPrInfo,
+  PrResult,
+  GhUnavailableCode,
+  PrUnavailableSource,
+} from "./pr.ts";
 
 // --- AI coding agent context ---
 

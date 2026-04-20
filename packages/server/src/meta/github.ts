@@ -31,6 +31,7 @@ import {
   type GitHubPrInfo,
   type GitInfo,
   type PrResult,
+  type PrUnavailableSource,
 } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { subscribeForTerminal } from "../publisher.ts";
@@ -148,20 +149,16 @@ export function classifyGhError(err: unknown): PrResult {
     signal?: string;
     stderr?: string;
   };
-  if (e.code === "ENOENT") {
-    return {
-      kind: "unavailable",
-      code: "not-installed",
-      reason: "gh: not installed",
-    };
-  }
+  const ghUnavailable = (
+    code: Extract<PrUnavailableSource, { provider: "gh" }>["code"],
+  ): PrResult => ({
+    kind: "unavailable",
+    source: { provider: "gh", code },
+  });
+  if (e.code === "ENOENT") return ghUnavailable("not-installed");
   // execFile sets killed=true when the timeout fires and sends SIGTERM.
   if (e.killed === true || e.signal === "SIGTERM") {
-    return {
-      kind: "unavailable",
-      code: "timed-out",
-      reason: "gh: timed out",
-    };
+    return ghUnavailable("timed-out");
   }
   const stderr = (e.stderr ?? "").toLowerCase();
   if (
@@ -169,20 +166,12 @@ export function classifyGhError(err: unknown): PrResult {
     stderr.includes("authentication") ||
     stderr.includes("gh auth login")
   ) {
-    return {
-      kind: "unavailable",
-      code: "not-authenticated",
-      reason: "gh: not authenticated",
-    };
+    return ghUnavailable("not-authenticated");
   }
   if (stderr.includes("no pull requests found")) {
     return { kind: "absent" };
   }
-  return {
-    kind: "unavailable",
-    code: "unknown",
-    reason: "gh: unknown error",
-  };
+  return ghUnavailable("unknown");
 }
 
 /**
@@ -232,9 +221,12 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
     );
   }
   if (a.kind === "unavailable" && b.kind === "unavailable") {
-    // Compare by code (the typed discriminator) — reason is display text
-    // derived 1:1 from code, so code-equality is the identity check.
-    return a.code === b.code;
+    // Compare the tagged source: provider + code. Both are the typed
+    // discriminators; the display reason derives from them via
+    // `reasonForSource` and doesn't need its own comparison.
+    return (
+      a.source.provider === b.source.provider && a.source.code === b.source.code
+    );
   }
   // "pending" and "absent" have no payload — kind equality is enough.
   return true;
