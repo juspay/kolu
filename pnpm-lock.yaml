@@ -158,6 +158,9 @@ importers:
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6

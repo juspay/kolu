@@ -28,6 +28,7 @@ import type {
   TerminalServerMetadata,
   TerminalClientMetadata,
 } from "kolu-common";
+import { prValue, prUnavailableReason } from "kolu-common";
 import {
   type TerminalProcess,
   recomputeDisplaySuffixes,
@@ -50,7 +51,7 @@ export function createMetadata(
   return {
     cwd,
     git: null,
-    pr: null,
+    pr: { kind: "pending" },
     agent: null,
     foreground: null,
     sortOrder,
@@ -68,14 +69,18 @@ export function createMetadata(
  *  per-terminal stream stays in sync. */
 function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   const m = entry.info.meta;
+  const pr = prValue(m.pr);
+  const prUnavailable = prUnavailableReason(m.pr);
   log.debug(
     {
       terminal: terminalId,
       cwd: m.cwd,
       repo: m.git?.repoName,
       branch: m.git?.branch,
-      pr: m.pr?.number ?? null,
-      checks: m.pr?.checks ?? null,
+      pr: pr?.number ?? null,
+      checks: pr?.checks ?? null,
+      prStatus: m.pr.kind,
+      ...(prUnavailable && { prUnavailable }),
       // Only include agent/foreground fields when present to avoid noisy null logs
       ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
       ...(m.foreground && { foreground: m.foreground.name }),

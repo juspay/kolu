@@ -11,9 +11,11 @@
  *  exported below for reuse. */
 
 import { type Component, Show } from "solid-js";
+import { prValue, prUnavailableSource } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
+import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
@@ -97,7 +99,7 @@ const TerminalMeta: Component<{
                     {git().branch}
                   </span>
                 </Tip>
-                <Show when={info().meta.pr}>
+                <Show when={prValue(info().meta.pr)}>
                   {(pr) => (
                     <span
                       class="flex items-center gap-1 text-fg-2 truncate min-w-0"
@@ -119,6 +121,14 @@ const TerminalMeta: Component<{
                       </a>
                       <span class="truncate">{pr().title}</span>
                     </span>
+                  )}
+                </Show>
+                <Show when={prUnavailableSource(info().meta.pr)}>
+                  {(source) => (
+                    <PrUnavailableButton
+                      source={source()}
+                      testId="terminal-meta-pr-unavailable"
+                    />
                   )}
                 </Show>
               </div>
@@ -162,7 +172,7 @@ export const TerminalMetaCompact: Component<{
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
            *  the enclosing Drawer.Trigger. */}
-          <Show when={info().meta.pr}>
+          <Show when={prValue(info().meta.pr)}>
             {(pr) => (
               <a
                 data-testid="terminal-meta-pr-compact"
@@ -176,6 +186,14 @@ export const TerminalMetaCompact: Component<{
               >
                 #{pr().number}
               </a>
+            )}
+          </Show>
+          <Show when={prUnavailableSource(info().meta.pr)}>
+            {(source) => (
+              <PrUnavailableButton
+                source={source()}
+                testId="terminal-meta-pr-unavailable-compact"
+              />
             )}
           </Show>
           <Show when={info().meta.agent?.taskProgress}>

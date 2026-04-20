@@ -205,6 +205,26 @@ export const ResumeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Warning triangle — small exclamation, used to flag degraded provider
+ *  state (e.g. `gh` not authenticated) in the terminal metadata strip and
+ *  inspector. Inherits `currentColor` so callers can tint it via `text-*`. */
+export const WarningIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M8 2.5L14 13H2L8 2.5Z" />
+    <path d="M8 6.5V9.5" />
+    <circle cx="8" cy="11.5" r="0.5" fill="currentColor" />
+  </svg>
+);
+
 /** Webcam icon — rounded rectangle with a lens. Toggles the PiP overlay. */
 export const WebcamIcon: Component<{ class?: string }> = (props) => (
   <svg
