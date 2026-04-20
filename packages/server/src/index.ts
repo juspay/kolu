@@ -84,6 +84,32 @@ app.use(
   }),
 );
 
+// --- SPIKE: Phase 1 subdomain dispatch test (#633 Phase 1) ---
+// Matches Host headers of the form `<port>.preview.<anything>` and returns
+// a debug page. Confirms: (1) sslip.io DNS resolves the IP-encoded subdomain,
+// (2) the browser reaches Kolu's Hono server at the same bound port, (3) the
+// Host header survives the hop. Throw-away — delete once Phase 1 replaces it
+// with a real proxy.
+app.use(async (c, next) => {
+  const host = c.req.header("host") ?? "";
+  const match = host.match(/^(\d+)\.preview\./);
+  if (!match) return next();
+  const port = match[1];
+  return c.html(
+    `<!doctype html>
+<html>
+<head><title>kolu preview spike</title></head>
+<body style="font-family: monospace; padding: 2rem; background: #111; color: #0f0">
+  <h1>✓ preview dispatch works</h1>
+  <p>target port: <b>${port}</b></p>
+  <p>host header: <b>${host}</b></p>
+  <p>request path: <b>${c.req.path}</b></p>
+  <p>next step: extend this handler to proxy to <code>127.0.0.1:${port}</code>.</p>
+</body>
+</html>`,
+  );
+});
+
 // --- oRPC plugins ---
 const rpcPlugins = [
   new LoggingHandlerPlugin({
