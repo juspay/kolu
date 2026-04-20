@@ -17,6 +17,7 @@ import {
   runWithOwner,
 } from "solid-js";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { match } from "ts-pattern";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -190,11 +191,16 @@ const Terminal: Component<{
    *  mode where every tile renders simultaneously (issue #575). Non-focused
    *  tiles fall back to xterm's built-in DOM renderer via `WebglAddon.dispose()`. */
   const canUseWebgl = () => props.visible && props.focused !== false;
-  /** Policy: user can opt out of WebGL entirely from settings. DOM-everywhere
-   *  trades scrolling throughput for a stable font on focus swap (the WebGL
-   *  atlas and the DOM renderer rasterize text differently). */
-  const wantsWebgl = () => preferences().terminalRenderer === "auto";
-  const shouldUseWebgl = () => canUseWebgl() && wantsWebgl();
+  /** Dispatch on user renderer policy:
+   *  - `auto`: honor the capability gate (WebGL on focused+visible only).
+   *  - `webgl`: WebGL on every tile (opt-in; reintroduces #575 risk at scale).
+   *  - `dom`: force DOM everywhere (stable font on focus swap, lower GPU). */
+  const shouldUseWebgl = () =>
+    match(preferences().terminalRenderer)
+      .with("auto", canUseWebgl)
+      .with("webgl", () => true)
+      .with("dom", () => false)
+      .exhaustive();
 
   function loadWebgl() {
     if (!terminal || webgl) return;

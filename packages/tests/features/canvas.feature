@@ -131,6 +131,16 @@ Feature: Canvas workspace
     And the focused canvas tile should use the webgl renderer
     And there should be no page errors
 
+  Scenario: Renderer preference "webgl" forces WebGL on every tile
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    And exactly 1 canvas tile should use the webgl renderer
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the "webgl" renderer button
+    Then exactly 2 canvas tiles should use the webgl renderer
+    And there should be no page errors
+
   Scenario: Double-clicking the title bar maximizes the tile
     Given I create a terminal
     Then there should be 2 canvas tiles
