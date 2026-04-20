@@ -341,9 +341,11 @@ export const PreferencesSchema = z.object({
   colorScheme: ColorSchemeSchema,
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
-   *  WebGL-everywhere unsafe). `dom` forces DOM everywhere, eliminating the
-   *  font-rendering shift on focus swap at the cost of WebGL throughput. */
-  terminalRenderer: z.enum(["auto", "dom"]),
+   *  WebGL-everywhere unsafe at scale). `webgl` forces WebGL on every tile
+   *  (higher throughput, but reintroduces the #575 context-budget risk with
+   *  many terminals). `dom` forces DOM everywhere, eliminating the font-
+   *  rendering shift on focus swap at the cost of WebGL throughput. */
+  terminalRenderer: z.enum(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
 });
 

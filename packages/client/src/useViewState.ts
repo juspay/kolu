@@ -39,12 +39,13 @@ export function useViewState() {
     }),
   );
 
-  /** The single writer for `canvasMaximized`. Two call sites invoke it
-   *  (CanvasTile maximize button, PillTree minimap-icon-as-restore);
-   *  every other consumer (ChromeBar dock decision, TerminalCanvas
-   *  branch gate, PillTree opacity) is a passive reader. If a third
-   *  writer ever appears, route it through here so the source-of-truth
-   *  stays singular. Tracked: kolu#628. */
+  /** The single writer for `canvasMaximized`. Canvas readers reach this
+   *  via `useViewPosture()` (`packages/client/src/canvas/useViewPosture.ts`)
+   *  — the posture hook is the public seam so a future enum upgrade
+   *  (PiP, per-tile maximize) can be absorbed there without rippling
+   *  across readers. Treat `canvasMaximized` / `toggleCanvasMaximized`
+   *  on the store as internal-to-posture; new call sites should import
+   *  the hook instead. Tracked: kolu#628. */
   function toggleCanvasMaximized() {
     setCanvasMaximizedSignal((prev) => !prev);
   }

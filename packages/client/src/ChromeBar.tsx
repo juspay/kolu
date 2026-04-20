@@ -24,7 +24,7 @@ import Tip from "./ui/Tip";
 import SettingsPopover from "./settings/SettingsPopover";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { useTerminalStore } from "./terminal/useTerminalStore";
+import { useViewPosture } from "./canvas/useViewPosture";
 import type { WsStatus } from "./rpc/rpc";
 
 const statusStyles: Record<WsStatus, string> = {
@@ -42,18 +42,18 @@ const ChromeBar: Component<{
   pillTree: JSX.Element;
 }> = (props) => {
   const rightPanel = useRightPanel();
-  const store = useTerminalStore();
+  const posture = useViewPosture();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // Dock when either the maximized terminal or the open right panel
   // would otherwise be covered by the overlay. See positioning comment.
-  const docked = () => store.canvasMaximized() || !rightPanel.collapsed();
+  const docked = () => posture.maximized() || !rightPanel.collapsed();
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={store.canvasMaximized() ? "" : undefined}
+      data-maximized={posture.maximized() ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
       // eat clicks meant for the canvas under the overlay. Interactive
       // children (identity row, pill tree, control cluster) re-enable
