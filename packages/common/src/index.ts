@@ -82,7 +82,7 @@ import {
   prUnavailableSource,
   reasonForGhCode,
   reasonForSource,
-} from "kolu-github";
+} from "kolu-github/schemas";
 export {
   GitHubCheckStatusSchema,
   GitHubPrStateSchema,
@@ -102,7 +102,7 @@ export type {
   PrResult,
   GhUnavailableCode,
   PrUnavailableSource,
-} from "kolu-github";
+} from "kolu-github/schemas";
 
 // --- AI coding agent context ---
 

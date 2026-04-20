@@ -1,13 +1,14 @@
 /** `kolu-common/pr` subpath — re-exports PR schemas and neutral helpers
- *  from `kolu-github` so browser clients can runtime-import them without
- *  pulling the full `kolu-common` barrel (which re-exports `kolu-claude-code`
- *  and transitively drags the Node-only `@anthropic-ai/claude-agent-sdk`
- *  into the browser bundle).
+ *  from `kolu-github`'s browser-safe `./schemas` entry (no node imports).
  *
- *  Surface kept narrow on purpose: only schemas, types, and display helpers.
- *  Classifiers (`classifyGhError`, `deriveCheckStatus`, `prResultEqual`)
- *  live in `kolu-github` and stay server-internal — importing them from
- *  here would blur the provider-neutral boundary this subpath represents. */
+ *  Two layers of narrowing:
+ *  1. We import from `kolu-github/schemas`, not the main barrel — the main
+ *     barrel also exports `resolve.ts` which pulls `node:util` /
+ *     `node:child_process` and blows up vite's browser build.
+ *  2. Classifiers (`classifyGhError`, `deriveCheckStatus`, `prResultEqual`)
+ *     live in `kolu-github`'s main barrel and stay server-internal —
+ *     importing them through this subpath would blur the provider-neutral
+ *     boundary. */
 
 export {
   GitHubCheckStatusSchema,
@@ -22,7 +23,7 @@ export {
   prValue,
   prUnavailableReason,
   prUnavailableSource,
-} from "kolu-github";
+} from "kolu-github/schemas";
 export type {
   GitHubCheckStatus,
   GitHubPrState,
@@ -30,4 +31,4 @@ export type {
   GhUnavailableCode,
   PrUnavailableSource,
   PrResult,
-} from "kolu-github";
+} from "kolu-github/schemas";
