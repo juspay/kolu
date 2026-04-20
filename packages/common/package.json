@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./pr": "./src/pr.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

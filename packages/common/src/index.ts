@@ -66,20 +66,27 @@ export type {
 const TerminalIdSchema = z.string().uuid();
 
 // --- GitHub PR context ---
-
-export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
-
-export const GitHubPrStateSchema = z.enum(["open", "closed", "merged"]);
-
-export const GitHubPrInfoSchema = z.object({
-  number: z.number(),
-  title: z.string(),
-  url: z.string(),
-  /** PR state: open, closed, or merged. */
-  state: GitHubPrStateSchema,
-  /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
-  checks: GitHubCheckStatusSchema.nullable(),
-});
+// Schemas + helpers live in ./pr.ts so clients can runtime-import them via
+// `kolu-common/pr` without pulling the full kolu-common module graph
+// (which re-exports kolu-claude-code and transitively drags node-only
+// `@anthropic-ai/claude-agent-sdk` into the browser bundle).
+import {
+  GitHubCheckStatusSchema,
+  GitHubPrStateSchema,
+  GitHubPrInfoSchema,
+  PrResultSchema,
+  prValue,
+  prUnavailableReason,
+} from "./pr.ts";
+export {
+  GitHubCheckStatusSchema,
+  GitHubPrStateSchema,
+  GitHubPrInfoSchema,
+  PrResultSchema,
+  prValue,
+  prUnavailableReason,
+};
+export type { GitHubPrInfo, PrResult } from "./pr.ts";
 
 // --- AI coding agent context ---
 
@@ -123,7 +130,8 @@ export const SubPanelStateSchema = z.object({
 export const TerminalServerMetadataSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
-  pr: GitHubPrInfoSchema.nullable(),
+  /** GitHub PR resolution — discriminated union (see PrResultSchema). */
+  pr: PrResultSchema,
   /** AI coding agent status (Claude Code, OpenCode, etc.). */
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
@@ -360,7 +368,6 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 
-export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;

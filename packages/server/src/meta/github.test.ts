@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deriveCheckStatus, prInfoEqual } from "./github.ts";
-import type { GitHubPrInfo } from "kolu-common";
+import { deriveCheckStatus, prResultEqual, classifyGhError } from "./github.ts";
+import type { GitHubPrInfo, PrResult } from "kolu-common";
 
 describe("deriveCheckStatus", () => {
   it("returns null for undefined rollup", () => {
@@ -74,7 +74,7 @@ describe("deriveCheckStatus", () => {
   });
 });
 
-describe("prInfoEqual", () => {
+describe("prResultEqual", () => {
   const pr: GitHubPrInfo = {
     number: 1,
     title: "test",
@@ -82,22 +82,27 @@ describe("prInfoEqual", () => {
     state: "open",
     checks: "pass",
   };
+  const ok: PrResult = { kind: "ok", value: pr };
 
   it("returns true for identical references", () => {
-    expect(prInfoEqual(pr, pr)).toBe(true);
+    expect(prResultEqual(ok, ok)).toBe(true);
   });
 
-  it("returns true for both null", () => {
-    expect(prInfoEqual(null, null)).toBe(true);
+  it("returns true for both pending", () => {
+    expect(prResultEqual({ kind: "pending" }, { kind: "pending" })).toBe(true);
   });
 
-  it("returns false when one is null", () => {
-    expect(prInfoEqual(pr, null)).toBe(false);
-    expect(prInfoEqual(null, pr)).toBe(false);
+  it("returns true for both absent", () => {
+    expect(prResultEqual({ kind: "absent" }, { kind: "absent" })).toBe(true);
   });
 
-  it("returns true for equal values", () => {
-    expect(prInfoEqual(pr, { ...pr })).toBe(true);
+  it("returns false when kinds differ", () => {
+    expect(prResultEqual(ok, { kind: "absent" })).toBe(false);
+    expect(prResultEqual({ kind: "pending" }, { kind: "absent" })).toBe(false);
+  });
+
+  it("returns true for equal ok values", () => {
+    expect(prResultEqual(ok, { kind: "ok", value: { ...pr } })).toBe(true);
   });
 
   it.each([
@@ -106,6 +111,72 @@ describe("prInfoEqual", () => {
     { field: "state", value: "merged" },
     { field: "checks", value: "fail" },
   ] as const)("detects different $field", ({ field, value }) => {
-    expect(prInfoEqual(pr, { ...pr, [field]: value })).toBe(false);
+    expect(
+      prResultEqual(ok, { kind: "ok", value: { ...pr, [field]: value } }),
+    ).toBe(false);
+  });
+
+  it("compares unavailable reasons", () => {
+    const a: PrResult = { kind: "unavailable", reason: "gh: not installed" };
+    const b: PrResult = { kind: "unavailable", reason: "gh: not installed" };
+    const c: PrResult = {
+      kind: "unavailable",
+      reason: "gh: not authenticated",
+    };
+    expect(prResultEqual(a, b)).toBe(true);
+    expect(prResultEqual(a, c)).toBe(false);
+  });
+});
+
+describe("classifyGhError", () => {
+  it("classifies ENOENT as not installed", () => {
+    const result = classifyGhError({ code: "ENOENT" });
+    expect(result).toEqual({
+      kind: "unavailable",
+      reason: "gh: not installed",
+    });
+  });
+
+  it("classifies timeout (killed) as timed out", () => {
+    const result = classifyGhError({
+      killed: true,
+      signal: "SIGTERM",
+      code: null,
+    });
+    expect(result).toEqual({ kind: "unavailable", reason: "gh: timed out" });
+  });
+
+  it.each([
+    "You are not logged into any GitHub hosts. Run gh auth login to authenticate.",
+    "error connecting to github.com\nTry authentication with: gh auth login",
+    "authentication required",
+  ])("classifies auth-failure stderr %# as not authenticated", (stderr) => {
+    const result = classifyGhError({ code: 1, stderr });
+    expect(result).toEqual({
+      kind: "unavailable",
+      reason: "gh: not authenticated",
+    });
+  });
+
+  it("classifies gh's 'no pull requests found' as absent", () => {
+    const result = classifyGhError({
+      code: 1,
+      stderr: 'no pull requests found for branch "my-branch"',
+    });
+    expect(result).toEqual({ kind: "absent" });
+  });
+
+  it.each([
+    { input: new Error("JSON parse boom"), label: "Error instance" },
+    { input: "raw string", label: "raw string" },
+    {
+      input: { code: 1, stderr: "unexpected runtime error from gh" },
+      label: "unrecognized stderr",
+    },
+  ])("flags unrecognized $label as unavailable", ({ input }) => {
+    expect(classifyGhError(input)).toEqual({
+      kind: "unavailable",
+      reason: "gh: unknown error",
+    });
   });
 });
