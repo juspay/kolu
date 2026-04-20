@@ -3,7 +3,7 @@
  *  Per #622 the workspace is mode-less: desktop is always the canvas; mobile
  *  is a single fullscreen tile with swipe nav. Per-terminal chrome (theme
  *  pill, agent indicator, screenshot, split toggle) lives on the tile title
- *  bar via `renderTileTitleActions`. The header is intentionally minimal. */
+ *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import {
   type Component,
@@ -20,10 +20,10 @@ import { isMobile } from "./useMobile";
 import ChromeBar from "./ChromeBar";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
-import AgentIndicator from "./terminal/AgentIndicator";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import PillTree from "./canvas/PillTree";
+import TileTitleActions from "./canvas/TileTitleActions";
 import { groupByRepo, flatPillOrder } from "./canvas/pillTreeOrder";
 import MobileTileView from "./MobileTileView";
 import MobileKeyBar from "./MobileKeyBar";
@@ -40,8 +40,6 @@ import { exportSessionAsPdf } from "./exportSessionAsPdf";
 import { screenshotTerminal } from "./screenshotTerminal";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import { useRecorder } from "./recorder/useRecorder";
-import { ScreenshotIcon, SearchIcon } from "./ui/Icons";
-import Tip from "./ui/Tip";
 
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
@@ -51,16 +49,12 @@ import { useThemeManager } from "./useThemeManager";
 import { useShortcuts } from "./input/useShortcuts";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
+import { useViewPosture } from "./canvas/useViewPosture";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
-import { CONTEXTUAL_TIPS, pillTreeSwitchTip } from "./settings/tips";
+import { pillTreeSwitchTip } from "./settings/tips";
 import { toggleMinimap } from "./canvas/CanvasMinimap";
-
-/** Tile chrome buttons share this affordance. Theme pill is wider — it shows
- *  the theme name. Other buttons are square. */
-const TILE_BUTTON_CLASS =
-  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -83,6 +77,7 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme, setColorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
+  const posture = useViewPosture();
   const { showTipOnce } = useTips();
 
   // Pill-tree-grouped order — single source for the desktop pill tree AND
@@ -289,125 +284,6 @@ const App: Component = () => {
     }
   }
 
-  /** Per-tile chrome rendered into the CanvasTile title bar.
-   *  Order (left → right between title and close): agent indicator, theme
-   *  pill, split toggle, search, screenshot. */
-  function renderTileTitleActions(id: TerminalId) {
-    const meta = store.getMetadata(id);
-    const themeName = () =>
-      store.activeId() === id ? activeThemeName() : meta?.themeName;
-    const subCount = () => store.getSubTerminalIds(id).length;
-    const splitExpanded = () =>
-      subCount() > 0 && !subPanel.getSubPanel(id).collapsed;
-    return (
-      <>
-        <Show when={meta?.agent}>
-          {(agent) => (
-            <button
-              class={`${TILE_BUTTON_CLASS} px-2`}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                store.setActiveId(id);
-                rightPanel.expandPanel();
-              }}
-              title="Open inspector"
-            >
-              <AgentIndicator agent={agent()} />
-            </button>
-          )}
-        </Show>
-        <Show when={themeName()}>
-          {(name) => (
-            <Tip label={`Theme: ${name()}`}>
-              <button
-                data-testid="tile-theme-pill"
-                class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
-                style={{ color: "var(--color-fg-3, currentColor)" }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  store.setActiveId(id);
-                  openPaletteGroup("Theme");
-                  setTimeout(
-                    () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
-                    500,
-                  );
-                }}
-              >
-                {name()}
-              </button>
-            </Tip>
-          )}
-        </Show>
-        <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
-          <button
-            data-testid="tile-split-toggle"
-            class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
-            classList={{ "bg-black/20": splitExpanded() }}
-            style={{ color: "var(--color-fg-3, currentColor)" }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              store.setActiveId(id);
-              handleToggleSubPanel(id);
-            }}
-            aria-label="Toggle split"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              stroke-width="2"
-              aria-hidden="true"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <line x1="3" y1="13" x2="21" y2="13" />
-            </svg>
-            <Show when={subCount() > 0}>
-              <span
-                data-testid="sub-count"
-                class="text-[0.65rem] tabular-nums leading-none"
-              >
-                {subCount()}
-              </span>
-            </Show>
-          </button>
-        </Tip>
-        <Tip label="Find in terminal">
-          <button
-            data-testid="tile-find"
-            class={`${TILE_BUTTON_CLASS} w-7`}
-            style={{ color: "var(--color-fg-3, currentColor)" }}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              store.setActiveId(id);
-              setSearchOpen(true);
-            }}
-            aria-label="Find in terminal"
-          >
-            <SearchIcon />
-          </button>
-        </Tip>
-        <button
-          class={`${TILE_BUTTON_CLASS} w-7`}
-          style={{ color: "var(--color-fg-3, currentColor)" }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            handleScreenshotTerminal(id);
-          }}
-          title="Screenshot terminal"
-          data-testid="screenshot-button"
-        >
-          <ScreenshotIcon />
-        </button>
-      </>
-    );
-  }
-
   /** Canvas tile body — every tile stays mounted (`visible={true}`) so
    *  inactive xterms keep their grid sized correctly; only the focused tile
    *  takes keyboard focus. */
@@ -580,7 +456,7 @@ const App: Component = () => {
               groups={pillGroups()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                if (!store.canvasMaximized()) {
+                if (!posture.maximized()) {
                   const layout = store.getMetadata(id)?.canvasLayout;
                   if (layout) canvasViewport.centerOnTile(layout);
                 }
@@ -656,7 +532,15 @@ const App: Component = () => {
                     renderTileTitle={(id) => (
                       <TerminalMeta info={store.getDisplayInfo(id)} />
                     )}
-                    renderTileTitleActions={renderTileTitleActions}
+                    renderTileTitleActions={(id) => (
+                      <TileTitleActions
+                        id={id}
+                        onOpenPaletteGroup={openPaletteGroup}
+                        onToggleSubPanel={handleToggleSubPanel}
+                        onOpenSearch={() => setSearchOpen(true)}
+                        onScreenshot={handleScreenshotTerminal}
+                      />
+                    )}
                     renderTileBody={renderCanvasTileBody}
                   />
                 ))
