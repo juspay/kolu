@@ -10,11 +10,12 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
-import { type Component, Show } from "solid-js";
-import { prValue, prUnavailableReason } from "kolu-common/pr";
+import { type Component, Show, createSignal } from "solid-js";
+import { prValue, prUnavailable } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WarningIcon, WorktreeIcon } from "../ui/Icons";
+import PrUnavailablePopover from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
@@ -122,20 +123,13 @@ const TerminalMeta: Component<{
                     </span>
                   )}
                 </Show>
-                <Show when={prUnavailableReason(info().meta.pr)}>
-                  {(reason) => (
-                    // Native `title` rather than <Tip>: Tip's Corvu trigger
-                    // applies `role="button"`, which Tailwind preflight styles
-                    // with `cursor: pointer` — a misleading affordance while
-                    // this element is not (yet) clickable. Swap back to Tip
-                    // when the recovery-instructions popover lands.
-                    <span
-                      data-testid="terminal-meta-pr-unavailable"
-                      class="flex items-center text-fg-3 shrink-0"
-                      title={reason()}
-                    >
-                      <WarningIcon class="w-3 h-3" />
-                    </span>
+                <Show when={prUnavailable(info().meta.pr)}>
+                  {(unavail) => (
+                    <PrUnavailableButton
+                      code={unavail().code}
+                      reason={unavail().reason}
+                      testId="terminal-meta-pr-unavailable"
+                    />
                   )}
                 </Show>
               </div>
@@ -195,15 +189,13 @@ export const TerminalMetaCompact: Component<{
               </a>
             )}
           </Show>
-          <Show when={prUnavailableReason(info().meta.pr)}>
-            {(reason) => (
-              <span
-                data-testid="terminal-meta-pr-unavailable-compact"
-                class="flex items-center text-fg-3 shrink-0"
-                title={reason()}
-              >
-                <WarningIcon class="w-3 h-3" />
-              </span>
+          <Show when={prUnavailable(info().meta.pr)}>
+            {(unavail) => (
+              <PrUnavailableButton
+                code={unavail().code}
+                reason={unavail().reason}
+                testId="terminal-meta-pr-unavailable-compact"
+              />
             )}
           </Show>
           <Show when={info().meta.agent?.taskProgress}>
@@ -217,6 +209,45 @@ export const TerminalMetaCompact: Component<{
         </div>
       )}
     </Show>
+  );
+};
+
+/** ⚠ button that opens PrUnavailablePopover on click. Each render site owns
+ *  its own open state + triggerRef — canvas tile chrome and mobile pull-handle
+ *  show the icon simultaneously for the same terminal, and they should each
+ *  anchor their popover to their own trigger rather than share one. */
+const PrUnavailableButton: Component<{
+  code: Parameters<typeof PrUnavailablePopover>[0]["code"];
+  reason: string;
+  testId: string;
+}> = (props) => {
+  const [open, setOpen] = createSignal(false);
+  const [triggerEl, setTriggerEl] = createSignal<HTMLButtonElement>();
+  return (
+    <>
+      <button
+        ref={setTriggerEl}
+        type="button"
+        data-testid={props.testId}
+        class="flex items-center text-fg-3 shrink-0 cursor-pointer hover:text-warning focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded"
+        title={props.reason}
+        aria-label={props.reason}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <WarningIcon class="w-3 h-3" />
+      </button>
+      <PrUnavailablePopover
+        open={open()}
+        onOpenChange={setOpen}
+        triggerRef={triggerEl()}
+        code={props.code}
+        reason={props.reason}
+      />
+    </>
   );
 };
 

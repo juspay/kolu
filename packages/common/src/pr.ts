@@ -78,3 +78,15 @@ export function prValue(pr: PrResult): GitHubPrInfo | null {
 export function prUnavailableReason(pr: PrResult): string | null {
   return pr.kind === "unavailable" ? pr.reason : null;
 }
+
+/** Extract the full unavailable payload (typed `code` + display `reason`) when
+ *  `kind === "unavailable"`, else `null`. Use this when the UI needs to
+ *  dispatch on code (e.g. render different recovery instructions per
+ *  failure); `prUnavailableReason` is enough for a plain string tooltip. */
+export function prUnavailable(
+  pr: PrResult,
+): { code: PrUnavailableCode; reason: string } | null {
+  return pr.kind === "unavailable"
+    ? { code: pr.code, reason: pr.reason }
+    : null;
+}

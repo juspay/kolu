@@ -78,6 +78,7 @@ import {
   PrUnavailableCodeSchema,
   prValue,
   prUnavailableReason,
+  prUnavailable,
 } from "./pr.ts";
 export {
   GitHubCheckStatusSchema,
@@ -87,6 +88,7 @@ export {
   PrUnavailableCodeSchema,
   prValue,
   prUnavailableReason,
+  prUnavailable,
 };
 export type { GitHubPrInfo, PrResult, PrUnavailableCode } from "./pr.ts";
 
