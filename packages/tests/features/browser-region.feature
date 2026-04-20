@@ -32,3 +32,10 @@ Feature: Terminal-attached browser region (Phase 0 of #633)
     Then no browser region should be visible on canvas tile 1
     And there should be 1 canvas tile
     And there should be no page errors
+
+  Scenario: Globe button toggles the browser region (open → close)
+    When I click the open-browser button on canvas tile 1
+    Then a browser region should be visible on canvas tile 1
+    When I click the open-browser button on canvas tile 1
+    Then no browser region should be visible on canvas tile 1
+    And there should be no page errors

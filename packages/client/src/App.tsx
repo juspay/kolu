@@ -220,13 +220,20 @@ const App: Component = () => {
     setPaletteOpen(true);
   }
 
-  /** Attach the right-side browser region to a terminal (#633). Opens
-   *  with a default initial URL when none is yet set. No-op if already
-   *  attached — the right affordance then is to focus its URL bar, which
-   *  happens because BrowserRegion auto-focuses on mount. */
-  function handleOpenBrowser(id: TerminalId) {
+  /** Toggle the right-side browser region on a terminal (#633): attach
+   *  it with a default initial URL when absent, detach it when present.
+   *  Mirrors `handleToggleSubPanel`'s open-or-close shape — the chrome
+   *  button is a single affordance that reflects current state. */
+  function handleToggleBrowser(id: TerminalId) {
     const existing = store.getMetadata(id)?.browser;
-    if (existing && !existing.collapsed) return;
+    if (existing && !existing.collapsed) {
+      void client.terminal
+        .clearBrowser({ id })
+        .catch((err: Error) =>
+          toast.error(`Failed to close browser: ${err.message}`),
+        );
+      return;
+    }
     void client.terminal
       .setBrowser({
         id,
@@ -239,7 +246,9 @@ const App: Component = () => {
       );
   }
 
-  /** Detach the right-side browser region (closes its panel). */
+  /** Detach the right-side browser region. The region's own × calls this
+   *  directly (plumbed through `TerminalContent.onCloseBrowser`); the
+   *  title-bar globe button goes through `handleToggleBrowser` instead. */
   function handleCloseBrowser(id: TerminalId) {
     void client.terminal
       .clearBrowser({ id })
@@ -569,7 +578,7 @@ const App: Component = () => {
                         onToggleSubPanel={handleToggleSubPanel}
                         onOpenSearch={() => setSearchOpen(true)}
                         onScreenshot={handleScreenshotTerminal}
-                        onOpenBrowser={handleOpenBrowser}
+                        onToggleBrowser={handleToggleBrowser}
                       />
                     )}
                     renderTileBody={renderCanvasTileBody}

@@ -2,7 +2,7 @@ import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_TILE = '[data-testid="canvas-tile"]';
-const OPEN_BROWSER_BUTTON = '[data-testid="tile-open-browser"]';
+const TOGGLE_BROWSER_BUTTON = '[data-testid="tile-toggle-browser"]';
 const BROWSER_REGION = '[data-testid="browser-region"]';
 const BROWSER_REGION_URL = '[data-testid="browser-region-url"]';
 const BROWSER_REGION_IFRAME = '[data-testid="browser-region-iframe"]';
@@ -14,7 +14,7 @@ When(
     const button = this.page
       .locator(CANVAS_TILE)
       .nth(index - 1)
-      .locator(OPEN_BROWSER_BUTTON);
+      .locator(TOGGLE_BROWSER_BUTTON);
     await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await button.click();
     await this.waitForFrame();

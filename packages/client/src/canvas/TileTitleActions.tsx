@@ -42,8 +42,10 @@ const TileTitleActions: Component<{
   onOpenSearch: () => void;
   /** Screenshot the given terminal. */
   onScreenshot: (id: TerminalId) => void;
-  /** Attach the right-side browser region to this terminal (#633). */
-  onOpenBrowser: (id: TerminalId) => void;
+  /** Toggle the right-side browser region on this terminal (#633):
+   *  attach it when absent, detach it when present. Mirrors the
+   *  split-terminal toggle's open-or-close semantics. */
+  onToggleBrowser: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
@@ -101,9 +103,9 @@ const TileTitleActions: Component<{
           </Tip>
         )}
       </Show>
-      <Tip label={browserAttached() ? "Browser open" : "Open browser →"}>
+      <Tip label={browserAttached() ? "Close browser" : "Open browser →"}>
         <button
-          data-testid="tile-open-browser"
+          data-testid="tile-toggle-browser"
           class={`${TILE_BUTTON_CLASS} w-7`}
           classList={{ "bg-black/20": browserAttached() }}
           style={{ color: "var(--color-fg-3, currentColor)" }}
@@ -111,10 +113,10 @@ const TileTitleActions: Component<{
           onClick={(e) => {
             e.stopPropagation();
             store.setActiveId(props.id);
-            props.onOpenBrowser(props.id);
+            props.onToggleBrowser(props.id);
           }}
-          aria-label="Open browser"
-          disabled={browserAttached()}
+          aria-label={browserAttached() ? "Close browser" : "Open browser"}
+          aria-pressed={browserAttached()}
         >
           <GlobeIcon />
         </button>
