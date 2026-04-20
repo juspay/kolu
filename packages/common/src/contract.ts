@@ -22,6 +22,10 @@ import {
   TerminalMetadataSchema,
   TerminalPasteImageInputSchema,
   TerminalScreenTextInputSchema,
+  TerminalSetBrowserInputSchema,
+  TerminalClearBrowserInputSchema,
+  TerminalProbeBrowserUrlInputSchema,
+  TerminalProbeBrowserUrlOutputSchema,
   ServerInfoSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
@@ -81,6 +85,14 @@ export const contract = oc.router({
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
+    // Attach or update the right-side browser region on a terminal (#633).
+    setBrowser: oc.input(TerminalSetBrowserInputSchema).output(z.void()),
+    // Detach the right-side browser region from a terminal.
+    clearBrowser: oc.input(TerminalClearBrowserInputSchema).output(z.void()),
+    // HEAD-probe a URL for XFO / CSP frame-ancestors restrictions.
+    probeBrowserUrl: oc
+      .input(TerminalProbeBrowserUrlInputSchema)
+      .output(TerminalProbeBrowserUrlOutputSchema),
   },
   git: {
     worktreeCreate: oc

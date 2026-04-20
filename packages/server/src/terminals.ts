@@ -19,7 +19,7 @@ import {
 import { publishForTerminal, publishSystem } from "./publisher.ts";
 import { parseAgentCommand } from "anyagent";
 import { trackRecentAgent } from "./activity.ts";
-import type { SavedTerminal } from "kolu-common";
+import type { SavedTerminal, BrowserRegion } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
 export interface TerminalProcess {
@@ -50,7 +50,9 @@ function nextSortOrder(parentId?: string): number {
   return max + SORT_GAP;
 }
 
-/** Build a session snapshot from current terminal + client-reported state. */
+/** Build a session snapshot from current terminal + client-reported state.
+ *  The optional right-side browser region (#633) rides along on each
+ *  terminal as `meta.browser`, so nothing extra is needed here. */
 export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
@@ -66,6 +68,7 @@ export function snapshotSession(): {
       ...(m.themeName && { themeName: m.themeName }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
       ...(m.subPanel && { subPanel: m.subPanel }),
+      ...(m.browser && { browser: m.browser }),
     };
   });
   return { terminals: snappedTerminals, activeTerminalId };
@@ -279,6 +282,29 @@ export function setCanvasLayout(
   if (!entry) return;
   updateClientMetadata(entry, id, (m) => {
     m.canvasLayout = layout;
+  });
+}
+
+/** Attach or update the right-side browser region (#633).
+ *  Writes through the same client-metadata path as `canvasLayout` /
+ *  `subPanel` — publishes a metadata event and triggers session autosave. */
+export function setBrowserOnTerminal(
+  id: TerminalId,
+  browser: BrowserRegion,
+): void {
+  const entry = terminals.get(id);
+  if (!entry) return;
+  updateClientMetadata(entry, id, (m) => {
+    m.browser = browser;
+  });
+}
+
+/** Detach the browser region from a terminal. */
+export function clearBrowserOnTerminal(id: TerminalId): void {
+  const entry = terminals.get(id);
+  if (!entry) return;
+  updateClientMetadata(entry, id, (m) => {
+    m.browser = undefined;
   });
 }
 

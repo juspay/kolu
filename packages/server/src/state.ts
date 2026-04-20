@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.16.0";
+const SCHEMA_VERSION = "1.18.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -275,6 +275,23 @@ export const store = new Conf<PersistedState>({
     // widened enum, so no value transformation is required. The bump is
     // recorded here for the ladder's sake (see .claude/rules/state.md).
     "1.16.0": () => {},
+    // #633 Phase 0: `SavedSession.browserTiles` (free-floating browser
+    // canvas tiles) was added here. Harmless if present; 1.18.0 strips it.
+    "1.17.0": () => {},
+    // #633 Phase 0 pivot: free-floating browser canvas tiles are gone.
+    // Browsers now attach to a terminal as `SavedTerminal.browser`. Strip
+    // the obsolete `browserTiles` key from `session`; we do NOT try to
+    // migrate orphan browser tiles into terminals because SavedBrowserTile
+    // never carried an owning-terminal pointer. Users on 1.17.0 who opened
+    // browsers lose those URLs on upgrade — acceptable because the feature
+    // was unreleased (see PR #640 history).
+    "1.18.0": (store) => {
+      const session = store.get("session") as Record<string, unknown> | null;
+      if (session && "browserTiles" in session) {
+        const { browserTiles: _drop, ...rest } = session;
+        store.set("session", rest as unknown as typeof session);
+      }
+    },
   },
 });
 

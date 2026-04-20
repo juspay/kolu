@@ -20,8 +20,11 @@ import {
   setActiveTerminalId,
   setTerminalParent,
   reorderTerminals,
+  setBrowserOnTerminal,
+  clearBrowserOnTerminal,
   type TerminalProcess,
 } from "./terminals.ts";
+import { probeFraming } from "./browserProbe.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
@@ -187,6 +190,20 @@ export const appRouter = t.router({
     killAll: t.terminal.killAll.handler(async () => {
       killAllTerminals();
     }),
+
+    setBrowser: t.terminal.setBrowser.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      setBrowserOnTerminal(input.id, input.browser);
+    }),
+
+    clearBrowser: t.terminal.clearBrowser.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      clearBrowserOnTerminal(input.id);
+    }),
+
+    probeBrowserUrl: t.terminal.probeBrowserUrl.handler(async ({ input }) =>
+      probeFraming(input.url),
+    ),
 
     onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
       input,

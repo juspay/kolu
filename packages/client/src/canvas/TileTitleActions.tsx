@@ -10,6 +10,7 @@
  *  orchestration layer. Extracted from App.tsx per kolu#626. */
 
 import { type Component, Show } from "solid-js";
+import { toast } from "solid-sonner";
 import type { TerminalId } from "kolu-common";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -18,13 +19,18 @@ import { useSubPanel } from "../terminal/useSubPanel";
 import { useThemeManager } from "../useThemeManager";
 import { useTips } from "../settings/useTips";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "../ui/Icons";
+import { client } from "../rpc/rpc";
+import {
+  GlobeIcon,
+  ScreenshotIcon,
+  SearchIcon,
+  SplitToggleIcon,
+} from "../ui/Icons";
 import Tip from "../ui/Tip";
+import { TILE_BUTTON_CLASS } from "../ui/tileButton";
 
-/** Tile chrome buttons share this affordance. Theme pill is wider — it shows
- *  the theme name. Other buttons are square. */
-const TILE_BUTTON_CLASS =
-  "flex items-center justify-center h-7 rounded-lg transition-colors cursor-pointer shrink-0 pointer-events-auto hover:bg-black/20 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+/** Default right-side browser panel fraction on first attach. */
+const DEFAULT_BROWSER_PANEL_SIZE = 0.5;
 
 const TileTitleActions: Component<{
   id: TerminalId;
@@ -50,6 +56,30 @@ const TileTitleActions: Component<{
   const subCount = () => store.getSubTerminalIds(props.id).length;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
+  const browserAttached = () => meta()?.browser !== undefined;
+
+  /** Toggle the right-side browser region (#633): attach with a blank
+   *  URL when absent, detach when present. Mirrors the split-terminal
+   *  toggle. Calls `client.terminal.*` directly per the solidjs rule —
+   *  App.tsx stays a thin layout shell. */
+  function toggleBrowser() {
+    if (browserAttached()) {
+      void client.terminal
+        .clearBrowser({ id: props.id })
+        .catch((err: Error) =>
+          toast.error(`Failed to close browser: ${err.message}`),
+        );
+      return;
+    }
+    void client.terminal
+      .setBrowser({
+        id: props.id,
+        browser: { url: "", panelSize: DEFAULT_BROWSER_PANEL_SIZE },
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to open browser: ${err.message}`),
+      );
+  }
 
   return (
     <>
@@ -92,6 +122,24 @@ const TileTitleActions: Component<{
           </Tip>
         )}
       </Show>
+      <Tip label={browserAttached() ? "Close browser" : "Open browser →"}>
+        <button
+          data-testid="tile-toggle-browser"
+          class={`${TILE_BUTTON_CLASS} w-7`}
+          classList={{ "bg-black/20": browserAttached() }}
+          style={{ color: "var(--color-fg-3, currentColor)" }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            store.setActiveId(props.id);
+            toggleBrowser();
+          }}
+          aria-label={browserAttached() ? "Close browser" : "Open browser"}
+          aria-pressed={browserAttached()}
+        >
+          <GlobeIcon />
+        </button>
+      </Tip>
       <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
         <button
           data-testid="tile-split-toggle"

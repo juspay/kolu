@@ -150,10 +150,10 @@ pnpm monorepo:
 
 All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.dev/). The contract in `packages/common/` is shared by both sides — types checked at compile time, payloads validated by Zod at runtime. Two communication patterns:
 
-| Pattern            | Semantics                                  | Client integration                    | Used for                                               |
-| ------------------ | ------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
-| Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder` |
-| Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, server state                  |
+| Pattern            | Semantics                                  | Client integration                    | Used for                                                                            |
+| ------------------ | ------------------------------------------ | ------------------------------------- | ----------------------------------------------------------------------------------- |
+| Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder`, `terminal.setBrowser`       |
+| Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata (carries sub-panel + attached browser region), server state |
 
 Subscriptions use [`createSubscription`](packages/client/src/rpc/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
 
@@ -219,7 +219,7 @@ flowchart TB
 
 **Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
 
-[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
+[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal, plus the optional **right-side browser region** attached to each terminal (#633) — an iframe + URL persisted on the owning terminal's metadata, peer to the existing bottom sub-panel.
 
 [PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; the `stream` namespace in `packages/client/src/rpc/rpc.ts` routes every async-iterator procedure through oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so consumers transparently re-subscribe after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
 
