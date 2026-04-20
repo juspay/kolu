@@ -7,7 +7,8 @@ import Dialog from "@corvu/dialog";
 import ModalDialog from "./ui/ModalDialog";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ChecksIndicator from "./terminal/ChecksIndicator";
-import { type TerminalId, type TerminalMetadata, prValue } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { prValue } from "kolu-common/pr";
 
 export interface CloseConfirmTarget {
   id: TerminalId;

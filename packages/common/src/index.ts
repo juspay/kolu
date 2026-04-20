@@ -66,57 +66,27 @@ export type {
 const TerminalIdSchema = z.string().uuid();
 
 // --- GitHub PR context ---
-
-export const GitHubCheckStatusSchema = z.enum(["pending", "pass", "fail"]);
-
-export const GitHubPrStateSchema = z.enum(["open", "closed", "merged"]);
-
-export const GitHubPrInfoSchema = z.object({
-  number: z.number(),
-  title: z.string(),
-  url: z.string(),
-  /** PR state: open, closed, or merged. */
-  state: GitHubPrStateSchema,
-  /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
-  checks: GitHubCheckStatusSchema.nullable(),
-});
-
-/** PR resolution state.
- *
- *  Decomplects three distinct conditions that `GitHubPrInfo | null` used to
- *  collapse into one value:
- *    pending     — resolver is running (or stale after a branch change)
- *    ok          — resolver succeeded; a PR exists for this branch
- *    absent      — resolver succeeded; no PR for this branch (expected case)
- *    unavailable — resolver couldn't run (gh missing, not authenticated, timed out)
- *
- *  The UI needs to distinguish "absent" (nothing to show) from "unavailable"
- *  (show a warning with `reason`). Keeping the provenance in the same field
- *  as the value avoids a sibling-flag invariant.
- *
- *  Analogous schemas for git/agent/foreground are not introduced yet — their
- *  failure modes don't currently surface as user-actionable warnings. If they
- *  do, mirror this shape per-provider rather than inventing a cross-cutting
- *  status registry (see PR description for #148). */
-export const PrResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("pending") }),
-  z.object({ kind: z.literal("ok"), value: GitHubPrInfoSchema }),
-  z.object({ kind: z.literal("absent") }),
-  z.object({ kind: z.literal("unavailable"), reason: z.string() }),
-]);
-export type PrResult = z.infer<typeof PrResultSchema>;
-
-/** Extract the `GitHubPrInfo` when `kind === "ok"`, else `null`.
- *  Lets SolidJS `<Show when={prValue(meta.pr)}>` work without tripping on the
- *  object-truthy trap (every variant is a non-null object). */
-export function prValue(pr: PrResult): GitHubPrInfo | null {
-  return pr.kind === "ok" ? pr.value : null;
-}
-
-/** Extract the unavailability reason when `kind === "unavailable"`, else `null`. */
-export function prUnavailableReason(pr: PrResult): string | null {
-  return pr.kind === "unavailable" ? pr.reason : null;
-}
+// Schemas + helpers live in ./pr.ts so clients can runtime-import them via
+// `kolu-common/pr` without pulling the full kolu-common module graph
+// (which re-exports kolu-claude-code and transitively drags node-only
+// `@anthropic-ai/claude-agent-sdk` into the browser bundle).
+import {
+  GitHubCheckStatusSchema,
+  GitHubPrStateSchema,
+  GitHubPrInfoSchema,
+  PrResultSchema,
+  prValue,
+  prUnavailableReason,
+} from "./pr.ts";
+export {
+  GitHubCheckStatusSchema,
+  GitHubPrStateSchema,
+  GitHubPrInfoSchema,
+  PrResultSchema,
+  prValue,
+  prUnavailableReason,
+};
+export type { GitHubPrInfo, PrResult } from "./pr.ts";
 
 // --- AI coding agent context ---
 
@@ -398,7 +368,6 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
 export type TerminalId = TerminalInfo["id"];
 
-export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;

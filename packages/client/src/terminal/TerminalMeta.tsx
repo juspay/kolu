@@ -11,7 +11,7 @@
  *  exported below for reuse. */
 
 import { type Component, Show } from "solid-js";
-import { prValue, prUnavailableReason } from "kolu-common";
+import { prValue, prUnavailableReason } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WarningIcon, WorktreeIcon } from "../ui/Icons";

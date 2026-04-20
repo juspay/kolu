@@ -3,11 +3,8 @@
 
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import {
-  type TerminalMetadata,
-  prValue,
-  prUnavailableReason,
-} from "kolu-common";
+import type { TerminalMetadata } from "kolu-common";
+import { prValue, prUnavailableReason } from "kolu-common/pr";
 import {
   PrStateIcon,
   TerminalIcon,
