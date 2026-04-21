@@ -14,8 +14,8 @@
  *
  *  Color/hover/text sit with the caller because chrome surfaces vary:
  *  canvas tile bg is per-terminal theme (use `hover:bg-black/20`);
- *  right panel bg is the static dark surface (use `hover:bg-surface-0`
- *  or a foreground-class change). */
+ *  right panel bg is the static dark surface (use `hover:bg-surface-0/50`
+ *  for a translucent darken or a foreground-class change). */
 export const CHROME_ICON_BUTTON_CLASS =
   "flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer";
 
