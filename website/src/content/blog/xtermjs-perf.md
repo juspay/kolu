@@ -8,7 +8,7 @@ author: "Sridhar Ratnakumar"
 _One afternoon, two xterm.js contributions, and a reminder that proxy
 metrics can be wrong by three orders of magnitude._
 
-[Kolu](https://github.com/juspay/kolu) is a browser cockpit for
+[Kolu](https://github.com/juspay/kolu) is a terminal-native cockpit for
 coding agents — `claude`, `opencode`, whatever ships next week.
 The terminal is the universal interface: every pane is a real
 [xterm.js](https://xtermjs.org/) in the browser, connected over

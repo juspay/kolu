@@ -4,7 +4,7 @@
 
 # kolu
 
-A browser cockpit for coding agents. Bring your own CLI, run them anywhere.
+A terminal-native cockpit for coding agents. Bring your own CLI, run them anywhere.
 
 Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. It's an [Agentic Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) that treats terminals as the thesis, not the substrate.
 
