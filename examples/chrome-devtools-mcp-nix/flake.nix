@@ -14,14 +14,20 @@
       mkMcp = pkgs: pkgs.writeShellScriptBin "chrome-devtools-mcp" ''
         exec ${pkgs.nodejs}/bin/npx -y chrome-devtools-mcp@${mcpVersion} "$@"
       '';
+
+      perSystem = pkgs: rec {
+        mcp = mkMcp pkgs;
+        package = { default = mcp; };
+        app = {
+          default = {
+            type = "app";
+            program = "${mcp}/bin/chrome-devtools-mcp";
+          };
+        };
+      };
     in
     {
-      packages = eachSystem (pkgs: { default = mkMcp pkgs; });
-      apps = eachSystem (pkgs: {
-        default = {
-          type = "app";
-          program = "${mkMcp pkgs}/bin/chrome-devtools-mcp";
-        };
-      });
+      packages = eachSystem (pkgs: (perSystem pkgs).package);
+      apps = eachSystem (pkgs: (perSystem pkgs).app);
     };
 }
