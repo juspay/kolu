@@ -51,7 +51,7 @@ const RightPanel: Component<{
                 class={`h-full px-3 text-xs cursor-pointer transition-colors ${
                   isActive()
                     ? "font-medium text-fg-2 bg-surface-0 border-b-2"
-                    : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50/50 border-b-2 border-transparent"
+                    : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50 border-b-2 border-transparent"
                 }`}
                 style={isActive() ? { "border-bottom-color": accent() } : {}}
                 onClick={() => showKind(kind)}
