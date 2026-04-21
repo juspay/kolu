@@ -54,6 +54,13 @@ export interface AgentInfoShape {
   model: string | null;
   summary: string | null;
   taskProgress: TaskProgress | null;
+  /** Running context-window token count for the current session, or null
+   *  if the agent doesn't expose telemetry (or hasn't yet produced an
+   *  assistant turn). Derivation is per-integration — Claude Code sums
+   *  input+cache_creation+cache_read from the latest assistant entry's
+   *  `message.usage`; OpenCode reads `tokens.total` from the latest
+   *  assistant message. Both collapse to the same scalar meaning. */
+  contextTokens: number | null;
 }
 
 /** Agent-detection contract. Type parameters: `Session` is the provider's
@@ -115,6 +122,7 @@ export function agentInfoEqual<A extends AgentInfoShape>(
   if (a.sessionId !== b.sessionId) return false;
   if (a.model !== b.model) return false;
   if (a.summary !== b.summary) return false;
+  if (a.contextTokens !== b.contextTokens) return false;
   return taskProgressEqual(a.taskProgress, b.taskProgress);
 }
 

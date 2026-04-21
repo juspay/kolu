@@ -45,6 +45,11 @@ export const OpenCodeInfoSchema = z.object({
   summary: z.string().nullable(),
   /** Todo progress from OpenCode's `todo` table. null when no todos. */
   taskProgress: TaskProgressSchema.nullable(),
+  /** Running context-window token count from the latest assistant
+   *  message's `tokens.total` field (OpenCode emits it pre-summed).
+   *  Null when the latest message is a user turn or the agent has not
+   *  yet produced an assistant reply. */
+  contextTokens: z.number().nullable(),
 });
 
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
@@ -184,6 +189,54 @@ export function getSessionTaskProgress(
   );
 }
 
+// --- Context-token lookup ---
+
+/**
+ * Read the latest assistant message's running context-token total from
+ * `tokens.total`. Independent of `deriveSessionState` because the signals
+ * terminate differently: state pivots on the newest message of any role,
+ * but the token total only lives on assistant messages — using the single
+ * latest message would blank the count whenever the user's prompt is the
+ * newest row (Thinking state).
+ *
+ * One indexed query against (session_id, time_created). `json_extract`
+ * forces per-row blob inspection, but the walker stops at the first match
+ * — in practice 1–3 rows.
+ */
+export function getLatestAssistantContextTokens(
+  sessionId: string,
+  log?: Logger,
+  db?: DatabaseSync,
+): number | null {
+  return withDb(
+    (conn) => {
+      const row = conn
+        .prepare(
+          "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1",
+        )
+        .get(sessionId) as { data: string } | undefined;
+      if (!row) return null;
+      let parsed: MessageData;
+      try {
+        parsed = JSON.parse(row.data) as MessageData;
+      } catch (err) {
+        // OpenCode writes this JSON itself, so a parse failure is a real
+        // anomaly — surface it rather than silently blanking the badge.
+        log?.error(
+          { err, sessionId },
+          "opencode assistant message.data parse failed",
+        );
+        return null;
+      }
+      return parsed.tokens?.total ?? null;
+    },
+    "opencode context-tokens query failed",
+    { sessionId },
+    log,
+    db,
+  );
+}
+
 // --- Tool detection ---
 
 /**
@@ -228,9 +281,16 @@ interface MessageData {
   providerID?: string;
   finish?: string;
   time?: { created?: number; completed?: number };
+  /** Present on assistant messages once OpenCode has accounted the turn.
+   *  `total` is the running session token count, pre-summed by the
+   *  provider — we just pass it through. */
+  tokens?: { total?: number };
 }
 
-/** State derived from message JSON content only. */
+/** State derived from message JSON content only. Token telemetry is a
+ *  separate signal (see `getLatestAssistantContextTokens`) because the
+ *  latest-message lens this function provides doesn't match the
+ *  latest-assistant-message lens that context accounting needs. */
 export type ParsedMessageState = {
   state: OpenCodeInfo["state"];
   model: string | null;

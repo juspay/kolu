@@ -197,6 +197,7 @@ export function createSessionWatcher(
       model: derived.model,
       summary: lastSummary,
       taskProgress: deriveTaskProgress(taskMap),
+      contextTokens: derived.contextTokens,
     };
 
     if (!agentInfoEqual(info, lastInfo)) {

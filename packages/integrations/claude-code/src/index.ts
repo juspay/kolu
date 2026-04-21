@@ -39,6 +39,12 @@ export const ClaudeCodeInfoSchema = z.object({
   /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
    *  null when no tasks have been created in the session. */
   taskProgress: TaskProgressSchema.nullable(),
+  /** Running context-window token count: sum of input + cache_creation +
+   *  cache_read on the latest assistant entry's `message.usage`. Null when
+   *  the transcript has no assistant entries yet, or the entry lacks usage
+   *  (e.g. synthetic entries from /compact). Window size is not encoded —
+   *  consumers render the raw count compact ("47k"). */
+  contextTokens: z.number().nullable(),
 });
 
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
@@ -183,45 +189,114 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 
 // --- State derivation ---
 
-/** Derive Claude Code state from the last relevant JSONL message. */
-export function deriveState(
-  lines: string[],
-): { state: ClaudeCodeInfo["state"]; model: string | null } | null {
-  // Walk backwards to find the last assistant or user message
+/** Anthropic usage subset from `message.usage` on assistant entries — the
+ *  three input-side counters we sum for the running context-token total.
+ *  Matches the shape emitted by the Claude Code transcript JSONL. */
+type UsageShape = {
+  input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+};
+
+/** Derive Claude Code state from the last relevant JSONL message.
+ *
+ *  Walks backwards once, tracking two independent signals with different
+ *  stopping conditions:
+ *   - state + model: first `assistant` OR `user` entry (the newest event)
+ *   - contextTokens: first `assistant` entry carrying `message.usage` (the
+ *     most recent accounting snapshot)
+ *
+ *  They diverge during Thinking — the newest line is a `user` prompt, so
+ *  state is thinking, but the meaningful token total lives one hop back on
+ *  the previous assistant reply. Blanking it there (as an earlier version
+ *  did) masked a valid running count every time the user typed. */
+export function deriveState(lines: string[]): {
+  state: ClaudeCodeInfo["state"];
+  model: string | null;
+  contextTokens: number | null;
+} | null {
+  let stateAndModel: {
+    state: ClaudeCodeInfo["state"];
+    model: string | null;
+  } | null = null;
+  let contextTokens: number | null = null;
+
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const entry: {
         type?: string;
-        message?: { stop_reason?: string | null; model?: string | null };
+        message?: {
+          stop_reason?: string | null;
+          model?: string | null;
+          usage?: UsageShape;
+        };
       } = JSON.parse(lines[i]!);
-      const model = entry.message?.model ?? null;
-      const result = match({
-        type: entry.type,
-        stopReason: entry.message?.stop_reason ?? null,
-      })
-        .with({ type: "assistant", stopReason: "end_turn" }, () => ({
-          state: "waiting" as const,
-          model,
-        }))
-        .with({ type: "assistant", stopReason: "tool_use" }, () => ({
-          state: "tool_use" as const,
-          model,
-        }))
-        .with({ type: "assistant" }, () => ({
-          state: "thinking" as const,
-          model,
-        }))
-        .with({ type: "user" }, () => ({
-          state: "thinking" as const,
-          model: null,
-        }))
-        .otherwise(() => null);
-      if (result !== null) return result;
+
+      if (contextTokens === null) {
+        const tokens = sumUsageTokens(entry.message?.usage);
+        if (tokens !== null) contextTokens = tokens;
+      }
+
+      if (stateAndModel === null) {
+        const model = entry.message?.model ?? null;
+        stateAndModel = match({
+          type: entry.type,
+          stopReason: entry.message?.stop_reason ?? null,
+        })
+          .with({ type: "assistant", stopReason: "end_turn" }, () => ({
+            state: "waiting" as const,
+            model,
+          }))
+          .with({ type: "assistant", stopReason: "tool_use" }, () => ({
+            state: "tool_use" as const,
+            model,
+          }))
+          .with({ type: "assistant" }, () => ({
+            state: "thinking" as const,
+            model,
+          }))
+          .with({ type: "user" }, () => ({
+            state: "thinking" as const,
+            model: null,
+          }))
+          .otherwise(() => null);
+      }
+
+      if (stateAndModel !== null && contextTokens !== null) break;
     } catch {
       // Skip malformed lines
     }
   }
-  return null;
+
+  if (stateAndModel === null) return null;
+  return { ...stateAndModel, contextTokens };
+}
+
+/** Sum the three input-side token counters that together represent what
+ *  the model had to read for the turn. Returns null when the usage object
+ *  is absent OR when none of the three input-side fields are present —
+ *  the latter covers synthetic replay entries (e.g. from `claude -c`) that
+ *  carry an empty or output-only `usage` block. Rendering null hides the
+ *  badge; rendering 0 would flash "0K" during session restore before the
+ *  first real API reply lands.
+ *
+ *  Distinct from "all three fields present and zero" — a theoretical case
+ *  that doesn't occur in practice (real API calls always have `input_tokens
+ *  ≥ 1`), but if it did, the raw 0 would still render correctly. */
+function sumUsageTokens(usage: UsageShape | undefined): number | null {
+  if (!usage) return null;
+  if (
+    usage.input_tokens === undefined &&
+    usage.cache_creation_input_tokens === undefined &&
+    usage.cache_read_input_tokens === undefined
+  ) {
+    return null;
+  }
+  return (
+    (usage.input_tokens ?? 0) +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0)
+  );
 }
 
 // --- Task extraction ---
