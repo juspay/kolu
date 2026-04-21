@@ -25,6 +25,7 @@ pkgs.mkShell {
 
   packages = with pkgs; [
     just
+    jq # used by ci/lib.just recipes
     nodejs
     pnpm
     tsx
