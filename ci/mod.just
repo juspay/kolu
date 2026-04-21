@@ -9,7 +9,14 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
-default: _preflight _run-all
+# Re-enter nix devShell if the caller isn't already in one, so recipes
+# have jq/gh/etc. on PATH even when invoked outside direnv.
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
+
+default:
+    {{ nix_shell }} just ci::_default
+
+_default: _preflight _run-all
     just ci::_summary
 
 [parallel]
