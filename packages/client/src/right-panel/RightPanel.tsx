@@ -9,7 +9,7 @@ import MetadataInspector from "./MetadataInspector";
 import CodeTab from "./CodeTab";
 import { useRightPanel } from "./useRightPanel";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
-import { ChevronRightIcon, PinIcon } from "../ui/Icons";
+import { ChevronRightIcon } from "../ui/Icons";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -66,20 +66,6 @@ const RightPanel: Component<{
         </For>
         <div class="flex-1" />
         <div class="flex items-center gap-0.5 pr-1">
-          <button
-            class={`${CHROME_ICON_BUTTON_CLASS} hover:bg-surface-0/50`}
-            classList={{
-              "text-fg-3/70 hover:text-fg-2": !rightPanel.pinned(),
-            }}
-            style={{
-              color: rightPanel.pinned() ? ACTIVE_TERMINAL_ACCENT : undefined,
-            }}
-            onClick={() => rightPanel.togglePinned()}
-            aria-label={rightPanel.pinned() ? "Unpin panel" : "Pin panel"}
-            title={rightPanel.pinned() ? "Unpin (overlay)" : "Pin (dock)"}
-          >
-            <PinIcon />
-          </button>
           <button
             class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
             onClick={props.onToggle}

@@ -61,7 +61,7 @@ function updatePreferences(patch: PreferencesPatch) {
   if (Object.keys(rest).length > 0) setPrefs(rest);
   if (rpPatch) {
     const { tab, ...rpRest } = rpPatch;
-    // Scalar fields of rightPanel (collapsed, size, pinned) go through the
+    // Scalar fields of rightPanel (collapsed, size) go through the
     // normal merge — any path form works for primitives.
     if (Object.keys(rpRest).length > 0) {
       setPrefs("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);

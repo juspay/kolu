@@ -1,6 +1,5 @@
 /** Active-terminal accent — single CSS color string the right panel uses
- *  to subtly mirror the active terminal's identity (active-tab underline,
- *  pinned-pin tint).
+ *  to subtly mirror the active terminal's identity (active-tab underline).
  *
  *  Pure CSS: reads the `--active-terminal-{fg,bg}` vars App.tsx publishes
  *  from `useThemeManager().activeTheme()` (App.tsx:475-479), so no JS

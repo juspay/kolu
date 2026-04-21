@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.16.0";
+const SCHEMA_VERSION = "1.17.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -275,6 +275,20 @@ export const store = new Conf<PersistedState>({
     // widened enum, so no value transformation is required. The bump is
     // recorded here for the ladder's sake (see .claude/rules/state.md).
     "1.16.0": () => {},
+    // rightPanel.pinned removed — the panel now always docks, so the
+    // pin/overlay toggle (1.11.0) is gone. Strip the field from disk so
+    // the 1.17.0 preferences shape matches the schema exactly.
+    "1.17.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences");
+      const rp = current.rightPanel as Record<string, unknown>;
+      if (rp.pinned !== undefined) {
+        const { pinned: _pinned, ...rest } = rp;
+        store.set("preferences", {
+          ...current,
+          rightPanel: rest as typeof current.rightPanel,
+        });
+      }
+    },
   },
 });
 
