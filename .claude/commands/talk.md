@@ -1,5 +1,5 @@
 ---
-argument-hint: '[--no-laconic] <topic or question>'
+argument-hint: '[--no-laconic] [--review-model=<opus|sonnet|haiku>] <topic or question>'
 description: Enter talk mode — conversation only, no file changes
 ---
 
@@ -66,15 +66,15 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 - Be direct, opinionated, and concise.
 - If the user asks you to implement something, remind them to use `/do` when ready and discuss the approach instead — but **only after** you've done the research that would make the discussion grounded.
 
-## Auto-Hickey + Auto-Lowy
+## Auto-Lowy
 
-Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `hickey` and `lowy` sub-agents on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold findings into the recommendation (e.g. flag complecting, note where simplicity could be preserved, flag boundaries that track functionality instead of volatility) rather than dumping raw sub-agent output on top.
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `lowy` sub-agent on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold its findings into the recommendation (flag boundaries that track functionality instead of volatility, flag where a seam would cleanly encapsulate an axis of change) rather than dumping raw sub-agent output on top. Use `Agent(subagent_type="lowy")`, not the `Skill` tool — the sub-agent runs in an isolated context and keeps the main turn lean.
 
-<use_parallel_tool_calls>
-For maximum efficiency, invoke `Agent(subagent_type="hickey")` and `Agent(subagent_type="lowy")` **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both Agent tool_use blocks in a single response. Do NOT use the `Skill` tool here — `Skill` calls serialize on the main loop, so two Skill invocations in one response still run sequentially.
-</use_parallel_tool_calls>
+Hickey's complecting critique deliberately does **not** run here. It needs a concrete diff to bite — running it on a sketch tends to surface generic concerns rather than the specific interleavings that matter. `/do` runs hickey post-implement on the real diff. Talk mode sticks with Lowy because volatility-based decomposition is the design-level lens that's useful while the design is still a sketch.
 
-Skip the Hickey/Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
+Skip the Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
+
+**Model override.** If `ARGUMENTS` contains `--review-model=<model>` (accept `opus`, `sonnet`, or `haiku`; strip the flag before treating the rest as the topic), pass `model: "<model>"` in the `Agent(subagent_type="lowy")` call. This overrides the `model: sonnet` in `lowy`'s agent frontmatter via the `Agent` tool's built-in `model` parameter. Without the flag, omit `model` so the default (sonnet) applies. Reject unknown values with a one-line error instead of silently falling back — a typo shouldn't quietly erase a budget decision.
 
 ## Laconic mode (default)
 

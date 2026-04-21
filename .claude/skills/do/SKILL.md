@@ -1,7 +1,7 @@
 ---
 name: do
 description: Do a task end-to-end — implement, PR, CI loop, ship
-argument-hint: "<issue-url | prompt> [--review] [--no-git] [--skip-setup] [--from <step>]"
+argument-hint: "<issue-url | prompt> [--review] [--no-git] [--skip-setup] [--from <step>] [--review-model=<opus|sonnet|haiku>]"
 ---
 
 # Do Workflow
@@ -12,14 +12,15 @@ Take a task and do it top-to-bottom: research, branch, implement, pass CI, open 
 
 ## Arguments
 
-Parse the arguments string: `[--review] [--no-git] [--skip-setup] [--from <step-id>] <task description or issue-url>`
+Parse the arguments string: `[--review] [--no-git] [--skip-setup] [--from <step-id>] [--review-model=<opus|sonnet|haiku>] <task description or issue-url>`
 
 The workflow is **forge-aware**: it auto-detects whether the repo lives on GitHub or elsewhere during the **sync** step (see Forge Detection). Only GitHub has an active code path today — Bitbucket/other forges gracefully skip PR-related steps. Tracking: [srid/agency#10](https://github.com/srid/agency/issues/10).
 
-- `--review`: Pause after **hickey**/**lowy** for user plan approval via `EnterPlanMode`/`ExitPlanMode`, then continue autonomously
+- `--review`: Pause after **research** for user plan approval via `EnterPlanMode`/`ExitPlanMode`, then continue autonomously. (hickey/lowy now runs post-implement on a concrete diff, so there's no plan-approval moment attached to that step anymore — the review point is pre-implement, before any code is written.)
 - `--no-git`: Extend the working tree **in place** — do not create a branch, commit, push, or touch any PR. Research, implement, check, docs, police, fmt, and test all run; git-mutating steps (**branch**, **commit**, **create-pr**) are skipped. Use this when you have uncommitted local work and want the agent to build on it without taking over git state. Feedback from a Bitbucket user in [#26](https://github.com/srid/agency/issues/26).
 - `--skip-setup`: Bypass the setup step gate and run every applicable step. By default, after **research** the workflow pauses to present a recommended step plan via `AskUserQuestion`: the AI assesses which steps are relevant to the task (e.g., a docs-only change doesn't need **check** or **test**; a trivial one-liner doesn't need **hickey+lowy** or **police**) and presents a multi-select checklist of skippable steps with pre-selected recommendations. The user confirms or adjusts, then the workflow continues autonomously. Steps the user deselects are recorded as `skipped` with reason `"setup: user skipped"`. Pass `--skip-setup` when you want fully hands-off behavior and don't want to be interrupted. **sync**, **research**, and **done** are never skippable. See the **Setup step gate** section below for details.
 - `--from <step-id>`: Start from a specific step (see entry points below)
+- `--review-model=<model>`: Model to use for the **hickey+lowy** sub-agent invocations. Accepts `opus`, `sonnet`, or `haiku`. Defaults to `sonnet` — cheap enough to run on every task without thinking about cost. Pass `opus` when the task warrants deeper structural critique (large or architecturally significant diffs, refactors that cross module boundaries, work the user wants an extra-careful second pair of eyes on). Takes precedence over the `model: sonnet` in the hickey/lowy agent frontmatter via the `Agent` tool's `model` parameter.
 
 ## Results Tracking
 
@@ -66,7 +67,7 @@ Each step is bookended by two calls to the `scripts/do-results` script (in this 
 Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 14 step names in order:
 
 ```
-sync, research, hickey+lowy, branch, implement, check, docs, police, fmt, commit, test, create-pr, ci, done
+sync, research, branch, implement, check, docs, fmt, commit, hickey+lowy, police, test, create-pr, ci, done
 ```
 
 At each step boundary, update task state **alongside** the `scripts/do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
@@ -125,13 +126,21 @@ Anything that smells like "map the codebase", "find all callers", "understand ho
 
 **Verify**: Can articulate what needs to change, where, and why, with file:line citations drawn from the research map (not re-read in main context).
 
+**If `--review`**: Use `EnterPlanMode` to present the approach for user approval:
+
+- **Clarify ambiguities** first — ask via `AskUserQuestion` if anything is unclear. Don't guess.
+- **High-level plan**: what to do and why, not implementation details. Include an **Architecture section** (affected modules, new abstractions, ripple effects).
+- **Split non-trivial plans into phases** — MVP first, each phase functionally self-sufficient.
+
+Use `ExitPlanMode` to present the plan. Once approved, continue autonomously to the **Setup step gate** (or **branch** if `--skip-setup` is active). Structural critique from hickey/lowy isn't available at this point — it runs post-implement on a concrete diff and surfaces as commits + a PR comment later.
+
 ---
 
 ### Setup step gate
 
 **Runs by default.** Skipped entirely if `--skip-setup` is active — in that case all steps run as normal.
 
-After **research** completes (and before **hickey+lowy**), assess which of the remaining steps are relevant to this task. Consider:
+After **research** completes (and before **branch**), assess which of the remaining steps are relevant to this task. Consider:
 
 - **Nature of the change**: docs-only, config change, trivial fix, refactor, feature, bug fix
 - **Scope**: number of files, lines changed, complexity
@@ -150,37 +159,7 @@ Steps the user leaves deselected are skipped throughout the workflow with status
 
 **Interaction with other flags**: The setup gate composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that *would* normally run are presented for user selection. Passing `--skip-setup` disables the gate entirely regardless of the other flags.
 
-After the user confirms, continue autonomously from **hickey+lowy** (or the next non-skipped step).
-
----
-
-### hickey + lowy
-
-Invoke `hickey` and `lowy` as two **parallel Claude Code sub-agents** via the `Agent` tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). Do NOT use the `Skill` tool for this step — `Skill` invocations serialize on the main conversation loop, so two back-to-back `Skill` calls run one after the other even when issued in the same response. Dedicated sub-agents run in isolated contexts and genuinely execute concurrently, cutting this step's wall-clock time roughly in half. Offloading their analysis into forked contexts also keeps the main context lean for the downstream implement/police/ci steps.
-
-<use_parallel_tool_calls>
-For maximum efficiency, invoke the `hickey` and `lowy` Agent tools **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both `Agent` tool_use blocks (one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`) in a single response, with no other tool calls or text in that response.
-</use_parallel_tool_calls>
-
-Each `Agent` prompt must be self-contained (sub-agents do not inherit this conversation's context). Brief each one with:
-
-- The full task prompt plus anything relevant that **research** uncovered (file paths, planned approach, key constraints)
-- The scope to analyze — planned changes for the default entry point; the cumulative diff `origin/HEAD...HEAD` for `followup` entries
-
-The sub-agent already knows to read its skill file and follow that methodology; don't re-state it in the prompt.
-
-After both sub-agents return, synthesize their findings and revise the approach to eliminate accidental complexity before proceeding.
-
-**If `--review`**: Use `EnterPlanMode` to present the revised approach for user approval:
-
-- **Clarify ambiguities** first — ask via `AskUserQuestion` if anything is unclear. Don't guess.
-- **High-level plan**: what to do and why, not implementation details. Include an **Architecture section** (affected modules, new abstractions, ripple effects).
-- **Split non-trivial plans into phases** — MVP first, each phase functionally self-sufficient.
-- Include a **Simplicity assessment** noting what hickey/lowy found and any trade-offs accepted.
-
-Use `ExitPlanMode` to present the plan. Once approved, continue autonomously from **branch**.
-
-**Verify**: Every finding has an action (fix or defer with issue link). No unactioned findings.
+After the user confirms, continue autonomously from **branch** (or the next non-skipped step).
 
 ---
 
@@ -232,23 +211,6 @@ If no documentation files are documented, skip this step with a note.
 
 ---
 
-### police
-
-Use `git diff origin/HEAD...HEAD --name-only` to check if the PR contains code changes. If all changed files are documentation-only (e.g., `.md`, `.txt`, `README`, docs/) — skip this step with a note.
-
-Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three passes: rule checklist, fact-check, and elegance.
-
-When `/code-police` asks about scope: **changes in the current branch/PR only**.
-
-**Cross-reference hickey/lowy actions**: After code-police completes, check every hickey and lowy finding marked **"Fix in this PR"**. For each one, verify the diff addresses it. An unaddressed "Fix in this PR" action is a police failure — fix it before proceeding, same as any other police violation. This closes the loop between hickey/lowy (which find structural issues before implementation) and police (which verifies the implementation after).
-
-**For followup entry points**: Run hickey and lowy on the full cumulative diff (`origin/HEAD...HEAD`) as part of police. Followups skip the normal hickey/lowy steps (jumping straight to implement), so this is the only structural review the cumulative PR changes get. It catches complexity that accumulates silently across multiple small followups — e.g., a component gaining 12 new props across 5 followups without any structural review catching the prop-drilling pattern. Any findings with **"Fix in this PR"** actions are police violations — fix them before proceeding.
-
-**Verify**: All 3 passes clean ("All clear") AND all hickey/lowy "Fix in this PR" actions addressed in the diff.
-**If violations found** (max 3 attempts): Fix the violations and re-invoke `/code-police`.
-
----
-
 ### fmt
 
 Read the project's instructions to find the format command (typically documented in a workflow instruction). Run it.
@@ -261,11 +223,78 @@ If no format command is documented, skip this step with a note.
 
 ### commit
 
-**If `--no-git`**: Skip with status `skipped` and reason `"--no-git"`. Move to **test**. The working-tree changes stay uncommitted — that is the point.
+**If `--no-git`**: Skip with status `skipped` and reason `"--no-git"`. Move to **hickey+lowy**. The working-tree changes stay uncommitted — that is the point.
 
-Create a NEW commit (never amend) with a conventional commit message. Push to the feature branch with `git push -u origin <branch>` (sets upstream on first push).
+Create a NEW commit (never amend) with a conventional commit message for the primary implementation. Push to the feature branch with `git push -u origin <branch>` (sets upstream on first push).
+
+This is the **primary feature commit**. Downstream **hickey+lowy** and **police** steps produce their own follow-up commits — one per finding or violation addressed — which keeps the PR history a readable progression of "what was built, then what was refined" rather than a single opaque squash.
 
 **Verify**: `git log -1` shows a new commit on the feature branch, and it's pushed to remote.
+
+---
+
+### hickey + lowy
+
+Invoke `hickey` and `lowy` as two **parallel Claude Code sub-agents** via the `Agent` tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). Do NOT use the `Skill` tool for this step — `Skill` invocations serialize on the main conversation loop, so two back-to-back `Skill` calls run one after the other even when issued in the same response. Dedicated sub-agents run in isolated contexts and genuinely execute concurrently, cutting this step's wall-clock time roughly in half. Offloading their analysis into forked contexts also keeps the main context lean for the downstream police/ci steps.
+
+**Why post-implement, not pre-implement.** Hickey's complecting critique and Lowy's volatility lens both bite harder on a concrete diff than on a plan sketch. Reviewing a plan tends to surface generic concerns; reviewing a real diff surfaces the specific interleavings and boundary misalignments that matter. Running here also means the review covers *everything* the diff contains — including whatever the plan glossed over and whatever drifted during implementation.
+
+<use_parallel_tool_calls>
+For maximum efficiency, invoke the `hickey` and `lowy` Agent tools **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both `Agent` tool_use blocks (one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`) in a single response, with no other tool calls or text in that response.
+</use_parallel_tool_calls>
+
+Each `Agent` prompt must be self-contained (sub-agents do not inherit this conversation's context). Brief each one with:
+
+- The full task prompt plus anything relevant that **research** uncovered (file paths, intended approach, key constraints)
+- The scope to analyze: the actual diff, `git diff origin/HEAD...HEAD` — this is the same scope regardless of entry point (default or followup), since the branch at this point holds the primary feature commit (plus any cumulative followup commits) and no further work is pending
+
+The sub-agent already knows to read its skill file and follow that methodology; don't re-state it in the prompt.
+
+**Model override.** If the user passed `--review-model=<model>`, pass `model: "<model>"` in **both** `Agent` tool calls — this overrides the `model: sonnet` in the agents' frontmatter via the `Agent` tool's built-in `model` parameter. If the flag was not passed, omit the `model` parameter entirely so the agent definition's default (sonnet) applies. Accept only `opus`, `sonnet`, and `haiku`; reject anything else at argument-parse time with a one-line error, since a typo silently falling back to sonnet would hide a budget decision the user was trying to express.
+
+After both sub-agents return, synthesize their findings. Findings marked **"Defer #issue"** or **"No-op"** are surfaced in the PR comment (see **create-pr**) but not acted on here.
+
+**Apply each "Fix in this PR" finding as its own commit** — do not batch multiple findings into one commit. A reviewer reading the PR's commit history should be able to read one "address hickey finding: decomplect viewportDimensions" commit at a time and follow the structural refinement as a sequence, not decode a grab-bag diff. For each finding in turn:
+
+1. Apply the fix narrowly — only the lines that address this specific finding.
+2. Run the project's format command (from **fmt** instructions) on the changed files, if one is configured.
+3. `git add <changed files>` — stage only the files this fix touched.
+4. `git commit -m "refactor(hickey): <short finding label>"` (or `refactor(lowy): …` depending on the lens). The body of the message should restate the finding in one line so the commit is self-explanatory in `git log`.
+5. `git push` — push after each commit so the draft PR (once created) accumulates commits in real time. (The `-u` flag is only needed on the first push, which already happened in **commit**.)
+
+**Under `--no-git`**: Skip the commit/push steps entirely. Apply fixes to the working tree and move on — the user will review the combined working-tree delta themselves. Record the step as passed with verification noting "--no-git: fixes applied to working tree, not committed."
+
+**Verify**: Every finding has an action recorded (fix, defer, or no-op). Every "Fix in this PR" finding has a corresponding commit on the feature branch (check via `git log origin/HEAD..HEAD --oneline`), except under `--no-git`. No unactioned findings.
+
+---
+
+### police
+
+Use `git diff origin/HEAD...HEAD --name-only` to check if the PR contains code changes. If all changed files are documentation-only (e.g., `.md`, `.txt`, `README`, docs/) — skip this step with a note.
+
+Otherwise, invoke the `/code-police` skill via the Skill tool. It runs three passes: rule checklist, fact-check, and elegance (which delegates to `/simplify` when available).
+
+When `/code-police` asks about scope: **changes in the current branch/PR only**.
+
+**Commit each violation fix individually.** The same rule as **hickey + lowy**: PR history is the story of the work, and a reviewer should see one commit per rule violation or elegance refinement, not a lump "police pass" commit covering eight unrelated things.
+
+For each violation reported by `/code-police` (across all three passes), in turn:
+
+1. Apply the fix for that one violation — scope the edit tightly.
+2. Run the project's format command on changed files, if configured.
+3. `git add <changed files>` — stage only this fix.
+4. Commit with a conventional prefix identifying the pass and rule:
+   - Rules pass: `fix(police): <rule-id> — <short description>` (e.g. `fix(police): no-dead-code — remove commented-out fallback`)
+   - Fact-check pass: `fix(police): fact-check — <short description>` (e.g. `fix(police): fact-check — propagate error from loader`)
+   - Elegance pass (`/simplify`-applied or inline-loop-applied): `refactor(police): elegance — <short description>`
+5. `git push`.
+
+For the elegance pass specifically: `/simplify` applies fixes in batches across three lenses (reuse, quality, efficiency). Commit each distinct refactor as a separate commit — do not roll them into one "elegance" commit. If a lens produces multiple independent changes (two reuse-via-helper refactors in different files, say), those are separate commits too.
+
+**Under `--no-git`**: Skip the commit/push steps. Apply fixes to the working tree and continue. The user reviews the combined delta.
+
+**Verify**: All 3 passes clean ("All clear"). Under `--no-git`, the tree reflects the fixes; otherwise `git log origin/HEAD..HEAD --oneline` shows one commit per violation addressed.
+**If violations found** (max 3 attempts): Fix the violations (one commit per fix, as above) and re-invoke `/code-police`.
 
 ---
 
@@ -425,7 +454,7 @@ COMMENT
 | `default`        | **sync**              | Full workflow from scratch              |
 | `followup`       | **implement**         | Additional changes on existing PR       |
 | `post-implement` | **fmt**               | Skip research/impl, start at formatting |
-| `polish`         | **police**            | Just the quality gate                   |
+| `polish`         | **hickey+lowy**       | Structural review + quality gate        |
 | `ci-only`        | **ci**                | Just run CI                             |
 
 ## Rules
@@ -434,7 +463,7 @@ COMMENT
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
 - **Background for CI.** Run CI with `run_in_background: true`.
-- **No questions.** Don't use `AskUserQuestion` outside the setup step gate (which runs by default unless `--skip-setup`) and the `--review` hickey/lowy pause.
+- **No questions.** Don't use `AskUserQuestion` outside the setup step gate (which runs by default unless `--skip-setup`) and the `--review` plan pause (post-research).
 - **Never stop between steps.** After completing a step, immediately proceed to the next one.
 - **Complete the full workflow.** Implementing code is one step of many. The task is not done until a PR URL (GitHub), a pushed branch name (non-GitHub forges), or a working-tree summary (`--no-git`) is reported.
 - **Exhausted retries = halt.** If `ci` or `test` retries are exhausted, set status to `"failed"` and skip to **done**. On `ci` failure the draft PR (opened in the preceding **create-pr** step) stays open as the record of the failed attempt — do not close, undraft, or otherwise mutate it.
