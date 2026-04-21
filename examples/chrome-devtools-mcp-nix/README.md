@@ -100,6 +100,17 @@ Once extracted, the consumer's `.mcp.json` stanza becomes the final
 form shown above. Nothing changes about the interface — which is the
 point of putting the boundary here.
 
+Deferred items to wire up in the extracted repo:
+
+- **CI smoke-test** on the pinned version — `nix run . -- --help` (or a
+  non-interactive equivalent) so a bad `mcpVersion` bump fails CI
+  instead of a consumer's `nix run`.
+- **Offline / hermetic fetch strategy** — the wrapper currently relies
+  on `npx -y` hitting npm at runtime. For air-gapped or strict-hermetic
+  Nix consumers, a `buildNpmPackage`/`fetchurl`-based offline bundle
+  would be a third volatility axis (npm-fetch strategy) separable from
+  version pinning and binary provisioning.
+
 APM ([microsoft/apm#655](https://github.com/microsoft/apm/pull/655))
 will eventually let an APM package declare the MCP stanza and have
 `apm install` render it into the consumer's `.mcp.json`. That solves
