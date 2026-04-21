@@ -54,3 +54,15 @@ export function tileChromeButton(theme: TileTheme): string {
 export function tileMinimapBorder(theme: TileTheme): string {
   return `color-mix(in oklch, ${theme.fg} 25%, ${theme.bg})`;
 }
+
+/** Border-radius class shared by tiled canvas tiles and the floating
+ *  overlay right panel — both surfaces participate in the "rounded =
+ *  floating element" contract, so a tweak to one flows to the other. */
+export const TILE_BORDER_RADIUS_CLASS = "rounded-xl";
+
+/** Depth shadow shared by an active canvas tile and the overlay right
+ *  panel. They render at the same visual layer ("the active surface
+ *  the user is working on"), so a depth tweak should land on both. The
+ *  active-tile variant additionally adds a 1px accent ring inline at
+ *  the call site. */
+export const FLOATING_SURFACE_SHADOW = "0 8px 32px rgba(0,0,0,0.4)";

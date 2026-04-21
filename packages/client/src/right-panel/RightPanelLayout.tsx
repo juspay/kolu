@@ -11,6 +11,10 @@ import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 import { isMobile } from "../useMobile";
 import type { TerminalMetadata } from "kolu-common";
+import {
+  TILE_BORDER_RADIUS_CLASS,
+  FLOATING_SURFACE_SHADOW,
+} from "../canvas/tileChrome";
 
 const RightPanelLayout: Component<{
   children: JSX.Element;
@@ -126,15 +130,17 @@ const OverlayPanel: Component<{
         class="absolute inset-0 bg-black/20 z-20"
         onClick={props.onDismiss}
       />
-      {/* Overlay panel echoes canvas-tile chrome: rounded-xl + the same
-       *  shadow profile an active tile uses. The ml/my/mr inset gives the
-       *  rounded corners breathing room from the viewport edges so they
-       *  read as a floating window, not a sheet butting into the chrome. */}
+      {/* Overlay panel echoes canvas-tile chrome: rounded + the same
+       *  shadow profile an active tile uses. Both visuals live in
+       *  `canvas/tileChrome.ts` so a depth or radius tweak flows to
+       *  both surfaces. The ml/my/mr inset gives the rounded corners
+       *  breathing room from the viewport edges so they read as a
+       *  floating window, not a sheet butting into the chrome. */}
       <div
-        class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 my-2 mr-2 rounded-xl overflow-hidden"
+        class={`absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 my-2 mr-2 ${TILE_BORDER_RADIUS_CLASS} overflow-hidden`}
         style={{
           "max-width": "50%",
-          "box-shadow": "0 8px 32px rgba(0,0,0,0.4)",
+          "box-shadow": FLOATING_SURFACE_SHADOW,
         }}
       >
         <RightPanel {...props.rightPanelProps} />

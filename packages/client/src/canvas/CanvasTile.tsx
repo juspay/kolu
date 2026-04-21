@@ -22,6 +22,8 @@ import {
   tileTitleBarBorder,
   tileFgTier,
   tileChromeButton,
+  TILE_BORDER_RADIUS_CLASS,
+  FLOATING_SURFACE_SHADOW,
 } from "./tileChrome";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
@@ -71,7 +73,7 @@ const CanvasTile: Component<{
     "z-index": props.active ? 10 : 1,
     opacity: props.active ? 1 : 0.92,
     "box-shadow": props.active
-      ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+      ? `${FLOATING_SURFACE_SHADOW}, 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
     // Active-tile right edge is the visual handshake to the right panel
     // (the panel inspects this tile). Brighten the right border to full
@@ -103,7 +105,7 @@ const CanvasTile: Component<{
         // container, so rounded corners would leave a grid-bg sliver.
         absolute: true,
         "inset-0 z-40": props.maximized,
-        "rounded-xl": !props.maximized,
+        [TILE_BORDER_RADIUS_CLASS]: !props.maximized,
         "border-accent/60 shadow-xl": props.active && !props.maximized,
         "border-edge/40 hover:border-edge/60":
           !props.active && !props.maximized,
