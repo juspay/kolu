@@ -8,7 +8,7 @@ import type { TerminalMetadata, RightPanelTabKind } from "kolu-common";
 import MetadataInspector from "./MetadataInspector";
 import CodeTab from "./CodeTab";
 import { useRightPanel } from "./useRightPanel";
-import { useActiveTerminalAccent } from "./useActiveTerminalAccent";
+import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import { ChevronRightIcon, PinIcon } from "../ui/Icons";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
@@ -29,7 +29,6 @@ const RightPanel: Component<{
   onThemeClick?: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
-  const accent = useActiveTerminalAccent();
 
   const showKind = (kind: RightPanelTabKind) =>
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
@@ -53,7 +52,11 @@ const RightPanel: Component<{
                     ? "font-medium text-fg-2 bg-surface-0 border-b-2"
                     : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50 border-b-2 border-transparent"
                 }`}
-                style={isActive() ? { "border-bottom-color": accent() } : {}}
+                style={{
+                  "border-bottom-color": isActive()
+                    ? ACTIVE_TERMINAL_ACCENT
+                    : undefined,
+                }}
                 onClick={() => showKind(kind)}
               >
                 {TAB_LABEL[kind]}
@@ -68,7 +71,9 @@ const RightPanel: Component<{
             classList={{
               "text-fg-3/70 hover:text-fg-2": !rightPanel.pinned(),
             }}
-            style={rightPanel.pinned() ? { color: accent() } : {}}
+            style={{
+              color: rightPanel.pinned() ? ACTIVE_TERMINAL_ACCENT : undefined,
+            }}
             onClick={() => rightPanel.togglePinned()}
             aria-label={rightPanel.pinned() ? "Unpin panel" : "Pin panel"}
             title={rightPanel.pinned() ? "Unpin (overlay)" : "Pin (dock)"}
