@@ -15,6 +15,7 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import type { TileLayout } from "./TileLayout";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
+import { DEFAULT_TILE_W, DEFAULT_TILE_H } from "./tilePlacement";
 import {
   type TileTheme,
   tileTitleBarBg,
@@ -24,12 +25,6 @@ import {
 } from "./tileChrome";
 
 export type { TileTheme };
-
-// 800×540 fits ~88 cols × 27 rows at the default font (~9px × 20px cell),
-// safely above the legacy 80×24 baseline that downstream tools (`stty`,
-// `$COLUMNS`, less, vim) treat as the floor.
-const DEFAULT_W = 800;
-const DEFAULT_H = 540;
 
 const CanvasTile: Component<{
   id: string;
@@ -60,7 +55,7 @@ const CanvasTile: Component<{
   const { id } = props;
   const draggable = createDraggable(id);
   const layout = () =>
-    props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_W, h: DEFAULT_H };
+    props.layouts[id] ?? { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
 
   const bg = () => props.theme.bg;
 

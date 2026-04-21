@@ -222,6 +222,28 @@ When(
   },
 );
 
+Then(
+  "canvas tile {int} should be offset from canvas tile {int}",
+  async function (this: KoluWorld, a: number, b: number) {
+    await this.page.waitForFunction(
+      ({ sel, i, j }: { sel: string; i: number; j: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-visible]`,
+        );
+        const tileA = tiles.item(i) as HTMLElement | null;
+        const tileB = tiles.item(j) as HTMLElement | null;
+        if (!tileA || !tileB) return false;
+        const rA = tileA.getBoundingClientRect();
+        const rB = tileB.getBoundingClientRect();
+        // Snapped top-left must differ on both axes (cascade is diagonal).
+        return Math.abs(rA.left - rB.left) > 1 && Math.abs(rA.top - rB.top) > 1;
+      },
+      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
 /** Read the inner canvas transform div's transform (scale(z) translate(x, y)).

@@ -40,10 +40,12 @@ import CanvasWatermark from "./CanvasWatermark";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
+import {
+  DEFAULT_TILE_W,
+  DEFAULT_TILE_H,
+  findFreeTilePosition,
+} from "./tilePlacement";
 
-const DEFAULT_W = 800;
-const DEFAULT_H = 540;
-const CASCADE_OFFSET = 30;
 const MIN_W = 300;
 const MIN_H = 200;
 
@@ -140,35 +142,38 @@ const TerminalCanvas: Component<{
   // first render — without it, there would be a (0,0) frame while waiting
   // for the server's metadata echo.
   //
-  // Contract: the default-cascade runs only for tiles whose `getLayout(id)`
+  // Contract: the default-placement runs only for tiles whose `getLayout(id)`
   // is falsy on their first appearance in `tileIds`. Callers that intend
   // to preserve a pre-existing layout (session restore, tile clone, …) are
   // responsible for making `getLayout(id)` return it by then — e.g. by
   // seeding server metadata before the list snapshot yields (#642). Any
   // path that seeds AFTER the first `tileIds` fire will lose to this
-  // cascade and overwrite the intended layout.
+  // effect and overwrite the intended layout.
   createEffect(
     on(
       () => props.tileIds,
       (ids) => {
-        // Viewport center in canvas-space — stable within this batch
-        const cx =
-          viewport.panX() + containerRef.clientWidth / (2 * viewport.zoom());
-        const cy =
-          viewport.panY() + containerRef.clientHeight / (2 * viewport.zoom());
-        let newIndex = 0;
+        const { width, height } = viewport.viewportSize();
+        const zoom = viewport.zoom();
+        const cx = viewport.panX() + width / (2 * zoom);
+        const cy = viewport.panY() + height / (2 * zoom);
+        const placed: TileLayout[] = [];
         for (const id of ids) {
-          if (layoutOf(id)) continue;
-          const offset = newIndex * CASCADE_OFFSET;
+          const existing = layoutOf(id);
+          if (existing) {
+            placed.push(existing);
+            continue;
+          }
+          const { x, y } = findFreeTilePosition(cx, cy, placed);
           const defaultLayout: TileLayout = {
-            x: viewport.snapToGrid(cx - DEFAULT_W / 2 + offset),
-            y: viewport.snapToGrid(cy - DEFAULT_H / 2 + offset),
-            w: DEFAULT_W,
-            h: DEFAULT_H,
+            x,
+            y,
+            w: DEFAULT_TILE_W,
+            h: DEFAULT_TILE_H,
           };
           setPendingLayout(id, defaultLayout);
           props.onLayoutChange(id, defaultLayout);
-          newIndex++;
+          placed.push(defaultLayout);
         }
       },
     ),
