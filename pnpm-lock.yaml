@@ -10,8 +10,8 @@ overrides:
   yaml: ^2.8.3
   defu: ^6.1.5
   '@anthropic-ai/sdk': ^0.81.0
-  '@xterm/xterm': github:juspay/xterm.js#fix/kolu-xterm-fixes-built
-  '@xterm/addon-webgl': github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl
+  '@xterm/xterm': 6.1.0-beta.199
+  '@xterm/addon-webgl': 0.20.0-beta.198
 
 patchedDependencies:
   node-pty@1.1.0:
@@ -89,11 +89,11 @@ importers:
         specifier: ^0.12.0
         version: 0.12.0
       '@xterm/addon-webgl':
-        specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl
-        version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c#path:/addons/addon-webgl
+        specifier: 0.20.0-beta.198
+        version: 0.20.0-beta.198(@xterm/xterm@6.1.0-beta.199)
       '@xterm/xterm':
-        specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
-        version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
+        specifier: 6.1.0-beta.199
+        version: 6.1.0-beta.199
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -391,8 +391,8 @@ importers:
   packages/terminal-themes:
     dependencies:
       '@xterm/xterm':
-        specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
-        version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
+        specifier: 6.1.0-beta.199
+        version: 6.1.0-beta.199
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -2082,16 +2082,16 @@ packages:
   '@xterm/addon-web-links@0.12.0':
     resolution: {integrity: sha512-4Smom3RPyVp7ZMYOYDoC/9eGJJJqYhnPLGGqJ6wOBfB8VxPViJNSKdgRYb8NpaM6YSelEKbA2SStD7lGyqaobw==}
 
-  '@xterm/addon-webgl@https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c#path:/addons/addon-webgl':
-    resolution: {path: /addons/addon-webgl, tarball: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c}
-    version: 0.19.0
+  '@xterm/addon-webgl@0.20.0-beta.198':
+    resolution: {integrity: sha512-JkS1KL1HNPYaP6ZSde2fZiue0HR8diw74ZN9rHr56/GhepmoNqOiuQhTjN8a1S2qyKC8mXirCoVgTqPiAkJAkQ==}
+    peerDependencies:
+      '@xterm/xterm': 6.1.0-beta.199
 
   '@xterm/headless@6.0.0':
     resolution: {integrity: sha512-5Yj1QINYCyzrZtf8OFIHi47iQtI+0qYFPHmouEfG8dHNxbZ9Tb9YGSuLcsEwj9Z+OL75GJqPyJbyoFer80a2Hw==}
 
-  '@xterm/xterm@https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c':
-    resolution: {tarball: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c}
-    version: 6.0.0
+  '@xterm/xterm@6.1.0-beta.199':
+    resolution: {integrity: sha512-DlND2jFmto5DkjRuOHPedcQkfhfxO5Fg44LqAT/f30f+oJEC7dvF+C3dHtCjVibvvt4p2/NEei9kRxXhOUrXnQ==}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -5890,11 +5890,13 @@ snapshots:
 
   '@xterm/addon-web-links@0.12.0': {}
 
-  '@xterm/addon-webgl@https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c#path:/addons/addon-webgl': {}
+  '@xterm/addon-webgl@0.20.0-beta.198(@xterm/xterm@6.1.0-beta.199)':
+    dependencies:
+      '@xterm/xterm': 6.1.0-beta.199
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c': {}
+  '@xterm/xterm@6.1.0-beta.199': {}
 
   accepts@2.0.0:
     dependencies:

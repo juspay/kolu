@@ -18,8 +18,8 @@
       "yaml": "^2.8.3",
       "defu": "^6.1.5",
       "@anthropic-ai/sdk": "^0.81.0",
-      "@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built",
-      "@xterm/addon-webgl": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl"
+      "@xterm/xterm": "6.1.0-beta.199",
+      "@xterm/addon-webgl": "0.20.0-beta.198"
     },
     "patchedDependencies": {
       "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
