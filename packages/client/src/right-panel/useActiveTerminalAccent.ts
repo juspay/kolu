@@ -10,8 +10,11 @@
  *  theme, user-configured accent, generic `--color-accent`) without
  *  touching tile chrome.
  *
- *  Falls back to `--color-accent` when no terminal is active so the
- *  panel always has an accent to render. */
+ *  Falls back to `--color-accent` when no terminal is active. When a
+ *  terminal is active but its theme omits foreground or background,
+ *  coalesces those to the same defaults `useTileTheme` uses so the
+ *  panel accent renders through the same formula path as the canvas
+ *  chrome. */
 
 import { createMemo, type Accessor } from "solid-js";
 import { useThemeManager } from "../useThemeManager";
