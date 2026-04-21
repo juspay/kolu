@@ -75,12 +75,6 @@ const CanvasTile: Component<{
     "box-shadow": props.active
       ? `${FLOATING_SURFACE_SHADOW}, 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
-    // Active-tile right edge is the visual handshake to the right panel
-    // (the panel inspects this tile). Brighten the right border to full
-    // accent when active+tiled — the other three edges stay at /60 via
-    // the Tailwind class so the cue reads asymmetrically as "this side
-    // points at the inspector."
-    ...(props.active ? { "border-right-color": "var(--color-accent)" } : {}),
     // Drag transform is screen-space — divide by zoom so the tile
     // moves at the correct rate in the scaled canvas coordinate system.
     transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
@@ -107,6 +101,13 @@ const CanvasTile: Component<{
         "inset-0 z-40": props.maximized,
         [TILE_BORDER_RADIUS_CLASS]: !props.maximized,
         "border-accent/60 shadow-xl": props.active && !props.maximized,
+        // Active-tile right edge is the visual handshake to the right
+        // panel (the panel inspects this tile). The other three edges
+        // stay at accent/60 via the rule above; this overrides only the
+        // right edge to full accent so the cue reads asymmetrically as
+        // "this side points at the inspector." Sits in classList rather
+        // than tiledStyle() so it isn't re-evaluated on every drag tick.
+        "border-r-[var(--color-accent)]": props.active && !props.maximized,
         "border-edge/40 hover:border-edge/60":
           !props.active && !props.maximized,
         "border-transparent": props.maximized,
