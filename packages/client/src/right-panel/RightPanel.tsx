@@ -51,7 +51,7 @@ const RightPanel: Component<{
                 class={`h-full px-3 text-xs cursor-pointer transition-colors ${
                   isActive()
                     ? "font-medium text-fg-2 bg-surface-0 border-b-2"
-                    : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50 border-b-2 border-transparent"
+                    : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50/50 border-b-2 border-transparent"
                 }`}
                 style={isActive() ? { "border-bottom-color": accent() } : {}}
                 onClick={() => showKind(kind)}
@@ -64,7 +64,7 @@ const RightPanel: Component<{
         <div class="flex-1" />
         <div class="flex items-center gap-0.5 pr-1">
           <button
-            class={`${CHROME_ICON_BUTTON_CLASS} hover:bg-surface-0`}
+            class={`${CHROME_ICON_BUTTON_CLASS} hover:bg-surface-0/50`}
             classList={{
               "text-fg-3/70 hover:text-fg-2": !rightPanel.pinned(),
             }}
@@ -76,7 +76,7 @@ const RightPanel: Component<{
             <PinIcon />
           </button>
           <button
-            class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0`}
+            class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
             onClick={props.onToggle}
             aria-label="Collapse panel"
           >
