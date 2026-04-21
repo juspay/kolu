@@ -15,19 +15,17 @@
         exec ${pkgs.nodejs}/bin/npx -y chrome-devtools-mcp@${mcpVersion} "$@"
       '';
 
-      perSystem = pkgs: rec {
-        mcp = mkMcp pkgs;
-        package = { default = mcp; };
-        app = {
-          default = {
+      perSystem = eachSystem (pkgs:
+        let mcp = mkMcp pkgs; in {
+          packages.default = mcp;
+          apps.default = {
             type = "app";
             program = "${mcp}/bin/chrome-devtools-mcp";
           };
-        };
-      };
+        });
     in
     {
-      packages = eachSystem (pkgs: (perSystem pkgs).package);
-      apps = eachSystem (pkgs: (perSystem pkgs).app);
+      packages = nixpkgs.lib.mapAttrs (_: s: s.packages) perSystem;
+      apps = nixpkgs.lib.mapAttrs (_: s: s.apps) perSystem;
     };
 }
