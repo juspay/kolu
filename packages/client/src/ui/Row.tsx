@@ -11,7 +11,7 @@ const Row: Component<{
   children: JSX.Element;
 }> = (props) => (
   <div class="flex items-baseline gap-3 text-[11px] leading-snug py-0.5">
-    <span class="text-fg-3/70 shrink-0 w-14 text-right">{props.label}</span>
+    <span class="text-fg-3/70 shrink-0 w-20 text-right">{props.label}</span>
     <span
       class={`min-w-0 break-words ${
         props.variant === "badge"

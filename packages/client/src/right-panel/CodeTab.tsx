@@ -53,6 +53,7 @@ import {
 import { buildFileTree } from "../ui/buildFileTree";
 import type { TreeNode } from "../ui/buildFileTree";
 import FileTree from "../ui/FileTree";
+import { COMPACT_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
 /** Color class for each git status letter. */
 const STATUS_COLOR: Record<GitChangeStatus, string> = {
@@ -246,12 +247,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   type="button"
                   onClick={() => setView(tab.view)}
                   title={tab.tooltip}
-                  class="flex items-center justify-center w-5 h-5 text-fg-3/50 hover:text-fg-2 cursor-pointer rounded transition-colors data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm"
+                  class={`${COMPACT_ICON_BUTTON_CLASS} text-fg-3/50 hover:text-fg-2 data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm`}
                   data-testid={`diff-mode-${tab.view}`}
                   data-active={view() === tab.view}
                   aria-pressed={view() === tab.view}
                 >
-                  <Dynamic component={tab.icon} class="w-3 h-3" />
+                  <Dynamic component={tab.icon} class="w-3.5 h-3.5" />
                 </button>
               )}
             </For>

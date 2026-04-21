@@ -126,9 +126,16 @@ const OverlayPanel: Component<{
         class="absolute inset-0 bg-black/20 z-20"
         onClick={props.onDismiss}
       />
+      {/* Overlay panel echoes canvas-tile chrome: rounded-xl + the same
+       *  shadow profile an active tile uses. The ml/my/mr inset gives the
+       *  rounded corners breathing room from the viewport edges so they
+       *  read as a floating window, not a sheet butting into the chrome. */}
       <div
-        class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 shadow-2xl shadow-black/30"
-        style={{ "max-width": "50%" }}
+        class="absolute top-0 right-0 bottom-0 z-30 w-80 lg:w-96 my-2 mr-2 rounded-xl overflow-hidden"
+        style={{
+          "max-width": "50%",
+          "box-shadow": "0 8px 32px rgba(0,0,0,0.4)",
+        }}
       >
         <RightPanel {...props.rightPanelProps} />
       </div>

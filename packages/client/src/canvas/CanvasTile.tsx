@@ -23,6 +23,7 @@ import {
   tileFgTier,
   tileChromeButton,
 } from "./tileChrome";
+import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
 export type { TileTheme };
 
@@ -72,6 +73,12 @@ const CanvasTile: Component<{
     "box-shadow": props.active
       ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
+    // Active-tile right edge is the visual handshake to the right panel
+    // (the panel inspects this tile). Brighten the right border to full
+    // accent when active+tiled — the other three edges stay at /60 via
+    // the Tailwind class so the cue reads asymmetrically as "this side
+    // points at the inspector."
+    ...(props.active ? { "border-right-color": "var(--color-accent)" } : {}),
     // Drag transform is screen-space — divide by zoom so the tile
     // moves at the correct rate in the scaled canvas coordinate system.
     transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
@@ -143,7 +150,7 @@ const CanvasTile: Component<{
           {props.renderTitleActions?.()}
           <button
             data-testid="canvas-tile-maximize"
-            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20"
+            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
             style={{
               color: tileChromeButton(props.theme),
             }}
@@ -160,7 +167,7 @@ const CanvasTile: Component<{
           </button>
           <button
             data-testid="canvas-tile-close"
-            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20 text-sm"
+            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto text-sm`}
             style={{
               color: tileChromeButton(props.theme),
             }}

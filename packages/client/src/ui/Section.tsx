@@ -13,7 +13,7 @@ const Section: Component<{
     class={`py-3 px-3 border-b border-edge ${props.accent ? `border-l-2 ${props.accent}` : ""}`}
     data-testid={props["data-testid"]}
   >
-    <div class="text-[9px] font-bold uppercase tracking-[0.15em] text-fg-3/60 mb-2">
+    <div class="text-[10px] font-bold uppercase tracking-[0.1em] text-fg-3/60 mb-2">
       {props.title}
     </div>
     {props.children}
