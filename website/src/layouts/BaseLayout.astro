@@ -10,10 +10,10 @@ interface Props {
 
 const {
   title,
-  description = 'A browser cockpit for coding agents. Bring your own CLI, run them anywhere.',
+  description = 'A terminal-native cockpit for coding agents. Bring your own CLI, run them anywhere.',
 } = Astro.props;
 
-const fullTitle = title === 'kolu' ? 'kolu — a browser cockpit for coding agents' : `${title} · kolu`;
+const fullTitle = title === 'kolu' ? 'kolu — a terminal-native cockpit for coding agents' : `${title} · kolu`;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);
 ---
