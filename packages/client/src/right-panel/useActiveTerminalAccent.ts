@@ -17,17 +17,18 @@ import { createMemo, type Accessor } from "solid-js";
 import { useThemeManager } from "../useThemeManager";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 
-const FALLBACK = "var(--color-accent)";
-
 export function useActiveTerminalAccent(): Accessor<string> {
   const themeManager = useThemeManager();
   const store = useTerminalStore();
   return createMemo(() => {
-    if (store.activeId() === null) return FALLBACK;
+    if (store.activeId() === null) return "var(--color-accent)";
+    // Coalesce missing fg/bg to the same defaults `useTileTheme` uses so
+    // a partial theme renders the panel accent through the same formula
+    // path as the canvas chrome — never silently drops to a hard-coded
+    // accent color that would diverge from the tile's appearance.
     const theme = themeManager.activeTheme();
-    const fg = theme.foreground;
-    const bg = theme.background;
-    if (!fg || !bg) return FALLBACK;
+    const fg = theme.foreground ?? "var(--color-fg)";
+    const bg = theme.background ?? "var(--color-surface-1)";
     // 70% fg + 30% bg = readable accent against any panel surface
     // without becoming the foreground itself.
     return `color-mix(in oklch, ${fg} 70%, ${bg})`;
