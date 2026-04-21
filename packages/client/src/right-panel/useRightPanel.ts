@@ -18,9 +18,6 @@ export function useRightPanel() {
     panelSize: () => rp().size,
     /** The full tab state — discriminated union of Inspector vs Code+mode. */
     activeTab: (): RightPanelTab => rp().tab,
-    /** Whether the right panel is pinned (docked) vs floating overlay.
-     *  Defaults to true (pinned) for backwards compat with classic mode. */
-    pinned: () => rp().pinned !== false,
     /** Switch to Inspector. */
     showInspector: () =>
       updatePreferences({ rightPanel: { tab: { kind: "inspector" } } }),
@@ -36,8 +33,6 @@ export function useRightPanel() {
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
-    togglePinned: () =>
-      updatePreferences({ rightPanel: { pinned: rp().pinned === false } }),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } });
     },

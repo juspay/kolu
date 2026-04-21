@@ -353,8 +353,6 @@ export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
   size: z.number(),
   tab: RightPanelTabSchema,
-  /** Whether the right panel is pinned (docked) vs floating overlay. */
-  pinned: z.boolean(),
 });
 
 export const PreferencesSchema = z.object({

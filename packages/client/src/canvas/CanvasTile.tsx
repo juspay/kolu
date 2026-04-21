@@ -23,6 +23,7 @@ import {
   tileFgTier,
   tileChromeButton,
 } from "./tileChrome";
+import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 
 export type { TileTheme };
 
@@ -98,6 +99,13 @@ const CanvasTile: Component<{
         "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
         "border-accent/60 shadow-xl": props.active && !props.maximized,
+        // Active-tile right edge is the visual handshake to the right
+        // panel (the panel inspects this tile). The other three edges
+        // stay at accent/60 via the rule above; this overrides only the
+        // right edge to full accent so the cue reads asymmetrically as
+        // "this side points at the inspector." Sits in classList rather
+        // than tiledStyle() so it isn't re-evaluated on every drag tick.
+        "border-r-[var(--color-accent)]": props.active && !props.maximized,
         "border-edge/40 hover:border-edge/60":
           !props.active && !props.maximized,
         "border-transparent": props.maximized,
@@ -143,7 +151,7 @@ const CanvasTile: Component<{
           {props.renderTitleActions?.()}
           <button
             data-testid="canvas-tile-maximize"
-            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20"
+            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
             style={{
               color: tileChromeButton(props.theme),
             }}
@@ -160,7 +168,7 @@ const CanvasTile: Component<{
           </button>
           <button
             data-testid="canvas-tile-close"
-            class="flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer pointer-events-auto hover:bg-black/20 text-sm"
+            class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto text-sm`}
             style={{
               color: tileChromeButton(props.theme),
             }}

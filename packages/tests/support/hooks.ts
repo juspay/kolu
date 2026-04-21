@@ -232,7 +232,6 @@ Before(async function (this: KoluWorld, scenario) {
           collapsed: true,
           size: 0.25,
           tab: { kind: "inspector" },
-          pinned: true,
         },
       },
     }),
