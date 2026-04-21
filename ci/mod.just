@@ -9,9 +9,10 @@ local_system := `nix eval --raw --impure --expr builtins.currentSystem`
 root := `git rev-parse --show-toplevel`
 systems := "x86_64-linux aarch64-darwin"
 
-# Re-enter nix devShell if the caller isn't already in one, so recipes
-# have jq/gh/etc. on PATH even when invoked outside direnv.
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
+# Re-enter nix devShell if jq isn't on PATH, so recipes have jq/gh/etc.
+# available even when invoked outside direnv or from a stale shell that
+# predates a shell.nix change.
+nix_shell := if `command -v jq >/dev/null 2>&1 && echo yes || echo ''` != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
 
 default:
     {{ nix_shell }} just ci::_default
