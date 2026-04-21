@@ -7,9 +7,8 @@
     let
       mcpVersion = "0.21.0";
 
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
-      eachSystem = f: nixpkgs.lib.genAttrs systems (system:
-        f nixpkgs.legacyPackages.${system});
+      eachSystem = f: nixpkgs.lib.genAttrs nixpkgs.lib.systems.flakeExposed
+        (system: f nixpkgs.legacyPackages.${system});
 
       mkMcp = pkgs: pkgs.writeShellScriptBin "chrome-devtools-mcp" ''
         exec ${pkgs.nodejs}/bin/npx -y chrome-devtools-mcp@${mcpVersion} "$@"
