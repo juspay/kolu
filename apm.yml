@@ -13,3 +13,14 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
+  mcp:
+    - name: chrome-devtools
+      registry: false
+      transport: stdio
+      command: nix
+      args:
+        - develop
+        - .#e2e
+        - --command
+        - just
+        - ai::mcp-chrome-devtools
