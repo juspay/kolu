@@ -71,6 +71,20 @@ export function createCodexWatcher(
   let lastInfo: CodexInfo | null = null;
   let destroyed = false;
   let debounceTimer: NodeJS.Timeout | null = null;
+  /** Cache of the last-parsed rollout state, scoped to a specific
+   *  JSONL byte size. On a WAL event whose corresponding stat size
+   *  matches `size`, we reuse `state` instead of re-reading and
+   *  re-parsing the tail. Null until the first successful derive.
+   *
+   *  This is the hot-path optimization: `token_count` events update
+   *  `threads.tokens_used` via WAL on every turn, and the event's
+   *  rollout line is already inside the previously-parsed tail by the
+   *  time the WAL fires for `tokens_used`. Without the short-circuit,
+   *  we'd re-read + re-parse 256 KB on every such fire. */
+  let cachedDerive: {
+    size: number;
+    state: CodexInfo["state"];
+  } | null = null;
 
   // Hoist the DB connection across the watcher's lifetime so we don't
   // open/close on every WAL event. Safe in WAL mode: an open read-only
@@ -96,13 +110,23 @@ export function createCodexWatcher(
       return;
     }
 
-    const state = deriveState(session.rolloutPath, session.id, log);
-    // `null` covers three distinct cases — ENOENT race, hard read
-    // error, or a parsed-but-turn-less rollout. Each is logged at the
-    // failure site inside `deriveState` so the caller doesn't have to
-    // reinvent the distinction here; from this layer, null uniformly
-    // means "skip this refresh."
-    if (state === null) return;
+    const stat = statRollout(session.rolloutPath, session.id, log);
+    if (stat === null) return;
+
+    let state: CodexInfo["state"];
+    if (cachedDerive !== null && cachedDerive.size === stat.size) {
+      state = cachedDerive.state;
+    } else {
+      const derived = readAndParseTail(
+        session.rolloutPath,
+        session.id,
+        stat.size,
+        log,
+      );
+      if (derived === null) return;
+      state = derived;
+      cachedDerive = { size: stat.size, state };
+    }
 
     const info: CodexInfo = {
       kind: "codex",
@@ -163,32 +187,18 @@ export function createCodexWatcher(
   };
 }
 
-/** Read the last TAIL_BYTES of the rollout JSONL, drop any partial
- *  first line, and delegate to `parseRolloutState`. Returns null when
- *  no state is derivable — one of three distinct cases:
- *
- *   - **Rollout absent (ENOENT)** — expected race window between
- *     Codex inserting the thread row and flushing its first rollout
- *     append. Silent, no log (the next WAL event retries).
- *   - **Hard read failure (EACCES, EMFILE, EIO, …)** — logged at
- *     `error`. Operators filtering on >=error see it.
- *   - **Rollout present but no turns yet** — logged at `debug`
- *     scoped to this function so the caller doesn't emit a log that
- *     would be wrong under the hard-failure branch.
- *
- *  All three collapse to `null` at the call boundary because the
- *  caller's action is the same in each case (skip this refresh) —
- *  distinguishing them at the log level is the only signal an
- *  operator needs. `sessionId` is threaded in purely so the log lines
- *  carry it without the caller wrapping the call. */
-function deriveState(
+/** Stat the rollout JSONL. Returns `{ size }` on success, null on any
+ *  failure (ENOENT silently; other errnos at `error`). Split out from
+ *  the parse step so the caller can use the size as a cache key — if
+ *  it matches the last-parsed size, the expensive open/read/parse pass
+ *  can be skipped entirely. */
+function statRollout(
   rolloutPath: string,
   sessionId: string,
   log?: Logger,
-): CodexInfo["state"] | null {
-  let stat;
+): { size: number } | null {
   try {
-    stat = fs.statSync(rolloutPath);
+    return { size: fs.statSync(rolloutPath).size };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error(
@@ -198,9 +208,21 @@ function deriveState(
     }
     return null;
   }
+}
 
-  const start = Math.max(0, stat.size - TAIL_BYTES);
-  const toRead = Math.min(TAIL_BYTES, stat.size);
+/** Read the last TAIL_BYTES of the rollout JSONL at the given size,
+ *  drop any partial first line, and delegate to `parseRolloutState`.
+ *  Returns null on hard read error (logged at `error`) or when the
+ *  state machine found no task events in the tail (logged at
+ *  `debug` — the caller treats this uniformly as "skip"). */
+function readAndParseTail(
+  rolloutPath: string,
+  sessionId: string,
+  size: number,
+  log?: Logger,
+): CodexInfo["state"] | null {
+  const start = Math.max(0, size - TAIL_BYTES);
+  const toRead = Math.min(TAIL_BYTES, size);
   const buf = Buffer.alloc(toRead);
   try {
     const fd = fs.openSync(rolloutPath, "r");
