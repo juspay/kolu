@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-22T18:22:05.656399+00:00'
+generated_at: '2026-04-22T19:34:51.132897+00:00'
 apm_version: 0.9.1
 dependencies:
 - repo_url: _local/agents
@@ -134,3 +134,17 @@ dependencies:
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
   content_hash: sha256:f309878ce79ee166620ef89812d093707f07b79cbebaa74725dc6f32f3cac8d3
+mcp_servers:
+- chrome-devtools
+mcp_configs:
+  chrome-devtools:
+    name: chrome-devtools
+    transport: stdio
+    args:
+    - develop
+    - .#e2e
+    - --command
+    - just
+    - ai::mcp-chrome-devtools
+    registry: false
+    command: nix
