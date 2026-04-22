@@ -76,6 +76,13 @@ export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Codex logo — OpenAI's hexagonal mark, simplified. */
+export const CodexIcon: Component<{ class?: string }> = (props) => (
+  <svg class={props.class ?? "w-3 h-3"} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L19.18 8 12 11.82 4.82 8 12 4.18zM4 9.64l7 3.5v6.68l-7-3.5V9.64zm9 10.18v-6.68l7-3.5v6.68l-7 3.5z" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg

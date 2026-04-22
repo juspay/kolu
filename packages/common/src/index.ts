@@ -7,6 +7,7 @@ import { z } from "zod";
 import { TaskProgressSchema } from "anyagent";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { OpenCodeInfoSchema } from "kolu-opencode";
+import { CodexInfoSchema } from "kolu-codex";
 import {
   GitInfoSchema,
   WorktreeCreateInputSchema,
@@ -106,11 +107,12 @@ export type {
 
 // --- AI coding agent context ---
 
-export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
+export const AgentKindSchema = z.enum(["claude-code", "opencode", "codex"]);
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
   OpenCodeInfoSchema,
+  CodexInfoSchema,
 ]);
 
 // --- Foreground process context ---
@@ -400,6 +402,7 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
 export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
+export type CodexInfo = z.infer<typeof CodexInfoSchema>;
 export type Foreground = z.infer<typeof ForegroundSchema>;
 export type TerminalServerMetadata = z.infer<
   typeof TerminalServerMetadataSchema
