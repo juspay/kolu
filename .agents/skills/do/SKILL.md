@@ -118,9 +118,9 @@ Research the task thoroughly before writing code.
 
 **Delegation rule — keep the main context lean.** Before your third `Read` in this step, stop and delegate the rest via `Agent(subagent_type=Explore)`. Main-context reads are reserved for:
 
-  (a) specific files the user named in the prompt,
-  (b) `.apm/instructions/**` and files referenced from them,
-  (c) verifying a specific file:line an Explore subagent cited — and only with `offset`/`limit`, never full-file.
+(a) specific files the user named in the prompt,
+(b) `.apm/instructions/**` and files referenced from them,
+(c) verifying a specific file:line an Explore subagent cited — and only with `offset`/`limit`, never full-file.
 
 Anything that smells like "map the codebase", "find all callers", "understand how X works across the repo" — delegate. The Explore subagent returns a file:line map; keep that map and reference it in later steps instead of re-reading. Use `Grep`/`Glob` before `Read`: if the question can be answered by searching, don't open the file.
 
@@ -157,7 +157,7 @@ The question should explain the rationale briefly, e.g.:
 
 Steps the user leaves deselected are skipped throughout the workflow with status `skipped` and reason `"setup: user skipped"`. Steps the user selects proceed normally. The gate's activation is recorded in the results JSON via `scripts/do-results set setup true`.
 
-**Interaction with other flags**: The setup gate composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that *would* normally run are presented for user selection. Passing `--skip-setup` disables the gate entirely regardless of the other flags.
+**Interaction with other flags**: The setup gate composes with `--no-git` and `--from`. Steps already skipped by `--no-git` or `--from` are not shown in the checklist (they're already handled). Only steps that _would_ normally run are presented for user selection. Passing `--skip-setup` disables the gate entirely regardless of the other flags.
 
 After the user confirms, continue autonomously from **branch** (or the next non-skipped step).
 
@@ -237,7 +237,7 @@ This is the **primary feature commit**. Downstream **hickey+lowy** and **police*
 
 Invoke `hickey` and `lowy` as two **parallel Claude Code sub-agents** via the `Agent` tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). Do NOT use the `Skill` tool for this step — `Skill` invocations serialize on the main conversation loop, so two back-to-back `Skill` calls run one after the other even when issued in the same response. Dedicated sub-agents run in isolated contexts and genuinely execute concurrently, cutting this step's wall-clock time roughly in half. Offloading their analysis into forked contexts also keeps the main context lean for the downstream police/ci steps.
 
-**Why post-implement, not pre-implement.** Hickey's complecting critique and Lowy's volatility lens both bite harder on a concrete diff than on a plan sketch. Reviewing a plan tends to surface generic concerns; reviewing a real diff surfaces the specific interleavings and boundary misalignments that matter. Running here also means the review covers *everything* the diff contains — including whatever the plan glossed over and whatever drifted during implementation.
+**Why post-implement, not pre-implement.** Hickey's complecting critique and Lowy's volatility lens both bite harder on a concrete diff than on a plan sketch. Reviewing a plan tends to surface generic concerns; reviewing a real diff surfaces the specific interleavings and boundary misalignments that matter. Running here also means the review covers _everything_ the diff contains — including whatever the plan glossed over and whatever drifted during implementation.
 
 <use_parallel_tool_calls>
 For maximum efficiency, invoke the `hickey` and `lowy` Agent tools **in parallel** rather than sequentially. You MUST use parallel tool calls: emit both `Agent` tool_use blocks (one with `subagent_type: "hickey"`, one with `subagent_type: "lowy"`) in a single response, with no other tool calls or text in that response.
@@ -334,15 +334,17 @@ Check whether a PR already exists for this branch (`gh pr view`).
    ```md
    ## [Hickey/Lowy](https://kolu.dev/blog/hickey-lowy/) Analysis
 
-   | # | Lens   | Finding                                  | Disposition       |
-   |---|--------|------------------------------------------|-------------------|
-   | 1 | Hickey | viewportDimensions complects two roles   | Fixed in this PR  |
-   | 2 | Lowy   | useViewport encapsulates ghost concern   | Deferred [#123]   |
+   | #   | Lens   | Finding                                | Disposition      |
+   | --- | ------ | -------------------------------------- | ---------------- |
+   | 1   | Hickey | viewportDimensions complects two roles | Fixed in this PR |
+   | 2   | Lowy   | useViewport encapsulates ghost concern | Deferred [#123]  |
 
    ### Hickey rationale
+
    <prose from the hickey sub-agent>
 
    ### Lowy rationale
+
    <prose from the lowy sub-agent>
    ```
 
@@ -368,7 +370,7 @@ Read the project's instructions to find the CI command and verification method. 
 
 **Active state**: Before waiting for background CI, run `scripts/do-results set active waiting`. When CI returns (success or failure), run `scripts/do-results set active working` before proceeding. This lets the stop hook allow graceful exits while the agent is idle.
 
-CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the *verification method* may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
+CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) and are forge-independent — **run them regardless of forge**. Only the _verification method_ may be forge-specific: if the project's instructions describe verification via `gh` commit-status checks and `forge != github`, fall back to exit code + command output for verification on non-GitHub forges, and note this in the step record. (Bitbucket `bkt pr checks` wiring is tracked in #10.)
 
 **Verify**: Use the verification method described in the project's instructions (e.g., checking commit statuses on GitHub, reading CI output elsewhere). If no CI command is documented, skip with a note. **The CI result must cover `HEAD`.** Before recording the step as passed, compare the commit SHA that CI ran against with `git rev-parse HEAD`. If they differ (e.g., a commit was pushed after CI started — whether from a fix retry, user-requested changes, or any other source), re-run CI against the current HEAD. CI passing on a stale commit does not satisfy verification.
 
@@ -449,13 +451,13 @@ COMMENT
 
 ## Entry Points
 
-| ID               | Starts at             | Use case                                |
-| ---------------- | --------------------- | --------------------------------------- |
-| `default`        | **sync**              | Full workflow from scratch              |
-| `followup`       | **implement**         | Additional changes on existing PR       |
-| `post-implement` | **fmt**               | Skip research/impl, start at formatting |
-| `polish`         | **hickey+lowy**       | Structural review + quality gate        |
-| `ci-only`        | **ci**                | Just run CI                             |
+| ID               | Starts at       | Use case                                |
+| ---------------- | --------------- | --------------------------------------- |
+| `default`        | **sync**        | Full workflow from scratch              |
+| `followup`       | **implement**   | Additional changes on existing PR       |
+| `post-implement` | **fmt**         | Skip research/impl, start at formatting |
+| `polish`         | **hickey+lowy** | Structural review + quality gate        |
+| `ci-only`        | **ci**          | Just run CI                             |
 
 ## Rules
 

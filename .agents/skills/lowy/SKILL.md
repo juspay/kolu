@@ -9,11 +9,11 @@ agent: Explore
 
 Evaluate module boundaries and decomposition decisions using Juval Lowy's volatility-based decomposition framework. The core question: **do your boundaries encapsulate axes of change, or do they just group related functionality?**
 
-Source: Juval Lowy, [*Righting Software*](https://rightingsoftware.org/) (2019), building on David Parnas, ["On the Criteria to Be Used in Decomposing Systems into Modules"](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972). See also: [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (book excerpt).
+Source: Juval Lowy, [_Righting Software_](https://rightingsoftware.org/) (2019), building on David Parnas, ["On the Criteria to Be Used in Decomposing Systems into Modules"](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972). See also: [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (book excerpt).
 
 ## Key Idea
 
-**Functional decomposition** groups code by what it does (UserService, PaymentController, AuthModule). **Volatility-based decomposition** groups code by what is likely to *change* — and encapsulates each axis of change behind a stable interface.
+**Functional decomposition** groups code by what it does (UserService, PaymentController, AuthModule). **Volatility-based decomposition** groups code by what is likely to _change_ — and encapsulates each axis of change behind a stable interface.
 
 > "This principle governs the design of all practical systems, from houses, to laptops, to jumbo planes, to your own body. To survive and thrive they all encapsulate the volatility of their constituent components." — Lowy
 
@@ -25,15 +25,15 @@ Lowy's electricity analogy: a house's power supply has enormous volatility (AC/D
 
 Lowy identifies two independent axes within any workflow:
 
-1. **Sequence volatility** — the *order* of steps in a workflow can change independently of what those steps do. Different customers or use cases may require different orchestrations of the same activities. This volatility belongs in orchestrators (Lowy's "Managers").
+1. **Sequence volatility** — the _order_ of steps in a workflow can change independently of what those steps do. Different customers or use cases may require different orchestrations of the same activities. This volatility belongs in orchestrators (Lowy's "Managers").
 
-2. **Activity volatility** — *how* a specific activity is performed can change independently of the sequence it appears in. There may be an unknown number of ways to do the same activity (different algorithms, providers, strategies). This volatility belongs in strategy components (Lowy's "Engines").
+2. **Activity volatility** — _how_ a specific activity is performed can change independently of the sequence it appears in. There may be an unknown number of ways to do the same activity (different algorithms, providers, strategies). This volatility belongs in strategy components (Lowy's "Engines").
 
 Conflating these two — putting orchestration logic and activity logic in the same module — means a change to either axis ripples into the other.
 
 ### Variable vs. Volatile
 
-Not everything that varies is volatile. Lowy makes a critical distinction: adding an attribute to a data model is *variable* but not *volatile* — the architecture won't suffer. **"If you cannot clearly state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect, then you need to look further."** Decomposing around things that merely vary (rather than things that are genuinely volatile) produces over-engineered boundaries that add cost without containing real change.
+Not everything that varies is volatile. Lowy makes a critical distinction: adding an attribute to a data model is _variable_ but not _volatile_ — the architecture won't suffer. **"If you cannot clearly state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect, then you need to look further."** Decomposing around things that merely vary (rather than things that are genuinely volatile) produces over-engineered boundaries that add cost without containing real change.
 
 ## The Evaluation
 
@@ -43,26 +43,26 @@ For every module boundary, service split, or new abstraction in the code under r
 
 What is likely to change behind this boundary? Be specific — not "requirements might change" but "the payment provider, the auth protocol, the notification channel." If you can't name concrete axes of change, the boundary may be arbitrary.
 
-**Consider project-declared areas of volatility.** If the project has enumerated its own areas of volatility — the term of art Lowy uses throughout *Righting Software* — those declarations surface as system-reminders when you read a matching file (Claude Code's `paths:`-scoped rule mechanism; it is wiring, not Lowy doctrine). The schema, loosely modeled on Lowy's TradeMe enumeration (*Righting Software*, Ch. 5), is:
+**Consider project-declared areas of volatility.** If the project has enumerated its own areas of volatility — the term of art Lowy uses throughout _Righting Software_ — those declarations surface as system-reminders when you read a matching file (Claude Code's `paths:`-scoped rule mechanism; it is wiring, not Lowy doctrine). The schema, loosely modeled on Lowy's TradeMe enumeration (_Righting Software_, Ch. 5), is:
 
 | Area of volatility | What changes | Why volatile (likelihood × effect) | Expected encapsulation |
-|--------------------|--------------|------------------------------------|------------------------|
+| ------------------ | ------------ | ---------------------------------- | ---------------------- |
 
 Rows in that table are **surviving candidates** after the project's own variable-vs-volatile screen (see §"Variable vs. Volatile" above). They are not findings, and they are not above review. Do two things with each row: (a) re-apply Lowy's bar — _"state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect"_ — and challenge any row that fails it (Lowy: _"It is important to discuss the volatility candidates this way and even challenge them"_); (b) audit whether the boundaries under review actually encapsulate the surviving volatilities in a single component, rather than spraying or leaking them across modules.
 
-**Speculative volatility is not volatility.** A change scenario counts only if it has happened before, is on a roadmap, or is a near-certain consequence of the domain (e.g. "payment providers change" in e-commerce). "What if we swap color spaces" in an app that has never swapped color spaces is speculation, not an axis of change. Lowy's framework is about *observed* or *plausible* volatility — designing for hypothetical change is over-engineering, not encapsulation.
+**Speculative volatility is not volatility.** A change scenario counts only if it has happened before, is on a roadmap, or is a near-certain consequence of the domain (e.g. "payment providers change" in e-commerce). "What if we swap color spaces" in an app that has never swapped color spaces is speculation, not an axis of change. Lowy's framework is about _observed_ or _plausible_ volatility — designing for hypothetical change is over-engineering, not encapsulation.
 
 **Weak volatility may not deserve its own boundary.** Some volatilities are real but too minor to justify a separate component. Lowy's example: notification delivery might be volatile, but if the system already has a message bus utility, a dedicated NotificationManager adds complexity without containing meaningful additional change. Ask: does this volatility justify the cost of an additional boundary, or can it be folded into an existing one?
 
 ### 2. Classify the Volatility
 
-Is the volatility about *sequence* (the order/orchestration of a workflow) or *activity* (how a specific step is performed)? These are independent axes and should be encapsulated separately. A module that mixes both will be modified for two unrelated reasons.
+Is the volatility about _sequence_ (the order/orchestration of a workflow) or _activity_ (how a specific step is performed)? These are independent axes and should be encapsulated separately. A module that mixes both will be modified for two unrelated reasons.
 
-Also check for *domain decomposition* — boundaries drawn around domain entities (ProjectService, TradesmanModule, AccountsManager) rather than around axes of change. Domain decomposition is functional decomposition wearing a domain hat. Lowy warns: it creates ambiguity about who does what and when, duplicates functionality across domain lines, and is nearly impossible to validate against use cases.
+Also check for _domain decomposition_ — boundaries drawn around domain entities (ProjectService, TradesmanModule, AccountsManager) rather than around axes of change. Domain decomposition is functional decomposition wearing a domain hat. Lowy warns: it creates ambiguity about who does what and when, duplicates functionality across domain lines, and is nearly impossible to validate against use cases.
 
 ### 3. Functional vs. Volatility Boundary
 
-Does this boundary exist because the code *does something different* (functional), or because what's behind it *changes independently* (volatility)? Functional boundaries look clean on day one but fracture under change. A `UserService` that groups all user operations is functional decomposition — the volatility of auth, profile data, and notification preferences are unrelated axes of change jammed behind one boundary.
+Does this boundary exist because the code _does something different_ (functional), or because what's behind it _changes independently_ (volatility)? Functional boundaries look clean on day one but fracture under change. A `UserService` that groups all user operations is functional decomposition — the volatility of auth, profile data, and notification preferences are unrelated axes of change jammed behind one boundary.
 
 **The naming test.** Lowy uses naming conventions as a diagnostic. Orchestrator names should be nouns associated with the encapsulated volatility (AccountManager, MarketManager — good; BillingManager — bad, the gerund "billing" signals functional grouping around an activity). Strategy/engine names should indicate the volatile activity (SearchEngine, TransformationEngine — good; AccountEngine — bad, no indication of what activity varies). If you struggle to name the component after a volatility axis, it may not encapsulate one.
 
@@ -72,7 +72,7 @@ For a plausible change scenario (new provider, new format, new rule), trace how 
 
 **Volatility should decrease downward.** In a layered system, higher layers (clients, UI) should be the most volatile, and lower layers (data access, infrastructure) should be the least volatile. "The components in the lower layers have more items that depend on them. If the components you depend upon the most are also the most volatile, your system will implode." If high volatility lives deep in the stack, the blast radius of change is maximized.
 
-**Check symmetry.** All good architectures are symmetric — you should see the same calling patterns across similar modules. If three of four workflows publish events but the fourth doesn't, or only one module has a particular coupling pattern, that asymmetry is a red flag for functional decomposition or a missed volatility axis. Symmetry can also be broken by the *presence* of something, not just its absence.
+**Check symmetry.** All good architectures are symmetric — you should see the same calling patterns across similar modules. If three of four workflows publish events but the fourth doesn't, or only one module has a particular coupling pattern, that asymmetry is a red flag for functional decomposition or a missed volatility axis. Symmetry can also be broken by the _presence_ of something, not just its absence.
 
 ### 5. Interface Stability
 
@@ -90,7 +90,7 @@ Lowy observes that reuse increases downward through layers: infrastructure and d
 
 ### 7. The Almost-Expendable Test
 
-Lowy's litmus test for correct decomposition: when a change request arrives, the response should be *contemplative* — you think through how to adapt. If a module is *expensive* to change, it's too big (functional decomposition has coupled unrelated concerns). If a module is *expendable* (trivially thrown away), it's an unnecessary boundary. If a module is *almost expendable* — it encapsulates just enough to contain one axis of change, and replacing it is straightforward but not trivial — the decomposition is correct.
+Lowy's litmus test for correct decomposition: when a change request arrives, the response should be _contemplative_ — you think through how to adapt. If a module is _expensive_ to change, it's too big (functional decomposition has coupled unrelated concerns). If a module is _expendable_ (trivially thrown away), it's an unnecessary boundary. If a module is _almost expendable_ — it encapsulates just enough to contain one axis of change, and replacing it is straightforward but not trivial — the decomposition is correct.
 
 ## Fact-Check Your Own Evaluation
 
@@ -110,7 +110,7 @@ After completing all steps, **invoke `/fact-check` on your own output**. The fac
 - _"The boundary follows the framework's conventions"_ — framework conventions are functional decomposition by default. Convention is not volatility analysis.
 - _"This could theoretically change independently"_ — theoretical independence without a concrete change scenario is wishful thinking.
 - _"Out of scope for this PR" / "pre-existing"_ — process judgment, not a volatility judgment. Defer with an issue link or fix it.
-- _"The module encapsulates [domain entity]"_ — domain entities are not volatility axes. What *about* the entity changes? Name the specific volatility or it's domain decomposition.
+- _"The module encapsulates [domain entity]"_ — domain entities are not volatility axes. What _about_ the entity changes? Name the specific volatility or it's domain decomposition.
 - _"This is variable, so we should encapsulate it"_ — variable is not volatile. Can you state the risk in terms of likelihood and effect?
 
 If fact-check finds issues, revise before presenting to the user.
@@ -122,7 +122,7 @@ If fact-check finds issues, revise before presenting to the user.
 3. **Findings** — Boundaries that track functionality rather than volatility, with blast-radius analysis. Include symmetry violations and layering inversions.
 4. **Simplifications** — Concrete restructuring to align boundaries with axes of change.
 5. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
-6. **Actions** — One entry per finding, formatted so a downstream step (e.g. `/do`'s PR comment composer) can lift each entry into a table row. Each entry **starts with a short bolded finding label (≤8 words)** naming *what* is wrong, then dispositions it as **Fix in this PR** or **Defer `#<issue>`**. Every finding must appear here — including those labeled "pre-existing" or "orthogonal". A finding that never reaches this section has been dismissed, not deferred.
+6. **Actions** — One entry per finding, formatted so a downstream step (e.g. `/do`'s PR comment composer) can lift each entry into a table row. Each entry **starts with a short bolded finding label (≤8 words)** naming _what_ is wrong, then dispositions it as **Fix in this PR** or **Defer `#<issue>`**. Every finding must appear here — including those labeled "pre-existing" or "orthogonal". A finding that never reaches this section has been dismissed, not deferred.
 
 Example: `**useViewport encapsulates ghost concern** — Fix in this PR: delete the hook, let FitAddon measure per-tile.`
 
