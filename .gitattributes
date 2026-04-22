@@ -1,4 +1,6 @@
 npins/default.nix linguist-generated
+AGENTS.md linguist-generated
+CLAUDE.md linguist-generated
 .claude/** linguist-generated
 .claude/launch.json -linguist-generated
 .agents/** linguist-generated

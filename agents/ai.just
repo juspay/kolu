@@ -11,19 +11,34 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
 apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm apm'
 
-# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
-apm:
+# Install native APM integrations for Claude, Codex, and OpenCode.
+#
+# `apm install` handles the runtime-specific folders (`.claude/`,
+# `.codex/`, `.agents/skills/`, `.opencode/`). It does not generate the
+# root `AGENTS.md` instruction file that Codex/OpenCode consume.
+apm-install:
     {{ apm_cmd }} install
+
+# Compile the shared instruction file for runtimes that read `AGENTS.md`.
+#
+# Claude already reads `.claude/` natively, so we intentionally do not
+# compile `CLAUDE.md`.
+apm-compile:
+    {{ apm_cmd }} compile --target codex,opencode
+
+# Refresh all APM-managed artifacts needed by Claude, Codex, and OpenCode.
+apm: apm-install apm-compile
 
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
     {{ apm_cmd }} deps update {{ packages }}
+    {{ just_executable() }} apm
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
 apm-audit:
     {{ apm_cmd }} audit --ci
 
-# Verify vendored .claude/ matches .apm/ sources + security audit
+# Verify APM-managed outputs match sources + security audit
 #
 # Must NOT mutate the live .claude/ tree — concurrent Claude Code
 # sessions in the same worktree would see stop hooks / rules / skills
@@ -36,17 +51,27 @@ apm-sync: apm-audit
     set -euo pipefail
     scratch=$(mktemp -d)
     trap 'rm -rf "$scratch"' EXIT
-    # Local inputs: symlink what apm only reads, cp what it writes through.
-    # `apm install` rewrites apm.lock.yaml's `generated_at` on every run,
-    # so a symlink here would mutate the real lockfile.
-    ln -s "$PWD/apm.yml" "$PWD/agents" "$scratch/"
-    cp "$PWD/apm.lock.yaml" "$scratch/"
-    # apm's target auto-detection picks "claude" when `.claude/` exists
-    # (target_detection.py). The explicit `-t claude` flag does *not*
-    # produce an equivalent result — local-package integration silently
-    # no-ops — so folder-existence is the reliable signal.
-    mkdir "$scratch/.claude"
+    # Distributed `apm compile` placement depends on the real repo layout, so
+    # mirror the worktree into scratch while excluding runtime/generated trees.
+    # `apm install` rewrites apm.lock.yaml's `generated_at` on every run, which
+    # is fine here because the scratch copy is disposable.
+    rsync -a \
+        --exclude='.git/' \
+        --exclude='node_modules/' \
+        --exclude='.direnv/' \
+        --exclude='.logs/' \
+        --exclude='.claude/' \
+        --exclude='.codex/' \
+        --exclude='.agents/' \
+        --exclude='.opencode/' \
+        --exclude='AGENTS.md' \
+        --exclude='CLAUDE.md' \
+        "$PWD/" "$scratch/"
+    # Mirror the runtime folders that drive target detection for install.
+    # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
+    mkdir -p "$scratch/.claude" "$scratch/.codex" "$scratch/.opencode" "$scratch/.agents"
     (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
+    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
     # Exclude files that apm doesn't manage: launch.json is user-owned,
     # and `.claude/*` entries in .gitignore are runtime state written by
     # Claude Code itself (worktree bookkeeping, local settings, session
@@ -59,6 +84,22 @@ apm-sync: apm-audit
         -x scheduled_tasks.lock \
         .claude "$scratch/.claude"; then
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff -r .codex "$scratch/.codex"; then
+        echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff -r .agents "$scratch/.agents"; then
+        echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff -r .opencode "$scratch/.opencode"; then
+        echo "ERROR: .opencode/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff AGENTS.md "$scratch/AGENTS.md"; then
+        echo "ERROR: AGENTS.md out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
 
