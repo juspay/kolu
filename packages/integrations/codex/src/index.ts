@@ -236,7 +236,10 @@ interface RolloutLine {
  * Algorithm (single forward pass, O(lines)):
  *  1. Track the kind of the latest `task_started`/`task_complete`
  *     lifecycle event seen. Turn ids are NOT matched across events:
- *     whatever the last lifecycle event was dictates the outcome.
+ *     whatever the last lifecycle event was dictates the outcome —
+ *     this handles a tail that captured only `task_complete` without
+ *     its matching `task_started` (long tool-heavy turns that exceed
+ *     TAIL_BYTES).
  *  2. Track open function calls by `call_id`: add on `function_call`,
  *     remove on `function_call_output`. `exec_command_end` is ignored —
  *     it carries a call_id but is a mid-tool event; the call stays open
@@ -248,16 +251,6 @@ interface RolloutLine {
  *       **tool_use**.
  *     - Last lifecycle event was `task_started` + no open calls →
  *       **thinking**.
- *
- *  Why not match turn ids? Because the previous two-variable shape
- *  (`latestStart` vs `latestComplete`) misclassified the case where
- *  the tail chopped off the current turn's `task_started` but kept
- *  its `task_complete` — the session was returned as `thinking` when
- *  it should have been `waiting`. That case triggers whenever a
- *  single turn's event volume exceeds TAIL_BYTES (tool-heavy turns
- *  with large exec outputs). The last-signal model handles it
- *  structurally; the turn-id match gained nothing that Codex's
- *  event ordering didn't already guarantee.
  *
  * Pure function — unit-testable without touching the filesystem.
  */
