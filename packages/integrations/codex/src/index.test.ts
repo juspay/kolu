@@ -119,4 +119,14 @@ describe("parseRolloutState", () => {
     // No turn_id → not counted as a real task_started
     expect(parseRolloutState(lines)).toBeNull();
   });
+
+  it("returns waiting when tail kept task_complete but chopped the start", () => {
+    // Simulates a Codex turn whose events exceed TAIL_BYTES: the tail
+    // slid past task_started(A) and captured only task_complete(A).
+    // The old two-variable implementation misclassified this as
+    // thinking (matching-turn-id check failed). The last-signal model
+    // handles it structurally.
+    const lines = [taskComplete("turn-A")];
+    expect(parseRolloutState(lines)).toBe("waiting");
+  });
 });

@@ -218,7 +218,12 @@ interface RolloutLine {
   type?: string;
   payload?: {
     type?: string;
-    /** On `task_started` / `task_complete` event_msgs. */
+    /** On `task_started` / `task_complete` event_msgs. Carried here
+     *  only so we can use its presence as the "this is a real event"
+     *  gate — its value is not needed by the state machine (Codex
+     *  guarantees task_complete follows task_started for the same
+     *  turn, so "last lifecycle signal was a complete" is sufficient
+     *  without matching ids). */
     turn_id?: string;
     /** On `response_item` payloads for function_call/function_call_output. */
     call_id?: string;
@@ -229,24 +234,35 @@ interface RolloutLine {
  * Derive Codex state from the rollout JSONL's tail.
  *
  * Algorithm (single forward pass, O(lines)):
- *  1. Track latest `task_started` and latest `task_complete` turn_ids.
+ *  1. Track the kind of the latest `task_started`/`task_complete`
+ *     lifecycle event seen. Turn ids are NOT matched across events:
+ *     whatever the last lifecycle event was dictates the outcome.
  *  2. Track open function calls by `call_id`: add on `function_call`,
  *     remove on `function_call_output`. `exec_command_end` is ignored —
  *     it carries a call_id but is a mid-tool event; the call stays open
  *     until its `function_call_output` arrives.
  *  3. Decide:
- *     - If the latest `task_started` turn_id matches the latest
- *       `task_complete` turn_id → **waiting** (the assistant finished).
- *     - Else if any call_id is still open → **tool_use**.
- *     - Else → **thinking**.
- *     - If neither task_started nor task_complete has appeared → null
- *       (fresh thread, no turn yet — caller should suppress the badge).
+ *     - No lifecycle events seen → null (fresh thread, suppress badge).
+ *     - Last lifecycle event was `task_complete` → **waiting**.
+ *     - Last lifecycle event was `task_started` + any call_id open →
+ *       **tool_use**.
+ *     - Last lifecycle event was `task_started` + no open calls →
+ *       **thinking**.
+ *
+ *  Why not match turn ids? Because the previous two-variable shape
+ *  (`latestStart` vs `latestComplete`) misclassified the case where
+ *  the tail chopped off the current turn's `task_started` but kept
+ *  its `task_complete` — the session was returned as `thinking` when
+ *  it should have been `waiting`. That case triggers whenever a
+ *  single turn's event volume exceeds TAIL_BYTES (tool-heavy turns
+ *  with large exec outputs). The last-signal model handles it
+ *  structurally; the turn-id match gained nothing that Codex's
+ *  event ordering didn't already guarantee.
  *
  * Pure function — unit-testable without touching the filesystem.
  */
 export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
-  let latestStart: string | null = null;
-  let latestComplete: string | null = null;
+  let lastLifecycle: "started" | "completed" | null = null;
   const openCalls = new Set<string>();
 
   for (const line of lines) {
@@ -263,9 +279,9 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
 
     if (outer === "event_msg") {
       if (inner === "task_started" && entry.payload?.turn_id) {
-        latestStart = entry.payload.turn_id;
+        lastLifecycle = "started";
       } else if (inner === "task_complete" && entry.payload?.turn_id) {
-        latestComplete = entry.payload.turn_id;
+        lastLifecycle = "completed";
       }
     } else if (outer === "response_item") {
       if (inner === "function_call" && entry.payload?.call_id) {
@@ -276,8 +292,8 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
     }
   }
 
-  if (latestStart === null && latestComplete === null) return null;
-  if (latestStart !== null && latestStart === latestComplete) return "waiting";
+  if (lastLifecycle === null) return null;
+  if (lastLifecycle === "completed") return "waiting";
   if (openCalls.size > 0) return "tool_use";
   return "thinking";
 }
