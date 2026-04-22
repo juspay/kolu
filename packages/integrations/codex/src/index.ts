@@ -4,8 +4,11 @@
  * per-session JSONL rollout transcripts.
  *
  * Codex stores:
- *  - `~/.codex/state_5.sqlite` — authoritative thread metadata
- *    (`threads` table): id, rollout_path, cwd, title, tokens_used,
+ *  - `~/.codex/state_<N>.sqlite` — authoritative thread metadata.
+ *    The `<N>` is Codex's schema-version suffix, currently v5;
+ *    `findCodexStateDbPath` enumerates and picks the highest at startup
+ *    so a user who upgrades Codex past v5 isn't silently blind. The
+ *    `threads` table carries: id, rollout_path, cwd, title, tokens_used,
  *    model, updated_at_ms, source, archived.
  *  - `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl` — per-thread
  *    append-only event log. Each line is a typed event; the first line
@@ -15,13 +18,13 @@
  *    function_call, function_call_output, message, reasoning).
  *
  * Division of labor:
- *  - **SQLite is the primary source.** Session discovery, title, model,
- *    and context-token count all come from indexed column reads.
- *    `findSessionByDirectory` joins cwd→thread in O(indexed-row-count).
- *    `tokens_used` is pre-summed by Codex, so no JSON parsing needed.
- *  - **JSONL is used only for state derivation** (thinking / tool_use /
- *    waiting). The SQLite row has no `state` column — those transitions
- *    live exclusively in the event stream. See `parseRolloutState`.
+ *  - **SQLite** — session discovery (`findSessionByDirectory` joins
+ *    cwd→thread in O(indexed-row-count)) and mutable metadata (title,
+ *    model). Cheap indexed reads.
+ *  - **JSONL** — state derivation (thinking / tool_use / waiting) and
+ *    the per-turn context-token count. The SQLite row has no `state`
+ *    column, and `threads.tokens_used` is a session-lifetime cumulative
+ *    total (climbs to millions; unusable as a context-window percentage).
  *
  * The two sources are written atomically in the same cycle (verified:
  * WAL and JSONL mtimes agree to the nanosecond), so one fs.watch on the

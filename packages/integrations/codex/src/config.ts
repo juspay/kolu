@@ -1,6 +1,7 @@
 /** Configuration constants for the Codex integration.
  *  Leaf module — no imports from other package files. */
 
+import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -9,15 +10,47 @@ import os from "node:os";
 export const CODEX_DIR =
   process.env.KOLU_CODEX_DIR ?? path.join(os.homedir(), ".codex");
 
-/** Path to Codex's threads SQLite database. Configurable via env for
- *  testing. The `state_5` suffix is Codex's current schema version —
- *  upstream has bumped the number on incompatible schema changes
- *  (current is v5; `logs_2.sqlite` lives alongside at v2). If Codex
- *  ships a new major version with `state_6.sqlite`, this constant needs
- *  bumping — an intentional breakpoint rather than silently scanning
- *  every `state_*.sqlite` we find. */
+/** Find the highest-numbered `state_<N>.sqlite` under `dir`. Codex bumps
+ *  this suffix on incompatible schema changes (current is v5;
+ *  `logs_2.sqlite` lives alongside at v2). Enumerating instead of
+ *  hard-coding the version means a user who upgrades Codex past v5
+ *  doesn't silently lose session detection until Kolu ships an update.
+ *
+ *  Returns null if the directory is missing or contains no matching
+ *  files — the caller falls back to the legacy path so the rest of the
+ *  stack behaves the same as before (ENOENT → graceful skip). Pure; no
+ *  logging here since there's no Logger at module-load time.
+ *
+ *  Exported for unit tests; production callers use `CODEX_DB_PATH`. */
+export function findCodexStateDbPath(dir: string = CODEX_DIR): string | null {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let bestVersion = -1;
+  let bestFile: string | null = null;
+  for (const name of entries) {
+    const match = /^state_(\d+)\.sqlite$/.exec(name);
+    if (!match) continue;
+    const version = Number.parseInt(match[1]!, 10);
+    if (version > bestVersion) {
+      bestVersion = version;
+      bestFile = name;
+    }
+  }
+  return bestFile === null ? null : path.join(dir, bestFile);
+}
+
+/** Path to Codex's threads SQLite database. Env override wins; then the
+ *  enumeration; finally the legacy `state_5.sqlite` fallback for hosts
+ *  that don't have Codex installed yet (preserves the old ENOENT-silent
+ *  behavior in `openDb`). */
 export const CODEX_DB_PATH =
-  process.env.KOLU_CODEX_DB ?? path.join(CODEX_DIR, "state_5.sqlite");
+  process.env.KOLU_CODEX_DB ??
+  findCodexStateDbPath() ??
+  path.join(CODEX_DIR, "state_5.sqlite");
 
 /** Path to the SQLite WAL file — fs.watch this to detect writes.
  *  Codex appends to this WAL on every thread mutation, and atomically
