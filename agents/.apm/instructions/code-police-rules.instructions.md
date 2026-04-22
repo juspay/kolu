@@ -1,6 +1,6 @@
 ---
 description: Kolu-specific code-police rules — subscription, SolidJS, and union-dispatch patterns
-applyTo: "**/*.{ts,tsx}"
+applyTo: "packages/**/*.{ts,tsx}"
 ---
 
 ## Additional Code Police Rules

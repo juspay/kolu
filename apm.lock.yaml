@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-22T14:13:56.470339+00:00'
+generated_at: '2026-04-22T18:22:05.656399+00:00'
 apm_version: 0.9.1
 dependencies:
 - repo_url: _local/agents
@@ -35,7 +35,7 @@ dependencies:
     .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
     .claude/rules/apm-workflow.md: sha256:ddb46a34e22a566a11c220ec8ab6dc1c0f394a86935702d8275926c23a4cc8c0
     .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-    .claude/rules/code-police-rules.md: sha256:06a209bb48cfc9e9577561714d37a5b52b58216c7604ca75cdc5897fc85e48da
+    .claude/rules/code-police-rules.md: sha256:26bdd1b7aad795ab64c7fa939b2e854dc7ace5c562396e87a90ffce1ee760329
     .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
     .claude/rules/hickey-catalog.md: sha256:11144a19e7037941b34921fc9326245e4702e51b258fb3890b2984561e06af60
     .claude/rules/lowy-volatilities.md: sha256:82aeded3cd5a0e2016027b796abc3058544663f3e7bf636c54fb65704f1af0fd
