@@ -8,3 +8,4 @@ apm.lock.yaml
 .claude/settings.json
 .agents/
 .codex/
+.opencode/
