@@ -83,9 +83,15 @@ export function createCodexWatcher(
 
     const meta = getThreadMetadata(session.id, log, db);
     if (!meta) {
-      log?.debug(
+      // The row existed at match time (otherwise we wouldn't have a
+      // CodexSession at all) — a null here means Codex deleted it
+      // after we subscribed. That's a real anomaly, not a race window,
+      // so it warrants `warn`, not `debug`. Conflating it with the
+      // expected "no turns yet" path below would hide the distinction
+      // from an operator filtering logs.
+      log?.warn(
         { session: session.id },
-        "codex thread row missing (deleted?)",
+        "codex thread row disappeared after match",
       );
       return;
     }
