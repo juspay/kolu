@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "chrome-devtools": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        "nix",
+        "develop",
+        ".#e2e",
+        "--command",
+        "just",
+        "ai::mcp-chrome-devtools"
+      ]
+    }
+  }
+}
