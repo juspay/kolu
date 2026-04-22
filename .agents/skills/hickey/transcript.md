@@ -1,8 +1,8 @@
 # Simple Made Easy
 
-- **Speaker: Rich Hickey**
-- **Conference: [Strange Loop 2011](http://thestrangeloop.com) - Sept 2011**
-- **Video: [https://www.youtube.com/watch?v=SxdOUGdseq4](https://www.youtube.com/watch?v=SxdOUGdseq4)**
+* **Speaker: Rich Hickey**
+* **Conference: [Strange Loop 2011](http://thestrangeloop.com) - Sept 2011**
+* **Video: [https://www.youtube.com/watch?v=SxdOUGdseq4](https://www.youtube.com/watch?v=SxdOUGdseq4)**
 
 ![00:00:00 Simple Made Easy](SimpleMadeEasy/00.00.00.jpg)
 
@@ -12,7 +12,7 @@ Hi. So who is ready for some more category theory?
 
 You're all in the wrong room.
 
-[Audience laughter]
+[Audience laughter] 
 
 This talk I hope seems deceptively obvious. One of the things that's great about this conference is this is a pretty cutting edge crowd. A lot of you are adopting new technologies. A lot of you are doing functional programming. And you may be nodding, saying yeah, yeah, yeah through parts of this. And if some of it is familiar, that's great. On the other hand, I think that I would hope that you would come away from this talk with some tools you could use to help conduct a similar kind of discussion to this talk with other people that you're trying to convince to do the right thing.
 
@@ -22,35 +22,35 @@ So, I'll start with an appeal to authority. Simplicity is a prerequisite for rel
 
 ![00:01:21 Word Origins](SimpleMadeEasy/00.01.21.jpg)
 
-I love word origins. They're tremendous fun. One of the reasons why they're fun is because words eventually come to mean whatever we all accept them to mean. You know, whatever is commonly understood to be the meaning is what it means. And it's often interesting to say, well, I wish I could; I wish we could go back to what it really means and use that. And I think there's a couple of words that I'm going to use in this talk that I would love for you to come away knowing the origins of and try to use more precisely, especially when talking about software.
+I love word origins. They're tremendous fun. One of the reasons why they're fun is because words eventually come to mean whatever we all accept them to mean. You know, whatever is commonly understood to be the meaning is what it means. And it's often interesting to say, well, I wish I could; I wish we could go back to what it really means and use that. And I think there's a couple of words that I'm going to use in this talk that I would love for you to come away knowing the origins of and try to use more precisely, especially when talking about software. 
 
-So the first word is simple. And the roots of this word are sim and plex, and that means one fold or one braid or twist. And that characteristic about being about one literally fold or twist, of course one twist, what's one twist look like? No twists, right, actually.
+So the first word is simple. And the roots of this word are sim and plex, and that means one fold or one braid or twist. And that characteristic about being about one literally fold or twist, of course one twist, what's one twist look like? No twists, right, actually. 
 
-And the opposite of this word is complex, which means braided together or folded together. Being able to think about our software in terms of whether or not it's folded together is sort of the central point of this talk.
+And the opposite of this word is complex, which means braided together or folded together. Being able to think about our software in terms of whether or not it's folded together is sort of the central point of this talk. 
 
 The other word we frequently use interchangeably with simple is the word easy. And the derivation there is to a French word, and the last step of this derivation is actually speculative, but I bought it because it serves this talk really well, and that is from the Latin word that is the root of adjacent, which means to lie near and to be nearby. And the opposite is hard. Of course, the root of hard has nothing to do with lying near. It doesn't mean lie far away. It actually means like strong or tortuously so.
 
 ![00:03:19 Simple](SimpleMadeEasy/00.03.19.jpg)
 
-So if we want to try to apply simple to the kinds of work that we do, we're going to start with this concept of having one braid. And look at it in a few different dimensions. I thought it was interesting in Eric's talk to talk about dimensions because it's definitely a big part of doing design work. And so if we want to look for simple things, we want to look for things that have sort of one of something. They do, they have one role. They fulfill one task or job. They're about accomplishing sort of one objective. They might be about one concept like security.
+So if we want to try to apply simple to the kinds of work that we do, we're going to start with this concept of having one braid. And look at it in a few different dimensions. I thought it was interesting in Eric's talk to talk about dimensions because it's definitely a big part of doing design work. And so if we want to look for simple things, we want to look for things that have sort of one of something. They do, they have one role. They fulfill one task or job. They're about accomplishing sort of one objective. They might be about one concept like security. 
 
-And sort of overlapping with that is they may be about a particular dimension of the problem that you're trying to solve. The critical thing there, though, is that when you're looking for something that's simple, you want to see it have focus in these areas. You don't want to see it combining things.
+And sort of overlapping with that is they may be about a particular dimension of the problem that you're trying to solve. The critical thing there, though, is that when you're looking for something that's simple, you want to see it have focus in these areas. You don't want to see it combining things. 
 
-On the other hand, we can't get too fixated about one. In particular, simple doesn't mean that there's only one of them. Right? It also doesn't mean an interface that only has one operation. So it's important to distinguish cardinality, right, counting things from actual interleaving. What matters for simplicity is that there is no interleaving, not that there's only one thing, and that's very important.
+On the other hand, we can't get too fixated about one. In particular, simple doesn't mean that there's only one of them. Right? It also doesn't mean an interface that only has one operation. So it's important to distinguish cardinality, right, counting things from actual interleaving. What matters for simplicity is that there is no interleaving, not that there's only one thing, and that's very important. 
 
 Okay, the other critical thing about simple, as we've just described it, right, is if something is interleaved or not, that's sort of an objective thing. You can probably go and look and see. I don't see any connections. I don't see anywhere where this twist was something else, so simple is actually an objective notion. That's also very important in deciding the difference between simple and easy.
 
 ![00:05:16 Easy](SimpleMadeEasy/00.05.16.jpg)
 
-So let's look at easy. I think this notion of nearness is really, really cool. In particular, obviously there's many ways in which something can be near. Right? There's sort of the physical notion of being near. Right? Is something, you know, right there. And I think that's where the root of the word came from. You know, this is easy to obtain because it's nearby. It's not in the next town. I don't have to take a horse or whatever to go get to it. We don't have the same notion of physicality necessarily in our software, but we do sort of have, you know, our own hard drive or our own toolset, or it's sort of the ability to make things physically near by getting them through things like installers and stuff like that.
+So let's look at easy. I think this notion of nearness is really, really cool. In particular, obviously there's many ways in which something can be near. Right? There's sort of the physical notion of being near. Right? Is something, you know, right there. And I think that's where the root of the word came from. You know, this is easy to obtain because it's nearby. It's not in the next town. I don't have to take a horse or whatever to go get to it. We don't have the same notion of physicality necessarily in our software, but we do sort of have, you know, our own hard drive or our own toolset, or it's sort of the ability to make things physically near by getting them through things like installers and stuff like that. 
 
-The second notion of nearness is something being near to our understanding, right, or in our current skill set. And I don't mean in this case near to our understanding meaning a capability. I mean literally near something that we already know. So the word in this case is about being familiar.
+The second notion of nearness is something being near to our understanding, right, or in our current skill set. And I don't mean in this case near to our understanding meaning a capability. I mean literally near something that we already know. So the word in this case is about being familiar. 
 
 I think that, collectively, we are infatuated with these two notions of easy. We are just so self-involved in these two aspects; it's hurting us tremendously. Right? All we care about is, you know, can I get this instantly and start running it in five seconds? It could be this giant hairball that you got, but all you care is, you know, can you get it.
 
 In addition, we're fixated on, oh, I can't; I can't read that. Now I can't read German. Does that mean German is unreadable? No. I don't know German. So, you know, this sort of approach is definitely not helpful. In particular, if you want everything to be familiar, you will never learn anything new because it can't be significantly different from what you already know and not drift away from the familiarity.
 
-There's a third aspect of being easy that I don't think we think enough about that's going to become critical to this discussion, which now is being near to our capabilities. And we don't like to talk about this because it makes us uncomfortable because what kind of capabilities are we talking about? If we're talking about easy in the case of violin playing or piano playing or mountain climbing or something like that, well, you know, I don't personally feel bad if I don't play the violin well because I don't play the violin at all.
+There's a third aspect of being easy that I don't think we think enough about that's going to become critical to this discussion, which now is being near to our capabilities. And we don't like to talk about this because it makes us uncomfortable because what kind of capabilities are we talking about? If we're talking about easy in the case of violin playing or piano playing or mountain climbing or something like that, well, you know, I don't personally feel bad if I don't play the violin well because I don't play the violin at all. 
 
 But the work that we're in is conceptual work, so when we start talking about something being outside of our capability, well, you know, it really starts trampling on our egos in a big way. And so, you know, due to a combination of hubris and insecurity, we never really talk about whether or not something is outside of our capabilities. It ends up that it's not so embarrassing after all because we don't have tremendously divergent abilities in that area.
 
@@ -74,13 +74,13 @@ Does the software do what it's supposed to do? Is it of high quality? Can we rel
 
 ![00:12:14 Limits](SimpleMadeEasy/00.12.14.jpg)
 
-So let's talk a little bit about limits. Oh, look; it does move. This is just supposed to sort of lull you into this state where everything I say seems true.
+So let's talk a little bit about limits. Oh, look; it does move. This is just supposed to sort of lull you into this state where everything I say seems true. 
 
 [Audience laughter]
 
 Because I can't use monads to do that.
 
-[Audience laughter]
+[Audience laughter] 
 
 This stuff is pretty simple logic, right? How can we possibly make things that are reliable that we don't understand? It's very, very difficult. I think Professor Sussman made a great point saying there's going to be this tradeoff, right? As we make things more flexible and extensible and dynamic in some possible futures for some kinds of systems, we are going to make a tradeoff in our ability to understand their behavior and make sure that they're correct. But for the things that we want to understand and make sure are correct, we're going to be limited. We're going to be limited to our understanding.
 
@@ -92,7 +92,7 @@ So if every time I think I pull out a new part of the software I need to compreh
 
 So how do we change our software? Apparently, I heard in a talk today, that Agile and Extreme Programming have shown that refactoring and tests allow us to make change with zero impact.
 
-[Audience laughter]
+[Audience laughter] 
 
 I never knew that. I still do not know that.
 
@@ -110,7 +110,7 @@ You know, I don't care if you're using XP or Agile or anything else. You're not 
 
 So what about the other side? Right? There are two things you do with the future of your software. One is, you add new capabilities. The other thing is you fix the ones you didn't get, you know, done so well.
 
-And I like to ask this question: What's true of every bug found in the field?
+And I like to ask this question: What's true of every bug found in the field? 
 
 [Audience reply: Someone wrote it?]
 [Audience reply: It got written.]
@@ -302,7 +302,7 @@ They all do warn you when you have state, and that's great. Most people who are 
 But I will call out Clojure and Haskell's references as being particularly superior in dealing with this because they compose values and time. There are actually little constructs that do two things. They have some abstraction over time and the ability to extract a value. That's really important because that's your path back to simplicity. If I have a way to get out of this thing and get a value out, I can continue with my program. If I have to pass that variable to somebody else or a reference to something that's going to find the variable every time through the varying thing, I'm poisoning the rest of my system. So look at the var in your language and ask if it does the same thing.
 
 ![00:39:28 The Complexity Toolkit](SimpleMadeEasy/00.39.28.jpg)
-
+ 
 All right, let's see why things are complex. State, we already talked about. It complects everything it touches. Objects complect state, identity, and value. They mix these three things up in a way that you cannot extricate the parts.
 
 Methods complect function and state, ordinarily, right? In addition, in some languages, they complect namespaces. Derive from two things in Java and have the same name method, and [hand gesture with sounds like explosion]. It doesn't work.
