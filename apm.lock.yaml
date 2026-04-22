@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-22T13:35:55.015021+00:00'
+generated_at: '2026-04-22T14:13:56.470339+00:00'
 apm_version: 0.9.1
 dependencies:
 - repo_url: _local/agents
@@ -26,6 +26,11 @@ dependencies:
   - .claude/skills/hk
   - .claude/skills/perf-diagnose
   - .claude/skills/test
+  - .opencode/commands/whatchanged.md
+  - .opencode/skills/ci
+  - .opencode/skills/hk
+  - .opencode/skills/perf-diagnose
+  - .opencode/skills/test
   deployed_file_hashes:
     .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
     .claude/rules/apm-workflow.md: sha256:ddb46a34e22a566a11c220ec8ab6dc1c0f394a86935702d8275926c23a4cc8c0
@@ -40,6 +45,7 @@ dependencies:
     .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
     .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
     .claude/rules/workflow.md: sha256:9fd3625ba30f63cd5ec7543fcc71cd3dbd80cf12d6a88da046c7f11b03a83543
+    .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
   source: local
   local_path: ./agents
 - repo_url: anthropics/skills
@@ -51,6 +57,7 @@ dependencies:
   deployed_files:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
+  - .opencode/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/skills
   host: github.com
@@ -61,6 +68,7 @@ dependencies:
   deployed_files:
   - .agents/skills/nix-justfile
   - .claude/skills/nix-justfile
+  - .opencode/skills/nix-justfile
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
@@ -71,6 +79,7 @@ dependencies:
   deployed_files:
   - .agents/skills/nix-typescript
   - .claude/skills/nix-typescript
+  - .opencode/skills/nix-typescript
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
@@ -103,6 +112,17 @@ dependencies:
   - .codex/agents/hickey.toml
   - .codex/agents/lowy.toml
   - .codex/hooks/agency/scripts/do-stop-guard.sh
+  - .opencode/agents/hickey.md
+  - .opencode/agents/lowy.md
+  - .opencode/skills/code-police
+  - .opencode/skills/do
+  - .opencode/skills/elegance
+  - .opencode/skills/fact-check
+  - .opencode/skills/forge-pr
+  - .opencode/skills/hickey
+  - .opencode/skills/lowy
+  - .opencode/skills/ralph
+  - .opencode/skills/talk
   deployed_file_hashes:
     .claude/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .claude/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
@@ -111,4 +131,6 @@ dependencies:
     .codex/agents/hickey.toml: sha256:f508bacedcac2916cf1e29a11f2ac161483ffc2acf182c8f1c00c26d14073c00
     .codex/agents/lowy.toml: sha256:c57b72c43687ef255a4490f65984fe556325cb9847a5626e43c2a7addea049e4
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:b9d316555a1509eabb610d32cccdcd1dacaf926b2fd831a3178c30d283756d69
+    .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
+    .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
   content_hash: sha256:f309878ce79ee166620ef89812d093707f07b79cbebaa74725dc6f32f3cac8d3
