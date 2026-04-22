@@ -76,6 +76,23 @@ export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Codex logo — simplified knot mark using the hexagonal negative-space motif. */
+export const CodexIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3 h-3"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M12 2.75 19.5 7v10L12 21.25 4.5 17V7L12 2.75Z" />
+    <path d="M8.5 9.5 12 7.5l3.5 2v5L12 16.5l-3.5-2Z" />
+    <path d="M8.5 9.5 12 11.5l3.5-2" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg

@@ -27,6 +27,7 @@
     "hono-pino": "^0.10.3",
     "kolu-claude-code": "workspace:*",
     "kolu-common": "workspace:*",
+    "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-opencode": "workspace:*",

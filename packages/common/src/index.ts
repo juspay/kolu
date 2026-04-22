@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { TaskProgressSchema } from "anyagent";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
+import { CodexInfoSchema } from "kolu-codex";
 import { OpenCodeInfoSchema } from "kolu-opencode";
 import {
   GitInfoSchema,
@@ -28,7 +29,12 @@ import {
 } from "kolu-git";
 
 // Re-export integration schemas so consumers import from kolu-common only.
-export { TaskProgressSchema, ClaudeCodeInfoSchema, OpenCodeInfoSchema };
+export {
+  TaskProgressSchema,
+  ClaudeCodeInfoSchema,
+  CodexInfoSchema,
+  OpenCodeInfoSchema,
+};
 
 // Re-export git schemas from kolu-git.
 export {
@@ -106,10 +112,11 @@ export type {
 
 // --- AI coding agent context ---
 
-export const AgentKindSchema = z.enum(["claude-code", "opencode"]);
+export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
   ClaudeCodeInfoSchema,
+  CodexInfoSchema,
   OpenCodeInfoSchema,
 ]);
 
