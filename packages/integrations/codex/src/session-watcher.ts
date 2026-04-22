@@ -96,17 +96,13 @@ export function createCodexWatcher(
       return;
     }
 
-    const state = deriveState(session.rolloutPath, log);
-    if (state === null) {
-      // No turns yet in this thread — suppress the badge until the
-      // first task_started lands. Same policy as kolu-claude-code when
-      // the transcript has no user/assistant entries.
-      log?.debug(
-        { session: session.id, path: session.rolloutPath },
-        "codex rollout has no task events yet",
-      );
-      return;
-    }
+    const state = deriveState(session.rolloutPath, session.id, log);
+    // `null` covers three distinct cases — ENOENT race, hard read
+    // error, or a parsed-but-turn-less rollout. Each is logged at the
+    // failure site inside `deriveState` so the caller doesn't have to
+    // reinvent the distinction here; from this layer, null uniformly
+    // means "skip this refresh."
+    if (state === null) return;
 
     const info: CodexInfo = {
       kind: "codex",
@@ -169,21 +165,36 @@ export function createCodexWatcher(
 
 /** Read the last TAIL_BYTES of the rollout JSONL, drop any partial
  *  first line, and delegate to `parseRolloutState`. Returns null when
- *  the file doesn't exist (Codex has not yet flushed it — race between
- *  thread row insert and first rollout write), is unreadable, or the
- *  state machine found no task events in the tail. */
+ *  no state is derivable — one of three distinct cases:
+ *
+ *   - **Rollout absent (ENOENT)** — expected race window between
+ *     Codex inserting the thread row and flushing its first rollout
+ *     append. Silent, no log (the next WAL event retries).
+ *   - **Hard read failure (EACCES, EMFILE, EIO, …)** — logged at
+ *     `error`. Operators filtering on >=error see it.
+ *   - **Rollout present but no turns yet** — logged at `debug`
+ *     scoped to this function so the caller doesn't emit a log that
+ *     would be wrong under the hard-failure branch.
+ *
+ *  All three collapse to `null` at the call boundary because the
+ *  caller's action is the same in each case (skip this refresh) —
+ *  distinguishing them at the log level is the only signal an
+ *  operator needs. `sessionId` is threaded in purely so the log lines
+ *  carry it without the caller wrapping the call. */
 function deriveState(
   rolloutPath: string,
+  sessionId: string,
   log?: Logger,
 ): CodexInfo["state"] | null {
   let stat;
   try {
     stat = fs.statSync(rolloutPath);
   } catch (err) {
-    // ENOENT is expected in the narrow window between thread creation
-    // and first rollout append; other errors (EACCES, EMFILE) are not.
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, path: rolloutPath }, "codex rollout stat failed");
+      log?.error(
+        { err, path: rolloutPath, session: sessionId },
+        "codex rollout stat failed",
+      );
     }
     return null;
   }
@@ -199,7 +210,10 @@ function deriveState(
       fs.closeSync(fd);
     }
   } catch (err) {
-    log?.error({ err, path: rolloutPath }, "codex rollout read failed");
+    log?.error(
+      { err, path: rolloutPath, session: sessionId },
+      "codex rollout read failed",
+    );
     return null;
   }
 
@@ -210,5 +224,12 @@ function deriveState(
   // line is `session_meta` and is intact.
   if (start > 0 && lines.length > 0) lines.shift();
 
-  return parseRolloutState(lines);
+  const state = parseRolloutState(lines);
+  if (state === null) {
+    log?.debug(
+      { session: sessionId, path: rolloutPath },
+      "codex rollout has no task events yet",
+    );
+  }
+  return state;
 }
