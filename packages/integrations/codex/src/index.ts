@@ -96,17 +96,84 @@ export interface CodexSession {
   rolloutPath: string;
 }
 
+/** Columns our SELECTs depend on. If Codex renames or drops any of
+ *  these, the queries would silently return zero rows, leaving the user
+ *  with no Codex badge and no indication why. Keep this list in sync
+ *  with `findSessionByDirectory` (id, rollout_path, cwd, source,
+ *  archived, updated_at_ms) and `getThreadMetadata` (title, model). */
+export const REQUIRED_THREAD_COLUMNS: readonly string[] = [
+  "id",
+  "rollout_path",
+  "cwd",
+  "source",
+  "archived",
+  "updated_at_ms",
+  "title",
+  "model",
+];
+
+/** Return the list of required columns missing from the `threads` table
+ *  on the given DB — empty array when the schema matches. Pure-ish
+ *  (reads from the DB but has no side effects); exported for unit
+ *  tests. */
+export function missingThreadColumns(db: DatabaseSync): string[] {
+  const rows = db.prepare("PRAGMA table_info(threads)").all() as {
+    name: string;
+  }[];
+  const observed = new Set(rows.map((r) => r.name));
+  return REQUIRED_THREAD_COLUMNS.filter((c) => !observed.has(c));
+}
+
+/** One-shot guard: has openDb already logged a schema-mismatch error
+ *  for this process? The mismatch can't resolve without a restart
+ *  (CODEX_DB_PATH is resolved once at module load), so re-logging on
+ *  every openDb call would be noise. */
+let loggedSchemaError = false;
+
 /** Open a read-only connection to Codex's threads database. Returns null
- *  if absent. WAL mode is Codex's default, so a read-only connection
- *  coexists with Codex's own writes without blocking either side.
- *  Caller MUST close the returned database when done. */
+ *  if the DB is absent (ENOENT silently; other errors at `error`) or if
+ *  the `threads` table is missing required columns (logged loudly once).
+ *  WAL mode is Codex's default, so a read-only connection coexists with
+ *  Codex's own writes without blocking either side. Caller MUST close
+ *  the returned database when done. */
 export function openDb(log?: Logger): DatabaseSync | null {
+  let db: DatabaseSync;
   try {
-    return new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
+    db = new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
   } catch (err) {
     log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
     return null;
   }
+  let missing: string[];
+  try {
+    missing = missingThreadColumns(db);
+  } catch (err) {
+    db.close();
+    if (!loggedSchemaError) {
+      loggedSchemaError = true;
+      log?.error(
+        { err, path: CODEX_DB_PATH },
+        "codex schema introspection failed — Codex detection disabled",
+      );
+    }
+    return null;
+  }
+  if (missing.length > 0) {
+    db.close();
+    if (!loggedSchemaError) {
+      loggedSchemaError = true;
+      log?.error(
+        {
+          path: CODEX_DB_PATH,
+          missing,
+          required: REQUIRED_THREAD_COLUMNS,
+        },
+        "codex `threads` table is missing required columns — Codex detection disabled. Upstream may have bumped the schema; set KOLU_CODEX_DB to pin a known-good DB while a fix ships.",
+      );
+    }
+    return null;
+  }
+  return db;
 }
 
 /**

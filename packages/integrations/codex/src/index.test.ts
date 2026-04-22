@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseRolloutContextTokens, parseRolloutState } from "./index.ts";
+import { DatabaseSync } from "node:sqlite";
+import {
+  missingThreadColumns,
+  parseRolloutContextTokens,
+  parseRolloutState,
+  REQUIRED_THREAD_COLUMNS,
+} from "./index.ts";
 
 /** Build a token_count event_msg with the given `last_token_usage`
  *  fields. `cached` is written to the event (real Codex rollouts
@@ -272,5 +278,68 @@ describe("parseRolloutContextTokens", () => {
   it("skips malformed JSON lines without aborting", () => {
     const lines = ["not json", tokenCount(100, 50)];
     expect(parseRolloutContextTokens(lines)).toBe(100);
+  });
+});
+
+describe("missingThreadColumns", () => {
+  /** Build a throwaway in-memory DB with a `threads` table containing
+   *  exactly the named columns. Types don't matter — we only inspect
+   *  column names via PRAGMA. */
+  function dbWithColumns(cols: string[]): DatabaseSync {
+    const db = new DatabaseSync(":memory:");
+    db.exec(
+      `CREATE TABLE threads (${cols.map((c) => `${c} TEXT`).join(", ")})`,
+    );
+    return db;
+  }
+
+  it("returns empty array when all required columns are present", () => {
+    const db = dbWithColumns([...REQUIRED_THREAD_COLUMNS]);
+    expect(missingThreadColumns(db)).toEqual([]);
+    db.close();
+  });
+
+  it("tolerates extra columns beyond the required set", () => {
+    // Real Codex `threads` has ~27 columns. We only depend on 8 — any
+    // others (git_sha, cli_version, sandbox_policy, …) must not
+    // register as a problem.
+    const db = dbWithColumns([
+      ...REQUIRED_THREAD_COLUMNS,
+      "created_at",
+      "tokens_used",
+      "sandbox_policy",
+      "cli_version",
+    ]);
+    expect(missingThreadColumns(db)).toEqual([]);
+    db.close();
+  });
+
+  it("lists every column the schema is missing", () => {
+    // Simulate a hypothetical v6 rename: Codex renames rollout_path and
+    // drops archived. Both must show up so the operator can see what's
+    // gone.
+    const kept = REQUIRED_THREAD_COLUMNS.filter(
+      (c) => c !== "rollout_path" && c !== "archived",
+    );
+    const db = dbWithColumns([...kept, "rollout_uri"]);
+    expect(missingThreadColumns(db).sort()).toEqual(
+      ["archived", "rollout_path"].sort(),
+    );
+    db.close();
+  });
+
+  it("reports every required column as missing when the threads table does not exist", () => {
+    // SQLite's `PRAGMA table_info(<unknown>)` returns zero rows rather
+    // than erroring, so a completely foreign DB (wrong file, early
+    // migration state, …) surfaces as "every required column missing."
+    // That's the same observable behavior openDb treats as "schema
+    // unusable," and the error log lists all 8 columns — an operator
+    // seeing that list can immediately tell the table is gone, not
+    // that 8 individual columns got renamed.
+    const db = new DatabaseSync(":memory:");
+    expect(missingThreadColumns(db).sort()).toEqual(
+      [...REQUIRED_THREAD_COLUMNS].sort(),
+    );
+    db.close();
   });
 });
