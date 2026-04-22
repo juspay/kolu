@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { parseRolloutContextTokens, parseRolloutState } from "./index.ts";
 
 /** Build a token_count event_msg with the given `last_token_usage`
- *  fields. Only the fields `parseRolloutContextTokens` reads are
- *  populated; real Codex events carry more (total_token_usage,
- *  rate_limits, etc.) — but the parser ignores everything else, which
- *  is the invariant these tests protect. */
+ *  fields. `cached` is written to the event (real Codex rollouts
+ *  always include it), but the parser must ignore it — that's the
+ *  core invariant these tests protect. In OpenAI's schema
+ *  `input_tokens` already includes the cached portion, so a reader
+ *  that adds the two double-counts every cache hit. */
 function tokenCount(input: number, cached: number): string {
   return JSON.stringify({
     type: "event_msg",
@@ -156,11 +157,13 @@ describe("parseRolloutContextTokens", () => {
     expect(parseRolloutContextTokens([taskStarted("turn-1")])).toBeNull();
   });
 
-  it("sums input_tokens + cached_input_tokens from the latest token_count", () => {
-    // Real numbers from a live rollout: 46,783 uncached + 45,696 cached
-    // = 92,479 tokens in the model's context this turn. Against a
-    // 258,400 context window this is ~36%.
-    expect(parseRolloutContextTokens([tokenCount(46783, 45696)])).toBe(92479);
+  it("returns input_tokens alone — cached_input_tokens is a subset, not additional", () => {
+    // Real numbers from the live dainty-island rollout. Codex's own
+    // `/status` command showed "48.9K used / 258K" — matching
+    // input_tokens, NOT input + cached. `cached_input_tokens` is the
+    // breakdown of how many of those input_tokens were cache hits,
+    // per OpenAI's usage schema.
+    expect(parseRolloutContextTokens([tokenCount(48843, 48640)])).toBe(48843);
   });
 
   it("picks the LATEST token_count when the tail holds several", () => {
@@ -170,14 +173,16 @@ describe("parseRolloutContextTokens", () => {
     const lines = [
       tokenCount(10000, 5000),
       taskStarted("turn-2"),
-      tokenCount(46783, 45696),
+      tokenCount(48843, 48640),
     ];
-    expect(parseRolloutContextTokens(lines)).toBe(92479);
+    expect(parseRolloutContextTokens(lines)).toBe(48843);
   });
 
-  it("treats missing cached_input_tokens as 0", () => {
+  it("reads input_tokens even when cached_input_tokens is absent", () => {
     // Early-session token_count events sometimes land before the
     // prompt cache warms up — cached_input_tokens can be absent.
+    // Since the parser reads only input_tokens, this case is
+    // indistinguishable from the fully-populated case.
     const line = JSON.stringify({
       type: "event_msg",
       payload: {
@@ -188,7 +193,7 @@ describe("parseRolloutContextTokens", () => {
     expect(parseRolloutContextTokens([line])).toBe(1234);
   });
 
-  it("returns null when the sum is zero (accounting not yet happened)", () => {
+  it("returns null when input_tokens is zero (accounting not yet happened)", () => {
     // A token_count can land with a zero/empty last_token_usage in the
     // narrow window before the first assistant turn — rendering 0
     // would flash a misleading "0k" badge.
@@ -215,11 +220,11 @@ describe("parseRolloutContextTokens", () => {
       tokenCount(32549, 4480),
       funcCall("call-X"),
     ];
-    expect(parseRolloutContextTokens(lines)).toBe(37029);
+    expect(parseRolloutContextTokens(lines)).toBe(32549);
   });
 
   it("skips malformed JSON lines without aborting", () => {
     const lines = ["not json", tokenCount(100, 50)];
-    expect(parseRolloutContextTokens(lines)).toBe(150);
+    expect(parseRolloutContextTokens(lines)).toBe(100);
   });
 });

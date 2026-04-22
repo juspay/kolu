@@ -215,14 +215,21 @@ interface RolloutLine {
     /** On `token_count` event_msgs. Nested because Codex envelopes the
      *  accounting under `.info` alongside rate-limit metadata. */
     info?: {
-      /** Input-side tokens the model processed on the MOST RECENT
-       *  turn. `input_tokens` is uncached input; `cached_input_tokens`
-       *  is the portion served from prompt cache. Summed, this is
-       *  what the model had in its context window this turn — the
-       *  right analog of claude-code's context-window count. */
+      /** Token usage for the MOST RECENT turn. In OpenAI's schema
+       *  (which Codex follows), `input_tokens` is the TOTAL prompt
+       *  the model saw — new + cached together — and matches what
+       *  Codex's own `/status` command calls "used" context. Do NOT
+       *  add `cached_input_tokens` on top: it's a breakdown showing
+       *  what portion of `input_tokens` was a cache hit, not an
+       *  additional count.
+       *
+       *  Contrast with Anthropic's schema (which claude-code reads):
+       *  there, `input_tokens` / `cache_creation_input_tokens` /
+       *  `cache_read_input_tokens` are DISJOINT buckets and summed.
+       *  Mapping Anthropic's sum-three-fields pattern onto OpenAI's
+       *  schema double-counts the cached portion. */
       last_token_usage?: {
         input_tokens?: number;
-        cached_input_tokens?: number;
       };
     };
   };
@@ -291,22 +298,20 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
 
 /**
  * Find the CURRENT-TURN context-window token count in the rollout
- * JSONL's tail — `info.last_token_usage.input_tokens +
- * cached_input_tokens` from the latest `token_count` event.
+ * JSONL's tail — `info.last_token_usage.input_tokens` from the latest
+ * `token_count` event.
  *
- * Why not `threads.tokens_used` (the SQLite column)? Because Codex's
- * `tokens_used` is the session-lifetime cumulative
- * `total_token_usage.total_tokens` — summed across every turn, with
- * each turn's cached re-read counted again. For long-running sessions
- * it climbs into the tens of millions, dwarfing the model context
- * window (≈258K) and giving users a nonsense "17M / 258K" badge.
+ * Why `input_tokens` alone? In OpenAI's API (which Codex emits),
+ * `input_tokens` is the TOTAL prompt the model saw this turn —
+ * already inclusive of any cached portion. `cached_input_tokens` is a
+ * breakdown of that total, not an additional count. Adding the two
+ * would double-count every cache hit; Codex's own `/status` command
+ * shows exactly this field as "context used" against the window.
  *
- * The claude-code analog is `input_tokens + cache_creation +
- * cache_read` on the latest assistant turn — "what the model had to
- * read this turn." Codex's equivalent is `last_token_usage.input_tokens
- * + last_token_usage.cached_input_tokens` on the latest `token_count`
- * event. Output tokens are excluded on both sides: they're not in the
- * input context for the current turn.
+ * Why not `threads.tokens_used` (the SQLite column)? That's the
+ * session-lifetime cumulative `total_token_usage.total_tokens` —
+ * summed across every turn, climbing into millions on long sessions,
+ * dwarfing the 258 K context window and giving nonsense percentages.
  *
  * Walks backward so the first matching event wins; returns null if no
  * `token_count` event is in the tail (fresh thread, or token_count
@@ -322,15 +327,12 @@ export function parseRolloutContextTokens(lines: string[]): number | null {
     }
     if (entry.type !== "event_msg") continue;
     if (entry.payload?.type !== "token_count") continue;
-    const last = entry.payload.info?.last_token_usage;
-    if (!last) continue;
-    const input = last.input_tokens ?? 0;
-    const cached = last.cached_input_tokens ?? 0;
-    const sum = input + cached;
+    const input = entry.payload.info?.last_token_usage?.input_tokens;
+    if (typeof input !== "number") continue;
     // 0 means the event landed before the first assistant turn
     // accounted (empty placeholder) — render as "not yet" rather than
     // "0 tokens used."
-    return sum > 0 ? sum : null;
+    return input > 0 ? input : null;
   }
   return null;
 }
