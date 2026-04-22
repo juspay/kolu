@@ -1,3 +1,17 @@
+/**
+ * Refcounted singleton WAL watcher for Codex's SQLite state database.
+ *
+ * Codex writes thread metadata to a SQLite database whose journal mode is WAL.
+ * We watch the WAL file (`state_5.sqlite-wal`) for changes to detect when
+ * threads appear, get renamed, or are archived — without polling.
+ *
+ * The watcher is promoted: if the WAL file doesn't exist yet (no codex session
+ * has run on this machine), we watch the parent directory and promote to a WAL
+ * watcher once the file appears.
+ *
+ * Multiple subscribers share one fs.watch instance via refcounting. When the
+ * last subscriber unsubscribes, the watcher is torn down.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { CODEX_STATE_DB_PATH, CODEX_STATE_DB_WAL_PATH } from "./config.ts";
