@@ -100,9 +100,6 @@ export interface CodexSession {
   /** Absolute path to the rollout JSONL — copied from the DB row at
    *  match time so the watcher doesn't re-query to locate its file. */
   rolloutPath: string;
-  /** cwd the thread was started in. Stored so the watcher can log it
-   *  without a re-query. */
-  cwd: string;
 }
 
 /** Open a read-only connection to Codex's threads database. Returns null
@@ -142,16 +139,13 @@ export function findSessionByDirectory(
     (conn) => {
       const row = conn
         .prepare(
-          "SELECT id, rollout_path, cwd FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
+          "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
         )
-        .get(directory) as
-        | { id: string; rollout_path: string; cwd: string }
-        | undefined;
+        .get(directory) as { id: string; rollout_path: string } | undefined;
       if (!row) return null;
       return {
         id: row.id,
         rolloutPath: row.rollout_path,
-        cwd: row.cwd,
       };
     },
     "codex threads query failed",
