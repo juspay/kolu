@@ -162,6 +162,25 @@ export type DerivedState = {
   contextTokens: number | null;
 };
 
+const TAIL_BYTES = 256 * 1024;
+
+function tailJsonlLines(filePath: string, bytes: number): string[] {
+  try {
+    const stat = fs.statSync(filePath);
+    const start = Math.max(0, stat.size - bytes);
+    const fd = fs.openSync(filePath, "r");
+    const buf = Buffer.alloc(Math.min(bytes, stat.size));
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+    const text = buf.toString("utf8");
+    const lines = text.split("\n").filter((l) => l.length > 0);
+    if (start > 0 && lines.length > 0) lines.shift();
+    return lines;
+  } catch {
+    return [];
+  }
+}
+
 export function deriveSessionState(
   rolloutPath: string,
   log?: Logger,
@@ -171,18 +190,10 @@ export function deriveSessionState(
   let lastContextTokens: number | null = null;
   const openCalls = new Set<string>();
 
-  let content: string;
-  try {
-    content = fs.readFileSync(rolloutPath, "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error({ err, path: rolloutPath }, "codex rollout read failed");
-    }
-    return null;
-  }
+  const lines = tailJsonlLines(rolloutPath, TAIL_BYTES);
+  if (lines.length === 0) return null;
 
-  for (const line of content.split("\n")) {
-    if (!line.trim()) continue;
+  for (const line of lines) {
     let entry: Record<string, unknown>;
     try {
       entry = JSON.parse(line) as Record<string, unknown>;
