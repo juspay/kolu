@@ -150,6 +150,52 @@ describe("parseRolloutState", () => {
     const lines = [taskComplete("turn-A")];
     expect(parseRolloutState(lines)).toBe("waiting");
   });
+
+  it("discards an orphan function_call from a prior turn when the next turn starts", () => {
+    // User aborted turn-1 mid-tool: function_call(call-A) was emitted
+    // but no function_call_output ever arrived. task_complete still
+    // fires (Codex closes the turn on abort). Then the user starts a
+    // fresh turn-2 that's just thinking — no tool calls yet.
+    // Without per-turn scoping, call-A would stay in openCalls forever
+    // and pin state at `tool_use` for the new turn. Scoping on
+    // task_started clears the set so turn-2 is correctly `thinking`.
+    const lines = [
+      taskStarted("turn-1"),
+      funcCall("call-A"),
+      taskComplete("turn-1"),
+      taskStarted("turn-2"),
+    ];
+    expect(parseRolloutState(lines)).toBe("thinking");
+  });
+
+  it("discards an orphan function_call even when the tail began mid-prior-turn", () => {
+    // Tail head chopped everything before `function_call(call-A)` —
+    // the earlier task_started and any matching function_call_output
+    // are gone. Without scoping, call-A would pin the new turn to
+    // `tool_use`. With scoping, task_started(turn-2) resets the set
+    // and the new turn reads as `thinking`.
+    const lines = [
+      funcCall("call-A"),
+      taskComplete("turn-1"),
+      taskStarted("turn-2"),
+    ];
+    expect(parseRolloutState(lines)).toBe("thinking");
+  });
+
+  it("scopes openCalls to the new turn — prior-turn orphans don't prevent tool_use detection", () => {
+    // Prior turn had a dangling call-A; new turn starts its own call-B.
+    // Without scoping, the decision would be tool_use for the wrong
+    // reason (we'd be reporting on call-A from a dead turn). With
+    // scoping, call-A is cleared at task_started(turn-2) and only
+    // call-B drives the decision.
+    const lines = [
+      funcCall("call-A"),
+      taskComplete("turn-1"),
+      taskStarted("turn-2"),
+      funcCall("call-B"),
+    ];
+    expect(parseRolloutState(lines)).toBe("tool_use");
+  });
 });
 
 describe("parseRolloutContextTokens", () => {

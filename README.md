@@ -102,11 +102,13 @@ Detects [Codex](https://github.com/openai/codex) TUI sessions and surfaces their
 
 **What we detect:**
 
-| State    | Indicator          | How                                                                                                            |
-| -------- | ------------------ | -------------------------------------------------------------------------------------------------------------- |
-| Thinking | Pulsing accent dot | Current turn is in flight (`task_started` seen, no `task_complete` for the same `turn_id`, no open tool calls) |
-| Tool use | Spinning yellow    | Same as Thinking plus at least one `function_call` whose `call_id` has no matching `function_call_output`      |
-| Waiting  | Dim dot            | Latest `task_started` has a matching `task_complete` for the same `turn_id`                                    |
+| State    | Indicator          | How                                                                                                                                        |
+| -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Thinking | Pulsing accent dot | Latest lifecycle event is `task_started`, with no open `function_call` scoped to the current turn                                          |
+| Tool use | Spinning yellow    | Latest lifecycle event is `task_started`, with at least one `function_call` opened since that `task_started` and no matching `_output` yet |
+| Waiting  | Dim dot            | Latest lifecycle event is `task_complete`                                                                                                  |
+
+Open-call tracking is scoped per-turn: a `function_call` with no matching `_output` that straddles a `task_started` boundary (user aborted a prior tool-using turn) does not pin the next turn to `tool_use`.
 
 **What we can't detect (yet):**
 

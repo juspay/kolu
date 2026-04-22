@@ -248,15 +248,20 @@ interface RolloutLine {
  *     this handles a tail that captured only `task_complete` without
  *     its matching `task_started` (long tool-heavy turns that exceed
  *     TAIL_BYTES).
- *  2. Track open function calls by `call_id`: add on `function_call`,
- *     remove on `function_call_output`. `exec_command_end` is ignored —
- *     it carries a call_id but is a mid-tool event; the call stays open
- *     until its `function_call_output` arrives.
+ *  2. Track open function calls by `call_id` **scoped to the current
+ *     turn**: add on `function_call`, remove on `function_call_output`,
+ *     clear on `task_started`. Scoping matters — a `function_call` from
+ *     a prior turn that never got a matching `function_call_output`
+ *     (user aborted mid-tool, or tail head clipped the output) would
+ *     otherwise pin state at `tool_use` forever into the next turn.
+ *     `exec_command_end` is ignored — it carries a call_id but is a
+ *     mid-tool event; the call stays open until its
+ *     `function_call_output` arrives.
  *  3. Decide:
  *     - No lifecycle events seen → null (fresh thread, suppress badge).
  *     - Last lifecycle event was `task_complete` → **waiting**.
- *     - Last lifecycle event was `task_started` + any call_id open →
- *       **tool_use**.
+ *     - Last lifecycle event was `task_started` + any call_id open
+ *       **for the current turn** → **tool_use**.
  *     - Last lifecycle event was `task_started` + no open calls →
  *       **thinking**.
  *
@@ -281,6 +286,8 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
     if (outer === "event_msg") {
       if (inner === "task_started" && entry.payload?.turn_id) {
         lastLifecycle = "started";
+        // Scope openCalls to the current turn — see algorithm doc.
+        openCalls.clear();
       } else if (inner === "task_complete" && entry.payload?.turn_id) {
         lastLifecycle = "completed";
       }
