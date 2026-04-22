@@ -110,19 +110,14 @@ export function createCodexWatcher(
       return;
     }
 
-    const stat = statRollout(session.rolloutPath, session.id, log);
+    const stat = statRollout(session, log);
     if (stat === null) return;
 
     let state: CodexInfo["state"];
     if (cachedDerive !== null && cachedDerive.size === stat.size) {
       state = cachedDerive.state;
     } else {
-      const derived = readAndParseTail(
-        session.rolloutPath,
-        session.id,
-        stat.size,
-        log,
-      );
+      const derived = readAndParseTail(session, stat.size, log);
       if (derived === null) return;
       state = derived;
       cachedDerive = { size: stat.size, state };
@@ -193,16 +188,15 @@ export function createCodexWatcher(
  *  it matches the last-parsed size, the expensive open/read/parse pass
  *  can be skipped entirely. */
 function statRollout(
-  rolloutPath: string,
-  sessionId: string,
+  session: CodexSession,
   log?: Logger,
 ): { size: number } | null {
   try {
-    return { size: fs.statSync(rolloutPath).size };
+    return { size: fs.statSync(session.rolloutPath).size };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.error(
-        { err, path: rolloutPath, session: sessionId },
+        { err, path: session.rolloutPath, session: session.id },
         "codex rollout stat failed",
       );
     }
@@ -216,8 +210,7 @@ function statRollout(
  *  state machine found no task events in the tail (logged at
  *  `debug` — the caller treats this uniformly as "skip"). */
 function readAndParseTail(
-  rolloutPath: string,
-  sessionId: string,
+  session: CodexSession,
   size: number,
   log?: Logger,
 ): CodexInfo["state"] | null {
@@ -225,7 +218,7 @@ function readAndParseTail(
   const toRead = Math.min(TAIL_BYTES, size);
   const buf = Buffer.alloc(toRead);
   try {
-    const fd = fs.openSync(rolloutPath, "r");
+    const fd = fs.openSync(session.rolloutPath, "r");
     try {
       fs.readSync(fd, buf, 0, toRead, start);
     } finally {
@@ -233,7 +226,7 @@ function readAndParseTail(
     }
   } catch (err) {
     log?.error(
-      { err, path: rolloutPath, session: sessionId },
+      { err, path: session.rolloutPath, session: session.id },
       "codex rollout read failed",
     );
     return null;
@@ -249,7 +242,7 @@ function readAndParseTail(
   const state = parseRolloutState(lines);
   if (state === null) {
     log?.debug(
-      { session: sessionId, path: rolloutPath },
+      { session: session.id, path: session.rolloutPath },
       "codex rollout has no task events yet",
     );
   }
