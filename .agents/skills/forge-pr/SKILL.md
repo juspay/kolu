@@ -56,12 +56,12 @@ Adjust the command as needed — `nix build` for non-runnable outputs, add `#<ou
 
 **MANDATORY**: Always pass `--body` to `gh pr create` / `gh pr edit` / `gh pr comment` via a **single-quoted heredoc** so backticks, `$`, and `!` survive unescaped. Double-quoted `--body "..."` triggers shell command substitution on backticks, and escaping them with `\`` produces literal backslashes in the rendered PR (breaking code fences — see [juspay/kolu#402](https://github.com/juspay/kolu/pull/402)).
 
-````sh
+```sh
 gh pr create --draft --title "..." --body "$(cat <<'EOF'
 ...body with ```sh fenced blocks``` intact...
 EOF
 )"
-````
+```
 
 The `'EOF'` (quoted delimiter) is load-bearing — it disables interpolation inside the heredoc. Never write backticks in the body as `\``.
 
