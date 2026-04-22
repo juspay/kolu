@@ -19,7 +19,7 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual, readTailLines } from "anyagent";
 import type { Logger } from "anyagent";
 import {
   type CodexInfo,
@@ -204,40 +204,28 @@ function statRollout(
   }
 }
 
-/** Read the last TAIL_BYTES of the rollout JSONL at the given size,
- *  drop any partial first line, and delegate to `parseRolloutState`.
- *  Returns null on hard read error (logged at `error`) or when the
- *  state machine found no task events in the tail (logged at
- *  `debug` — the caller treats this uniformly as "skip"). */
+/** Read the last TAIL_BYTES of the rollout JSONL at the given size
+ *  via anyagent's shared tail reader, then delegate to
+ *  `parseRolloutState`. Returns null on hard read error (logged at
+ *  `error`) or when the state machine found no task events in the
+ *  tail (logged at `debug` — the caller treats this uniformly as
+ *  "skip"). */
 function readAndParseTail(
   session: CodexSession,
   size: number,
   log?: Logger,
 ): CodexInfo["state"] | null {
-  const start = Math.max(0, size - TAIL_BYTES);
-  const toRead = Math.min(TAIL_BYTES, size);
-  const buf = Buffer.alloc(toRead);
-  try {
-    const fd = fs.openSync(session.rolloutPath, "r");
-    try {
-      fs.readSync(fd, buf, 0, toRead, start);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch (err) {
-    log?.error(
-      { err, path: session.rolloutPath, session: session.id },
-      "codex rollout read failed",
-    );
-    return null;
-  }
-
-  const text = buf.toString("utf8");
-  const lines = text.split("\n").filter((l) => l.length > 0);
-  // First line may be mid-JSON if we started partway through the file.
-  // Only drop it when we didn't start from byte 0 — otherwise the first
-  // line is `session_meta` and is intact.
-  if (start > 0 && lines.length > 0) lines.shift();
+  const lines = readTailLines({
+    path: session.rolloutPath,
+    size,
+    maxBytes: TAIL_BYTES,
+    onError: (err) =>
+      log?.error(
+        { err, path: session.rolloutPath, session: session.id },
+        "codex rollout read failed",
+      ),
+  });
+  if (lines === null) return null;
 
   const state = parseRolloutState(lines);
   if (state === null) {
