@@ -78,7 +78,11 @@ function tryWatchWal(onChange: () => void, log?: Logger): (() => void) | null {
     return () => w.close();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, path: CODEX_DB_WAL_PATH }, "WAL fs.watch failed");
+      // Non-ENOENT (EACCES, EMFILE, etc.) is a real failure — state
+      // detection is broken for every Codex session until resolved —
+      // not an expected-absent condition. Log at error so operators
+      // see it without having to filter debug noise.
+      log?.error({ err, path: CODEX_DB_WAL_PATH }, "WAL fs.watch failed");
     }
     return null;
   }
@@ -110,7 +114,10 @@ function installWalWatcher(onChange: () => void, log?: Logger): () => void {
       onChange();
     });
   } catch (err) {
-    log?.debug({ err, dir }, "codex db dir fs.watch failed");
+    // Same rationale as tryWatchWal: a watch failure on the parent
+    // directory means we can never promote to a direct WAL watcher,
+    // so every future Codex state update is silently lost. Error-level.
+    log?.error({ err, dir }, "codex db dir fs.watch failed");
   }
   return () => {
     dirWatcher?.close();
