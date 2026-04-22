@@ -2,7 +2,7 @@ name: kolu
 version: 1.0.0
 description: Terminal multiplexer with AI-native development workflow
 type: hybrid
-target: [claude, codex]
+target: [claude, codex, opencode]
 
 # Update a dependency: just ai::apm-update <package>  (e.g. srid/agency)
 # Reinstall all:       just ai::apm
@@ -13,3 +13,14 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
+  mcp:
+    - name: chrome-devtools
+      registry: false
+      transport: stdio
+      command: nix
+      args:
+        - develop
+        - .#e2e
+        - --command
+        - just
+        - ai::mcp-chrome-devtools

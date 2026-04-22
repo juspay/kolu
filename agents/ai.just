@@ -11,19 +11,34 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
 apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm apm'
 
-# Deploy APM primitives to .claude/ (rules, commands, skills, hooks)
-apm:
+# Install native APM integrations for Claude, Codex, and OpenCode.
+#
+# `apm install` handles the runtime-specific folders (`.claude/`,
+# `.codex/`, `.agents/skills/`, `.opencode/`). It does not generate the
+# root `AGENTS.md` instruction file that Codex/OpenCode consume.
+apm-install:
     {{ apm_cmd }} install
+
+# Compile the shared instruction file for runtimes that read `AGENTS.md`.
+#
+# Claude already reads `.claude/` natively, so we intentionally do not
+# compile `CLAUDE.md`.
+apm-compile:
+    {{ apm_cmd }} compile --target codex,opencode
+
+# Refresh all APM-managed artifacts needed by Claude, Codex, and OpenCode.
+apm: apm-install apm-compile
 
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
     {{ apm_cmd }} deps update {{ packages }}
+    {{ just_executable() }} apm
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
 apm-audit:
     {{ apm_cmd }} audit --ci
 
-# Verify vendored .claude/ matches .apm/ sources + security audit
+# Verify APM-managed outputs match sources + security audit
 #
 # Must NOT mutate the live .claude/ tree — concurrent Claude Code
 # sessions in the same worktree would see stop hooks / rules / skills
@@ -36,17 +51,27 @@ apm-sync: apm-audit
     set -euo pipefail
     scratch=$(mktemp -d)
     trap 'rm -rf "$scratch"' EXIT
-    # Local inputs: symlink what apm only reads, cp what it writes through.
-    # `apm install` rewrites apm.lock.yaml's `generated_at` on every run,
-    # so a symlink here would mutate the real lockfile.
-    ln -s "$PWD/apm.yml" "$PWD/agents" "$scratch/"
-    cp "$PWD/apm.lock.yaml" "$scratch/"
-    # apm's target auto-detection picks "claude" when `.claude/` exists
-    # (target_detection.py). The explicit `-t claude` flag does *not*
-    # produce an equivalent result — local-package integration silently
-    # no-ops — so folder-existence is the reliable signal.
-    mkdir "$scratch/.claude"
+    # Distributed `apm compile` placement depends on the real repo layout, so
+    # mirror the worktree into scratch while excluding runtime/generated trees.
+    # `apm install` rewrites apm.lock.yaml's `generated_at` on every run, which
+    # is fine here because the scratch copy is disposable.
+    rsync -a \
+        --exclude='.git/' \
+        --exclude='node_modules/' \
+        --exclude='.direnv/' \
+        --exclude='.logs/' \
+        --exclude='.claude/' \
+        --exclude='.codex/' \
+        --exclude='.agents/' \
+        --exclude='.opencode/' \
+        --exclude='AGENTS.md' \
+        --exclude='CLAUDE.md' \
+        "$PWD/" "$scratch/"
+    # Mirror the runtime folders that drive target detection for install.
+    # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
+    mkdir -p "$scratch/.claude" "$scratch/.codex" "$scratch/.opencode" "$scratch/.agents"
     (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
+    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
     # Exclude files that apm doesn't manage: launch.json is user-owned,
     # and `.claude/*` entries in .gitignore are runtime state written by
     # Claude Code itself (worktree bookkeeping, local settings, session
@@ -61,6 +86,39 @@ apm-sync: apm-audit
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
+    # `.codex/config.toml` is currently a checked-in manual fallback for
+    # project-local Codex MCP until microsoft/apm#803 lands; current APM
+    # does not emit it in the scratch tree yet.
+    if ! diff -r \
+        -x config.toml \
+        .codex "$scratch/.codex"; then
+        echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff -r .agents "$scratch/.agents"; then
+        echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if ! diff -r \
+        -x .gitignore \
+        -x node_modules \
+        -x package-lock.json \
+        -x package.json \
+        .opencode "$scratch/.opencode"; then
+        echo "ERROR: .opencode/ out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
+    if [[ -e opencode.json || -e "$scratch/opencode.json" ]]; then
+        if [[ ! -e opencode.json || ! -e "$scratch/opencode.json" ]] || \
+           ! diff <(jq -S . opencode.json) <(jq -S . "$scratch/opencode.json"); then
+            echo "ERROR: opencode.json out of sync with sources — run: just ai::apm" >&2
+            exit 1
+        fi
+    fi
+    if ! diff AGENTS.md "$scratch/AGENTS.md"; then
+        echo "ERROR: AGENTS.md out of sync with sources — run: just ai::apm" >&2
+        exit 1
+    fi
 
 # Install APM config and launch coding agent (AI_AGENT overrides default)
 [default]
@@ -68,18 +126,25 @@ agent *args: apm
     just prepare
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
 
-# Launch chrome-devtools-mcp server over stdio — wired up via the root
-# `.mcp.json`, which shells out via `nix develop --command just
-# ai::mcp-chrome-devtools` (Claude Code starts outside the nix devshell).
+# Launch chrome-devtools-mcp server over stdio.
+#
+# Today the checked-in project-local MCP entrypoints are:
+# - Claude Code: `.mcp.json`
+# - Codex CLI: `.codex/config.toml` (only for trusted projects)
+#
+# The top-level `apm.yml` mirrors the same server for runtimes APM can
+# configure natively today. Codex project-scoped MCP is tracked upstream
+# in microsoft/apm#803; once that lands, `.codex/config.toml` should
+# become APM-managed like the other generated runtime config.
+#
+# All paths shell out via `nix develop .#e2e --command just
+# ai::mcp-chrome-devtools` so agent runtimes that start outside the nix
+# devshell still get Playwright's Chrome-for-Testing.
 # Chrome binary resolved from Playwright's nix-provided Chrome-for-Testing
 # across platforms: `chrome-linux64/chrome` on Linux and
 # `chrome-mac-*/Google Chrome for Testing.app/.../Google Chrome for Testing`
 # on macOS. `find` picks either layout; a miss fails loud downstream
 # (empty --executable-path → MCP server errors out visibly).
-#
-# TODO: fold .mcp.json's entry into `dependencies.mcp` above once
-# microsoft/apm#655 (Claude Code MCP adapter) merges and lands in juspay's
-# fork — `.mcp.json` then becomes a generated artifact of `just ai::apm`.
 mcp-chrome-devtools:
     bash -c 'shopt -s nullglob; \
       for c in "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
