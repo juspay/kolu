@@ -5,6 +5,7 @@ import {
   type CodexInfo,
   type CodexSession,
 } from "./index.ts";
+import { subscribeActiveCodexDb } from "./wal-watcher.ts";
 
 const CODEX_BASENAMES = new Set(["codex", "codex-tui"]);
 
@@ -23,5 +24,9 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
 
   createWatcher(session, onChange, log) {
     return createCodexWatcher(session, onChange, log);
+  },
+
+  subscribeExternalChanges(onChange, onError, log) {
+    return subscribeActiveCodexDb(onChange, onError, log);
   },
 };

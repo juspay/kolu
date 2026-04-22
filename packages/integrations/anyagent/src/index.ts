@@ -4,6 +4,7 @@
  *  so integration packages can't import back from kolu-common. */
 
 export { parseAgentCommand } from "./agent-cli.ts";
+export { subscribeSqliteWal } from "./sqlite-wal-watcher.ts";
 
 export {
   type AgentTerminalState,

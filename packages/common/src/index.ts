@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { TaskProgressSchema } from "anyagent";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
-import { CodexInfoSchema } from "kolu-codex";
+import { CodexInfoSchema } from "kolu-codex/schema";
 import { OpenCodeInfoSchema } from "kolu-opencode";
 import {
   GitInfoSchema,

@@ -90,8 +90,8 @@ export function createCodexWatcher(
     const info: CodexInfo = {
       kind: "codex",
       state,
-      sessionId: session.id,
-      model: snapshot.model ?? session.model,
+      sessionId: snapshot.id,
+      model: snapshot.model,
       summary: snapshot.title,
       taskProgress: null,
       contextTokens: null,
@@ -107,8 +107,14 @@ export function createCodexWatcher(
 
   function refresh() {
     if (destroyed) return;
-    const snapshot =
-      getThreadSnapshot(session.id, session.stateDbPath, log) ?? session;
+    const snapshot = getThreadSnapshot(session.id, session.stateDbPath, log);
+    if (!snapshot) {
+      log?.debug(
+        { session: session.id },
+        "codex thread snapshot unavailable during refresh",
+      );
+      return;
+    }
 
     syncRolloutWatcher(snapshot.rolloutPath);
     const state = readRolloutState(snapshot.rolloutPath);

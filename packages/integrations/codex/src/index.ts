@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { z } from "zod";
 import { TaskProgressSchema, type Logger } from "anyagent";
 import { findCodexStateDbPath } from "./config.ts";
+export { CodexInfoSchema, type CodexInfo } from "./schema.ts";
 
 export { TaskProgressSchema, type Logger } from "anyagent";
 export {
@@ -10,28 +10,17 @@ export {
   CODEX_HOME,
   CODEX_STATE_DB_PATH,
 } from "./config.ts";
-
-export const CodexInfoSchema = z.object({
-  kind: z.literal("codex"),
-  state: z.enum(["thinking", "tool_use", "waiting"]),
-  sessionId: z.string(),
-  model: z.string().nullable(),
-  summary: z.string().nullable(),
-  taskProgress: TaskProgressSchema.nullable(),
-  contextTokens: z.number().nullable(),
-});
-
-export type CodexInfo = z.infer<typeof CodexInfoSchema>;
+import type { CodexInfo } from "./schema.ts";
 
 export interface CodexThreadSnapshot {
   id: string;
-  cwd: string;
   title: string | null;
   rolloutPath: string;
   model: string | null;
 }
 
-export interface CodexSession extends CodexThreadSnapshot {
+export interface CodexSession {
+  id: string;
   stateDbPath: string;
 }
 
@@ -101,10 +90,6 @@ export function findSessionByDirectory(
       if (!row) return null;
       return {
         id: row.id,
-        cwd: row.cwd,
-        title: row.title || null,
-        rolloutPath: row.rollout_path,
-        model: row.model,
         stateDbPath: dbPath,
       };
     },
@@ -139,7 +124,6 @@ export function getThreadSnapshot(
       if (!row) return null;
       return {
         id: row.id,
-        cwd: row.cwd,
         title: row.title || null,
         rolloutPath: row.rollout_path,
         model: row.model,
