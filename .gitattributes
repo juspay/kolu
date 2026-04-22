@@ -5,4 +5,5 @@ CLAUDE.md linguist-generated
 .claude/launch.json -linguist-generated
 .agents/** linguist-generated
 .codex/** linguist-generated
+.codex/config.toml -linguist-generated
 .opencode/** linguist-generated
