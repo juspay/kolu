@@ -26,6 +26,7 @@ import {
   type CodexSession,
   getThreadMetadata,
   openDb,
+  parseRolloutContextTokens,
   parseRolloutState,
   subscribeCodexDb,
 } from "./index.ts";
@@ -71,19 +72,21 @@ export function createCodexWatcher(
   let lastInfo: CodexInfo | null = null;
   let destroyed = false;
   let debounceTimer: NodeJS.Timeout | null = null;
-  /** Cache of the last-parsed rollout state, scoped to a specific
-   *  JSONL byte size. On a WAL event whose corresponding stat size
-   *  matches `size`, we reuse `state` instead of re-reading and
-   *  re-parsing the tail. Null until the first successful derive.
+  /** Cache of the last-parsed rollout state + context-token count,
+   *  scoped to a specific JSONL byte size. On a WAL event whose
+   *  corresponding stat size matches `size`, we reuse the cached
+   *  values instead of re-reading and re-parsing the tail. Null
+   *  until the first successful derive.
    *
-   *  This is the hot-path optimization: `token_count` events update
-   *  `threads.tokens_used` via WAL on every turn, and the event's
-   *  rollout line is already inside the previously-parsed tail by the
-   *  time the WAL fires for `tokens_used`. Without the short-circuit,
-   *  we'd re-read + re-parse 256 KB on every such fire. */
+   *  This is the hot-path optimization: DB-only WAL events (e.g.
+   *  title updates, row touches) don't append to the rollout, so
+   *  `state` and `contextTokens` can't have changed. Without the
+   *  short-circuit, we'd re-read + re-parse 256 KB on every such
+   *  fire. */
   let cachedDerive: {
     size: number;
     state: CodexInfo["state"];
+    contextTokens: number | null;
   } | null = null;
 
   // Hoist the DB connection across the watcher's lifetime so we don't
@@ -114,13 +117,16 @@ export function createCodexWatcher(
     if (stat === null) return;
 
     let state: CodexInfo["state"];
+    let contextTokens: number | null;
     if (cachedDerive !== null && cachedDerive.size === stat.size) {
       state = cachedDerive.state;
+      contextTokens = cachedDerive.contextTokens;
     } else {
       const derived = readAndParseTail(session, stat.size, log);
       if (derived === null) return;
-      state = derived;
-      cachedDerive = { size: stat.size, state };
+      state = derived.state;
+      contextTokens = derived.contextTokens;
+      cachedDerive = { size: stat.size, state, contextTokens };
     }
 
     const info: CodexInfo = {
@@ -130,7 +136,7 @@ export function createCodexWatcher(
       model: meta.model,
       summary: meta.title,
       taskProgress: null,
-      contextTokens: meta.tokensUsed,
+      contextTokens,
     };
 
     if (agentInfoEqual(lastInfo, info)) return;
@@ -205,16 +211,18 @@ function statRollout(
 }
 
 /** Read the last TAIL_BYTES of the rollout JSONL at the given size
- *  via anyagent's shared tail reader, then delegate to
- *  `parseRolloutState`. Returns null on hard read error (logged at
- *  `error`) or when the state machine found no task events in the
- *  tail (logged at `debug` — the caller treats this uniformly as
- *  "skip"). */
+ *  via anyagent's shared tail reader, then derive state and
+ *  context-token count from the same buffer in two passes.
+ *  Returns null on hard read error (logged at `error`) or when the
+ *  state machine found no task events in the tail (logged at `debug`
+ *  — the caller treats this uniformly as "skip"). `contextTokens`
+ *  may independently be null when the tail contains a lifecycle
+ *  event but no `token_count` event yet. */
 function readAndParseTail(
   session: CodexSession,
   size: number,
   log?: Logger,
-): CodexInfo["state"] | null {
+): { state: CodexInfo["state"]; contextTokens: number | null } | null {
   const lines = readTailLines({
     path: session.rolloutPath,
     size,
@@ -233,6 +241,7 @@ function readAndParseTail(
       { session: session.id, path: session.rolloutPath },
       "codex rollout has no task events yet",
     );
+    return null;
   }
-  return state;
+  return { state, contextTokens: parseRolloutContextTokens(lines) };
 }

@@ -145,30 +145,28 @@ export function findSessionByDirectory(
   );
 }
 
-// --- Thread row refresh (title + model + tokens_used) ---
+// --- Thread row refresh (title + model) ---
 
-/** Fields the watcher re-reads from the DB on every WAL event.
- *  Scoped to the three columns that actually vary over a thread's
- *  lifetime — everything else is set at thread creation. */
+/** Fields the watcher re-reads from the DB on every WAL event. */
 export interface ThreadMetadata {
   title: string | null;
   model: string | null;
-  tokensUsed: number | null;
 }
 
 /**
- * Re-read the mutable thread columns (title, model, tokens_used) from
- * the DB. Returns null if the row has been deleted (rare — only on
- * Codex wipe) or the DB is absent.
+ * Re-read the mutable thread columns (title, model) from the DB.
+ * Returns null if the row has been deleted (rare — only on Codex wipe)
+ * or the DB is absent.
  *
- * Codex maintains these columns itself from JSONL events:
- *   - title: latest `thread_name_updated` event's `thread_name`, or the
- *     first user message as a fallback.
- *   - model: latest `turn_context.payload.model`.
- *   - tokens_used: latest `token_count.info.total_token_usage.total_tokens`.
- *
- * So Kolu doesn't need to parse the JSONL for any of this — one indexed
- * lookup by primary key on every WAL event suffices.
+ * NOTE — `threads.tokens_used` is NOT read here, even though it's a
+ * tempting one-line SELECT. That column holds the SESSION-LIFETIME
+ * cumulative total (`total_token_usage.total_tokens` summed across
+ * every turn, including cache re-reads on each turn). For a
+ * long-running session it can reach tens of millions — wildly larger
+ * than the model's context window, and misleading as a "how close am
+ * I to context exhaustion" signal. Current-turn context usage lives
+ * in `info.last_token_usage` inside the rollout JSONL's latest
+ * `token_count` event — see `parseRolloutContextTokens`.
  */
 export function getThreadMetadata(
   threadId: string,
@@ -178,18 +176,14 @@ export function getThreadMetadata(
   return withDb(
     (conn) => {
       const row = conn
-        .prepare("SELECT title, model, tokens_used FROM threads WHERE id = ?")
+        .prepare("SELECT title, model FROM threads WHERE id = ?")
         .get(threadId) as
-        | { title: string | null; model: string | null; tokens_used: number }
+        | { title: string | null; model: string | null }
         | undefined;
       if (!row) return null;
       return {
         title: row.title || null,
         model: row.model || null,
-        // Codex writes tokens_used=0 for a thread that has had no
-        // assistant turn yet. Normalize to null so the UI can render
-        // "—" rather than "0k" before the first accounting.
-        tokensUsed: row.tokens_used > 0 ? row.tokens_used : null,
       };
     },
     "codex thread metadata query failed",
@@ -201,10 +195,10 @@ export function getThreadMetadata(
 
 // --- JSONL state derivation ---
 
-/** Subset of a rollout line's shape that `parseRolloutState` reads.
+/** Subset of a rollout line's shape that the parsers below read.
  *  Codex's actual records carry far more — we intentionally read only
- *  the fields the state machine needs, so unexpected additions upstream
- *  can't break parsing. */
+ *  the fields the state machine + token accounting need, so unexpected
+ *  additions upstream can't break parsing. */
 interface RolloutLine {
   type?: string;
   payload?: {
@@ -218,6 +212,19 @@ interface RolloutLine {
     turn_id?: string;
     /** On `response_item` payloads for function_call/function_call_output. */
     call_id?: string;
+    /** On `token_count` event_msgs. Nested because Codex envelopes the
+     *  accounting under `.info` alongside rate-limit metadata. */
+    info?: {
+      /** Input-side tokens the model processed on the MOST RECENT
+       *  turn. `input_tokens` is uncached input; `cached_input_tokens`
+       *  is the portion served from prompt cache. Summed, this is
+       *  what the model had in its context window this turn — the
+       *  right analog of claude-code's context-window count. */
+      last_token_usage?: {
+        input_tokens?: number;
+        cached_input_tokens?: number;
+      };
+    };
   };
 }
 
@@ -280,6 +287,52 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
   if (lastLifecycle === "completed") return "waiting";
   if (openCalls.size > 0) return "tool_use";
   return "thinking";
+}
+
+/**
+ * Find the CURRENT-TURN context-window token count in the rollout
+ * JSONL's tail — `info.last_token_usage.input_tokens +
+ * cached_input_tokens` from the latest `token_count` event.
+ *
+ * Why not `threads.tokens_used` (the SQLite column)? Because Codex's
+ * `tokens_used` is the session-lifetime cumulative
+ * `total_token_usage.total_tokens` — summed across every turn, with
+ * each turn's cached re-read counted again. For long-running sessions
+ * it climbs into the tens of millions, dwarfing the model context
+ * window (≈258K) and giving users a nonsense "17M / 258K" badge.
+ *
+ * The claude-code analog is `input_tokens + cache_creation +
+ * cache_read` on the latest assistant turn — "what the model had to
+ * read this turn." Codex's equivalent is `last_token_usage.input_tokens
+ * + last_token_usage.cached_input_tokens` on the latest `token_count`
+ * event. Output tokens are excluded on both sides: they're not in the
+ * input context for the current turn.
+ *
+ * Walks backward so the first matching event wins; returns null if no
+ * `token_count` event is in the tail (fresh thread, or token_count
+ * scrolled off a long transcript before the next one landed).
+ */
+export function parseRolloutContextTokens(lines: string[]): number | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let entry: RolloutLine;
+    try {
+      entry = JSON.parse(lines[i]!) as RolloutLine;
+    } catch {
+      continue;
+    }
+    if (entry.type !== "event_msg") continue;
+    if (entry.payload?.type !== "token_count") continue;
+    const last = entry.payload.info?.last_token_usage;
+    if (!last) continue;
+    const input = last.input_tokens ?? 0;
+    const cached = last.cached_input_tokens ?? 0;
+    const sum = input + cached;
+    // 0 means the event landed before the first assistant turn
+    // accounted (empty placeholder) — render as "not yet" rather than
+    // "0 tokens used."
+    return sum > 0 ? sum : null;
+  }
+  return null;
 }
 
 // --- Session watcher (encapsulates per-session lifecycle) ---

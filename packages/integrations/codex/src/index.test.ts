@@ -1,5 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { parseRolloutState } from "./index.ts";
+import { parseRolloutContextTokens, parseRolloutState } from "./index.ts";
+
+/** Build a token_count event_msg with the given `last_token_usage`
+ *  fields. Only the fields `parseRolloutContextTokens` reads are
+ *  populated; real Codex events carry more (total_token_usage,
+ *  rate_limits, etc.) — but the parser ignores everything else, which
+ *  is the invariant these tests protect. */
+function tokenCount(input: number, cached: number): string {
+  return JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        last_token_usage: {
+          input_tokens: input,
+          cached_input_tokens: cached,
+        },
+      },
+    },
+  });
+}
 
 /** Build a JSONL line. Thin helper so the tests read like the data. */
 function line(obj: unknown): string {
@@ -128,5 +148,78 @@ describe("parseRolloutState", () => {
     // handles it structurally.
     const lines = [taskComplete("turn-A")];
     expect(parseRolloutState(lines)).toBe("waiting");
+  });
+});
+
+describe("parseRolloutContextTokens", () => {
+  it("returns null when no token_count event is in the tail", () => {
+    expect(parseRolloutContextTokens([taskStarted("turn-1")])).toBeNull();
+  });
+
+  it("sums input_tokens + cached_input_tokens from the latest token_count", () => {
+    // Real numbers from a live rollout: 46,783 uncached + 45,696 cached
+    // = 92,479 tokens in the model's context this turn. Against a
+    // 258,400 context window this is ~36%.
+    expect(parseRolloutContextTokens([tokenCount(46783, 45696)])).toBe(92479);
+  });
+
+  it("picks the LATEST token_count when the tail holds several", () => {
+    // Codex emits token_count once per turn; a tail spanning multiple
+    // turns has multiple events. Only the newest reflects current
+    // context usage — earlier ones are stale.
+    const lines = [
+      tokenCount(10000, 5000),
+      taskStarted("turn-2"),
+      tokenCount(46783, 45696),
+    ];
+    expect(parseRolloutContextTokens(lines)).toBe(92479);
+  });
+
+  it("treats missing cached_input_tokens as 0", () => {
+    // Early-session token_count events sometimes land before the
+    // prompt cache warms up — cached_input_tokens can be absent.
+    const line = JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: { last_token_usage: { input_tokens: 1234 } },
+      },
+    });
+    expect(parseRolloutContextTokens([line])).toBe(1234);
+  });
+
+  it("returns null when the sum is zero (accounting not yet happened)", () => {
+    // A token_count can land with a zero/empty last_token_usage in the
+    // narrow window before the first assistant turn — rendering 0
+    // would flash a misleading "0k" badge.
+    expect(parseRolloutContextTokens([tokenCount(0, 0)])).toBeNull();
+  });
+
+  it("ignores token_count events that lack last_token_usage", () => {
+    // Codex writes one token_count without the `info` field at
+    // rate-limit refresh time (seen in the live rollouts as the
+    // very first token_count event).
+    const noInfo = JSON.stringify({
+      type: "event_msg",
+      payload: { type: "token_count", info: null },
+    });
+    expect(parseRolloutContextTokens([noInfo])).toBeNull();
+  });
+
+  it("is independent of state — fires even mid-turn", () => {
+    // Context tokens should surface even when the lifecycle parser
+    // would return `thinking` or `tool_use`; they aren't gated on
+    // the last event being a `task_complete`.
+    const lines = [
+      taskStarted("turn-1"),
+      tokenCount(32549, 4480),
+      funcCall("call-X"),
+    ];
+    expect(parseRolloutContextTokens(lines)).toBe(37029);
+  });
+
+  it("skips malformed JSON lines without aborting", () => {
+    const lines = ["not json", tokenCount(100, 50)];
+    expect(parseRolloutContextTokens(lines)).toBe(150);
   });
 });
