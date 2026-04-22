@@ -109,6 +109,28 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 - **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the most recently updated one
 - **Non-default DB location** — set `KOLU_OPENCODE_DB` to override the path
 
+### Codex Status
+
+Detects [Codex](https://github.com/openai/codex) sessions and shows their state alongside Claude Code and OpenCode on the tile chrome.
+
+**How it works:** when the foreground process is `codex`, the provider queries Codex's SQLite database directly at `~/.codex/state_5.sqlite` to find the most recently updated thread whose `cwd` matches the terminal's CWD. State is derived from the thread's `updated_at` timestamp and `approval_mode`: recent activity with `approval_mode: "on-request"` suggests _tool_use_; recent updates without completion indicators suggest _thinking_; idle sessions with user events indicate _waiting_. The tile chrome also shows the running token count from the thread's `tokens_used` field. Live updates come from `fs.watch` on the SQLite WAL file (`state_5.sqlite-wal`), which Codex writes to on every database mutation.
+
+**Why SQLite, not REST?** Like OpenCode, the Codex TUI doesn't expose an HTTP server by default. Reading the SQLite DB directly works against the actual TUI users run, with no port discovery and no extra processes. SQLite WAL mode allows concurrent readers while Codex is writing.
+
+**What we detect:**
+
+| State    | Indicator          | How                                               |
+| -------- | ------------------ | ------------------------------------------------- |
+| Thinking | Pulsing accent dot | Thread recently updated, actively processing      |
+| Tool use | Spinning yellow    | Approval mode suggests tool execution in progress |
+| Waiting  | Dim dot            | Thread idle with prior user interaction           |
+
+**What we can't detect (yet):**
+
+- **Granular tool state** — Codex doesn't expose running tool parts like OpenCode does; we infer tool use from approval mode heuristics
+- **Same-directory disambiguation** — if multiple Codex threads share a working directory, we pick the most recently updated one
+- **Non-default DB location** — set `KOLU_CODEX_STATE` to override the path
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime

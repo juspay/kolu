@@ -76,6 +76,24 @@ export const OpenCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Codex logo — stylized angled brackets suggesting code/text.
+ *  Simple geometric design distinct from Claude Code and OpenCode. */
+export const CodexIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3 h-3"}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M8 6L3 12L8 18" />
+    <path d="M16 6L21 12L16 18" />
+    <line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="2 2" opacity="0.5" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg

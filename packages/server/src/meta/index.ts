@@ -37,6 +37,7 @@ import {
 import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { opencodeProvider } from "kolu-opencode";
+import { codexProvider } from "kolu-codex";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startAgentProvider } from "./agent.ts";
@@ -135,12 +136,14 @@ export function startProviders(
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startAgentProvider(claudeCodeProvider, entry, terminalId);
   const stopOpenCode = startAgentProvider(opencodeProvider, entry, terminalId);
+  const stopCodex = startAgentProvider(codexProvider, entry, terminalId);
   const stopProcess = startProcessProvider(entry, terminalId);
   return () => {
     stopGit();
     stopGitHubPr();
     stopClaude();
     stopOpenCode();
+    stopCodex();
     stopProcess();
   };
 }
