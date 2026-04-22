@@ -98,6 +98,13 @@ apm-sync: apm-audit
         echo "ERROR: .opencode/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
+    if [[ -e opencode.json || -e "$scratch/opencode.json" ]]; then
+        if [[ ! -e opencode.json || ! -e "$scratch/opencode.json" ]] || \
+           ! diff <(jq -S . opencode.json) <(jq -S . "$scratch/opencode.json"); then
+            echo "ERROR: opencode.json out of sync with sources — run: just ai::apm" >&2
+            exit 1
+        fi
+    fi
     if ! diff AGENTS.md "$scratch/AGENTS.md"; then
         echo "ERROR: AGENTS.md out of sync with sources — run: just ai::apm" >&2
         exit 1
