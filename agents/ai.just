@@ -86,7 +86,12 @@ apm-sync: apm-audit
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    if ! diff -r .codex "$scratch/.codex"; then
+    # `.codex/config.toml` is currently a checked-in manual fallback for
+    # project-local Codex MCP until microsoft/apm#803 lands; current APM
+    # does not emit it in the scratch tree yet.
+    if ! diff -r \
+        -x config.toml \
+        .codex "$scratch/.codex"; then
         echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
@@ -94,7 +99,12 @@ apm-sync: apm-audit
         echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    if ! diff -r .opencode "$scratch/.opencode"; then
+    if ! diff -r \
+        -x .gitignore \
+        -x node_modules \
+        -x package-lock.json \
+        -x package.json \
+        .opencode "$scratch/.opencode"; then
         echo "ERROR: .opencode/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
@@ -116,10 +126,18 @@ agent *args: apm
     just prepare
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
 
-# Launch chrome-devtools-mcp server over stdio. Today Claude Code still
-# needs the root `.mcp.json` entry; the top-level `apm.yml` mirrors the
-# same server for runtimes APM can configure natively.
-# Both paths shell out via `nix develop .#e2e --command just
+# Launch chrome-devtools-mcp server over stdio.
+#
+# Today the checked-in project-local MCP entrypoints are:
+# - Claude Code: `.mcp.json`
+# - Codex CLI: `.codex/config.toml` (only for trusted projects)
+#
+# The top-level `apm.yml` mirrors the same server for runtimes APM can
+# configure natively today. Codex project-scoped MCP is tracked upstream
+# in microsoft/apm#803; once that lands, `.codex/config.toml` should
+# become APM-managed like the other generated runtime config.
+#
+# All paths shell out via `nix develop .#e2e --command just
 # ai::mcp-chrome-devtools` so agent runtimes that start outside the nix
 # devshell still get Playwright's Chrome-for-Testing.
 # Chrome binary resolved from Playwright's nix-provided Chrome-for-Testing

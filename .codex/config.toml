@@ -1,0 +1,8 @@
+# Project-local Codex MCP config. Codex CLI loads this only when the
+# repository is marked trusted in the user's global Codex config.
+#
+# TODO: replace this manual file with APM-managed `.codex/config.toml`
+# once microsoft/apm#803 lands.
+[mcp_servers.chrome-devtools]
+command = "nix"
+args = ["develop", ".#e2e", "--command", "just", "ai::mcp-chrome-devtools"]
