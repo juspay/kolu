@@ -64,7 +64,6 @@ apm-sync: apm-audit
         --exclude='.codex/' \
         --exclude='.agents/' \
         --exclude='.opencode/' \
-        --exclude='AGENTS.md' \
         --exclude='CLAUDE.md' \
         "$PWD/" "$scratch/"
     # Mirror the runtime folders that drive target detection for install.

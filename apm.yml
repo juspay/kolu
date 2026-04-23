@@ -4,6 +4,13 @@ description: Terminal multiplexer with AI-native development workflow
 type: hybrid
 target: [claude, codex, opencode]
 
+compilation:
+  exclude:
+    - AGENTS.md
+    - "**/AGENTS.md"
+    - node_modules/**
+    - "**/node_modules/**"
+
 # Update a dependency: just ai::apm-update <package>  (e.g. srid/agency)
 # Reinstall all:       just ai::apm
 dependencies:
