@@ -5,7 +5,13 @@ import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
 import { availableThemes } from "terminal-themes";
-import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalMetadata,
+  RecentAgent,
+  ThemeMode,
+} from "kolu-common";
+import SegmentedControl from "./ui/SegmentedControl";
 import { useActivityFeed } from "./settings/useActivityFeed";
 import { client } from "./rpc/rpc";
 
@@ -51,6 +57,10 @@ export interface CommandDeps {
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
   committedThemeName: Accessor<string>;
+  committedThemeNameForMode: (mode: ThemeMode) => string;
+  themePickerMode: Accessor<ThemeMode>;
+  setThemePickerMode: (mode: ThemeMode) => void;
+  resetThemePickerMode: () => void;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
   handleShuffleTheme: () => void;
@@ -200,10 +210,24 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     {
       name: "Theme",
+      onEnter: () => deps.resetThemePickerMode(),
       onCancel: () => deps.setPreviewThemeName(undefined),
+      toolbar: () =>
+        SegmentedControl({
+          options: [
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark" },
+          ],
+          value: deps.themePickerMode(),
+          onChange: deps.setThemePickerMode,
+          testIdPrefix: "theme-slot",
+        }),
       children: () =>
         availableThemes
-          .filter((t) => t.name !== deps.committedThemeName())
+          .filter(
+            (t) =>
+              t.name !== deps.committedThemeNameForMode(deps.themePickerMode()),
+          )
           .map((t) => ({
             name: t.name,
             onHighlight: () => deps.setPreviewThemeName(t.name),

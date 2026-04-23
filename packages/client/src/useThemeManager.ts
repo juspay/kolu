@@ -14,37 +14,84 @@ import {
   pickTheme,
   type ITheme,
 } from "terminal-themes";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId, TerminalMetadata, ThemeMode } from "kolu-common";
 import { client } from "./rpc/rpc";
+import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+
+export function themeNameForMode(
+  meta:
+    | Pick<TerminalMetadata, "lightThemeName" | "darkThemeName">
+    | null
+    | undefined,
+  mode: ThemeMode,
+): string | undefined {
+  return mode === "light" ? meta?.lightThemeName : meta?.darkThemeName;
+}
+
+export function effectiveThemeNameForMode(
+  meta:
+    | Pick<TerminalMetadata, "lightThemeName" | "darkThemeName">
+    | null
+    | undefined,
+  mode: ThemeMode,
+): string {
+  if (mode === "light") {
+    return meta?.lightThemeName ?? meta?.darkThemeName ?? DEFAULT_THEME_NAME;
+  }
+  return meta?.darkThemeName ?? meta?.lightThemeName ?? DEFAULT_THEME_NAME;
+}
 
 function init() {
   const store = useTerminalStore();
-  const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
+  const { resolvedColorScheme } = useColorScheme();
+  const getMeta = (id: TerminalId) => store.getMetadata(id);
 
   const committedThemeName = createMemo(() => {
     const id = store.activeId();
-    return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
+    return id !== null
+      ? effectiveThemeNameForMode(getMeta(id), resolvedColorScheme())
+      : DEFAULT_THEME_NAME;
   });
 
-  const [previewThemeName, setPreviewThemeName] = createSignal<
-    string | undefined
+  const [themePickerMode, setThemePickerModeState] = createSignal<ThemeMode>(
+    resolvedColorScheme(),
+  );
+  const [previewTheme, setPreviewTheme] = createSignal<
+    { mode: ThemeMode; name: string } | undefined
   >(undefined);
 
-  const activeThemeName = createMemo(
-    () => previewThemeName() ?? committedThemeName(),
-  );
+  const activeThemeName = createMemo(() => {
+    const preview = previewTheme();
+    return preview && preview.mode === resolvedColorScheme()
+      ? preview.name
+      : committedThemeName();
+  });
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  function getTerminalTheme(id: TerminalId): ITheme {
-    const preview = store.activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? getThemeName(id));
+  function committedThemeNameForMode(mode: ThemeMode): string {
+    const id = store.activeId();
+    return id !== null
+      ? effectiveThemeNameForMode(getMeta(id), mode)
+      : DEFAULT_THEME_NAME;
   }
 
-  function setThemeName(id: TerminalId, name: string) {
+  function getEffectiveThemeName(id: TerminalId): string {
+    const meta = getMeta(id);
+    const preview = store.activeId() === id ? previewTheme() : undefined;
+    return preview && preview.mode === resolvedColorScheme()
+      ? preview.name
+      : effectiveThemeNameForMode(meta, resolvedColorScheme());
+  }
+
+  function getTerminalTheme(id: TerminalId): ITheme {
+    return getThemeByName(getEffectiveThemeName(id));
+  }
+
+  function setThemeName(id: TerminalId, mode: ThemeMode, name: string) {
     void client.terminal
-      .setTheme({ id, themeName: name })
+      .setTheme({ id, mode, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );
@@ -53,33 +100,58 @@ function init() {
   function handleSetTheme(themeName: string) {
     const id = store.activeId();
     if (id === null) return;
-    setThemeName(id, themeName);
+    setThemeName(id, themePickerMode(), themeName);
   }
 
-  /** Shuffle the active terminal to a random theme. Random — not argmax —
-   *  because argmax ping-pongs (theme A's farthest neighbour is theme B,
-   *  and B's farthest is A, so repeated ⌘J just bounces between two).
-   *  Excludes every live terminal's bg so we don't land on a duplicate of
-   *  a sibling, and stays under the chroma cap so we don't surface neon
-   *  yellow. New-terminal creation uses spread mode instead —
-   *  see {@link pickTheme} for the rationale. */
+  function setPreviewThemeName(name: string | undefined) {
+    if (!name) {
+      setPreviewTheme(undefined);
+      return;
+    }
+    setPreviewTheme({ mode: themePickerMode(), name });
+  }
+
+  function setThemePickerMode(mode: ThemeMode) {
+    setPreviewTheme(undefined);
+    setThemePickerModeState(mode);
+  }
+
+  function resetThemePickerMode() {
+    setThemePickerMode(resolvedColorScheme());
+  }
+
+  /** Shuffle the active terminal's current appearance slot to a random theme.
+   *  Random — not argmax — because argmax ping-pongs (theme A's farthest
+   *  neighbour is theme B, and B's farthest is A, so repeated ⌘J just bounces
+   *  between two). Excludes every live terminal's effective bg so we don't land
+   *  on a duplicate of a sibling, and stays under the chroma cap so we don't
+   *  surface neon yellow. New-terminal creation uses spread mode instead — see
+   *  {@link pickTheme} for the rationale. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;
-    const current = getThemeName(id);
+    const mode = resolvedColorScheme();
+    const current = effectiveThemeNameForMode(getMeta(id), mode);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    handleSetTheme(pickTheme(candidates, { excludeBgs }));
+    const excludeBgs = resolveThemeBgs(store.terminalIds(), (terminalId) =>
+      effectiveThemeNameForMode(getMeta(terminalId), mode),
+    );
+    setThemeName(id, mode, pickTheme(candidates, { excludeBgs }));
   }
 
   return {
     committedThemeName,
+    committedThemeNameForMode,
+    themePickerMode,
+    setThemePickerMode,
+    resetThemePickerMode,
     setPreviewThemeName,
     activeThemeName,
     activeTheme,
+    getEffectiveThemeName,
     getTerminalTheme,
-    isPreviewingTheme: () => previewThemeName() !== undefined,
+    isPreviewingTheme: () => previewTheme() !== undefined,
     handleSetTheme,
     handleShuffleTheme,
     setThemeName,

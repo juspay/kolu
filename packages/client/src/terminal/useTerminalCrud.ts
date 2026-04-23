@@ -10,11 +10,14 @@ import { useSubPanel } from "./useSubPanel";
 import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { usePreferences } from "../settings/usePreferences";
+import { useColorScheme } from "../settings/useColorScheme";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { effectiveThemeNameForMode } from "../useThemeManager";
 import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
+  ThemeMode,
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -26,6 +29,7 @@ export function useTerminalCrud(deps: {
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
   const { preferences } = usePreferences();
+  const { resolvedColorScheme } = useColorScheme();
 
   /** The terminal the user is currently interacting with —
    *  the active sub-tab when a split has focus, otherwise the workspace root. */
@@ -40,10 +44,10 @@ export function useTerminalCrud(deps: {
 
   // --- Handlers ---
 
-  /** Set a terminal's theme name on the server. */
-  function setThemeName(id: TerminalId, name: string) {
+  /** Set one appearance slot's theme name on the server. */
+  function setThemeName(id: TerminalId, mode: ThemeMode, name: string) {
     void client.terminal
-      .setTheme({ id, themeName: name })
+      .setTheme({ id, mode, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );
@@ -119,21 +123,23 @@ export function useTerminalCrud(deps: {
     // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
     // server's default theme for a frame, which we don't want scored as a
     // peer against itself.
+    const mode = resolvedColorScheme();
     const peerBgs = preferences().shuffleTheme
-      ? resolveThemeBgs(
-          store.terminalIds(),
-          (id) => store.getMetadata(id)?.themeName,
+      ? resolveThemeBgs(store.terminalIds(), (id) =>
+          effectiveThemeNameForMode(store.getMetadata(id), mode),
         )
       : null;
     const theme =
-      initial?.themeName ??
+      initial?.lightThemeName ??
+      initial?.darkThemeName ??
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
     const info = await client.terminal
       .create({
         cwd,
-        themeName: theme,
+        lightThemeName: initial?.lightThemeName ?? theme,
+        darkThemeName: initial?.darkThemeName ?? theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
       })
@@ -147,9 +153,20 @@ export function useTerminalCrud(deps: {
     return info.id;
   }
 
-  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
+  async function handleCreateSubTerminal(
+    parentId: TerminalId,
+    cwd?: string,
+    initial?: InitialTerminalMetadata,
+  ) {
     const info = await client.terminal
-      .create({ cwd, parentId })
+      .create({
+        cwd,
+        parentId,
+        lightThemeName: initial?.lightThemeName,
+        darkThemeName: initial?.darkThemeName,
+        canvasLayout: initial?.canvasLayout,
+        subPanel: initial?.subPanel,
+      })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;

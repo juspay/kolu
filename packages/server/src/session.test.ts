@@ -78,15 +78,23 @@ describe("session persistence", () => {
     expect(session!.terminals[2]!.parentId).toBe("a");
   });
 
-  it("preserves themeName on round-trip", () => {
+  it("preserves light/dark theme names on round-trip", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", sortOrder: 0, themeName: "Dracula" },
+      {
+        id: "a",
+        cwd: "/a",
+        sortOrder: 0,
+        lightThemeName: "3024 Day",
+        darkThemeName: "Dracula",
+      },
       { id: "b", cwd: "/b", sortOrder: 1 },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
-    expect(session!.terminals[0]!.themeName).toBe("Dracula");
-    expect(session!.terminals[1]!.themeName).toBeUndefined();
+    expect(session!.terminals[0]!.lightThemeName).toBe("3024 Day");
+    expect(session!.terminals[0]!.darkThemeName).toBe("Dracula");
+    expect(session!.terminals[1]!.lightThemeName).toBeUndefined();
+    expect(session!.terminals[1]!.darkThemeName).toBeUndefined();
   });
 
   it("clearSavedSession removes the session", () => {

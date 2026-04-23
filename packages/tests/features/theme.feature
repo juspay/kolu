@@ -29,6 +29,38 @@ Feature: Theme switching
     Then the command palette should be visible
     And the palette breadcrumb should show "Theme"
     And the palette search input should be focused
+    And the "dark" theme slot should be selected in the palette
+    And there should be no page errors
+
+  Scenario: Terminal theme slots can be edited separately
+    When I click the settings button
+    And I click the "light" color scheme button
+    And I click the theme name in the header
+    Then the "light" theme slot should be selected in the palette
+    When I type "3024 Day" in the palette
+    And I press Enter
+    Then the header should show theme "3024 Day"
+    And the terminal background should be "#f7f7f7"
+    When I click the theme name in the header
+    And I click the "dark" theme slot in the palette
+    And I type "Dracula" in the palette
+    And I press Enter
+    When I click the settings button
+    And I click the "dark" color scheme button
+    Then the header should show theme "Dracula"
+    And the terminal background should be "#282a36"
+    And there should be no page errors
+
+  Scenario: Unset theme slot reuses the other slot
+    When I click the settings button
+    And I click the "light" color scheme button
+    And I click the theme name in the header
+    And I type "3024 Day" in the palette
+    And I press Enter
+    When I click the settings button
+    And I click the "dark" color scheme button
+    Then the header should show theme "3024 Day"
+    And the terminal background should be "#f7f7f7"
     And there should be no page errors
 
   Scenario: Theme preview while navigating palette

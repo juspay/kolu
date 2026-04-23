@@ -125,6 +125,24 @@ When("I click the theme name in the header", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When(
+  "I click the {string} theme slot in the palette",
+  async function (this: KoluWorld, slot: string) {
+    await this.page.click(`[data-testid="theme-slot-${slot}"]`);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the {string} theme slot should be selected in the palette",
+  async function (this: KoluWorld, slot: string) {
+    const selected = this.page.locator(
+      `[data-testid="theme-slot-${slot}"][data-selected="true"]`,
+    );
+    await selected.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the header should show theme {string}",
   async function (this: KoluWorld, expectedTheme: string) {

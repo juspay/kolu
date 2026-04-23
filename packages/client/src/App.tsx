@@ -64,6 +64,10 @@ const App: Component = () => {
 
   const {
     committedThemeName,
+    committedThemeNameForMode,
+    themePickerMode,
+    setThemePickerMode,
+    resetThemePickerMode,
     setPreviewThemeName,
     activeThemeName,
     activeTheme,
@@ -249,6 +253,10 @@ const App: Component = () => {
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
+    committedThemeNameForMode,
+    themePickerMode,
+    setThemePickerMode,
+    resetThemePickerMode,
     setPreviewThemeName,
     handleSetTheme,
     handleShuffleTheme,

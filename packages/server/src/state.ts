@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.17.0";
+const SCHEMA_VERSION = "1.18.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -287,6 +287,36 @@ export const store = new Conf<PersistedState>({
           ...current,
           rightPanel: rest as typeof current.rightPanel,
         });
+      }
+    },
+    // Terminal themes moved from a single `themeName` to per-appearance
+    // `lightThemeName`/`darkThemeName` slots. Existing saved-session entries
+    // inherit the old theme into both slots so terminals keep the same look
+    // until the user explicitly customizes one appearance.
+    "1.18.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session") as
+        | ({ terminals?: Array<Record<string, unknown>> } & Record<
+            string,
+            unknown
+          >)
+        | null;
+      if (!session?.terminals) return;
+      let changed = false;
+      const terminals = session.terminals.map((terminal) => {
+        if (typeof terminal.themeName !== "string") return terminal;
+        changed = true;
+        const { themeName, ...rest } = terminal;
+        return {
+          ...rest,
+          lightThemeName: terminal.lightThemeName ?? themeName,
+          darkThemeName: terminal.darkThemeName ?? themeName,
+        };
+      });
+      if (changed) {
+        store.set("session", {
+          ...session,
+          terminals,
+        } as PersistedState["session"]);
       }
     },
   },

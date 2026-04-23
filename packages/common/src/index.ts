@@ -173,8 +173,11 @@ export const TerminalServerMetadataSchema = z.object({
  * via `updateClientMetadata` (or direct mutation for paths that intentionally
  * skip the metadata publish, like sub-panel state).
  */
+export const ThemeModeSchema = z.enum(["light", "dark"]);
+
 export const TerminalClientMetadataSchema = z.object({
-  themeName: z.string().optional(),
+  lightThemeName: z.string().optional(),
+  darkThemeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
   /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
@@ -215,6 +218,7 @@ export const TerminalSendInputSchema = z.object({
 
 export const TerminalSetThemeInputSchema = z.object({
   id: TerminalIdSchema,
+  mode: ThemeModeSchema,
   themeName: z.string(),
 });
 
@@ -237,7 +241,8 @@ export const SetActiveTerminalInputSchema = z.object({
  *  terminal's `meta` before the first `terminal.list` yield, so session
  *  restore can't race the canvas default-cascade effect (#642). */
 export const InitialTerminalMetadataSchema = z.object({
-  themeName: z.string().optional(),
+  lightThemeName: z.string().optional(),
+  darkThemeName: z.string().optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
 });
@@ -318,8 +323,9 @@ export const SavedTerminalSchema = z.object({
   branch: z.string().optional(),
   /** Ordering within group at save time. */
   sortOrder: z.number().optional(),
-  /** Theme name at save time. */
-  themeName: z.string().optional(),
+  /** Theme names per app appearance; unset slots symmetrically reuse the other. */
+  lightThemeName: z.string().optional(),
+  darkThemeName: z.string().optional(),
   /** Canvas tile position and size at save time. */
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel state at save time (collapsed, size). */
@@ -423,6 +429,7 @@ export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type ThemeMode = z.infer<typeof ThemeModeSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;

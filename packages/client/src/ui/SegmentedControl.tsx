@@ -26,6 +26,7 @@ export default function SegmentedControl<T extends string>(props: {
         {(opt) => (
           <button
             data-testid={`${props.testIdPrefix}-${opt.value}`}
+            data-selected={props.value === opt.value || undefined}
             class="px-2 py-0.5 text-xs transition-colors cursor-pointer"
             classList={{
               "bg-accent text-surface-0": props.value === opt.value,
