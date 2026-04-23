@@ -10,11 +10,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common";
 import { log } from "./log.ts";
-import {
-  CLIPBOARD_SHIM_DIR,
-  createClipboardDir,
-  cleanupClipboardDir,
-} from "./clipboard.ts";
+import { createClipboardDir, cleanupClipboardDir } from "./clipboard.ts";
 import {
   createMetadata,
   updateServerMetadata,
@@ -29,7 +25,7 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Per-terminal clipboard directory for image paste shims. */
+  /** Per-terminal directory where pasted clipboard images land on disk. */
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
@@ -189,7 +185,6 @@ export function createTerminal(
         }
       },
     },
-    { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
     cwd,
   );
 

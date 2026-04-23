@@ -161,17 +161,13 @@ export function osc7Init(opts: {
   shell: string;
   home: string | undefined;
   terminalId: string;
-  extraPath?: string;
 }): { args: string[]; env: Record<string, string>; cleanup: () => void } {
-  const { shell, home, terminalId, extraPath } = opts;
+  const { shell, home, terminalId } = opts;
   const noop = { args: [], env: {}, cleanup: () => {} };
   if (!home) return noop;
 
   const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
   const isZsh = shell.endsWith("/zsh");
-
-  // Prepend extra dirs to PATH after the user's rc (which may rebuild PATH from scratch on NixOS).
-  const pathLine = extraPath ? `export PATH="${extraPath}:$PATH"` : "";
 
   if (isBash) {
     const rcFile = join(koluShellDir, `bashrc-${terminalId}`);
@@ -187,7 +183,6 @@ export function osc7Init(opts: {
         `__kolu_login=0; for __f in "${home}/.bash_profile" "${home}/.bash_login" "${home}/.profile"; do [ -f "$__f" ] && { . "$__f"; __kolu_login=1; break; }; done`,
         `[ "$__kolu_login" = 0 ] && [ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
         `unset __kolu_login __f`,
-        pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
         OSC2_PREEXEC_BASH_GUARD,
@@ -225,7 +220,6 @@ export function osc7Init(opts: {
         `[ -f /etc/zprofile ] && source /etc/zprofile`,
         `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"`,
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
-        pathLine,
         OSC7_FN,
         OSC2_PREEXEC_FN,
         OSC2_PRECMD_ZSH,

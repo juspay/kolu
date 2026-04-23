@@ -165,6 +165,12 @@ export const appRouter = t.router({
           : 0;
       const bytes = Math.floor((input.data.length * 3) / 4) - padding;
       const path = saveClipboardImage(entry.clipboardDir, input.data);
+      // Bracketed-paste the saved path into the PTY. Agents that accept
+      // paste-as-file-path (codex, Claude Code) auto-attach the image.
+      // This replaces the old xclip/wl-paste shim approach, which only
+      // worked for agents that shell out for clipboard — `arboard`-based
+      // agents like codex bypass the shim and hit an X11 timeout.
+      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
 

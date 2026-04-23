@@ -147,7 +147,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 ### Clipboard
 
-- <kbd>Ctrl+V</kbd> pastes images into Claude Code via server-side clipboard shims
+- <kbd>Ctrl+V</kbd> pastes images into any agent that accepts paste-as-file-path (Claude Code, codex, …) — the server saves the browser's clipboard image and bracketed-pastes its path into the PTY
 
 ### Screen recording
 
@@ -259,7 +259,7 @@ flowchart TB
 
 Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
 
-[^build]: `koluEnv` includes font paths and clipboard shims. Terminal themes and word lists ship checked-in as JSON (see `packages/terminal-themes/` and `packages/memorable-names/`). The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
+[^build]: `koluEnv` includes font paths and the pinned `gh` binary. Terminal themes and word lists ship checked-in as JSON (see `packages/terminal-themes/` and `packages/memorable-names/`). The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
 
 ## Development
 

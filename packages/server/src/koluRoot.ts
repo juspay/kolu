@@ -1,9 +1,9 @@
 /**
  * Per-server-instance temp root for server-generated files.
  *
- * Kolu injects shell rc files and clipboard image shim directories on a
- * per-terminal basis. Those go under a single root keyed by the server's
- * startup UUID, rooted at $XDG_RUNTIME_DIR when available.
+ * Kolu writes shell rc files and pasted clipboard images on a per-terminal
+ * basis. Those go under a single root keyed by the server's startup UUID,
+ * rooted at $XDG_RUNTIME_DIR when available.
  *
  * Privacy: $XDG_RUNTIME_DIR on Linux is /run/user/$UID — tmpfs, mode 0700,
  * wiped at logout. Clipboard images can contain screenshots, drag-dropped
@@ -25,7 +25,7 @@ export const koluRoot = join(runtimeRoot, `kolu-${serverProcessId}`);
 /** Injected bash rc files and zsh ZDOTDIRs, one pair per spawned terminal. */
 export const koluShellDir = join(koluRoot, "shell");
 
-/** Per-terminal clipboard image-paste shim directories. */
+/** Per-terminal directories where pasted clipboard images land on disk. */
 export const koluClipboardDir = join(koluRoot, "clipboard");
 
 /** Create the root + subdirs with owner-only mode. Called once at server
