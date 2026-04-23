@@ -6,7 +6,7 @@
 
 ## Files matching `packages/**/*.{ts,tsx}`
 
-<!-- Source: local agents/.apm/instructions/code-police-rules.instructions.md -->
+<!-- Source: local .apm/instructions/code-police-rules.instructions.md -->
 ## Additional Code Police Rules
 
 These rules extend the base code-police skill with Kolu-specific patterns. They are checked during Pass 1 (rule checklist) alongside the generic rules.
@@ -92,7 +92,7 @@ _Rationale_: Inline SVGs are invisible to search, duplicate across components, a
 
 ## Files matching `{packages/client/src,packages/server/src,packages/common/src}/**`
 
-<!-- Source: local agents/.apm/instructions/streaming.instructions.md -->
+<!-- Source: local .apm/instructions/streaming.instructions.md -->
 ## oRPC Streaming Procedures
 
 Three invariants an agent editing any single file would otherwise miss. They are independent rules (different layers, different enforcement mechanisms) that share a trigger: **touching any streaming procedure**.

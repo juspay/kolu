@@ -64,12 +64,16 @@ apm-sync: apm-audit
         --exclude='.codex/' \
         --exclude='.agents/' \
         --exclude='.opencode/' \
-        --exclude='AGENTS.md' \
         --exclude='CLAUDE.md' \
         "$PWD/" "$scratch/"
     # Mirror the runtime folders that drive target detection for install.
     # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
     mkdir -p "$scratch/.claude" "$scratch/.codex" "$scratch/.opencode" "$scratch/.agents"
+    # Keep user-owned runtime inputs in the scratch tree too. APM compile
+    # placement is file-layout sensitive, so omitting checked-in files that
+    # are present during local `just ai::apm` can produce a false sync diff.
+    [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
+    [[ ! -e .codex/config.toml ]] || cp .codex/config.toml "$scratch/.codex/config.toml"
     (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
     (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
     # Exclude files that apm doesn't manage: launch.json is user-owned,

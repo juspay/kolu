@@ -6,7 +6,7 @@
 
 ## Files matching `**`
 
-<!-- Source: local agents/.apm/instructions/workflow.instructions.md -->
+<!-- Source: local .apm/instructions/workflow.instructions.md -->
 ## Workflow
 
 - Use `/do` to execute tasks end-to-end: sync → research → hickey → branch+PR → implement → check → docs → police → fmt → commit → test → CI → update-pr → done. Each step has a verification check.
@@ -44,7 +44,7 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 ## Files matching `**/*.nix`
 
-<!-- Source: local agents/.apm/instructions/nix.instructions.md -->
+<!-- Source: local .apm/instructions/nix.instructions.md -->
 ## Nix
 
 - **DO NOT add flake inputs** to `flake.nix`. Each input adds ~1.5s to `nix develop` cold start. The flake intentionally has zero inputs — nixpkgs and other sources are managed by [npins](https://github.com/andir/npins) and imported via `fetchTarball`. Use `npins add`/`npins update` for new or updated sources.
@@ -53,44 +53,30 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 ## Files matching `README.md`
 
-<!-- Source: local agents/.apm/instructions/architecture.instructions.md -->
+<!-- Source: local .apm/instructions/architecture.instructions.md -->
 ## Architecture (README)
 
 - The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Read it before declaring done** on any structural change, and update every part that no longer matches (table, diagram, prose, footnotes).
 
-## Files matching `{packages/client/src,packages/server/src,packages/common/src}/**`
+## Files matching `{.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,opencode.json}`
 
-<!-- Source: local agents/.apm/instructions/streaming.instructions.md -->
-## oRPC Streaming Procedures
+<!-- Source: local .apm/instructions/apm-sources.instructions.md -->
+## Generated Files — Do Not Edit Directly
 
-Three invariants an agent editing any single file would otherwise miss. They are independent rules (different layers, different enforcement mechanisms) that share a trigger: **touching any streaming procedure**.
+Everything under `.claude/`, `.codex/`, `.agents/`, and `.opencode/` is generated from top-level `.apm/` sources by APM. Direct edits will be overwritten on the next regeneration.
 
-### 1. Route client calls through the `stream` namespace
+To modify agent configuration, edit the source files under `.apm/`, then run `just ai::apm` to regenerate the runtime directories and `AGENTS.md`.
 
-Every async-iterator RPC the client consumes goes through `packages/client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly. The wrapper bakes in `STREAM_RETRY` context so `ClientRetryPlugin` can transparently re-subscribe on WebSocket reconnect.
+## Files matching `{.apm/**,.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,agents/**,apm.yml,apm.lock.yaml,opencode.json}`
 
-**When adding a new streaming procedure** (to `packages/common/src/contract.ts` + `packages/server/src/router.ts`), also add a corresponding entry to the `stream` object. Consumers MUST use `stream.xxx(...)` — calling `client.xxx(...)` directly silently loses reconnect handling.
+<!-- Source: local .apm/instructions/apm-workflow.instructions.md -->
+## APM Workflow
 
-`stream.attach` takes an `onRetry` callback because imperative consumers (xterm.js `Terminal.tsx`, `TerminalPreview.tsx`) must clear their buffer before the retried iterator delivers its fresh snapshot — otherwise scrollback double-paints.
+APM is not a global CLI — it runs via `uvx` through justfile recipes in `agents/ai.just`. Never try to run `apm` directly; always use the just recipes:
 
-### 2. Server handlers yield snapshot-then-deltas
-
-Every server-side streaming handler in `packages/server/src/router.ts` MUST yield a full state snapshot as its first item, then stream deltas. This is the invariant that makes `ClientRetryPlugin`'s transparent re-subscribe work: on reconnect, the plugin re-invokes the source, and the new iterator's first yield is a fresh snapshot that replaces stale client state.
-
-Two acceptable shapes:
-
-- **Implicit**: each yield is already a full replacement (e.g. `onMetadataChange` yields a current `TerminalMetadata`; `preferences.get` yields a current `Preferences`; `activity.get` yields a current `ActivityFeed`; `session.get` yields the current `SavedSession | null`; `terminal.list` yields a current `TerminalInfo[]`). Client reducers can just use the latest value.
-- **Explicit discriminated union**: when clients accumulate deltas into a derived structure, yield `{ kind: "snapshot", ... } | { kind: "delta", ... }`. Client reducers replace on snapshot, append on delta. Without the discriminator, reconnect replays the history into an already-populated accumulator and duplicates state.
-
-If a new handler yields deltas only (no initial snapshot), reconnects will silently lose state with no error.
-
-### 3. Parameterize plugin contexts immediately
-
-When installing an oRPC client plugin that extends `ClientContext` (e.g. `ClientRetryPlugin`), parameterize both `RPCLink<Context>` AND `ContractRouterClient<contract, Context>` at the same time. The current code uses `ClientRetryPluginContext`.
-
-Without this, per-call `{ context: ... }` options fall through to the default `Record<PropertyKey, any>` context type and TypeScript cannot catch typos — a misspelled field silently does nothing at runtime. This is a latent failure mode: tests still pass, the bug only surfaces when the context field you wanted to set is silently absent.
-
-The rule extends to future plugins: any plugin that exposes a context interface must be threaded through both type parameters the moment it's installed.
+- **Install/regenerate** agent runtime directories from sources: `just ai::apm`
+- **Update a dependency** to its latest ref: `just ai::apm-update <package>` (e.g. `just ai::apm-update srid/agency`)
+- **Verify** generated runtime directories match sources (CI-safe, non-destructive): `just ai::apm-sync`
 
 ---
 *This file was generated by APM CLI. Do not edit manually.*

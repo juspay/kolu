@@ -14,7 +14,7 @@ _preflight:
 
 # Post GitHub commit status.
 #
-# NOTE: agents/.apm/instructions/workflow.instructions.md contains a Monitor
+# NOTE: .apm/instructions/workflow.instructions.md contains a Monitor
 # filter that greps `just ci` stdout for the literal pattern
 # `context="ci/X" -f description="..."` emitted by this command. If you change
 # the gh api invocation here (flags, ordering, wrap in a function, etc.),

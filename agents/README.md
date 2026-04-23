@@ -7,7 +7,7 @@ Kolu-specific agent configuration, managed by [APM](https://microsoft.github.io/
 | Recipe                | Purpose                                                  |
 | --------------------- | -------------------------------------------------------- |
 | `just ai`             | Install APM config + launch coding agent (default)       |
-| `just ai::apm`        | Deploy APM primitives to `.claude/`                      |
+| `just ai::apm`        | Deploy APM primitives to agent runtime directories       |
 | `just ai::apm-update` | Advance locked deps to latest refs (all, or `<package>`) |
 | `just ai::apm-audit`  | Security audit (Unicode, lockfile consistency)           |
 | `just ai::apm-sync`   | Verify vendored `.claude/` matches sources (used by CI)  |
@@ -22,4 +22,4 @@ The generated `.claude/` output is committed to git rather than gitignored. This
 - **Zero-setup for agents** — Claude Code works immediately after checkout, no `apm install` step needed. New worktrees get rules, skills, and hooks for free.
 - **GitHub-browsable** — anyone can read `.claude/rules/` on GitHub to understand the agent config without cloning.
 
-The single source of truth remains `apm.yml` + `agents/.apm/`. Edit sources there, run `just ai::apm`, and commit the result.
+The single source of truth remains `apm.yml` + top-level `.apm/`. Edit sources there, run `just ai::apm`, and commit the result. This directory keeps the operational recipes for installing, syncing, and launching agent tooling.

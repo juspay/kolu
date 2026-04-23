@@ -6,7 +6,7 @@
 
 ## Files matching `packages/server/src/{state,preferences,activity,session}.ts`
 
-<!-- Source: local agents/.apm/instructions/state.instructions.md -->
+<!-- Source: local .apm/instructions/state.instructions.md -->
 ## Persistent State (conf)
 
 State is stored via `conf` in `packages/server/src/state.ts`, which owns the on-disk shape (`PersistedStateSchema`, internal to that file) and the migration ladder. Domain modules (`preferences.ts`, `activity.ts`, `session.ts`) read and write their own keys against the shared `store`.
