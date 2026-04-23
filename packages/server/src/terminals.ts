@@ -159,6 +159,10 @@ export function createTerminal(
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) {
+          // Same panel-ref cleanup as the explicit kill path — otherwise a
+          // sub-terminal that exits on its own (the user types `exit`)
+          // leaves its id dangling in the parent's `panels.bottom.tabs`.
+          pruneTerminalReferencesFromPanels(id);
           publishSuffixChanges();
           emitChanged();
           emitListChanged();
