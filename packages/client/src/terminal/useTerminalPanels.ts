@@ -33,15 +33,20 @@ import { useTerminalStore } from "./useTerminalStore";
 type FocusEdge = "main" | PanelEdge;
 
 interface RuntimeState {
-  /** Trailing-edge debounce timer for size writes — drag fires per-frame
-   *  but the server only needs the settled value. */
-  sizeDebounce?: number;
   focus: FocusEdge;
 }
 
 const SIZE_DEBOUNCE_MS = 200;
 
 const [runtime, setRuntime] = createStore<Record<TerminalId, RuntimeState>>({});
+
+/** Pending size-debounce timers, keyed by terminal id. Held outside the
+ *  reactive store on purpose — these handles change every drag frame, and
+ *  routing them through `setRuntime` queues a per-frame SolidJS update that
+ *  re-runs every consumer of `runtime[id]` (e.g. `getFocusEdge` inside the
+ *  active tile's JSX) and visibly janks the resize. The handle is opaque
+ *  bookkeeping; nothing reads it reactively. */
+const sizeDebounceTimers = new Map<TerminalId, number>();
 
 function ensureRuntime(id: TerminalId): RuntimeState {
   if (!runtime[id]) setRuntime(id, { focus: "main" });
@@ -176,29 +181,23 @@ export function useTerminalPanels() {
   /** Trailing-edge debounce — Resizable fires per-frame during drag, but
    *  the server only needs the settled value.
    *
-   *  **No-op short-circuit comes first.** Corvu fires `onSizesChange` for
-   *  *every* re-evaluation of the `sizes` prop, including renders triggered
-   *  by unrelated reactive updates. Without an early-return that skips
-   *  writes when the slot's size already matches, the unconditional
-   *  `setRuntime("sizeDebounce", handle)` below would queue a runtime write
-   *  inside the SolidJS update batch every frame, and the cascade of
-   *  re-renders that consume `runtime[id]` would re-trigger the `sizes`
-   *  prop memo before the batch can drain — manifesting as a
-   *  `RangeError: Maximum call stack size exceeded` thrown deep inside
-   *  `runUpdates / completeUpdates` with the metadata stream as the
-   *  surface error. */
+   *  No-op short-circuit comes first so unrelated reactive updates that
+   *  re-trigger Corvu's `onSizesChange` (it fires for every re-evaluation
+   *  of the `sizes` prop) don't cascade into a per-frame scheduler runaway
+   *  — same loop that surfaced as `RangeError: Maximum call stack size
+   *  exceeded` thrown out of the metadata stream. */
   function setSize(id: TerminalId, edge: PanelEdge, size: number): void {
     const current = getSlot(id, edge);
     if (current && current.size === size) return;
-    const rt = ensureRuntime(id);
-    if (rt.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
+    const prev = sizeDebounceTimers.get(id);
+    if (prev !== undefined) clearTimeout(prev);
     const handle = window.setTimeout(() => {
-      setRuntime(id, "sizeDebounce", undefined);
+      sizeDebounceTimers.delete(id);
       const latest = getSlot(id, edge);
       if (!latest || latest.size === size) return;
       setSlot(id, edge, { ...latest, size });
     }, SIZE_DEBOUNCE_MS);
-    setRuntime(id, "sizeDebounce", handle);
+    sizeDebounceTimers.set(id, handle);
   }
 
   function addTab(
@@ -340,8 +339,11 @@ export function useTerminalPanels() {
     // Clear the pending size-debounce timer before dropping the entry —
     // otherwise the queued `setPanels` fires against a deleted terminal
     // and surfaces a spurious "terminal not found" toast to the user.
-    const rt = runtime[id];
-    if (rt?.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
+    const handle = sizeDebounceTimers.get(id);
+    if (handle !== undefined) {
+      clearTimeout(handle);
+      sizeDebounceTimers.delete(id);
+    }
     setRuntime(produce((s) => delete s[id]));
   }
 
@@ -350,10 +352,8 @@ export function useTerminalPanels() {
    *  per-terminal — the per-terminal cleanup hooks would otherwise be
    *  bypassed and the runtime map would leak entries. */
   function resetAllRuntime(): void {
-    for (const id of Object.keys(runtime)) {
-      const rt = runtime[id];
-      if (rt?.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
-    }
+    for (const handle of sizeDebounceTimers.values()) clearTimeout(handle);
+    sizeDebounceTimers.clear();
     setRuntime(
       produce((s) => {
         for (const k of Object.keys(s)) delete s[k];
