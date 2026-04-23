@@ -742,18 +742,47 @@ When(
       | { id: string; left: number; top: number }
       | undefined;
     if (!saved) throw new Error(`No saved canvas tile ${index} position`);
-    const rect = this.page.locator(
-      `[data-testid="minimap-tile-rect"][data-tile-id="${saved.id}"]`,
+    await this.page.evaluate(
+      ({ tileId, dx, dy }: { tileId: string; dx: number; dy: number }) => {
+        const rect = document.querySelector(
+          `[data-testid="minimap-tile-rect"][data-tile-id="${tileId}"]`,
+        ) as HTMLElement | null;
+        if (!rect) throw new Error(`minimap tile rect ${tileId} not found`);
+        const box = rect.getBoundingClientRect();
+        const cx = box.left + box.width / 2;
+        const cy = box.top + box.height / 2;
+        const eventInit = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+        };
+        rect.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            ...eventInit,
+            clientX: cx,
+            clientY: cy,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointermove", {
+            ...eventInit,
+            clientX: cx + dx,
+            clientY: cy + dy,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointerup", {
+            ...eventInit,
+            clientX: cx + dx,
+            clientY: cy + dy,
+          }),
+        );
+      },
+      { tileId: saved.id, dx, dy },
     );
-    await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const box = await rect.boundingBox();
-    if (!box) throw new Error(`minimap tile rect ${index} not visible`);
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    await this.page.mouse.move(cx, cy);
-    await this.page.mouse.down();
-    await this.page.mouse.move(cx + dx, cy + dy, { steps: 5 });
-    await this.page.mouse.up();
     await this.waitForFrame();
   },
 );
