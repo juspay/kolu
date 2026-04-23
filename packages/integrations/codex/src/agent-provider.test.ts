@@ -3,9 +3,6 @@ import type { AgentTerminalState, Logger } from "anyagent";
 
 const findSessionMock = vi.fn();
 
-// Mock `findSessionByDirectory` so the test can assert the provider's
-// gate behavior without standing up a Codex SQLite DB. Must live above
-// the import that consumes it.
 vi.mock("./index.ts", () => ({
   findSessionByDirectory: (dir: string, log?: Logger) =>
     findSessionMock(dir, log),
