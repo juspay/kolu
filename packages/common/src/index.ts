@@ -6,9 +6,12 @@
 import { z } from "zod";
 import { match } from "ts-pattern";
 import { TaskProgressSchema } from "anyagent";
-import { ClaudeCodeInfoSchema } from "kolu-claude-code";
-import { CodexInfoSchema } from "kolu-codex";
-import { OpenCodeInfoSchema } from "kolu-opencode";
+// Import from `/schemas` subpaths, not package roots — keeps the
+// client bundle free of `@anthropic-ai/claude-agent-sdk` and `node:sqlite`
+// (see juspay/kolu#682).
+import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
+import { CodexInfoSchema } from "kolu-codex/schemas";
+import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import {
   GitInfoSchema,
   WorktreeCreateInputSchema,
@@ -74,8 +77,8 @@ const TerminalIdSchema = z.string().uuid();
 
 // --- GitHub PR context ---
 // Owned by kolu-github (mirrors the kolu-git re-export pattern above). The
-// `kolu-common/pr` subpath also re-exports these for browser clients that
-// want to avoid pulling kolu-claude-code → @anthropic-ai/claude-agent-sdk.
+// `kolu-common/pr` subpath re-exports the same zod schemas directly for
+// callers that only need the PR types without any other common imports.
 import {
   GitHubCheckStatusSchema,
   GitHubPrStateSchema,
