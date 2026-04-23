@@ -61,6 +61,18 @@ Feature: Terminal
     Then the terminal input should be focused
     And there should be no page errors
 
+  Scenario: Clicking the tile title bar keeps terminal input focused
+    # Regression guard: clicking the tile's title bar (or any chrome
+    # around the xterm canvas) must not steal focus from xterm — the
+    # user should keep typing after aiming at the title bar. Fixed by
+    # preventDefault on mousedown in CanvasTile (prevents browser's
+    # default focus shift without interfering with drag/double-click).
+    When I click the terminal canvas
+    Then the terminal input should be focused
+    When I click the terminal tile title bar
+    Then the terminal input should be focused
+    And there should be no page errors
+
   Scenario: Canvas refits its tile after tab visibility change
     # Tab-hidden xterms can lose their grid measurement. The post-visible
     # refit must re-fill the tile container regardless of viewport size.
