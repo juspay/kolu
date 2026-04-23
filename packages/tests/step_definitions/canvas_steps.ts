@@ -541,17 +541,54 @@ When("I save the canvas viewport state", async function (this: KoluWorld) {
 });
 
 When("I drag the minimap viewport rect", async function (this: KoluWorld) {
-  const rect = this.page.locator(MINIMAP_VIEWPORT_RECT_SELECTOR);
-  await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await rect.boundingBox();
-  if (!box) throw new Error("Viewport rect not visible");
-  // Drag from center of viewport rect 30px to the right
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await this.page.mouse.move(cx, cy);
-  await this.page.mouse.down();
-  await this.page.mouse.move(cx + 30, cy, { steps: 5 });
-  await this.page.mouse.up();
+  await this.page.evaluate(
+    ({ mapSel, viewSel }: { mapSel: string; viewSel: string }) => {
+      const map = document.querySelector(mapSel) as HTMLElement | null;
+      const view = document.querySelector(viewSel) as HTMLElement | null;
+      if (!map) throw new Error("Minimap map not visible");
+      if (!view) throw new Error("Viewport rect not visible");
+      const box = view.getBoundingClientRect();
+      const cx = box.left + box.width / 2;
+      const cy = box.top + box.height / 2;
+      map.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx + 30,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 0,
+          clientX: cx + 30,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { mapSel: MINIMAP_MAP_SELECTOR, viewSel: MINIMAP_VIEWPORT_RECT_SELECTOR },
+  );
   await this.waitForFrame();
 });
 

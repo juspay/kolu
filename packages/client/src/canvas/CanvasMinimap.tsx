@@ -38,9 +38,7 @@ const CanvasMinimap: Component<{
   layouts: Record<string, TileLayout>;
   /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
-  onStartTileDrag: (
-    id: string,
-  ) => {
+  onStartTileDrag: (id: string) => {
     preview: (dx: number, dy: number) => void;
     commit: (dx: number, dy: number) => void;
   } | null;
@@ -48,6 +46,8 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const [hoveringViewport, setHoveringViewport] = createSignal(false);
+  const [draggingViewport, setDraggingViewport] = createSignal(false);
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -129,8 +129,39 @@ const CanvasMinimap: Component<{
       minimapScale(),
       abortDrag,
       (dragging) => {
+        setDraggingViewport(dragging);
         if (!dragging) suppressNextClick = true;
       },
+    );
+  }
+
+  function handleMapPointerDown(e: PointerEvent) {
+    const map = e.currentTarget as HTMLDivElement;
+    const rect = map.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    const view = viewportRect();
+    const insideViewport =
+      localX >= view.x &&
+      localX <= view.x + view.w &&
+      localY >= view.y &&
+      localY <= view.y + view.h;
+    if (!insideViewport) return;
+    handleViewportDrag(e);
+  }
+
+  function handleMapPointerMove(e: PointerEvent) {
+    const map = e.currentTarget as HTMLDivElement;
+    const rect = map.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    const view = viewportRect();
+    setHoveringViewport(
+      e.target === map &&
+        localX >= view.x &&
+        localX <= view.x + view.w &&
+        localY >= view.y &&
+        localY <= view.y + view.h,
     );
   }
 
@@ -153,8 +184,16 @@ const CanvasMinimap: Component<{
       <Show when={shouldShowMap()}>
         <div
           data-testid="minimap-map"
-          class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden cursor-default"
+          class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
           style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
+          classList={{
+            "cursor-default": !hoveringViewport() && !draggingViewport(),
+            "cursor-grab": hoveringViewport() && !draggingViewport(),
+            "cursor-grabbing": draggingViewport(),
+          }}
+          onPointerDown={handleMapPointerDown}
+          onPointerMove={handleMapPointerMove}
+          onPointerLeave={() => setHoveringViewport(false)}
           onClick={handleMapClick}
         >
           {/* Tile rectangles */}
@@ -231,6 +270,7 @@ const CanvasMinimap: Component<{
 
           {/* Viewport rectangle */}
           <div
+            data-testid="minimap-viewport-rect"
             class="absolute pointer-events-none border-2 border-accent/50 rounded-sm"
             style={{
               left: `${viewportRect().x}px`,
@@ -240,13 +280,7 @@ const CanvasMinimap: Component<{
               "background-color":
                 "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
             }}
-          >
-            <div
-              data-testid="minimap-viewport-rect"
-              class="absolute inset-x-0 top-0 h-2 pointer-events-auto cursor-grab active:cursor-grabbing"
-              onPointerDown={handleViewportDrag}
-            />
-          </div>
+          />
         </div>
       </Show>
 
