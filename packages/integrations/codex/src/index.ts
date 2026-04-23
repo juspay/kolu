@@ -32,43 +32,22 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { z } from "zod";
-import { withDb as sharedWithDb } from "anyagent";
+import { withDb as sharedWithDb, type Logger } from "anyagent";
 import { CODEX_DB_PATH } from "./config.ts";
+import type { CodexInfo } from "./schemas.ts";
 
 // Re-export config so consumers can reference it (e.g. for env override docs).
 export { CODEX_DIR, CODEX_DB_PATH, CODEX_DB_WAL_PATH } from "./config.ts";
 
-// --- Codex schemas (single source of truth) ---
+// --- Codex schemas (browser-safe; re-exported from ./schemas) ---
 
-export { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
-import { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
-
-export const CodexInfoSchema = z.object({
-  kind: z.literal("codex"),
-  /** Current state derived from the rollout JSONL's event stream. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
-  /** Thread id from Codex's `threads` table (e.g. "019db605-..."). */
-  sessionId: z.string(),
-  /** Model identifier from the DB (e.g. "gpt-5.4"). Null until Codex
-   *  writes the first turn_context. */
-  model: z.string().nullable(),
-  /** Thread display title from the DB. Codex seeds this with the first
-   *  user message, then replaces with a short generated name after
-   *  the first exchange. */
-  summary: z.string().nullable(),
-  /** Codex has no TodoWrite equivalent — the `task_started`/`task_complete`
-   *  events are per-turn lifecycle, not user-facing checklists.
-   *  Permanently null; the field is kept for union shape uniformity. */
-  taskProgress: TaskProgressSchema.nullable(),
-  /** Running context-window token count from `threads.tokens_used` —
-   *  pre-summed by Codex from the latest `token_count` event's
-   *  `info.total_token_usage.total_tokens`. Null on a brand-new thread
-   *  before the first assistant turn accounts. */
-  contextTokens: z.number().nullable(),
-});
-
-export type CodexInfo = z.infer<typeof CodexInfoSchema>;
+export {
+  TaskProgressSchema,
+  CodexInfoSchema,
+  type TaskProgress,
+  type CodexInfo,
+} from "./schemas.ts";
+export { type Logger } from "anyagent";
 
 // --- Database helpers ---
 

@@ -21,39 +21,23 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { z } from "zod";
 import { match } from "ts-pattern";
-import { withDb as sharedWithDb } from "anyagent";
+import { withDb as sharedWithDb, type Logger } from "anyagent";
 import { OPENCODE_DB_PATH } from "./config.ts";
+import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
 
 // Re-export config so consumers can reference it (e.g. for env override docs).
 export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
-// --- OpenCode schemas (single source of truth) ---
+// --- OpenCode schemas (browser-safe; re-exported from ./schemas) ---
 
-export { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
-import { TaskProgressSchema, type TaskProgress, type Logger } from "anyagent";
-
-export const OpenCodeInfoSchema = z.object({
-  kind: z.literal("opencode"),
-  /** Current state derived from the latest session message. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
-  /** Session ID from OpenCode's database (e.g. "ses_..."). */
-  sessionId: z.string(),
-  /** Model identifier if available (e.g. "litellm/glm-latest"). */
-  model: z.string().nullable(),
-  /** Session title from OpenCode. */
-  summary: z.string().nullable(),
-  /** Todo progress from OpenCode's `todo` table. null when no todos. */
-  taskProgress: TaskProgressSchema.nullable(),
-  /** Running context-window token count from the latest assistant
-   *  message's `tokens.total` field (OpenCode emits it pre-summed).
-   *  Null when the latest message is a user turn or the agent has not
-   *  yet produced an assistant reply. */
-  contextTokens: z.number().nullable(),
-});
-
-export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
+export {
+  TaskProgressSchema,
+  OpenCodeInfoSchema,
+  type TaskProgress,
+  type OpenCodeInfo,
+} from "./schemas.ts";
+export { type Logger } from "anyagent";
 
 // --- Database helpers ---
 
