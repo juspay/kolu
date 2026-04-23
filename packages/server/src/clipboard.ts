@@ -14,6 +14,7 @@
 
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { match } from "ts-pattern";
 import type { TerminalMetadata } from "kolu-common";
 import { koluClipboardDir } from "./koluRoot.ts";
 
@@ -65,10 +66,10 @@ export function dispatchPastedImage(
   mode: ImagePasteMode,
   imagePath: string,
 ): string {
-  if (mode === "bracketed-path") {
-    return `\x1b[200~${imagePath}\x1b[201~`;
-  }
-  return "\x16";
+  return match(mode)
+    .with("bracketed-path", () => `\x1b[200~${imagePath}\x1b[201~`)
+    .with("raw-ctrl-v", () => "\x16")
+    .exhaustive();
 }
 
 /** Remove a terminal's clipboard directory. */
