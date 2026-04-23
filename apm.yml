@@ -4,6 +4,9 @@ description: Terminal multiplexer with AI-native development workflow
 type: hybrid
 target: [claude, codex, opencode]
 
+# Generated AGENTS.md files are runtime outputs, not source inputs. Excluding
+# them keeps distributed compilation from treating stale generated files as
+# additional placement anchors when checking a scratch tree in ai::apm-sync.
 compilation:
   exclude:
     - AGENTS.md
