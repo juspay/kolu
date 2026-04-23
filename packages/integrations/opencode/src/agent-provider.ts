@@ -11,7 +11,7 @@
  * `createOpenCodeWatcher`, not session-identity changes.
  */
 
-import type { AgentProvider } from "anyagent";
+import { type AgentProvider, matchesAgent } from "anyagent";
 import { findSessionByDirectory } from "./index.ts";
 import { createOpenCodeWatcher } from "./session-watcher.ts";
 import type { OpenCodeSession, OpenCodeInfo } from "./index.ts";
@@ -20,15 +20,7 @@ export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
 
   resolveSession(state, log) {
-    // Kernel basename is `opencode` for native installs; for npm-shimmed
-    // installs it reports the interpreter (`node`). `lastAgentCommandName`
-    // comes from the preexec hint and names the agent verbatim, so
-    // accept either signal (mirrors codex-provider, see #673).
-    if (
-      state.readForegroundBasename() !== "opencode" &&
-      state.lastAgentCommandName !== "opencode"
-    )
-      return null;
+    if (!matchesAgent(state, "opencode")) return null;
     return findSessionByDirectory(state.cwd, log);
   },
 

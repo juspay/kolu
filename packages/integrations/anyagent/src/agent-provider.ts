@@ -115,6 +115,29 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
   ) => () => void;
 }
 
+/** Does the terminal appear to be running the named agent?
+ *
+ *  Checks the two detection signals kolu exposes on `AgentTerminalState`:
+ *  (a) the kernel-level foreground process basename (correct for native
+ *  installs) and (b) the preexec command hint parsed by
+ *  `parseAgentCommand` (correct for interpreter-shimmed installs like
+ *  npm-installed codex, where the kernel sees `node`). A match on
+ *  either signal counts — shippingly equivalent agents that differ only
+ *  by packaging must not require a provider edit.
+ *
+ *  Lives in anyagent so every provider asks the same question the same
+ *  way: when kolu's detection model grows a third signal, this helper
+ *  absorbs the change and providers stay put. */
+export function matchesAgent(
+  state: AgentTerminalState,
+  agentName: string,
+): boolean {
+  return (
+    state.readForegroundBasename() === agentName ||
+    state.lastAgentCommandName === agentName
+  );
+}
+
 /** Structural equality over the shared 5-field AgentInfo shape, plus `kind`.
  *  One implementation serves every provider — if a new integration wants a
  *  different equality contract, its Info shape is out of bounds anyway and

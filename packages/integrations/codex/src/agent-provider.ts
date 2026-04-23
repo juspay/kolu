@@ -11,7 +11,7 @@
  * match succeeds.
  */
 
-import type { AgentProvider } from "anyagent";
+import { type AgentProvider, matchesAgent } from "anyagent";
 import { findSessionByDirectory } from "./index.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
@@ -21,15 +21,7 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
 
   resolveSession(state, log) {
-    // `readForegroundBasename()` is the kernel-observed process name —
-    // correct for native installs, but reports `node` for npm-installed
-    // codex (#673). `lastAgentCommandName` comes from the shell preexec
-    // hint and sees `codex` verbatim in that case, so accept either.
-    if (
-      state.readForegroundBasename() !== "codex" &&
-      state.lastAgentCommandName !== "codex"
-    )
-      return null;
+    if (!matchesAgent(state, "codex")) return null;
     return findSessionByDirectory(state.cwd, log);
   },
 
