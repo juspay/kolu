@@ -206,9 +206,14 @@ const TerminalContent: Component<{
         minSize={0}
         collapsible
         collapsedSize={0}
-        onCollapse={() =>
-          bottom() && panels.toggleSlot(props.terminalId, "bottom")
-        }
+        onCollapse={() => {
+          // Corvu also fires onCollapse when the panel transitions to
+          // `collapsedSize` because *we* set the slot to collapsed; without
+          // the !collapsed guard, the toggle here flips it back open
+          // immediately and the Hide button never sticks.
+          const s = bottom();
+          if (s && !s.collapsed) panels.toggleSlot(props.terminalId, "bottom");
+        }}
       >
         <Show when={bottomActive() && bottom()}>
           {(slot) =>
@@ -249,9 +254,10 @@ const TerminalContent: Component<{
         minSize={0}
         collapsible
         collapsedSize={0}
-        onCollapse={() =>
-          right() && panels.toggleSlot(props.terminalId, "right")
-        }
+        onCollapse={() => {
+          const s = right();
+          if (s && !s.collapsed) panels.toggleSlot(props.terminalId, "right");
+        }}
       >
         <Show when={rightActive() && right()}>
           {(slot) => renderPanelHost("right", slot())}
@@ -273,7 +279,10 @@ const TerminalContent: Component<{
         minSize={0}
         collapsible
         collapsedSize={0}
-        onCollapse={() => left() && panels.toggleSlot(props.terminalId, "left")}
+        onCollapse={() => {
+          const s = left();
+          if (s && !s.collapsed) panels.toggleSlot(props.terminalId, "left");
+        }}
       >
         <Show when={leftActive() && left()}>
           {(slot) => renderPanelHost("left", slot())}

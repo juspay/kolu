@@ -174,18 +174,29 @@ export function useTerminalPanels() {
   }
 
   /** Trailing-edge debounce — Resizable fires per-frame during drag, but
-   *  the server only needs the settled value. The post-debounce write also
-   *  short-circuits when the settled size matches what's already on disk
-   *  (a drag that lands at the same fractional position contributes a
-   *  no-op write otherwise). */
+   *  the server only needs the settled value.
+   *
+   *  **No-op short-circuit comes first.** Corvu fires `onSizesChange` for
+   *  *every* re-evaluation of the `sizes` prop, including renders triggered
+   *  by unrelated reactive updates. Without an early-return that skips
+   *  writes when the slot's size already matches, the unconditional
+   *  `setRuntime("sizeDebounce", handle)` below would queue a runtime write
+   *  inside the SolidJS update batch every frame, and the cascade of
+   *  re-renders that consume `runtime[id]` would re-trigger the `sizes`
+   *  prop memo before the batch can drain — manifesting as a
+   *  `RangeError: Maximum call stack size exceeded` thrown deep inside
+   *  `runUpdates / completeUpdates` with the metadata stream as the
+   *  surface error. */
   function setSize(id: TerminalId, edge: PanelEdge, size: number): void {
+    const current = getSlot(id, edge);
+    if (current && current.size === size) return;
     const rt = ensureRuntime(id);
     if (rt.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
     const handle = window.setTimeout(() => {
       setRuntime(id, "sizeDebounce", undefined);
-      const current = getSlot(id, edge);
-      if (!current || current.size === size) return;
-      setSlot(id, edge, { ...current, size });
+      const latest = getSlot(id, edge);
+      if (!latest || latest.size === size) return;
+      setSlot(id, edge, { ...latest, size });
     }, SIZE_DEBOUNCE_MS);
     setRuntime(id, "sizeDebounce", handle);
   }
