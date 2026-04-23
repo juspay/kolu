@@ -23,6 +23,7 @@ import { isMobile } from "../useMobile";
 import type {
   CodeTabView,
   PanelEdge,
+  PanelSlot,
   TerminalId,
   TerminalMetadata,
 } from "kolu-common";
@@ -112,6 +113,39 @@ const TerminalContent: Component<{
     if (tab?.kind === "terminal") props.onCloseTerminal(tab.id);
   }
 
+  /** Render a `PanelHost` for one edge. Wraps the per-edge `<Show>` and
+   *  threads the panels primitive through every callback so the three
+   *  call sites (`renderCenter`, `renderMiddle`, the outer return) stay
+   *  one-liners with just edge-specific extras (here: bottom slot's
+   *  `onAddTab` for sub-terminal creation). */
+  const renderPanelHost = (
+    edge: PanelEdge,
+    slot: PanelSlot,
+    extras?: { onAddTab?: () => void },
+  ) => (
+    <PanelHost
+      hostTerminalId={props.terminalId}
+      edge={edge}
+      slot={slot}
+      visible={props.visible}
+      focused={slotFocused(edge)}
+      theme={props.theme}
+      themeName={props.themeName}
+      meta={props.meta}
+      getMetadata={props.getMetadata}
+      onSelectTab={(idx) => panels.setActiveTab(props.terminalId, edge, idx)}
+      onCloseTab={(idx) => handleCloseTab(edge, idx)}
+      onAddTab={extras?.onAddTab}
+      onCollapse={() => panels.toggleSlot(props.terminalId, edge)}
+      onMoveTab={(idx, target) =>
+        panels.moveTabToEdge(props.terminalId, edge, idx, target)
+      }
+      onCodeModeChange={(mode) => setCodeMode(edge, mode)}
+      onThemeClick={props.onThemeClick}
+      onFocus={() => handleSlotFocus(edge)}
+    />
+  );
+
   // Main terminal occupies a fraction of [main+bottom] vertical pair.
   const bottomSize = () => (bottomActive() ? bottom()!.size : 0);
   const mainSize = () => 1 - bottomSize();
@@ -175,31 +209,11 @@ const TerminalContent: Component<{
         }
       >
         <Show when={bottomActive() && bottom()}>
-          {(slot) => (
-            <PanelHost
-              hostTerminalId={props.terminalId}
-              edge="bottom"
-              slot={slot()}
-              visible={props.visible}
-              focused={slotFocused("bottom")}
-              theme={props.theme}
-              themeName={props.themeName}
-              meta={props.meta}
-              getMetadata={props.getMetadata}
-              onSelectTab={(idx) =>
-                panels.setActiveTab(props.terminalId, "bottom", idx)
-              }
-              onCloseTab={(idx) => handleCloseTab("bottom", idx)}
-              onAddTab={() => props.onAddSubTerminalTab(props.terminalId)}
-              onCollapse={() => panels.toggleSlot(props.terminalId, "bottom")}
-              onMoveTab={(idx, target) =>
-                panels.moveTabToEdge(props.terminalId, "bottom", idx, target)
-              }
-              onCodeModeChange={(mode) => setCodeMode("bottom", mode)}
-              onThemeClick={props.onThemeClick}
-              onFocus={() => handleSlotFocus("bottom")}
-            />
-          )}
+          {(slot) =>
+            renderPanelHost("bottom", slot(), {
+              onAddTab: () => props.onAddSubTerminalTab(props.terminalId),
+            })
+          }
         </Show>
       </Resizable.Panel>
     </Resizable>
@@ -238,30 +252,7 @@ const TerminalContent: Component<{
         }
       >
         <Show when={rightActive() && right()}>
-          {(slot) => (
-            <PanelHost
-              hostTerminalId={props.terminalId}
-              edge="right"
-              slot={slot()}
-              visible={props.visible}
-              focused={slotFocused("right")}
-              theme={props.theme}
-              themeName={props.themeName}
-              meta={props.meta}
-              getMetadata={props.getMetadata}
-              onSelectTab={(idx) =>
-                panels.setActiveTab(props.terminalId, "right", idx)
-              }
-              onCloseTab={(idx) => handleCloseTab("right", idx)}
-              onCollapse={() => panels.toggleSlot(props.terminalId, "right")}
-              onMoveTab={(idx, target) =>
-                panels.moveTabToEdge(props.terminalId, "right", idx, target)
-              }
-              onCodeModeChange={(mode) => setCodeMode("right", mode)}
-              onThemeClick={props.onThemeClick}
-              onFocus={() => handleSlotFocus("right")}
-            />
-          )}
+          {(slot) => renderPanelHost("right", slot())}
         </Show>
       </Resizable.Panel>
     </Resizable>
@@ -283,30 +274,7 @@ const TerminalContent: Component<{
         onCollapse={() => left() && panels.toggleSlot(props.terminalId, "left")}
       >
         <Show when={leftActive() && left()}>
-          {(slot) => (
-            <PanelHost
-              hostTerminalId={props.terminalId}
-              edge="left"
-              slot={slot()}
-              visible={props.visible}
-              focused={slotFocused("left")}
-              theme={props.theme}
-              themeName={props.themeName}
-              meta={props.meta}
-              getMetadata={props.getMetadata}
-              onSelectTab={(idx) =>
-                panels.setActiveTab(props.terminalId, "left", idx)
-              }
-              onCloseTab={(idx) => handleCloseTab("left", idx)}
-              onCollapse={() => panels.toggleSlot(props.terminalId, "left")}
-              onMoveTab={(idx, target) =>
-                panels.moveTabToEdge(props.terminalId, "left", idx, target)
-              }
-              onCodeModeChange={(mode) => setCodeMode("left", mode)}
-              onThemeClick={props.onThemeClick}
-              onFocus={() => handleSlotFocus("left")}
-            />
-          )}
+          {(slot) => renderPanelHost("left", slot())}
         </Show>
       </Resizable.Panel>
       <Show when={leftActive()}>
