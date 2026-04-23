@@ -659,7 +659,10 @@ const Terminal: Component<{
         touchAnchorY = null;
       });
 
-      // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
+      // Bridge browser clipboard images → PTY for agent image paste.
+      // The server resolves the PTY input per foreground agent (Claude Code
+      // reads the shimmed clipboard on raw Ctrl+V; Codex attaches a
+      // bracketed-pasted local path). See packages/server/src/clipboard.ts.
       // Capture phase fires before xterm's own paste handler on the textarea,
       // letting us intercept images while text paste falls through to xterm.
       // Uses the native paste event (not navigator.clipboard.read) so no explicit
