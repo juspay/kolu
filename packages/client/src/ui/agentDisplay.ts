@@ -3,18 +3,20 @@
 
 import type { Component } from "solid-js";
 import type { AgentInfo } from "kolu-common";
-import { ClaudeCodeIcon, OpenCodeIcon } from "../ui/Icons";
+import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon } from "../ui/Icons";
 
 export const agentIcons: Record<
   AgentInfo["kind"],
   Component<{ class?: string }>
 > = {
   "claude-code": ClaudeCodeIcon,
+  codex: CodexIcon,
   opencode: OpenCodeIcon,
 };
 
 export const agentNames: Record<AgentInfo["kind"], string> = {
   "claude-code": "Claude Code",
+  codex: "Codex",
   opencode: "OpenCode",
 };
 

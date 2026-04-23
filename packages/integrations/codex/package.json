@@ -1,5 +1,5 @@
 {
-  "name": "anyagent",
+  "name": "kolu-codex",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -15,7 +15,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "string-argv": "^0.3.2",
+    "anyagent": "workspace:*",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

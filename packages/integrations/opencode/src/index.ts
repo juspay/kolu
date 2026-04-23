@@ -23,6 +23,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { match } from "ts-pattern";
+import { withDb as sharedWithDb } from "anyagent";
 import { OPENCODE_DB_PATH } from "./config.ts";
 
 // Re-export config so consumers can reference it (e.g. for env override docs).
@@ -56,10 +57,9 @@ export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
 
 // --- Database helpers ---
 
-/** Run `fn` with a DatabaseSync connection. If `db` is provided, uses it
- *  without owning it (caller manages lifecycle). If absent, opens a fresh
- *  connection and closes it after `fn` returns. Returns null if the DB
- *  can't be opened or if `fn` throws (logged at error via `errorMsg`). */
+/** OpenCode-specific `withDb` — partial application of anyagent's
+ *  shared helper over our `openDb`. Keeps the local call signature so
+ *  consumers within this package don't need to change. */
 function withDb<T>(
   fn: (db: DatabaseSync) => T,
   errorMsg: string,
@@ -67,17 +67,7 @@ function withDb<T>(
   log?: Logger,
   db?: DatabaseSync,
 ): T | null {
-  const ownsDb = db === undefined;
-  const conn = db ?? openDb(log);
-  if (!conn) return null;
-  try {
-    return fn(conn);
-  } catch (err) {
-    log?.error({ err, ...errorCtx }, errorMsg);
-    return null;
-  } finally {
-    if (ownsDb) conn.close();
-  }
+  return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log, db);
 }
 
 // --- Database session lookup ---

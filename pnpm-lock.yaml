@@ -152,6 +152,9 @@ importers:
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
+      kolu-codex:
+        specifier: workspace:*
+        version: link:../integrations/codex
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
@@ -181,6 +184,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -193,6 +199,28 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.3.6)
+      anyagent:
+        specifier: workspace:*
+        version: link:../anyagent
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/integrations/codex:
+    dependencies:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -338,6 +366,9 @@ importers:
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
+      kolu-codex:
+        specifier: workspace:*
+        version: link:../integrations/codex
       kolu-common:
         specifier: workspace:*
         version: link:../common

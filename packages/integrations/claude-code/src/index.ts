@@ -18,6 +18,7 @@ import path from "node:path";
 import os from "node:os";
 import { z } from "zod";
 import { match } from "ts-pattern";
+import { readTailLines } from "anyagent";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 
 // --- Claude Code schemas (single source of truth) ---
@@ -166,25 +167,25 @@ export function findTranscriptPath(session: SessionFile): string | null {
 // --- JSONL reading ---
 
 /**
- * Read the last N bytes of a file and parse JSONL lines.
- * Returns lines in order (oldest first).
+ * Read the last N bytes of a JSONL transcript and split into lines
+ * (oldest first). Delegates to anyagent's shared `readTailLines` for
+ * the actual open/read — that helper closes the FD in a `try/finally`
+ * (fixing the pre-extraction leak this function had on `readSync`
+ * throw) and can surface hard errors via an `onError` callback.
+ *
+ * This caller opts into the legacy "silent on any failure" shape by
+ * ignoring `onError` and flattening `null` (read failed) or an
+ * absent file to `[]` — the transcript tailer treats all three modes
+ * the same way (retry on the next `fs.watch` fire).
  */
 export function tailJsonlLines(filePath: string, bytes: number): string[] {
+  let size: number;
   try {
-    const stat = fs.statSync(filePath);
-    const start = Math.max(0, stat.size - bytes);
-    const fd = fs.openSync(filePath, "r");
-    const buf = Buffer.alloc(Math.min(bytes, stat.size));
-    fs.readSync(fd, buf, 0, buf.length, start);
-    fs.closeSync(fd);
-    const text = buf.toString("utf8");
-    const lines = text.split("\n").filter((l) => l.length > 0);
-    // First line may be partial if we started mid-line — skip it unless we read from start
-    if (start > 0 && lines.length > 0) lines.shift();
-    return lines;
+    size = fs.statSync(filePath).size;
   } catch {
     return [];
   }
+  return readTailLines({ path: filePath, size, maxBytes: bytes }) ?? [];
 }
 
 // --- State derivation ---

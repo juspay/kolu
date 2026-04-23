@@ -13,6 +13,16 @@ export {
   agentInfoEqual,
 } from "./agent-provider.ts";
 
+export { withDb, type Closable } from "./with-db.ts";
+
+export {
+  createWalSubscription,
+  type WalSubscription,
+  type WalSubscriptionConfig,
+} from "./wal-subscription.ts";
+
+export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
+
 import { z } from "zod";
 
 /** Task/todo progress — total items and completed count.
