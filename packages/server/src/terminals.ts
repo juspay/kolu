@@ -192,9 +192,11 @@ export function createTerminal(
         const normalized = parseAgentCommand(raw);
         const entry = terminals.get(id);
         if (entry) {
-          entry.lastAgentCommandName = normalized
-            ? (normalized.split(" ")[0] ?? null)
-            : null;
+          // `|| null` (not `?? null`) collapses an empty first token to
+          // null so the stash is always either a non-empty agent basename
+          // or null — never `""`.
+          entry.lastAgentCommandName =
+            (normalized && normalized.split(" ")[0]) || null;
         }
         if (normalized) trackRecentAgent(normalized);
       },
