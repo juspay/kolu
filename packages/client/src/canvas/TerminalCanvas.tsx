@@ -48,7 +48,6 @@ import {
 
 const MIN_W = 300;
 const MIN_H = 200;
-const MINIMAP_DRAG_THRESHOLD = 3;
 
 /** Wheel gestures that start inside an xterm tile should scroll the terminal,
  *  not pan the canvas. The viewport's ownership tracker holds this decision
@@ -264,64 +263,6 @@ const TerminalCanvas: Component<{
     );
   }
 
-  let abortMinimapTileDrag: AbortController | null = null;
-  function startMinimapTileDrag(
-    id: string,
-    e: PointerEvent,
-    minimapScale: number,
-    onDragStateChange: (dragging: boolean) => void,
-  ) {
-    e.preventDefault();
-    e.stopPropagation();
-    const origin = layoutOf(id);
-    if (!origin) return;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    let dragging = false;
-
-    abortMinimapTileDrag?.abort();
-    abortMinimapTileDrag = new AbortController();
-    capturePointerGesture(
-      {
-        onMove: (ev) => {
-          const px = ev.clientX - startX;
-          const py = ev.clientY - startY;
-          if (
-            !dragging &&
-            Math.abs(px) + Math.abs(py) < MINIMAP_DRAG_THRESHOLD
-          ) {
-            return;
-          }
-          if (!dragging) {
-            dragging = true;
-            props.onSelect(id);
-            onDragStateChange(true);
-          }
-          setPendingLayout(id, {
-            ...origin,
-            x: origin.x + px / minimapScale,
-            y: origin.y + py / minimapScale,
-          });
-        },
-        onEnd: (ev) => {
-          abortMinimapTileDrag = null;
-          if (!dragging) return;
-          const px = ev.clientX - startX;
-          const py = ev.clientY - startY;
-          const next: TileLayout = {
-            ...origin,
-            x: viewport.snapToGrid(origin.x + px / minimapScale),
-            y: viewport.snapToGrid(origin.y + py / minimapScale),
-          };
-          setPendingLayout(id, next);
-          props.onLayoutChange(id, next);
-          onDragStateChange(false);
-        },
-      },
-      abortMinimapTileDrag,
-    );
-  }
-
   // On first mount at the default origin, pan so the persisted active tile
   // is centered (matches what a pill-tree click does). If there's no
   // active tile, fall back to centering the bounding box of all tiles so
@@ -438,9 +379,27 @@ const TerminalCanvas: Component<{
             tileIds={props.tileIds}
             layouts={layouts()}
             onSelect={props.onSelect}
-            onTilePointerDown={(id, e, minimapScale, onDragStateChange) =>
-              startMinimapTileDrag(id, e, minimapScale, onDragStateChange)
-            }
+            onStartTileDrag={(id) => {
+              const origin = layoutOf(id);
+              if (!origin) return null;
+              return {
+                preview: (dx, dy) =>
+                  setPendingLayout(id, {
+                    ...origin,
+                    x: origin.x + dx,
+                    y: origin.y + dy,
+                  }),
+                commit: (dx, dy) => {
+                  const next: TileLayout = {
+                    ...origin,
+                    x: viewport.snapToGrid(origin.x + dx),
+                    y: viewport.snapToGrid(origin.y + dy),
+                  };
+                  setPendingLayout(id, next);
+                  props.onLayoutChange(id, next);
+                },
+              };
+            }}
           />
         </Show>
       </div>

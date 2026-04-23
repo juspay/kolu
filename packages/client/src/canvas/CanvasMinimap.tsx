@@ -6,7 +6,11 @@ import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
 import { MinimapIcon } from "../ui/Icons";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { startViewportDrag, handleMinimapClick } from "./minimapGestures";
+import {
+  startViewportDrag,
+  handleMinimapClick,
+  startTileDrag,
+} from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
 import { tileMinimapBorder } from "./tileChrome";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -34,13 +38,12 @@ const CanvasMinimap: Component<{
   layouts: Record<string, TileLayout>;
   /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
-  /** Start dragging a tile directly from its minimap rect. */
-  onTilePointerDown: (
+  onStartTileDrag: (
     id: string,
-    e: PointerEvent,
-    minimapScale: number,
-    onDragStateChange: (dragging: boolean) => void,
-  ) => void;
+  ) => {
+    preview: (dx: number, dy: number) => void;
+    commit: (dx: number, dy: number) => void;
+  } | null;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -116,6 +119,7 @@ const CanvasMinimap: Component<{
 
   // ── Viewport rect drag ──
   let abortDrag: AbortController | null = null;
+  let abortTileDrag: AbortController | null = null;
   // Suppress map click immediately after a drag ends
   let suppressNextClick = false;
   function handleViewportDrag(e: PointerEvent) {
@@ -179,9 +183,21 @@ const CanvasMinimap: Component<{
               };
               const handleTilePointerDown = (e: PointerEvent) => {
                 e.stopPropagation();
-                props.onTilePointerDown(id, e, minimapScale(), (dragging) => {
-                  if (!dragging) suppressNextClick = true;
-                });
+                const drag = props.onStartTileDrag(id);
+                if (!drag) return;
+                abortTileDrag = startTileDrag(
+                  e,
+                  minimapScale(),
+                  abortTileDrag,
+                  {
+                    onDragStart: () => props.onSelect(id),
+                    onPreview: drag.preview,
+                    onCommit: (dx, dy) => {
+                      drag.commit(dx, dy);
+                      suppressNextClick = true;
+                    },
+                  },
+                );
               };
               return (
                 <Show when={pos()}>
