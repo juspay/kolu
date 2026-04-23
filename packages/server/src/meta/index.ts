@@ -6,6 +6,7 @@
  *                                                    ↓
  *   title:<id>  →  process provider  ────────→  metadata:<id>
  *   title:<id> + agent external-change signal  →  agent provider (×N)  →  metadata:<id>
+ *   commandRun:<id>  →  agent-command tracker  →  lastAgentCommandName stash + activity:changed
  *
  * Providers publish server-derived fields via `updateServerMetadata`; client
  * RPC handlers persist client-owned fields via `updateClientMetadata` (or
@@ -41,6 +42,7 @@ import { opencodeProvider } from "kolu-opencode";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startAgentProvider } from "./agent.ts";
+import { startAgentCommandTracker } from "./agent-command.ts";
 import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
@@ -132,6 +134,9 @@ export function startProviders(
   entry: TerminalProcess,
   terminalId: string,
 ): () => void {
+  // Subscribe the tracker before any provider — the stash it maintains is
+  // read by `startAgentProvider`'s reconcile via `getLastAgentCommandName`.
+  const stopAgentCommand = startAgentCommandTracker(terminalId);
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startAgentProvider(claudeCodeProvider, entry, terminalId);
@@ -139,6 +144,7 @@ export function startProviders(
   const stopOpenCode = startAgentProvider(opencodeProvider, entry, terminalId);
   const stopProcess = startProcessProvider(entry, terminalId);
   return () => {
+    stopAgentCommand();
     stopGit();
     stopGitHubPr();
     stopClaude();

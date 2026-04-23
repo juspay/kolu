@@ -87,13 +87,14 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *     foreground process detection.
  *
  *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
- *     mark. Consumed by the OSC 633 handler in pty.ts to build the
- *     global "recent agents" MRU and to stash the per-terminal
- *     agent-command hint on `TerminalProcess` (used to detect
- *     interpreter-shimmed agents like npm-installed codex, where the
- *     kernel-level process name is `node`). The shell hands us the
- *     command string verbatim, so kolu never needs `/proc` (Linux-only)
- *     or `ps` spawning (slow). Works identically on Linux and macOS.
+ *     mark. The OSC 633 handler in pty.ts republishes the raw payload on
+ *     the `commandRun` channel; `meta/agent-command.ts` subscribes and
+ *     derives both the global "recent agents" MRU and a per-terminal
+ *     agent-command stash (used to detect interpreter-shimmed agents like
+ *     npm-installed codex, where the kernel-level process name is `node`).
+ *     The shell hands us the command string verbatim, so kolu never needs
+ *     `/proc` (Linux-only) or `ps` spawning (slow). Works identically on
+ *     Linux and macOS.
  *
  *  Emission order is not load-bearing. Preexec fires while the shell is
  *  still at its prompt, so any reconcile triggered here would be gated
