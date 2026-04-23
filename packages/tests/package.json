@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@cucumber/cucumber": "^12.7.0",
+    "@cucumber/cucumber": "^12.8.1",
     "get-port": "^7.2.0",
     "playwright": "1.57.0",
     "tsx": "^4.19.0"
