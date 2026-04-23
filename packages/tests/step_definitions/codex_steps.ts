@@ -65,50 +65,45 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   await world.page.keyboard.press("Enter");
 }
 
+interface CodexMockOpts {
+  state: AgentLifecycleState;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+}
+
+async function mockCodexSession(
+  world: KoluWorld,
+  opts: CodexMockOpts,
+): Promise<void> {
+  const codexDir = getCodexDir();
+  if (!codexDir) throw new Error("KOLU_CODEX_DIR must be set");
+
+  cleanup();
+
+  mockCwd = fs.mkdtempSync(
+    path.join(os.tmpdir(), `kolu-codex-${process.pid}-`),
+  );
+  const fixture = writeCodexFixture({ codexDir, cwd: mockCwd, ...opts });
+  mockRolloutPath = fixture.rolloutPath;
+
+  await cdTerminalInto(world, mockCwd);
+  await startFakeAgent(world);
+}
+
 When(
   "a Codex session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
-    const codexDir = getCodexDir();
-    if (!codexDir) throw new Error("KOLU_CODEX_DIR must be set");
-
-    cleanup();
-
-    mockCwd = fs.mkdtempSync(
-      path.join(os.tmpdir(), `kolu-codex-${process.pid}-`),
-    );
-    const fixture = writeCodexFixture({
-      codexDir,
-      cwd: mockCwd,
-      state: state as AgentLifecycleState,
-    });
-    mockRolloutPath = fixture.rolloutPath;
-
-    await cdTerminalInto(this, mockCwd);
-    await startFakeAgent(this);
+    await mockCodexSession(this, { state: state as AgentLifecycleState });
   },
 );
 
 When(
   "a Codex session is mocked with state {string} and input tokens {int}",
   async function (this: KoluWorld, state: string, inputTokens: number) {
-    const codexDir = getCodexDir();
-    if (!codexDir) throw new Error("KOLU_CODEX_DIR must be set");
-
-    cleanup();
-
-    mockCwd = fs.mkdtempSync(
-      path.join(os.tmpdir(), `kolu-codex-${process.pid}-`),
-    );
-    const fixture = writeCodexFixture({
-      codexDir,
-      cwd: mockCwd,
+    await mockCodexSession(this, {
       state: state as AgentLifecycleState,
       inputTokens,
     });
-    mockRolloutPath = fixture.rolloutPath;
-
-    await cdTerminalInto(this, mockCwd);
-    await startFakeAgent(this);
   },
 );
 
