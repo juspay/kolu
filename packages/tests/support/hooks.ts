@@ -19,7 +19,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ChildProcess } from "node:child_process";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
 
@@ -49,6 +49,34 @@ const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
 process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
 process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
+
+/** Per-worker temp roots for the Codex and OpenCode mock harnesses —
+ *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
+ *  `state.cwd`, so the fixture DB rows carry a cwd that the scenario
+ *  also `cd`s into so `findSessionByDirectory` returns the mock row. */
+const codexDir = mkSubDir("codex");
+const opencodeDbDir = mkSubDir("opencode");
+const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
+process.env.KOLU_CODEX_DIR = codexDir;
+process.env.KOLU_OPENCODE_DB = opencodeDbPath;
+
+/** Fake agent binaries on PATH so typing `codex` or `opencode` in a
+ *  test terminal forks a long-lived foreground process whose basename
+ *  matches what `matchesAgent` expects. Copies of the system `sleep`
+ *  binary renamed to `codex` and `opencode`: node-pty's `.process`
+ *  accessor returns the basename of the execve path, so the kernel
+ *  reports the renamed binary and `readForegroundBasename()` satisfies
+ *  `matchesAgent(state, "codex"|"opencode")` without requiring the real
+ *  CLIs to be installed. `/bin/sleep` isn't stable across distros (NixOS
+ *  puts coreutils in /nix/store), so resolve via `command -v`. */
+const fakeBinDir = mkSubDir("bin");
+const sleepPath = execSync("command -v sleep", { encoding: "utf8" }).trim();
+for (const name of ["codex", "opencode"]) {
+  const target = path.join(fakeBinDir, name);
+  fs.copyFileSync(sleepPath, target);
+  fs.chmodSync(target, 0o755);
+}
+const fakeBinPath = `${fakeBinDir}${path.delimiter}${process.env.PATH ?? ""}`;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -176,6 +204,9 @@ BeforeAll(async function () {
           KOLU_STATE_DIR: koluStateDir,
           KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
           KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+          KOLU_CODEX_DIR: codexDir,
+          KOLU_OPENCODE_DB: opencodeDbPath,
+          PATH: fakeBinPath,
         },
       },
     );
