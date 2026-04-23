@@ -4,6 +4,7 @@
 // kolu-git); this module re-exports them and composes aggregate types.
 
 import { z } from "zod";
+import { match } from "ts-pattern";
 import { TaskProgressSchema } from "anyagent";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code";
 import { CodexInfoSchema } from "kolu-codex";
@@ -174,6 +175,14 @@ export type PanelSlot = z.infer<typeof PanelSlotSchema>;
 export const PanelEdgeSchema = z.enum(["left", "right", "bottom"]);
 export type PanelEdge = z.infer<typeof PanelEdgeSchema>;
 
+/** Iteration order for the three slots — declared once so client and server
+ *  walks stay in lockstep instead of repeating the literal in every loop. */
+export const ALL_PANEL_EDGES: readonly PanelEdge[] = [
+  "left",
+  "right",
+  "bottom",
+] as const;
+
 /** Per-terminal panels — at most one slot per edge. */
 export const TerminalPanelsSchema = z.object({
   left: PanelSlotSchema.optional(),
@@ -186,18 +195,16 @@ export type TerminalPanels = z.infer<typeof TerminalPanelsSchema>;
  *  uniqueness in both directions: the client de-dupes on insert (so a
  *  second click on "Open Inspector" surfaces the existing slot), and
  *  the server validates inbound `setPanels` payloads against the same
- *  key so a malformed RPC can't bypass the client's check. */
+ *  key so a malformed RPC can't bypass the client's check. `match` over
+ *  `switch` so a new variant added to `PanelContentSchema` fails compile
+ *  here until it's keyed. */
 export function panelContentKey(c: PanelContent): string {
-  switch (c.kind) {
-    case "inspector":
-      return "inspector";
-    case "code":
-      return `code:${c.mode}`;
-    case "terminal":
-      return `terminal:${c.id}`;
-    case "browser":
-      return `browser:${c.url}`;
-  }
+  return match(c)
+    .with({ kind: "inspector" }, () => "inspector")
+    .with({ kind: "code" }, (x) => `code:${x.mode}`)
+    .with({ kind: "terminal" }, (x) => `terminal:${x.id}`)
+    .with({ kind: "browser" }, (x) => `browser:${x.url}`)
+    .exhaustive();
 }
 
 /**

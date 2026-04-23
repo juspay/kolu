@@ -16,6 +16,7 @@
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import {
+  ALL_PANEL_EDGES,
   panelContentKey,
   type PanelContent,
   type PanelEdge,
@@ -70,7 +71,7 @@ function findContent(
   needle: PanelContent,
 ): { edge: PanelEdge; tabIdx: number } | null {
   const needleKey = panelContentKey(needle);
-  for (const edge of ["left", "right", "bottom"] as const) {
+  for (const edge of ALL_PANEL_EDGES) {
     const slot = panels[edge];
     if (!slot) continue;
     const idx = slot.tabs.findIndex((t) => panelContentKey(t) === needleKey);
@@ -245,7 +246,7 @@ export function useTerminalPanels() {
     const contentKey = panelContentKey(content);
     // First pass: drop any other tab anywhere that collides with the new
     // content, so the result respects per-tile uniqueness.
-    for (const e of ["left", "right", "bottom"] as const) {
+    for (const e of ALL_PANEL_EDGES) {
       const s = next[e];
       if (!s) continue;
       const filtered = s.tabs.filter((t, i) => {

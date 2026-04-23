@@ -4,9 +4,9 @@
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
 import {
+  ALL_PANEL_EDGES,
   panelContentKey,
   type InitialTerminalMetadata,
-  type PanelEdge,
   type TerminalId,
   type TerminalInfo,
   type TerminalMetadata,
@@ -280,11 +280,7 @@ function pruneTerminalReferencesFromPanels(deletedId: TerminalId): void {
     if (!panels) continue;
     const next: TerminalPanels = {};
     let changed = false;
-    for (const edge of [
-      "left",
-      "right",
-      "bottom",
-    ] as const satisfies readonly PanelEdge[]) {
+    for (const edge of ALL_PANEL_EDGES) {
       const slot = panels[edge];
       if (!slot) continue;
       const filtered = slot.tabs.filter(
@@ -345,11 +341,7 @@ export function setCanvasLayout(
  *  `panelContentKey` helper in `kolu-common`. */
 function findDuplicatePanelContent(panels: TerminalPanels): string | null {
   const seen = new Set<string>();
-  for (const edge of [
-    "left",
-    "right",
-    "bottom",
-  ] as const satisfies readonly PanelEdge[]) {
+  for (const edge of ALL_PANEL_EDGES) {
     const slot = panels[edge];
     if (!slot) continue;
     for (const tab of slot.tabs) {

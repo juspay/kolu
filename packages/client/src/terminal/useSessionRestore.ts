@@ -12,18 +12,16 @@ import { toast } from "solid-sonner";
 import { client } from "../rpc/rpc";
 import { useSavedSession } from "../settings/useSavedSession";
 import { lifecycle } from "../rpc/rpc";
-import type {
-  InitialTerminalMetadata,
-  PanelContent,
-  PanelEdge,
-  TerminalId,
-  TerminalInfo,
-  TerminalPanels,
-  SavedSession,
+import {
+  ALL_PANEL_EDGES,
+  type InitialTerminalMetadata,
+  type PanelContent,
+  type TerminalId,
+  type TerminalInfo,
+  type TerminalPanels,
+  type SavedSession,
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
-
-const ALL_EDGES: readonly PanelEdge[] = ["left", "right", "bottom"] as const;
 
 /** Rewrite a `TerminalPanels` blob so every `{ kind: "terminal", id }` tab
  *  points at the post-restore id. Tabs whose old id has no entry in the
@@ -36,7 +34,7 @@ function remapPanels(
   if (!panels) return undefined;
   const out: TerminalPanels = {};
   let any = false;
-  for (const edge of ALL_EDGES) {
+  for (const edge of ALL_PANEL_EDGES) {
     const slot = panels[edge];
     if (!slot) continue;
     const tabs: PanelContent[] = slot.tabs.flatMap((t): PanelContent[] => {

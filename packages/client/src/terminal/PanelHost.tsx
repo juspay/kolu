@@ -7,17 +7,16 @@
 
 import { type Component, createSignal, For, Show } from "solid-js";
 import type { ITheme } from "@xterm/xterm";
-import type {
-  CodeTabView,
-  PanelEdge,
-  PanelSlot,
-  TerminalId,
-  TerminalMetadata,
+import {
+  ALL_PANEL_EDGES,
+  type CodeTabView,
+  type PanelEdge,
+  type PanelSlot,
+  type TerminalId,
+  type TerminalMetadata,
 } from "kolu-common";
 import PanelTabBar from "./PanelTabBar";
 import PanelContentRenderer from "./PanelContentRenderer";
-
-const ALL_EDGES: readonly PanelEdge[] = ["left", "right", "bottom"] as const;
 
 const PanelHost: Component<{
   /** The tile this slot is attached to. */
@@ -106,7 +105,7 @@ const PanelHost: Component<{
               style={{ left: `${m().x}px`, top: `${m().y}px` }}
               onClick={(e) => e.stopPropagation()}
             >
-              <For each={ALL_EDGES.filter((e) => e !== props.edge)}>
+              <For each={ALL_PANEL_EDGES.filter((e) => e !== props.edge)}>
                 {(target) => (
                   <button
                     data-testid={`panel-move-${target}`}
