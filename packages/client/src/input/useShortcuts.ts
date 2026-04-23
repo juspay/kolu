@@ -12,19 +12,17 @@ interface ShortcutDeps {
   /** Terminal IDs in most-recently-used order; used for Alt+Tab / Ctrl+Tab cycling. */
   mruOrder: Accessor<TerminalId[]>;
   handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  /** Create a sub-terminal under `parentId` and add it as a tab in the
+   *  parent's bottom panel slot. Bound to the create-sub-terminal keybind. */
+  handleAddSubTerminalTab: (parentId: TerminalId) => void;
   openNewTerminalMenu: () => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
-  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
-  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleShuffleTheme: () => void;
   handleExportSessionAsPdf: () => void;
   handleScreenshotTerminal: () => void;
-  toggleRightPanel: () => void;
   canvasCenterActive: () => void;
   toggleRecordingPause: () => void;
 }
@@ -142,26 +140,7 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
     const id = deps.activeId();
-    if (id)
-      deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.toggleSubPanel(id);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, 1);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, -1);
+    if (id) deps.handleAddSubTerminalTab(id);
     return true;
   }
 
@@ -177,11 +156,6 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.screenshotTerminal.keybind)) {
     deps.handleScreenshotTerminal();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
-    deps.toggleRightPanel();
     return true;
   }
 

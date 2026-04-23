@@ -140,10 +140,47 @@ export const CanvasLayoutSchema = z.object({
 });
 export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
 
-export const SubPanelStateSchema = z.object({
+/** Sub-view of the Code tab: local/branch diff modes or the file browser.
+ *  Defined here so `PanelContentSchema` can refer to it before the
+ *  preferences section. */
+export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
+export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
+
+/** What lives in a single panel tab. Discriminated so illegal pairings
+ *  can't be represented. Each kind+key pair is unique within a tile —
+ *  e.g. one Inspector per tile, one Code+local per tile, one terminal
+ *  per `id`. The unified primitive enforces this on insert. */
+export const PanelContentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("inspector") }),
+  z.object({ kind: z.literal("code"), mode: CodeTabViewSchema }),
+  z.object({ kind: z.literal("terminal"), id: TerminalIdSchema }),
+  z.object({ kind: z.literal("browser"), url: z.string() }),
+]);
+export type PanelContent = z.infer<typeof PanelContentSchema>;
+export type PanelContentKind = PanelContent["kind"];
+
+/** A single panel slot — the UI region attached to one edge of a tile.
+ *  Holds N tabs of `PanelContent`, plus the visible-tab index, fractional
+ *  size (0..1 of the tile interior on its axis), and collapsed state. */
+export const PanelSlotSchema = z.object({
+  tabs: z.array(PanelContentSchema),
+  active: z.number().int().nonnegative(),
+  size: z.number(),
   collapsed: z.boolean(),
-  panelSize: z.number(),
 });
+export type PanelSlot = z.infer<typeof PanelSlotSchema>;
+
+/** Which edge of a tile a panel attaches to. */
+export const PanelEdgeSchema = z.enum(["left", "right", "bottom"]);
+export type PanelEdge = z.infer<typeof PanelEdgeSchema>;
+
+/** Per-terminal panels — at most one slot per edge. */
+export const TerminalPanelsSchema = z.object({
+  left: PanelSlotSchema.optional(),
+  right: PanelSlotSchema.optional(),
+  bottom: PanelSlotSchema.optional(),
+});
+export type TerminalPanels = z.infer<typeof TerminalPanelsSchema>;
 
 /**
  * Server-derived metadata — populated by providers from external state
@@ -181,8 +218,10 @@ export const TerminalClientMetadataSchema = z.object({
   sortOrder: z.number(),
   /** Canvas tile position/size — client-reported, used for session restore. */
   canvasLayout: CanvasLayoutSchema.optional(),
-  /** Sub-panel collapsed/size state — client-reported, used for session restore. */
-  subPanel: SubPanelStateSchema.optional(),
+  /** Per-terminal panels — left/right/bottom slots, each with tabs of
+   *  `PanelContent`. Client-reported via `setPanels`; persisted server-side
+   *  for session restore and multi-client sync. */
+  panels: TerminalPanelsSchema.optional(),
 });
 
 /**
@@ -223,10 +262,9 @@ export const TerminalSetCanvasLayoutInputSchema = z.object({
   layout: CanvasLayoutSchema,
 });
 
-export const TerminalSetSubPanelInputSchema = z.object({
+export const TerminalSetPanelsInputSchema = z.object({
   id: TerminalIdSchema,
-  collapsed: z.boolean(),
-  panelSize: z.number(),
+  panels: TerminalPanelsSchema,
 });
 
 export const SetActiveTerminalInputSchema = z.object({
@@ -239,7 +277,7 @@ export const SetActiveTerminalInputSchema = z.object({
 export const InitialTerminalMetadataSchema = z.object({
   themeName: z.string().optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
-  subPanel: SubPanelStateSchema.optional(),
+  panels: TerminalPanelsSchema.optional(),
 });
 
 export const TerminalCreateInputSchema = z
@@ -322,13 +360,8 @@ export const SavedTerminalSchema = z.object({
   themeName: z.string().optional(),
   /** Canvas tile position and size at save time. */
   canvasLayout: CanvasLayoutSchema.optional(),
-  /** Sub-panel state at save time (collapsed, size). */
-  subPanel: z
-    .object({
-      collapsed: z.boolean(),
-      panelSize: z.number(),
-    })
-    .optional(),
+  /** Per-terminal panels at save time. */
+  panels: TerminalPanelsSchema.optional(),
 });
 
 export const SavedSessionSchema = z.object({
@@ -341,26 +374,6 @@ export const SavedSessionSchema = z.object({
 // --- User preferences (server-side, shared with client) ---
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
-
-/** Sub-view of the Code tab: local/branch diff modes or the file browser. */
-export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
-export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
-
-/** Active tab of the right panel. A discriminated union so illegal pairings
- *  ("inspector with a code mode attached") can't be represented. The Inspector
- *  tab carries no sub-state; the Code tab carries its current mode. */
-export const RightPanelTabSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("inspector") }),
-  z.object({ kind: z.literal("code"), mode: CodeTabViewSchema }),
-]);
-export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
-export type RightPanelTabKind = RightPanelTab["kind"];
-
-export const RightPanelPrefsSchema = z.object({
-  collapsed: z.boolean(),
-  size: z.number(),
-  tab: RightPanelTabSchema,
-});
 
 export const PreferencesSchema = z.object({
   seenTips: z.array(z.string()),
@@ -378,7 +391,6 @@ export const PreferencesSchema = z.object({
    *  many terminals). `dom` forces DOM everywhere, eliminating the font-
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: z.enum(["auto", "webgl", "dom"]),
-  rightPanel: RightPanelPrefsSchema,
 });
 
 // --- Activity feed (server-derived, append + MRU evict) ---
@@ -390,12 +402,8 @@ export const ActivityFeedSchema = z.object({
   recentAgents: z.array(RecentAgentSchema),
 });
 
-/** Preference patch — top-level fields are optional; nested objects are deep-partial. */
-export const PreferencesPatchSchema = PreferencesSchema.omit({
-  rightPanel: true,
-})
-  .partial()
-  .extend({ rightPanel: RightPanelPrefsSchema.partial().optional() });
+/** Preference patch — top-level fields are optional. */
+export const PreferencesPatchSchema = PreferencesSchema.partial();
 
 // --- Derived types ---
 

@@ -1,12 +1,17 @@
 /** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
  *
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
- *  changes via the live subscriptions — no optimistic cache needed. */
+ *  changes via the live subscriptions — no optimistic cache needed.
+ *
+ *  The server prunes any panel-tab references to a killed terminal across
+ *  the surviving fleet, so the client doesn't have to walk every other
+ *  tile's `panels` itself when a terminal goes away — `setTerminalPanels`
+ *  republishes the affected metadata. */
 
 import { toast } from "solid-sonner";
 import { availableThemes, resolveThemeBgs, pickTheme } from "terminal-themes";
 import { client } from "../rpc/rpc";
-import { useSubPanel } from "./useSubPanel";
+import { useTerminalPanels } from "./useTerminalPanels";
 import { writeTextToClipboard } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { usePreferences } from "../settings/usePreferences";
@@ -23,19 +28,22 @@ export function useTerminalCrud(deps: {
   subscribeExit: (id: TerminalId) => void;
 }) {
   const { store } = deps;
-  const subPanel = useSubPanel();
+  const panels = useTerminalPanels();
   const { showTipOnce } = useTips();
   const { preferences } = usePreferences();
 
-  /** The terminal the user is currently interacting with —
-   *  the active sub-tab when a split has focus, otherwise the workspace root. */
+  /** The terminal the user is currently interacting with — if a non-main
+   *  panel slot has focus and its active tab is a terminal, that's the one;
+   *  otherwise the active tile itself. */
   function focusedTerminalId(): TerminalId | null {
-    const parentId = store.activeId();
-    if (parentId === null) return null;
-    const panel = subPanel.getSubPanel(parentId);
-    return !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
-      ? panel.activeSubTab
-      : parentId;
+    const tileId = store.activeId();
+    if (tileId === null) return null;
+    const focus = panels.getFocusEdge(tileId);
+    if (focus === "main") return tileId;
+    const slot = panels.getSlot(tileId, focus);
+    if (!slot) return tileId;
+    const active = slot.tabs[slot.active];
+    return active && active.kind === "terminal" ? active.id : tileId;
   }
 
   // --- Handlers ---
@@ -67,24 +75,22 @@ export function useTerminalCrud(deps: {
       );
   }
 
-  /** Remove a terminal and auto-switch if it was active. */
+  /** Remove a terminal and auto-switch if it was active. The server-side
+   *  `pruneTerminalReferencesFromPanels` already drops any tabs referencing
+   *  the dead id from other tiles' `panels`, so the client only needs to
+   *  promote orphan sub-terminals (if any) and update view-state. */
   function removeAndAutoSwitch(id: TerminalId) {
     const parentId = store.getMetadata(id)?.parentId;
-
     if (parentId) {
-      const subs = store.getSubTerminalIds(parentId).filter((x) => x !== id);
-      if (subs.length === 0) {
-        subPanel.collapsePanel(parentId);
-      } else {
-        const panel = subPanel.getSubPanel(parentId);
-        if (panel.activeSubTab === id) {
-          subPanel.setActiveSubTab(parentId, subs[0] ?? null);
-        }
-      }
+      // Sub-terminals don't carry their own `panels` slots in v1, but a
+      // future kind=terminal-with-its-own-panels would need a cleanup hook
+      // here. Today: just drop client-side runtime state.
+      panels.removeTerminalRuntime(id);
       return;
     }
 
-    // Top-level terminal — promote sub-terminals to top-level
+    // Top-level terminal — promote sub-terminals to top-level so the user
+    // doesn't lose access to them.
     const orphanIds = store.getSubTerminalIds(id);
     for (const subId of orphanIds) {
       void client.terminal
@@ -96,7 +102,7 @@ export function useTerminalCrud(deps: {
 
     const ids = store.terminalIds();
     const idx = ids.indexOf(id);
-    subPanel.removePanel(id);
+    panels.removeTerminalRuntime(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -108,8 +114,8 @@ export function useTerminalCrud(deps: {
    *  Returns the new terminal ID (for session restore mapping).
    *  `initial` carries client-owned metadata to seed atomically on the
    *  server — used by session restore so the first `terminal.list`
-   *  yield already carries the saved theme / canvas layout / sub-panel
-   *  state, closing the race with the canvas cascade effect (#642). */
+   *  yield already carries the saved theme / canvas layout / panels state,
+   *  closing the race with the canvas cascade effect (#642). */
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
@@ -135,7 +141,7 @@ export function useTerminalCrud(deps: {
         cwd,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
-        subPanel: initial?.subPanel,
+        panels: initial?.panels,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
@@ -147,16 +153,22 @@ export function useTerminalCrud(deps: {
     return info.id;
   }
 
-  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
+  /** Create a sub-terminal under `parentId`. Returns the new id; caller
+   *  decides what to do with it (typically: add it as a tab in the parent's
+   *  bottom panel via `useTerminalPanels.addTab`). Returns `null` on error
+   *  so callers can chain `.catch(() => null)` against the rejection. */
+  async function handleCreateSubTerminal(
+    parentId: TerminalId,
+    cwd?: string,
+  ): Promise<TerminalId> {
     const info = await client.terminal
       .create({ cwd, parentId })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
-    subPanel.setActiveSubTab(parentId, info.id);
-    subPanel.expandPanel(parentId);
     deps.subscribeExit(info.id);
+    return info.id;
   }
 
   async function handleKill(id: TerminalId) {

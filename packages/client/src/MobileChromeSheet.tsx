@@ -17,7 +17,6 @@ import { SettingsIcon } from "./ui/Icons";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import SettingsPopover from "./settings/SettingsPopover";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { TerminalId } from "kolu-common";
@@ -40,7 +39,6 @@ const MobileChromeSheet: Component<{
    *  by drag-down or overlay tap, both handled by Corvu. */
   onClose: () => void;
 }> = (props) => {
-  const rightPanel = useRightPanel();
   const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -157,21 +155,6 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
-        <button
-          data-testid="inspector-toggle"
-          class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-          classList={{
-            "bg-surface-3 text-fg": !rightPanel.collapsed(),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => {
-            rightPanel.togglePanel();
-            props.onClose();
-          }}
-          aria-label="Toggle inspector"
-        >
-          ⟳
-        </button>
       </div>
     </div>
   );

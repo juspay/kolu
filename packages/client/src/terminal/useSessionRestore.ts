@@ -1,17 +1,56 @@
-/** Session restore — hydration from server state, session restore handler. */
+/** Session restore — hydration from server state, session restore handler.
+ *
+ *  Sub-terminals are referenced by id from a parent's `panels` (the
+ *  `{ kind: "terminal", id }` variant). Restore creates fresh ids for every
+ *  saved terminal, so the parent's saved panels need an id remap before
+ *  they can be persisted; otherwise every terminal-kind tab would point at
+ *  a dead id and the server's prune step would drop it on the next
+ *  metadata write. */
 
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
-import { useSubPanel } from "./useSubPanel";
+import { client } from "../rpc/rpc";
 import { useSavedSession } from "../settings/useSavedSession";
 import { lifecycle } from "../rpc/rpc";
 import type {
   InitialTerminalMetadata,
+  PanelContent,
+  PanelEdge,
   TerminalId,
   TerminalInfo,
+  TerminalPanels,
   SavedSession,
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
+
+const ALL_EDGES: readonly PanelEdge[] = ["left", "right", "bottom"] as const;
+
+/** Rewrite a `TerminalPanels` blob so every `{ kind: "terminal", id }` tab
+ *  points at the post-restore id. Tabs whose old id has no entry in the
+ *  remap are dropped — that terminal didn't survive restore (e.g. its
+ *  saved `cwd` failed `handleCreate`). */
+function remapPanels(
+  panels: TerminalPanels | undefined,
+  oldToNew: Map<string, TerminalId>,
+): TerminalPanels | undefined {
+  if (!panels) return undefined;
+  const out: TerminalPanels = {};
+  let any = false;
+  for (const edge of ALL_EDGES) {
+    const slot = panels[edge];
+    if (!slot) continue;
+    const tabs: PanelContent[] = slot.tabs.flatMap((t): PanelContent[] => {
+      if (t.kind !== "terminal") return [t];
+      const mapped = oldToNew.get(t.id);
+      return mapped ? [{ kind: "terminal", id: mapped }] : [];
+    });
+    if (tabs.length === 0) continue;
+    const active = Math.min(slot.active, tabs.length - 1);
+    out[edge] = { ...slot, tabs, active };
+    any = true;
+  }
+  return any ? out : undefined;
+}
 
 export function useSessionRestore(deps: {
   store: TerminalStore;
@@ -23,10 +62,9 @@ export function useSessionRestore(deps: {
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
-  ) => Promise<void>;
+  ) => Promise<TerminalId>;
 }) {
   const { store } = deps;
-  const subPanel = useSubPanel();
   const serverSaved = useSavedSession();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -38,10 +76,6 @@ export function useSessionRestore(deps: {
   createEffect(() => {
     const existing = store.listSub();
     const fromServer = serverSaved.savedSession();
-    // Gate on the subscription having yielded at least once — `sub.pending()`
-    // flips false after the first yield (which may be the initial `null`
-    // snapshot when no session is saved). Without this gate we'd hydrate
-    // with a null before the server snapshot arrives and miss a restore prompt.
     if (existing === undefined || serverSaved.sub.pending()) return;
     if (hydrated) return;
     hydrated = true;
@@ -56,32 +90,11 @@ export function useSessionRestore(deps: {
     existing: TerminalInfo[],
     serverActiveId: string | null,
   ) {
-    // Canvas layouts live on metadata — no client-side seeding needed.
-    // Seed sub-panel state from server metadata.
-    for (const t of existing) {
-      if (t.meta.subPanel) {
-        subPanel.seedPanel(t.id, t.meta.subPanel);
-      }
-    }
-
-    // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs: Record<TerminalId, TerminalId[]> = {};
-    for (const t of existing) {
-      if (t.meta.parentId) {
-        (subs[t.meta.parentId] ??= []).push(t.id);
-      }
-    }
-    for (const [parentId, subIds] of Object.entries(subs)) {
-      const panel = subPanel.getSubPanel(parentId);
-      if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
-        subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
-      }
-    }
+    // Canvas layouts and panels both live on metadata — no client-side
+    // seeding needed; the metadata subscription delivers them as the tile
+    // mounts.
 
     // Prefer the server-persisted active terminal; fall back to first in order.
-    // `store.activeId()` starts as null after refresh (lost makePersisted in
-    // #554), so on refresh the server snapshot is the only source of truth
-    // for "which terminal was active".
     const topLevel = existing
       .filter((t) => !t.meta.parentId)
       .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
@@ -104,18 +117,6 @@ export function useSessionRestore(deps: {
   // Re-fetch saved session when all terminals are killed mid-session,
   // OR when the server pushes a fresh saved-session value while we're
   // already showing the empty state.
-  //
-  // IMPORTANT: read `serverSaved.savedSession()` UNCONDITIONALLY so the
-  // reactive tracker subscribes to it on the effect's first run. Reading
-  // it inside the `if` body would skip tracking when the gate fails on
-  // the first run (initial mount before `hydrated` flips), and subsequent
-  // server pushes of a new saved-session would never re-fire this effect.
-  // That was the source of the chronic session-restore flake (#320, #440):
-  // when initial hydration raced with the snapshot, savedSession was set
-  // to null on the first effect and the reactive recovery here was dead.
-  //
-  // Gated on lifecycle: on a genuine server restart, the dim overlay is
-  // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     const fromServer = serverSaved.savedSession();
@@ -143,26 +144,35 @@ export function useSessionRestore(deps: {
       const subTerminals = session.terminals
         .filter((t) => t.parentId)
         .sort(bySortOrder);
-      // Seed each new terminal with its saved metadata atomically at create
-      // time — the server embeds it into the first `terminal.list` snapshot,
-      // so the canvas cascade effect sees the saved layout on its first run
-      // and skips the default-cascade branch (#642).
+      // Pass 1 — top-level terminals with their canvas/theme. Defer panels:
+      // they may reference sub-terminal ids that don't exist yet.
       for (const t of topLevel) {
         const newId = await deps.handleCreate(t.cwd, {
           themeName: t.themeName,
           canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
         });
         oldToNew.set(t.id, newId);
-        // Client-side sub-panel state (activeSubTab, focusTarget) isn't
-        // server-persisted — seed it locally so the restored panel reopens
-        // to the same tab. The server-persisted fields (collapsed, panelSize)
-        // ride along via handleCreate above.
-        if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
       }
+      // Pass 2 — sub-terminals under their (newly-keyed) parents.
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
-        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+        if (!newParentId) continue;
+        const newId = await deps.handleCreateSubTerminal(newParentId, t.cwd);
+        oldToNew.set(t.id, newId);
+      }
+      // Pass 3 — write each top-level terminal's `panels` with remapped
+      // terminal ids. Done after sub-terminal create so the remap covers
+      // every reference.
+      for (const t of topLevel) {
+        const remapped = remapPanels(t.panels, oldToNew);
+        if (!remapped) continue;
+        const newId = oldToNew.get(t.id);
+        if (!newId) continue;
+        await client.terminal
+          .setPanels({ id: newId, panels: remapped })
+          .catch((err: Error) =>
+            toast.error(`Failed to restore panels: ${err.message}`),
+          );
       }
       // Restore active terminal
       if (session.activeTerminalId) {

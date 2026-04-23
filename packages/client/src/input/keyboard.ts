@@ -114,21 +114,9 @@ export const SHORTCUTS = {
   zoomIn: { keybind: { key: "+", mod: true }, label: "Zoom in" },
   zoomOut: { keybind: { key: "-", mod: true }, label: "Zoom out" },
   zoomReset: { keybind: { key: "0", mod: true }, label: "Reset zoom" },
-  toggleSubPanel: {
-    keybind: { key: "`", code: "Backquote", ctrl: true },
-    label: "Toggle terminal split",
-  },
   createSubTerminal: {
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
-    label: "Split terminal",
-  },
-  nextSubTab: {
-    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    label: "Next split tab",
-  },
-  prevSubTab: {
-    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    label: "Previous split tab",
+    label: "Add sub-terminal tab to bottom panel",
   },
   shuffleTheme: {
     keybind: { key: "j", mod: true },
@@ -141,10 +129,6 @@ export const SHORTCUTS = {
   screenshotTerminal: {
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     label: "Screenshot terminal",
-  },
-  toggleRightPanel: {
-    keybind: { key: "b", code: "KeyB", mod: true },
-    label: "Toggle inspector panel",
   },
   canvasCenterActive: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },

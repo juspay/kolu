@@ -39,8 +39,8 @@ export const CONTEXTUAL_TIPS = {
 
 export const AMBIENT_TIPS: readonly Tip[] = [
   {
-    id: "amb-sub",
-    text: `${formatKeybind(SHORTCUTS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
+    id: "amb-panel-bottom",
+    text: `${formatKeybind(SHORTCUTS.createSubTerminal.keybind)} adds a sub-terminal tab to the tile's bottom panel`,
   },
   {
     id: "amb-pill-tree",
@@ -68,7 +68,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector",
-    text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
+    text: "Click a tile's right-panel icon to attach an Inspector with full terminal context",
   },
   {
     id: "amb-canvas-zoom",

@@ -4,7 +4,7 @@
  * Keep alphabetically sorted when adding new icons.
  */
 
-import { type Component, Show } from "solid-js";
+import { type Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
@@ -286,6 +286,68 @@ export const SplitToggleIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Rectangle with a left side filled — tile left-panel toggle. */
+export const PanelLeftIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="9" y1="3" x2="9" y2="21" />
+  </svg>
+);
+
+/** Rectangle with a right side filled — tile right-panel toggle. */
+export const PanelRightIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="15" y1="3" x2="15" y2="21" />
+  </svg>
+);
+
+/** Rectangle with a bottom divider — tile bottom-panel toggle (alias of
+ *  the legacy split-toggle shape, named to match the new edge vocabulary). */
+export const PanelBottomIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="3" y1="15" x2="21" y2="15" />
+  </svg>
+);
+
+/** Hamburger — mobile burger menu for opening attached panels. */
+export const BurgerIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <line x1="4" y1="6" x2="20" y2="6" />
+    <line x1="4" y1="12" x2="20" y2="12" />
+    <line x1="4" y1="18" x2="20" y2="18" />
+  </svg>
+);
+
 /** Camera icon — terminal screenshot button. */
 export const ScreenshotIcon: Component<{ class?: string }> = (props) => (
   <svg
@@ -479,25 +541,6 @@ export const RestoreIcon: Component<{ class?: string }> = (props) => (
   >
     <rect x="5" y="2.5" width="8.5" height="8.5" rx="1" />
     <rect x="2.5" y="5" width="8.5" height="8.5" rx="1" />
-  </svg>
-);
-
-/** Inspector toggle — square with a divider on the right edge.
- *  Filled-right when active to indicate the right panel is open. */
-export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
-  <svg
-    class="w-3.5 h-3.5"
-    fill="none"
-    stroke="currentColor"
-    viewBox="0 0 24 24"
-    stroke-width="2"
-    aria-hidden="true"
-  >
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <line x1="15" y1="3" x2="15" y2="21" />
-    <Show when={props.active}>
-      <rect x="15" y="3" width="6" height="18" rx="0" />
-    </Show>
   </svg>
 );
 

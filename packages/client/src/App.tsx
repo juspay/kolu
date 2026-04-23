@@ -33,7 +33,7 @@ import DiagnosticInfo from "./DiagnosticInfo";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Dialog from "@corvu/dialog";
 import EmptyState from "./EmptyState";
-import RightPanelLayout from "./right-panel/RightPanelLayout";
+import MobilePanelSheet from "./terminal/MobilePanelSheet";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
 import { exportSessionAsPdf } from "./exportSessionAsPdf";
@@ -47,10 +47,9 @@ import TransportOverlay from "./rpc/TransportOverlay";
 import { useTerminals } from "./terminal/useTerminals";
 import { useThemeManager } from "./useThemeManager";
 import { useShortcuts } from "./input/useShortcuts";
-import { useSubPanel } from "./terminal/useSubPanel";
+import { useTerminalPanels } from "./terminal/useTerminalPanels";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { useViewPosture } from "./canvas/useViewPosture";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import { pillTreeSwitchTip } from "./settings/tips";
@@ -73,8 +72,7 @@ const App: Component = () => {
     handleShuffleTheme,
   } = useThemeManager();
 
-  const subPanel = useSubPanel();
-  const rightPanel = useRightPanel();
+  const panels = useTerminalPanels();
   const { colorScheme, setColorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
   const posture = useViewPosture();
@@ -136,17 +134,21 @@ const App: Component = () => {
   const { initTipTriggers, startupTips, setStartupTips } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
-  /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
-  function handleToggleSubPanel(parentId: TerminalId) {
-    if (store.getSubTerminalIds(parentId).length === 0) {
-      void crud.handleCreateSubTerminal(
-        parentId,
-        store.activeMeta()?.cwd ?? undefined,
-      );
-    } else {
-      subPanel.togglePanel(parentId);
-    }
+  /** Create a sub-terminal under `parentId` and add it as a tab in that
+   *  parent's bottom panel slot. Wires the async terminal-create RPC to
+   *  the panels primitive. */
+  async function handleAddSubTerminalTab(parentId: TerminalId) {
+    const id = await crud.handleCreateSubTerminal(
+      parentId,
+      store.activeMeta()?.cwd ?? undefined,
+    );
+    if (id) panels.addTab(parentId, "bottom", { kind: "terminal", id });
   }
+
+  // Mobile burger sheet — opens a list of the active tile's panels. The
+  // sheet itself is rendered below; this signal carries the parent id.
+  const [mobileSheetParent, setMobileSheetParent] =
+    createSignal<TerminalId | null>(null);
 
   function handleExportSessionAsPdf() {
     const id = store.activeId();
@@ -180,24 +182,16 @@ const App: Component = () => {
     setActiveId: store.setActiveId,
     mruOrder: store.mruOrder,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    handleAddSubTerminalTab: (parentId) =>
+      void handleAddSubTerminalTab(parentId),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
     activeMeta: store.activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
-    toggleSubPanel: handleToggleSubPanel,
-    cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(
-        parentId,
-        store.getSubTerminalIds(parentId),
-        direction,
-      ),
     handleShuffleTheme,
     handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
-    toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
     toggleRecordingPause: () => useRecorder().togglePause(),
   });
@@ -241,13 +235,12 @@ const App: Component = () => {
     setActiveId: store.setActiveId,
     activeMeta: store.activeMeta,
     handleCreate: (cwd) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    handleAddSubTerminalTab: (parentId) =>
+      void handleAddSubTerminalTab(parentId),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
-    toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
@@ -263,7 +256,6 @@ const App: Component = () => {
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
-    toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
     toggleMinimap,
     isMobile,
@@ -294,16 +286,21 @@ const App: Component = () => {
         visible={true}
         focused={active()}
         theme={getTerminalTheme(id)}
+        themeName={
+          store.activeId() === id
+            ? activeThemeName()
+            : store.getMetadata(id)?.themeName
+        }
         searchOpen={active() && searchOpen()}
         onSearchOpenChange={setSearchOpen}
-        subTerminalIds={store.getSubTerminalIds(id)}
+        meta={store.getMetadata(id) ?? null}
         getMetadata={store.getMetadata}
         onCreateSubTerminal={(parentId, cwd) =>
-          void crud.handleCreateSubTerminal(parentId, cwd)
+          crud.handleCreateSubTerminal(parentId, cwd).catch(() => null)
         }
         onCloseTerminal={closeTerminal}
-        activeMeta={store.activeMeta()}
         onFocus={() => store.setActiveId(id)}
+        onThemeClick={() => openPaletteGroup("Theme")}
       />
     );
   }
@@ -317,15 +314,20 @@ const App: Component = () => {
         visible={visible()}
         focused={visible()}
         theme={getTerminalTheme(id)}
+        themeName={
+          store.activeId() === id
+            ? activeThemeName()
+            : store.getMetadata(id)?.themeName
+        }
         searchOpen={visible() && searchOpen()}
         onSearchOpenChange={setSearchOpen}
-        subTerminalIds={store.getSubTerminalIds(id)}
+        meta={store.getMetadata(id) ?? null}
         getMetadata={store.getMetadata}
         onCreateSubTerminal={(parentId, cwd) =>
-          void crud.handleCreateSubTerminal(parentId, cwd)
+          crud.handleCreateSubTerminal(parentId, cwd).catch(() => null)
         }
         onCloseTerminal={closeTerminal}
-        activeMeta={store.activeMeta()}
+        onThemeClick={() => openPaletteGroup("Theme")}
       />
     );
   }
@@ -501,11 +503,9 @@ const App: Component = () => {
               </div>
             }
           >
-            <RightPanelLayout
-              meta={store.activeMeta()}
-              themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Theme")}
-              contentClass={isMobile() ? "flex-col" : undefined}
+            <div
+              class="flex-1 min-h-0 min-w-0 flex overflow-hidden"
+              classList={{ "flex-col": isMobile() }}
             >
               {match(isMobile())
                 .with(true, () => (
@@ -536,7 +536,12 @@ const App: Component = () => {
                       <TileTitleActions
                         id={id}
                         onOpenPaletteGroup={openPaletteGroup}
-                        onToggleSubPanel={handleToggleSubPanel}
+                        onAddSubTerminalTab={(pid) =>
+                          void handleAddSubTerminalTab(pid)
+                        }
+                        onOpenMobilePanelSheet={(pid) =>
+                          setMobileSheetParent(pid)
+                        }
                         onOpenSearch={() => setSearchOpen(true)}
                         onScreenshot={handleScreenshotTerminal}
                       />
@@ -545,10 +550,16 @@ const App: Component = () => {
                   />
                 ))
                 .exhaustive()}
-            </RightPanelLayout>
+            </div>
           </Show>
         </Show>
       </div>
+      <MobilePanelSheet
+        parentId={mobileSheetParent()}
+        onClose={() => setMobileSheetParent(null)}
+        onOpenPaletteGroup={openPaletteGroup}
+        onAddSubTerminalTab={(pid) => void handleAddSubTerminalTab(pid)}
+      />
     </div>
   );
 };

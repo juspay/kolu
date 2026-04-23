@@ -16,7 +16,7 @@ import {
   killAllTerminals,
   setTerminalTheme,
   setCanvasLayout,
-  setSubPanelState,
+  setTerminalPanels,
   setActiveTerminalId,
   setTerminalParent,
   reorderTerminals,
@@ -83,7 +83,7 @@ export const appRouter = t.router({
       createTerminal(input.cwd, input.parentId, {
         themeName: input.themeName,
         canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
+        panels: input.panels,
       }),
     ),
     list: t.terminal.list.handler(async function* ({ signal }) {
@@ -112,12 +112,9 @@ export const appRouter = t.router({
       setCanvasLayout(input.id, input.layout);
     }),
 
-    setSubPanel: t.terminal.setSubPanel.handler(async ({ input }) => {
+    setPanels: t.terminal.setPanels.handler(async ({ input }) => {
       requireTerminal(input.id);
-      setSubPanelState(input.id, {
-        collapsed: input.collapsed,
-        panelSize: input.panelSize,
-      });
+      setTerminalPanels(input.id, input.panels);
     }),
 
     setActive: t.terminal.setActive.handler(async ({ input }) => {
@@ -268,15 +265,7 @@ export const appRouter = t.router({
     }),
     update: t.preferences.update.handler(async ({ input }) => {
       // Log only patched keys — values may carry user-identifying state.
-      log.info(
-        {
-          keys: Object.keys(input),
-          rightPanel: input.rightPanel
-            ? Object.keys(input.rightPanel)
-            : undefined,
-        },
-        "preferences update",
-      );
+      log.info({ keys: Object.keys(input) }, "preferences update");
       updatePreferences(input);
     }),
     test__set: t.preferences.test__set.handler(async ({ input }) => {

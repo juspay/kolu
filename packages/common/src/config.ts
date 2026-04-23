@@ -32,9 +32,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   activityAlerts: true,
   colorScheme: "dark",
   terminalRenderer: "auto",
-  rightPanel: {
-    collapsed: true,
-    size: 0.25,
-    tab: { kind: "inspector" },
-  },
 };
+
+/** Default fractional size for a newly-opened panel slot, on its axis
+ *  (left/right = horizontal split, bottom = vertical split). Matches the
+ *  prior right-panel + sub-panel defaults so the felt size is unchanged. */
+export const DEFAULT_PANEL_SIZE = 0.3;

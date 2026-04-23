@@ -5,9 +5,11 @@
 import { spawnPty, type PtyHandle } from "./pty.ts";
 import type {
   InitialTerminalMetadata,
+  PanelEdge,
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
+  TerminalPanels,
 } from "kolu-common";
 import { log } from "./log.ts";
 import {
@@ -68,7 +70,7 @@ export function snapshotSession(): {
       sortOrder: m.sortOrder,
       ...(m.themeName && { themeName: m.themeName }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
-      ...(m.subPanel && { subPanel: m.subPanel }),
+      ...(m.panels && { panels: m.panels }),
     };
   });
   return { terminals: snappedTerminals, activeTerminalId };
@@ -132,7 +134,7 @@ function publishSuffixChanges(): void {
 /** Create a new terminal, spawn a PTY process. `initial` seeds
  *  client-owned metadata onto `meta` before the first `emitListChanged()`,
  *  so the list snapshot already carries it — used by session restore
- *  to avoid racing post-hoc `setCanvasLayout` / `setTheme` / `setSubPanel`
+ *  to avoid racing post-hoc `setCanvasLayout` / `setTheme` / `setPanels`
  *  RPCs against the client's canvas-cascade effect (#642). */
 export function createTerminal(
   cwd?: string,
@@ -199,7 +201,7 @@ export function createTerminal(
   // first list snapshot carries these fields (see #642).
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-  if (initial?.subPanel) meta.subPanel = initial.subPanel;
+  if (initial?.panels) meta.panels = initial.panels;
   const entry: TerminalProcess = {
     info: {
       id,
@@ -260,12 +262,56 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.handle.dispose();
   cleanupClipboardDir(entry.clipboardDir);
   terminals.delete(id);
+  // Drop any panel tabs across the surviving fleet that referenced this
+  // terminal id — otherwise their slots render dangling tabs the user
+  // can't dismiss because the source terminal is gone.
+  pruneTerminalReferencesFromPanels(id);
   // Removing a terminal can resolve a collision — fan out metadata
   // republishes so the survivor's suffix clears.
   publishSuffixChanges();
   emitChanged();
   emitListChanged();
   return entry.info;
+}
+
+/** Scan every surviving terminal's panels for `{ kind: "terminal", id }`
+ *  references to the deleted id and drop those tabs. If a slot's last tab
+ *  drops, the slot itself is removed. Republishes metadata for any
+ *  terminal whose panels changed. */
+function pruneTerminalReferencesFromPanels(deletedId: TerminalId): void {
+  for (const [hostId, entry] of terminals.entries()) {
+    const panels = entry.info.meta.panels;
+    if (!panels) continue;
+    const next: TerminalPanels = {};
+    let changed = false;
+    for (const edge of [
+      "left",
+      "right",
+      "bottom",
+    ] as const satisfies readonly PanelEdge[]) {
+      const slot = panels[edge];
+      if (!slot) continue;
+      const filtered = slot.tabs.filter(
+        (t) => !(t.kind === "terminal" && t.id === deletedId),
+      );
+      if (filtered.length === slot.tabs.length) {
+        next[edge] = slot;
+        continue;
+      }
+      changed = true;
+      if (filtered.length === 0) continue;
+      const active = Math.min(slot.active, filtered.length - 1);
+      next[edge] = { ...slot, tabs: filtered, active };
+    }
+    if (!changed) continue;
+    const hasAnySlot = next.left || next.right || next.bottom;
+    if (hasAnySlot) {
+      entry.info.meta.panels = next;
+    } else {
+      entry.info.meta.panels = undefined;
+    }
+    publishForTerminal("metadata", hostId, { ...entry.info.meta });
+  }
 }
 
 /** Set or clear a terminal's parent relationship. Assigns sortOrder for the new group. */
@@ -297,15 +343,18 @@ export function setCanvasLayout(
   });
 }
 
-/** Store a terminal's sub-panel state (client-reported).
- *  Same approach: mutate metadata directly, session auto-save only. */
-export function setSubPanelState(
+/** Store a terminal's panels (client-reported).
+ *  Mutate metadata directly and republish so other clients see the change.
+ *  Empty panels (`{}`) collapse to `undefined` so the wire stays minimal. */
+export function setTerminalPanels(
   id: TerminalId,
-  state: { collapsed: boolean; panelSize: number },
+  panels: TerminalPanels,
 ): void {
   const entry = terminals.get(id);
   if (!entry) return;
-  entry.info.meta.subPanel = state;
+  const hasAnySlot = panels.left || panels.right || panels.bottom;
+  entry.info.meta.panels = hasAnySlot ? panels : undefined;
+  publishForTerminal("metadata", id, { ...entry.info.meta });
   emitChanged();
 }
 

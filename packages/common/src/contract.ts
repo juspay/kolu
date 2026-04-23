@@ -12,7 +12,7 @@ import {
   TerminalSendInputSchema,
   TerminalSetThemeInputSchema,
   TerminalSetCanvasLayoutInputSchema,
-  TerminalSetSubPanelInputSchema,
+  TerminalSetPanelsInputSchema,
   SetActiveTerminalInputSchema,
   TerminalAttachInputSchema,
   TerminalAttachOutputSchema,
@@ -55,7 +55,7 @@ export const contract = oc.router({
     setCanvasLayout: oc
       .input(TerminalSetCanvasLayoutInputSchema)
       .output(z.void()),
-    setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
+    setPanels: oc.input(TerminalSetPanelsInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
     attach: oc
       .input(TerminalAttachInputSchema)
@@ -106,7 +106,7 @@ export const contract = oc.router({
   preferences: {
     // Stream user preferences. Yields current value immediately, then on each change.
     get: oc.output(eventIterator(PreferencesSchema)),
-    // Partial update — patch fields into current preferences. rightPanel is deep-merged.
+    // Partial update — patch fields into current preferences.
     update: oc.input(PreferencesPatchSchema).output(z.void()),
     // Reset preferences (test-only: seed defaults between scenarios)
     test__set: oc.input(PreferencesSchema).output(z.void()),

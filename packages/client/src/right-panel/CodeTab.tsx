@@ -42,7 +42,6 @@ import type {
 } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { usePreferences } from "../settings/usePreferences";
-import { useRightPanel } from "./useRightPanel";
 import {
   DiffLocalIcon,
   DiffBranchIcon,
@@ -118,20 +117,18 @@ function entriesToNodes(entries: FsListDirOutput["entries"]): TreeNode[] {
   );
 }
 
-const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+const CodeTab: Component<{
+  meta: TerminalMetadata | null;
+  /** Active sub-view, threaded through from the panel host so it survives
+   *  panel re-mount and round-trips to the server as part of the
+   *  `{ kind: "code", mode }` PanelContent variant. */
+  mode: CodeTabView;
+  onModeChange: (mode: CodeTabView) => void;
+}> = (props) => {
   const { preferences } = usePreferences();
-  const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  // Active sub-view lives inside the `code` variant of rightPanel.tab, so
-  // it survives panel close/reopen, pin/unpin, and page reload. CodeTab
-  // only mounts when the Code tab is active (RightPanel.tsx dispatches on
-  // tab.kind), so the non-"code" branch below is unreachable — the fallback
-  // exists only to satisfy the type narrower.
-  const view = (): CodeTabView => {
-    const tab = rightPanel.activeTab();
-    return tab.kind === "code" ? tab.mode : "local";
-  };
-  const setView = rightPanel.setCodeMode;
+  const view = (): CodeTabView => props.mode;
+  const setView = (mode: CodeTabView) => props.onModeChange(mode);
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
 

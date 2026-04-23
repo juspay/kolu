@@ -57,22 +57,7 @@ const sub = createRoot(() => {
  *  (for instant UI response), then persisted to the server. The server's
  *  echo is ignored — see the module comment for why. */
 function updatePreferences(patch: PreferencesPatch) {
-  const { rightPanel: rpPatch, ...rest } = patch;
-  if (Object.keys(rest).length > 0) setPrefs(rest);
-  if (rpPatch) {
-    const { tab, ...rpRest } = rpPatch;
-    // Scalar fields of rightPanel (collapsed, size) go through the
-    // normal merge — any path form works for primitives.
-    if (Object.keys(rpRest).length > 0) {
-      setPrefs("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);
-    }
-    // `tab` is a discriminated-union object. The 3-arg path form deep-merges
-    // an object value (leaving stale fields from the old variant), and the
-    // 2-arg merge form doesn't trigger fine-grained reactivity on nested
-    // readers like `tab.mode` — verified empirically. `reconcile` both
-    // REPLACES wholesale and fires proper reactivity.
-    if (tab !== undefined) setPrefs("rightPanel", "tab", reconcile(tab));
-  }
+  if (Object.keys(patch).length > 0) setPrefs(patch);
   void client.preferences
     .update(patch)
     .catch((err: Error) =>

@@ -26,11 +26,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.zoomIn,
   SHORTCUTS.zoomOut,
   SHORTCUTS.zoomReset,
-  SHORTCUTS.toggleSubPanel,
   SHORTCUTS.createSubTerminal,
-  SHORTCUTS.nextSubTab,
-  SHORTCUTS.prevSubTab,
-  SHORTCUTS.toggleRightPanel,
   SHORTCUTS.canvasCenterActive,
   SHORTCUTS.shortcutsHelp,
 ];

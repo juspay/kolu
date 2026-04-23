@@ -42,13 +42,13 @@ export interface CommandDeps {
   setActiveId: (id: TerminalId) => void;
   activeMeta: Accessor<TerminalMetadata | null>;
   handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  /** Create a sub-terminal and add it as a tab in the parent's bottom
+   *  panel slot. Bound to the "Split terminal" palette entry. */
+  handleAddSubTerminalTab: (parentId: TerminalId) => void;
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportSessionAsPdf: () => void;
   handleScreenshotTerminal: () => void;
-  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
@@ -58,8 +58,6 @@ export interface CommandDeps {
   setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
-  // Right panel
-  toggleRightPanel: () => void;
   // Canvas — desktop only (always active there); hidden on mobile where
   // the canvas isn't mounted at all.
   canvasCenterActive: () => void;
@@ -133,18 +131,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             onSelect: () => deps.handleClose(),
           },
           {
-            name: "Toggle terminal split",
-            keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => deps.toggleSubPanel(deps.activeId()!),
-          },
-          {
-            name: "Split terminal",
+            name: "Add sub-terminal tab",
             keybind: SHORTCUTS.createSubTerminal.keybind,
-            onSelect: () =>
-              deps.handleCreateSubTerminal(
-                deps.activeId()!,
-                deps.activeMeta()?.cwd,
-              ),
+            onSelect: () => deps.handleAddSubTerminalTab(deps.activeId()!),
           },
           {
             name: "Copy terminal text",
@@ -162,11 +151,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           },
         ]
       : []),
-    {
-      name: "Toggle inspector panel",
-      keybind: SHORTCUTS.toggleRightPanel.keybind,
-      onSelect: () => deps.toggleRightPanel(),
-    },
     ...(!deps.isMobile()
       ? [
           {

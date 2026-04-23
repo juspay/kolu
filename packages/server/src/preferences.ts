@@ -22,19 +22,10 @@ export function getPreferences(): Preferences {
   return store.get("preferences");
 }
 
-/** Merge a partial update into preferences and publish. `rightPanel` is
- *  deep-merged so callers can patch a single nested field without supplying
- *  the rest of the object. */
+/** Merge a partial update into preferences and publish. */
 export function updatePreferences(patch: PreferencesPatch): void {
   const current = store.get("preferences");
-  const { rightPanel: rpPatch, ...rest } = patch;
-  const next: Preferences = {
-    ...current,
-    ...rest,
-    ...(rpPatch !== undefined && {
-      rightPanel: { ...current.rightPanel, ...rpPatch },
-    }),
-  };
+  const next: Preferences = { ...current, ...patch };
   store.set("preferences", next);
   publishSystem("preferences:changed", next);
 }

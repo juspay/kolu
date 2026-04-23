@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.17.0";
+const SCHEMA_VERSION = "1.18.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -134,33 +134,40 @@ export const store = new Conf<PersistedState>({
       });
     },
     // rightPanel nested object replaces flat rightPanelCollapsed/rightPanelSize — discard old flat fields, use default rightPanel.
+    // (1.18.0 dropped `rightPanel` from preferences, so the seed value is
+    // an inline literal here rather than `DEFAULT_PREFERENCES.rightPanel`.)
     "1.7.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as
         | Record<string, unknown>
         | undefined;
-      const { rightPanelCollapsed, rightPanelSize, ...rest } = current ?? {};
+      const {
+        rightPanelCollapsed: _rpc,
+        rightPanelSize: _rps,
+        ...rest
+      } = current ?? {};
       store.set("preferences", {
         ...DEFAULT_PREFERENCES,
         ...rest,
-        rightPanel: DEFAULT_PREFERENCES.rightPanel,
-      });
+        rightPanel: { collapsed: true, size: 0.25, tab: { kind: "inspector" } },
+      } as unknown as Preferences);
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
     // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
     // Cast through `unknown` because on-disk tab predates both the current
-    // union and the older enum shape.
+    // union and the older enum shape — and `rightPanel` itself was dropped
+    // from `PreferencesSchema` in 1.18.0, so any read here goes through
+    // `Record<string, unknown>` to keep the historical migration intact.
     "1.8.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (!rp) return;
+      const tab = rp.tab as unknown as string;
       const staleTab = tab !== "inspector" && tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
-          rightPanel: {
-            ...current.rightPanel,
-            tab: "inspector" as unknown as typeof current.rightPanel.tab,
-          },
-        });
+          rightPanel: { ...rp, tab: "inspector" },
+        } as unknown as Preferences);
       }
     },
     // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
@@ -169,19 +176,16 @@ export const store = new Conf<PersistedState>({
     // on-disk value at this migration point is still a flat string, not
     // the discriminated union introduced in 1.13.0.
     "1.9.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (!rp) return;
+      const tab = rp.tab as unknown as string;
       const next = tab === "review" ? "diff" : tab;
       const valid = next === "inspector" || next === "diff";
       store.set("preferences", {
         ...current,
-        rightPanel: {
-          ...current.rightPanel,
-          tab: (valid
-            ? next
-            : "inspector") as unknown as typeof current.rightPanel.tab,
-        },
-      });
+        rightPanel: { ...rp, tab: valid ? next : "inspector" },
+      } as unknown as Preferences);
     },
     // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
     // semantics changed under the hood — "shuffle" now uses a perceptual
@@ -204,14 +208,13 @@ export const store = new Conf<PersistedState>({
     },
     // rightPanel.pinned added — default to true (docked) for existing users.
     "1.11.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      if (
-        (current.rightPanel as Record<string, unknown>).pinned === undefined
-      ) {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (rp && rp.pinned === undefined) {
         store.set("preferences", {
           ...current,
-          rightPanel: { ...current.rightPanel, pinned: true },
-        });
+          rightPanel: { ...rp, pinned: true },
+        } as unknown as Preferences);
       }
     },
     // canvasMode preference added — default to false (focus mode).
@@ -241,8 +244,9 @@ export const store = new Conf<PersistedState>({
     // `null` slips through and falls into the inspector default, which is
     // the right recovery for a corrupt tab value.
     "1.13.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const rp = current.rightPanel as Record<string, unknown>;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (!rp) return;
       if (rp.tab !== null && typeof rp.tab === "object") return;
       const tab =
         rp.tab === "diff"
@@ -251,8 +255,8 @@ export const store = new Conf<PersistedState>({
       const { codeMode: _codeMode, tab: _tab, ...rest } = rp;
       store.set("preferences", {
         ...current,
-        rightPanel: { ...rest, tab } as typeof current.rightPanel,
-      });
+        rightPanel: { ...rest, tab },
+      } as unknown as Preferences);
     },
     // terminalRenderer preference added — default to "auto" (existing behavior:
     // WebGL on focused+visible tile, DOM elsewhere).
@@ -279,14 +283,36 @@ export const store = new Conf<PersistedState>({
     // pin/overlay toggle (1.11.0) is gone. Strip the field from disk so
     // the 1.17.0 preferences shape matches the schema exactly.
     "1.17.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const rp = current.rightPanel as Record<string, unknown>;
-      if (rp.pinned !== undefined) {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (rp && rp.pinned !== undefined) {
         const { pinned: _pinned, ...rest } = rp;
         store.set("preferences", {
           ...current,
-          rightPanel: rest as typeof current.rightPanel,
-        });
+          rightPanel: rest,
+        } as unknown as Preferences);
+      }
+    },
+    // Right panel and sub-panel state collapse into per-terminal `panels`
+    // on `TerminalMetadata`. The canvas-level `preferences.rightPanel`
+    // singleton goes away; per-parent `subPanel` on saved terminals goes
+    // with it. Discard the obsolete state — the user opted into a fresh
+    // start rather than a per-edge migration that would have to guess
+    // which side the inspector belonged on. Existing tile positions
+    // (`canvasLayout`) and themes (`themeName`) are preserved.
+    "1.18.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const { rightPanel: _rightPanel, ...rest } = current;
+      store.set("preferences", rest as Preferences);
+      const session = store.get("session") as {
+        terminals?: Array<Record<string, unknown>>;
+      } | null;
+      if (session?.terminals) {
+        const stripped = session.terminals.map(({ subPanel: _sub, ...t }) => t);
+        store.set("session", {
+          ...session,
+          terminals: stripped,
+        } as unknown as PersistedState["session"]);
       }
     },
   },
