@@ -1,10 +1,11 @@
 /**
- * Clipboard bridge: browser clipboard → PTY via server-side shim scripts.
+ * Clipboard bridge: browser clipboard → PTY image-paste inputs.
  *
- * Claude Code reads images from the system clipboard via xclip/wl-paste
- * when the user presses Ctrl+V. In a web terminal, the server has no
- * access to the browser's clipboard. This module manages per-terminal
- * clipboard data directories that Nix-provided shim scripts read from.
+ * In a web terminal, the server has no access to the browser's clipboard.
+ * This module persists pasted browser images into a per-terminal directory,
+ * then translates that saved image into the PTY input expected by the
+ * foreground terminal app: Claude reads from xclip/wl-paste shims on raw
+ * Ctrl+V, while Codex attaches a bracketed-pasted local image path.
  *
  * The shim scripts themselves are packaged as Nix derivations
  * (writeShellScriptBin) and their bin directory is passed via the
