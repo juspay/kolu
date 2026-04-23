@@ -24,6 +24,7 @@ import {
   updateCodexRollout,
 } from "../support/agent-mock-codex.ts";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
+import { cleanupMockDatabase } from "../support/mock-fs.ts";
 
 const getCodexDir = () => process.env.KOLU_CODEX_DIR;
 
@@ -40,20 +41,7 @@ function cleanup() {
   }
   mockRolloutPath = null;
   const codexDir = getCodexDir();
-  const dbPath = codexDir && path.join(codexDir, "state_5.sqlite");
-  if (dbPath && fs.existsSync(dbPath)) {
-    try {
-      fs.unlinkSync(dbPath);
-      for (const suffix of ["-wal", "-shm"]) {
-        const sidecar = dbPath + suffix;
-        if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
-      }
-    } catch {
-      // Best-effort — the file may be transiently locked by the
-      // server's reader connection; the next test's fixture write will
-      // overwrite in place anyway.
-    }
-  }
+  if (codexDir) cleanupMockDatabase(path.join(codexDir, "state_5.sqlite"));
 }
 
 After({ tags: "@codex-mock" }, function () {

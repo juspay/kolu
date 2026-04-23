@@ -20,6 +20,7 @@ import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
+import { cleanupMockDatabase } from "../support/mock-fs.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
 
@@ -31,17 +32,7 @@ function cleanup() {
   }
   mockCwd = null;
   const dbPath = getOpenCodeDb();
-  if (dbPath && fs.existsSync(dbPath)) {
-    try {
-      fs.unlinkSync(dbPath);
-      for (const suffix of ["-wal", "-shm"]) {
-        const sidecar = dbPath + suffix;
-        if (fs.existsSync(sidecar)) fs.unlinkSync(sidecar);
-      }
-    } catch {
-      // Transient lock — the next fixture write overwrites in place.
-    }
-  }
+  if (dbPath) cleanupMockDatabase(dbPath);
 }
 
 After({ tags: "@opencode-mock" }, function () {
