@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { render } from "solid-js/web";
 import { MetaProvider } from "@solidjs/meta";
+import { Router } from "@solidjs/router";
 import App from "./App";
 import "./index.css";
 
@@ -21,7 +22,9 @@ if (import.meta.env.DEV) {
 render(
   () => (
     <MetaProvider>
-      <App />
+      <Router>
+        <App />
+      </Router>
     </MetaProvider>
   ),
   document.body,

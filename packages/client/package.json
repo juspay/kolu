@@ -23,6 +23,7 @@
     "@solid-primitives/resize-observer": "^2.1.5",
     "@solid-primitives/storage": "^4.3.4",
     "@solidjs/meta": "^0.29.4",
+    "@solidjs/router": "^0.16.1",
     "@thisbeyond/solid-dnd": "^0.7.5",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
@@ -42,6 +43,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
+    "jsdom": "^29.0.2",
     "kolu-common": "workspace:*",
     "tailwindcss": "^4.1.0",
     "terminal-themes": "workspace:*",

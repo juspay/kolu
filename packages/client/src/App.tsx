@@ -44,6 +44,7 @@ import { useRecorder } from "./recorder/useRecorder";
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
+import AppRoutes from "./AppRoutes";
 import { useTerminals } from "./terminal/useTerminals";
 import { useThemeManager } from "./useThemeManager";
 import { useShortcuts } from "./input/useShortcuts";
@@ -333,6 +334,116 @@ const App: Component = () => {
   const showEmpty = () =>
     !session.isLoading() && store.terminalIds().length === 0;
 
+  const WorkspacePage: Component = () => (
+    <>
+      {/* Desktop chrome — docked top bar carrying pill tree, identity,
+       *  and global controls. Mobile has its own pull-down sheet (see
+       *  MobileTileView) and does not render this band. */}
+      <Show when={!isMobile()}>
+        <ChromeBar
+          status={wsStatus()}
+          onOpenPalette={() => openPalette()}
+          pillTree={
+            <PillTree
+              groups={pillGroups()}
+              onSelect={(id) => {
+                store.setActiveId(id);
+                if (!posture.maximized()) {
+                  const layout = store.getMetadata(id)?.canvasLayout;
+                  if (layout) canvasViewport.centerOnTile(layout);
+                }
+              }}
+              onCreate={() => openPaletteGroup("New terminal")}
+            />
+          }
+        />
+      </Show>
+      {/* relative: anchor for overlay panels.
+       *  --active-terminal-{bg,fg} published here so child components
+       *  can read them via CSS without prop drilling. The fg lets sub-
+       *  components re-tune text tiers against the terminal theme. */}
+      <div
+        class="relative flex flex-1 min-h-0"
+        style={{
+          "--active-terminal-bg":
+            activeTheme().background ?? "var(--color-surface-1)",
+          "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
+        }}
+      >
+        <Show
+          when={!session.isLoading()}
+          fallback={
+            <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
+              Connecting...
+            </div>
+          }
+        >
+          <Show
+            when={!showEmpty()}
+            fallback={
+              <div
+                data-testid="canvas-container"
+                class="relative flex-1 min-h-0 canvas-grid-bg"
+              >
+                <CanvasWatermark text={appTitle()} />
+                <EmptyState
+                  savedSession={session.savedSession() ?? undefined}
+                  onRestore={() => void session.handleRestoreSession()}
+                />
+              </div>
+            }
+          >
+            <RightPanelLayout
+              meta={store.activeMeta()}
+              themeName={activeThemeName()}
+              onThemeClick={() => openPaletteGroup("Theme")}
+              contentClass={isMobile() ? "flex-col" : undefined}
+            >
+              {match(isMobile())
+                .with(true, () => (
+                  <MobileTileView
+                    orderedIds={orderedIds()}
+                    groups={pillGroups()}
+                    status={wsStatus()}
+                    appTitle={appTitle()}
+                    onOpenPalette={() => openPalette()}
+                    renderBody={renderMobileTileBody}
+                    bottomBar={<MobileKeyBar activeId={store.activeId} />}
+                  />
+                ))
+                .with(false, () => (
+                  <TerminalCanvas
+                    tileIds={store.terminalIds()}
+                    watermark={appTitle()}
+                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                    onLayoutChange={(id, layout) =>
+                      crud.setCanvasLayout(id, layout)
+                    }
+                    onSelect={(id) => store.setActiveId(id)}
+                    onClose={(id) => closeTerminal(id)}
+                    renderTileTitle={(id) => (
+                      <TerminalMeta info={store.getDisplayInfo(id)} />
+                    )}
+                    renderTileTitleActions={(id) => (
+                      <TileTitleActions
+                        id={id}
+                        onOpenPaletteGroup={openPaletteGroup}
+                        onToggleSubPanel={handleToggleSubPanel}
+                        onOpenSearch={() => setSearchOpen(true)}
+                        onScreenshot={handleScreenshotTerminal}
+                      />
+                    )}
+                    renderTileBody={renderCanvasTileBody}
+                  />
+                ))
+                .exhaustive()}
+            </RightPanelLayout>
+          </Show>
+        </Show>
+      </div>
+    </>
+  );
+
   return (
     <div
       class="relative flex flex-col h-dvh bg-surface-0 text-fg font-sans"
@@ -444,111 +555,7 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      {/* Desktop chrome — docked top bar carrying pill tree, identity,
-       *  and global controls. Mobile has its own pull-down sheet (see
-       *  MobileTileView) and does not render this band. */}
-      <Show when={!isMobile()}>
-        <ChromeBar
-          status={wsStatus()}
-          onOpenPalette={() => openPalette()}
-          pillTree={
-            <PillTree
-              groups={pillGroups()}
-              onSelect={(id) => {
-                store.setActiveId(id);
-                if (!posture.maximized()) {
-                  const layout = store.getMetadata(id)?.canvasLayout;
-                  if (layout) canvasViewport.centerOnTile(layout);
-                }
-              }}
-              onCreate={() => openPaletteGroup("New terminal")}
-            />
-          }
-        />
-      </Show>
-      {/* relative: anchor for overlay panels.
-       *  --active-terminal-{bg,fg} published here so child components
-       *  can read them via CSS without prop drilling. The fg lets sub-
-       *  components re-tune text tiers against the terminal theme. */}
-      <div
-        class="relative flex flex-1 min-h-0"
-        style={{
-          "--active-terminal-bg":
-            activeTheme().background ?? "var(--color-surface-1)",
-          "--active-terminal-fg": activeTheme().foreground ?? "var(--color-fg)",
-        }}
-      >
-        <Show
-          when={!session.isLoading()}
-          fallback={
-            <div class="flex items-center justify-center flex-1 text-fg-3 text-sm">
-              Connecting...
-            </div>
-          }
-        >
-          <Show
-            when={!showEmpty()}
-            fallback={
-              <div
-                data-testid="canvas-container"
-                class="relative flex-1 min-h-0 canvas-grid-bg"
-              >
-                <CanvasWatermark text={appTitle()} />
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
-                />
-              </div>
-            }
-          >
-            <RightPanelLayout
-              meta={store.activeMeta()}
-              themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Theme")}
-              contentClass={isMobile() ? "flex-col" : undefined}
-            >
-              {match(isMobile())
-                .with(true, () => (
-                  <MobileTileView
-                    orderedIds={orderedIds()}
-                    groups={pillGroups()}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => openPalette()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar activeId={store.activeId} />}
-                  />
-                ))
-                .with(false, () => (
-                  <TerminalCanvas
-                    tileIds={store.terminalIds()}
-                    watermark={appTitle()}
-                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    onLayoutChange={(id, layout) =>
-                      crud.setCanvasLayout(id, layout)
-                    }
-                    onSelect={(id) => store.setActiveId(id)}
-                    onClose={(id) => closeTerminal(id)}
-                    renderTileTitle={(id) => (
-                      <TerminalMeta info={store.getDisplayInfo(id)} />
-                    )}
-                    renderTileTitleActions={(id) => (
-                      <TileTitleActions
-                        id={id}
-                        onOpenPaletteGroup={openPaletteGroup}
-                        onToggleSubPanel={handleToggleSubPanel}
-                        onOpenSearch={() => setSearchOpen(true)}
-                        onScreenshot={handleScreenshotTerminal}
-                      />
-                    )}
-                    renderTileBody={renderCanvasTileBody}
-                  />
-                ))
-                .exhaustive()}
-            </RightPanelLayout>
-          </Show>
-        </Show>
-      </div>
+      <AppRoutes workspacePage={WorkspacePage} />
     </div>
   );
 };
