@@ -1,6 +1,6 @@
 ---
-paths:
-  - "{.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,opencode.json}"
+description: Generated agent runtime files are derived from top-level .apm sources
+applyTo: "{.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,opencode.json}"
 ---
 
 ## Generated Files — Do Not Edit Directly

@@ -58,6 +58,15 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 - The Architecture section in `README.md` documents communication patterns, server internals, client state, and build pipeline. **Read it before declaring done** on any structural change, and update every part that no longer matches (table, diagram, prose, footnotes).
 
+## Files matching `{.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,opencode.json}`
+
+<!-- Source: local .apm/instructions/apm-sources.instructions.md -->
+## Generated Files — Do Not Edit Directly
+
+Everything under `.claude/`, `.codex/`, `.agents/`, and `.opencode/` is generated from top-level `.apm/` sources by APM. Direct edits will be overwritten on the next regeneration.
+
+To modify agent configuration, edit the source files under `.apm/`, then run `just ai::apm` to regenerate the runtime directories and `AGENTS.md`.
+
 ## Files matching `{.apm/**,.agents/**,.claude/**,.codex/**,.opencode/**,AGENTS.md,agents/**,apm.yml,apm.lock.yaml,opencode.json}`
 
 <!-- Source: local .apm/instructions/apm-workflow.instructions.md -->

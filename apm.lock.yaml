@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-23T15:54:15.347881+00:00'
+generated_at: '2026-04-23T15:55:25.939019+00:00'
 apm_version: 0.9.2
 dependencies:
 - repo_url: anthropics/skills
@@ -81,7 +81,7 @@ dependencies:
     .claude/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .claude/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:b9d316555a1509eabb610d32cccdcd1dacaf926b2fd831a3178c30d283756d69
-    .claude/rules/apm-sources.md: sha256:8707579e05e2a39f01278b2d225f3cb2ec97912c65c94aa57e5830954f98eab1
+    .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
     .codex/agents/hickey.toml: sha256:f508bacedcac2916cf1e29a11f2ac161483ffc2acf182c8f1c00c26d14073c00
     .codex/agents/lowy.toml: sha256:c57b72c43687ef255a4490f65984fe556325cb9847a5626e43c2a7addea049e4
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:b9d316555a1509eabb610d32cccdcd1dacaf926b2fd831a3178c30d283756d69
@@ -108,6 +108,7 @@ local_deployed_files:
 - .agents/skills/perf-diagnose
 - .agents/skills/test
 - .claude/commands/whatchanged.md
+- .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
 - .claude/rules/code-police-rules.md
@@ -131,6 +132,7 @@ local_deployed_files:
 - .opencode/skills/test
 local_deployed_file_hashes:
   .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
+  .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:7174a90e3480de8f7413fb64a44f6a3fc54ab847d83f49b0d56b454d80c687ab
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/code-police-rules.md: sha256:26bdd1b7aad795ab64c7fa939b2e854dc7ace5c562396e87a90ffce1ee760329
