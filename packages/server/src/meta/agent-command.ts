@@ -18,8 +18,7 @@ import { trackRecentAgent } from "../activity.ts";
 const stash = new Map<TerminalId, string | null>();
 
 /** Basename of the agent binary last observed in `terminalId`'s preexec
- *  stream, or null if none. Valid only while the shell is actively running
- *  a command — see `shellIdle` gate in `meta/agent.ts`. */
+ *  stream, or null if none. */
 export function getLastAgentCommandName(terminalId: TerminalId): string | null {
   return stash.get(terminalId) ?? null;
 }
