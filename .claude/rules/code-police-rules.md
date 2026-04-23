@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.{ts,tsx}"
+  - "packages/**/*.{ts,tsx}"
 ---
 
 ## Additional Code Police Rules

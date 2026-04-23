@@ -112,7 +112,18 @@ const PillTree: Component<{
           {(group) => {
             const rows = createMemo(() => chunkBranches(group.branches));
             return (
-              <div class="flex flex-col items-start gap-1 min-w-0">
+              // pointer-events-auto on the column so the 4 px row-gap
+              // (and the between-pill gaps inside a row) stay part of
+              // the hover target. Without this, a cursor travelling
+              // from a row-1 pill toward a hover-revealed row-2 pill
+              // crosses a transparent band that inherits `none` from
+              // the outer wrapper — `:hover` on `group/pill-tree`
+              // drops, the revealed row collapses before it can be
+              // clicked. Also promotes the `▾ +N` hint below to a
+              // real hover target. The outer wrapper stays
+              // `pointer-events-none` so the empty chrome between
+              // repo groups still passes clicks through to the canvas.
+              <div class="pointer-events-auto flex flex-col items-start gap-1 min-w-0">
                 <div
                   data-testid="pill-tree-repo"
                   class="text-[0.65rem] font-semibold uppercase tracking-wide truncate max-w-[16ch]"
