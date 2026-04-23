@@ -147,7 +147,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 ### Clipboard
 
-- <kbd>Ctrl+V</kbd> pastes images into Claude Code via server-side clipboard shims
+- <kbd>Ctrl+V</kbd> pastes images into Claude Code via server-side clipboard shims and into Codex via bracketed-paste file-path attachment
 
 ### Screen recording
 

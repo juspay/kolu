@@ -13,6 +13,7 @@
 
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import type { TerminalMetadata } from "kolu-common";
 import { koluClipboardDir } from "./koluRoot.ts";
 
 /** Clipboard shim bin directory — required, crashes on startup if missing. */
@@ -42,6 +43,19 @@ export function saveClipboardImage(
   const imagePath = join(clipboardDir, "image.png");
   writeFileSync(imagePath, Buffer.from(base64Data, "base64"));
   return imagePath;
+}
+
+/** Translate an uploaded browser image into the PTY input expected by the
+ *  foreground app. Claude reads the clipboard on raw Ctrl+V; Codex expects a
+ *  bracketed-paste path and attaches local images from that path. */
+export function dispatchPastedImage(
+  meta: TerminalMetadata,
+  imagePath: string,
+): string {
+  if (meta.foreground?.name === "codex" || meta.agent?.kind === "codex") {
+    return `\x1b[200~${imagePath}\x1b[201~`;
+  }
+  return "\x16";
 }
 
 /** Remove a terminal's clipboard directory. */

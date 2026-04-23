@@ -674,11 +674,6 @@ const Terminal: Component<{
         } catch (err) {
           console.error("Failed to upload clipboard image:", err);
         }
-        // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
-        void client.terminal.sendInput({
-          id: props.terminalId,
-          data: "\x16",
-        });
       }
 
       makeEventListener(
