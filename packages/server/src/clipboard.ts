@@ -46,6 +46,7 @@ export function saveClipboardImage(
   return imagePath;
 }
 
+/** The PTY input protocol a terminal expects for a pasted browser image. */
 export type ImagePasteMode = "raw-ctrl-v" | "bracketed-path";
 
 /** Collapse terminal metadata into one authoritative image-paste mode so
