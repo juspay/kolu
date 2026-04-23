@@ -738,9 +738,13 @@ When(
 When(
   "I drag minimap tile rect {int} by x={int} y={int}",
   async function (this: KoluWorld, index: number, dx: number, dy: number) {
-    const rect = this.page
-      .locator('[data-testid="minimap-tile-rect"]')
-      .nth(index - 1);
+    const saved = ((this as any).__savedCanvasTilePositions ?? {})[index] as
+      | { id: string; left: number; top: number }
+      | undefined;
+    if (!saved) throw new Error(`No saved canvas tile ${index} position`);
+    const rect = this.page.locator(
+      `[data-testid="minimap-tile-rect"][data-tile-id="${saved.id}"]`,
+    );
     await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const box = await rect.boundingBox();
     if (!box) throw new Error(`minimap tile rect ${index} not visible`);
