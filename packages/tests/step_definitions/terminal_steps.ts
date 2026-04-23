@@ -182,6 +182,19 @@ When("I click the terminal canvas", async function (this: KoluWorld) {
   await this.canvas.click();
 });
 
+When("I click the terminal tile title bar", async function (this: KoluWorld) {
+  // Scope to the active tile (`data-active="true"`) so the click lands on
+  // the same tile the user was just typing into, regardless of how many
+  // terminals are mounted.
+  await this.page
+    .locator(
+      '[data-testid="canvas-tile"][data-active="true"] [data-testid="canvas-tile-titlebar"]',
+    )
+    .first()
+    .click();
+  await this.waitForFrame();
+});
+
 Then("the terminal input should be focused", async function (this: KoluWorld) {
   const focused = await this.page.evaluate(
     () => !!document.activeElement?.closest("[data-visible]"),
