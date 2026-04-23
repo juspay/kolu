@@ -5,15 +5,16 @@ import * as assert from "node:assert";
 
 const PALETTE = '[data-testid="command-palette"]';
 
+/** Selector for the bottom-edge panel-tab-bar on the active tile. The
+ *  per-tile panels system mounts one tab bar per slot, so every reference
+ *  must scope by `data-edge` to disambiguate. */
+const BOTTOM_TAB_BAR =
+  '[data-testid="panel-host"][data-edge="bottom"] [data-testid="panel-tab-bar"]';
+
 /**
  * Open command palette, fill a query, click the first result, wait for close.
- * Uses evaluate to fill the input and click the result because Corvu's dialog
- * content visibility is state-based — Playwright's actionability checks see
- * elements as "hidden" during the open transition even with CSS animations
- * disabled. The evaluate approach bypasses these checks entirely.
  */
 async function paletteCommand(world: KoluWorld, query: string) {
-  // Ensure focus is in the app (previous palette close may leave focus nowhere)
   const terminal = world.page.locator("[data-visible] .xterm-screen");
   if ((await terminal.count()) > 0) await terminal.first().click();
   await world.page.keyboard.press(`${MOD_KEY}+k`);
@@ -50,21 +51,28 @@ async function paletteCommand(world: KoluWorld, query: string) {
     PALETTE,
     { timeout: POLL_TIMEOUT },
   );
-  // Wait for focus to land in a terminal — Corvu's focus trap release is async
-  // and waitForFrame (2x rAF) is insufficient on loaded CI.
   await world.page.waitForFunction(
     () => !!document.activeElement?.closest("[data-terminal-id]"),
     { timeout: POLL_TIMEOUT },
   );
 }
 
+/** Click the active tile's bottom-edge toggle icon. Replaces the prior
+ *  "Toggle terminal split" command-palette path — the new design exposes
+ *  the toggle on the tile chrome. */
+async function clickBottomToggle(world: KoluWorld) {
+  const btn = world.page.locator(
+    '[data-testid="canvas-tile"][data-active] [data-testid="tile-panel-toggle-bottom"]',
+  );
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await btn.click();
+  await world.waitForFrame();
+}
+
 When(
   "I create a sub-terminal via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle terminal split");
-    // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
-    // Wait for the sub-terminal to actually exist before proceeding — otherwise
-    // the next "toggle" command may see no subs and create again instead.
+    await paletteCommand(this, "Add sub-terminal tab");
     await this.page.waitForFunction(
       () => document.querySelector("[data-sub-terminal]") !== null,
       { timeout: 10_000 },
@@ -81,14 +89,16 @@ When("I click the main terminal", async function (this: KoluWorld) {
 When(
   "I toggle the sub-panel via command palette",
   async function (this: KoluWorld) {
-    await paletteCommand(this, "Toggle terminal split");
+    // The command-palette toggle is gone with the unified panels primitive
+    // — the per-tile bottom toggle icon is the only path. The Gherkin
+    // wording is preserved so existing scenarios read the same.
+    await clickBottomToggle(this);
   },
 );
 
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Wait for focus to be specifically in a sub-terminal, not the main one
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: POLL_TIMEOUT },
@@ -100,20 +110,18 @@ When(
 );
 
 Then("the sub-panel should be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator(BOTTOM_TAB_BAR);
   await tabBar.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the sub-panel should not be visible", async function (this: KoluWorld) {
-  const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+  const tabBar = this.page.locator(BOTTOM_TAB_BAR);
   await tabBar.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
 });
 
 Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to land inside a [data-sub-terminal] container directly —
-    // no indirect ID comparison with the pill tree's active entry.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: POLL_TIMEOUT },
@@ -124,9 +132,6 @@ Then(
 Then(
   "the main terminal should have keyboard focus",
   async function (this: KoluWorld) {
-    // Wait for focus to land specifically in a main terminal (not sub-terminal).
-    // [data-visible] alone is too broad — matches any visible element.
-    // Corvu's focus trap release is async; fall back to clicking the canvas.
     try {
       await this.page.waitForFunction(
         () =>
@@ -150,9 +155,16 @@ Then(
 Then(
   "the active tile should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
+    // The bottom-edge toggle icon shows a tab-count badge when ≥2 tabs.
+    // Single-tab slots intentionally omit the badge — see TileTitleActions.
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      '[data-testid="canvas-tile"][data-active] [data-testid="tile-panel-count-bottom"]',
     );
+    if (expected <= 1) {
+      const count = await badge.count();
+      assert.strictEqual(count, 0, "Expected no count badge for single tab");
+      return;
+    }
     const text = await badge.textContent({ timeout: POLL_TIMEOUT });
     assert.strictEqual(text, `${expected}`);
   },
@@ -162,8 +174,7 @@ When(
   "I create another sub-terminal via command palette",
   async function (this: KoluWorld) {
     const countBefore = await this.page.locator("[data-sub-terminal]").count();
-    await paletteCommand(this, "Split terminal");
-    // Wait for the new sub-terminal to mount (async RPC creation)
+    await paletteCommand(this, "Add sub-terminal tab");
     await this.page.waitForFunction(
       (expected) =>
         document.querySelectorAll("[data-sub-terminal]").length >= expected,
@@ -177,7 +188,7 @@ When(
   "I click sub-panel tab {int}",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title])',
+      `${BOTTOM_TAB_BAR} button[data-testid^="panel-tab-"]`,
     );
     await tabs.nth(index - 1).click();
     await this.waitForFrame();
@@ -187,8 +198,7 @@ When(
 Then(
   "the sub-panel tab bar should have {int} tab(s)",
   async function (this: KoluWorld, expected: number) {
-    const sel = '[data-testid="sub-panel-tab-bar"] button:not([title])';
-    // Poll — the second sub-terminal may still be initializing
+    const sel = `${BOTTOM_TAB_BAR} button[data-testid^="panel-tab-"]`;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -201,7 +211,7 @@ Then(
   "sub-panel tab {int} should be active",
   async function (this: KoluWorld, index: number) {
     const tabs = this.page.locator(
-      '[data-testid="sub-panel-tab-bar"] button:not([title])',
+      `${BOTTOM_TAB_BAR} button[data-testid^="panel-tab-"]`,
     );
     const tab = tabs.nth(index - 1);
     const active = await tab.getAttribute("data-active");
@@ -216,12 +226,8 @@ When(
   "I close sub-terminal tab {int}",
   async function (this: KoluWorld, index: number) {
     const tab = this.page
-      .locator(
-        '[data-testid="sub-panel-tab-bar"] [data-testid="sub-tab-close"]',
-      )
+      .locator(`${BOTTOM_TAB_BAR} [data-testid="panel-tab-close"]`)
       .nth(index - 1);
-    // Hover the parent to reveal the close button, then click.
-    // Splits close directly — no confirmation dialog.
     await tab.locator("..").hover();
     await tab.click();
     await this.waitForFrame();
@@ -232,7 +238,7 @@ Then(
   "the sub-panel should eventually collapse",
   { timeout: 60_000 },
   async function (this: KoluWorld) {
-    const tabBar = this.page.locator('[data-testid="sub-panel-tab-bar"]');
+    const tabBar = this.page.locator(BOTTOM_TAB_BAR);
     await tabBar.waitFor({ state: "hidden", timeout: 45_000 });
   },
 );
@@ -241,38 +247,23 @@ Then(
   "the active tile should not show a sub-terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      '[data-testid="canvas-tile"][data-active] [data-testid="tile-panel-count-bottom"]',
     );
     const count = await badge.count();
     assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
   },
 );
 
-Then(
-  "the collapsed indicator should be visible",
-  async function (this: KoluWorld) {
-    // First wait for the tab bar to disappear (confirms collapse state settled)
-    await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
-      .waitFor({ state: "hidden", timeout: 10_000 });
-    // Then wait for the collapsed strip to mount and be visible
-    const indicator = this.page.locator('[data-testid="collapsed-indicator"]');
-    await indicator.waitFor({ state: "visible", timeout: 10_000 });
-  },
-);
-
 Then("the resize handle should be visible", async function (this: KoluWorld) {
-  // Handle is an invisible hit zone (h-0 with ::before pseudo-element) — check attached, not visible
-  const handle = this.page.locator('[data-testid="resize-handle"]');
+  const handle = this.page.locator('[data-testid="resize-handle-bottom"]');
   await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
 });
 
 Then(
   "the sub-terminal screen should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Wait for sub-panel to be fully expanded before reading buffer
     await this.page
-      .locator('[data-testid="sub-panel-tab-bar"]')
+      .locator(BOTTOM_TAB_BAR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForBufferContains(this.page, expected, {
       selector: "[data-sub-terminal][data-visible]",

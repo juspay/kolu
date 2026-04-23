@@ -4,9 +4,18 @@ import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
-  const tab = this.page.locator('[data-testid="right-panel-tab-code"]');
+  // The Code tab is now content inside the left panel slot (default
+  // content for that edge); clicking the tile's left-toggle icon opens
+  // the slot with a Code+local tab the existing assertions can target.
+  const toggle = this.page.locator(
+    '[data-testid="canvas-tile"][data-active] [data-testid="tile-panel-toggle-left"]',
+  );
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
+  const tab = this.page.locator(
+    '[data-testid="panel-host"][data-edge="left"] [data-testid="panel-tab-code"]',
+  );
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await tab.click();
   await this.waitForFrame();
 });
 
@@ -45,10 +54,11 @@ When(
 // ── Assertions ──
 
 Then("the Code tab should be active", async function (this: KoluWorld) {
-  // The Code tab button exposes data-active reflecting the active
-  // tab, which is independent of in-repo vs no-repo content.
+  // The Code tab in a panel slot exposes data-active when its tab is
+  // selected. Scoped to the left edge — that's where the default Code
+  // content lands when the user opens the left slot.
   const btn = this.page.locator(
-    '[data-testid="right-panel-tab-code"][data-active="true"]',
+    '[data-testid="panel-host"][data-edge="left"] [data-testid="panel-tab-code"][data-active]',
   );
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
