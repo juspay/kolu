@@ -3,6 +3,5 @@
 # per-invocation args (commitHash) that don't belong in pkgs.
 final: _prev:
 {
-  kolu-fonts           = final.callPackage ./packages/fonts { };
-  kolu-clipboard-shims = final.callPackage ./packages/clipboard-shims.nix { };
+  kolu-fonts = final.callPackage ./packages/fonts { };
 }

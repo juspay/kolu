@@ -164,7 +164,10 @@ export const appRouter = t.router({
           ? 1
           : 0;
       const bytes = Math.floor((input.data.length * 3) / 4) - padding;
-      const path = saveClipboardImage(entry.clipboardDir, input.data);
+      const path = saveClipboardImage(input.id, input.data);
+      // Bracketed-paste the saved path into the PTY. Agents that accept
+      // paste-as-file-path (codex, Claude Code) auto-attach the image.
+      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
 
