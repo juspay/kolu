@@ -81,7 +81,12 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *
  *  Emits TWO orthogonal sequences:
  *
- *  1. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
+ *  1. **OSC 2** — window title. Mirrors Ghostty/Kitty convention of
+ *     showing the running command in the title bar. Consumed by
+ *     `headless.onTitleChange` in pty.ts to drive event-driven
+ *     foreground process detection.
+ *
+ *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
  *     mark. Consumed by the OSC 633 handler in pty.ts to build the
  *     global "recent agents" MRU and to stash the per-terminal
  *     agent-command hint on `TerminalProcess` (used to detect
@@ -90,14 +95,12 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *     command string verbatim, so kolu never needs `/proc` (Linux-only)
  *     or `ps` spawning (slow). Works identically on Linux and macOS.
  *
- *  2. **OSC 2** — window title. Mirrors Ghostty/Kitty convention of
- *     showing the running command in the title bar. Consumed by
- *     `headless.onTitleChange` in pty.ts to drive event-driven
- *     foreground process detection.
- *
- *  Order matters: 633;E fires FIRST so the stash is set before the
- *  title-triggered reconcile in `meta/agent.ts` reads it. */
-export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]633;E;%s\\033\\\\' "$1"; printf '\\033]2;%s\\033\\\\' "$1"; }`;
+ *  Emission order is NOT load-bearing: `onCommandRun` in terminals.ts
+ *  publishes its own reconcile trigger after stashing the parsed agent
+ *  name, so the title-triggered reconcile (OSC 2 → onTitleChange) and
+ *  the stash-triggered reconcile (OSC 633;E → onCommandRun) are each
+ *  self-contained. */
+export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; printf '\\033]633;E;%s\\033\\\\' "$1"; }`;
 
 /** Bash-specific preexec dispatch — uses a ready flag armed at the end of
  *  PROMPT_COMMAND to ensure the title only fires for user-typed commands,

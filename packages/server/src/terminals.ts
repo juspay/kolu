@@ -188,6 +188,12 @@ export function createTerminal(
       // global recent-agents MRU and stash the agent name on the terminal
       // so interpreter-shimmed launches (npm-installed codex → node process)
       // still match. Commands that aren't agents clear the stash.
+      //
+      // Publishing "title" after the stash update gives the agent
+      // orchestrator's reconcile loop a causally-ordered second trigger
+      // that is guaranteed to observe the fresh stash — independent of
+      // the OSC 2 / OSC 633;E emission order inside the preexec printf
+      // pair. The title payload is ignored by subscribers.
       onCommandRun: (raw) => {
         const normalized = parseAgentCommand(raw);
         const entry = terminals.get(id);
@@ -199,6 +205,7 @@ export function createTerminal(
             (normalized && normalized.split(" ")[0]) || null;
         }
         if (normalized) trackRecentAgent(normalized);
+        publishForTerminal("title", id, raw);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
