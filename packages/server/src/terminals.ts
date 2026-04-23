@@ -189,11 +189,11 @@ export function createTerminal(
       // so interpreter-shimmed launches (npm-installed codex → node process)
       // still match. Commands that aren't agents clear the stash.
       //
-      // Publishing "title" after the stash update gives the agent
-      // orchestrator's reconcile loop a causally-ordered second trigger
-      // that is guaranteed to observe the fresh stash — independent of
-      // the OSC 2 / OSC 633;E emission order inside the preexec printf
-      // pair. The title payload is ignored by subscribers.
+      // No reconcile trigger needed here — preexec fires while the shell
+      // is still at the prompt, so any reconcile at this moment would be
+      // gated out by `shellIdle` in `snapshotTerminalState`. The actual
+      // match fires later, on the first WAL write (codex) or TUI-emitted
+      // OSC 2 title update (both), at which point the stash is exposed.
       onCommandRun: (raw) => {
         const normalized = parseAgentCommand(raw);
         const entry = terminals.get(id);
@@ -205,7 +205,6 @@ export function createTerminal(
             (normalized && normalized.split(" ")[0]) || null;
         }
         if (normalized) trackRecentAgent(normalized);
-        publishForTerminal("title", id, raw);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
