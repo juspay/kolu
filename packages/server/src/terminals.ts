@@ -12,11 +12,7 @@ import type {
   TerminalPanels,
 } from "kolu-common";
 import { log } from "./log.ts";
-import {
-  CLIPBOARD_SHIM_DIR,
-  createClipboardDir,
-  cleanupClipboardDir,
-} from "./clipboard.ts";
+import { cleanupClipboardDir } from "./clipboard.ts";
 import {
   createMetadata,
   updateServerMetadata,
@@ -31,8 +27,6 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Per-terminal clipboard directory for image paste shims. */
-  clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
 }
@@ -143,7 +137,6 @@ export function createTerminal(
 ): TerminalInfo {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
-  const clipboardDir = createClipboardDir(id);
 
   const handle = spawnPty(
     tlog,
@@ -158,7 +151,7 @@ export function createTerminal(
         const entry = terminals.get(id);
         if (entry) {
           entry.stopProviders();
-          cleanupClipboardDir(entry.clipboardDir);
+          cleanupClipboardDir(id);
         }
         publishForTerminal("exit", id, exitCode);
         // Only save session on natural exit (entry still in map).
@@ -191,7 +184,6 @@ export function createTerminal(
         }
       },
     },
-    { shimBinDir: CLIPBOARD_SHIM_DIR, clipboardDir },
     cwd,
   );
 
@@ -209,7 +201,6 @@ export function createTerminal(
       meta,
     },
     handle,
-    clipboardDir,
     stopProviders: () => {},
   };
   // Start providers after entry is in the map (providers may emit immediately)
@@ -260,7 +251,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   entry.stopProviders();
   entry.handle.dispose();
-  cleanupClipboardDir(entry.clipboardDir);
+  cleanupClipboardDir(id);
   terminals.delete(id);
   // Drop any panel tabs across the surviving fleet that referenced this
   // terminal id — otherwise their slots render dangling tabs the user
@@ -405,7 +396,7 @@ export function killAllTerminals(): void {
   for (const entry of entries) {
     entry.stopProviders();
     entry.handle.dispose();
-    cleanupClipboardDir(entry.clipboardDir);
+    cleanupClipboardDir(entry.info.id);
   }
   emitListChanged();
 }

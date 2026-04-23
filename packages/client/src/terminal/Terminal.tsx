@@ -659,10 +659,10 @@ const Terminal: Component<{
         touchAnchorY = null;
       });
 
-      // Bridge browser clipboard images → PTY for Claude Code's Ctrl+V image paste.
-      // Capture phase fires before xterm's own paste handler on the textarea,
-      // letting us intercept images while text paste falls through to xterm.
-      // Uses the native paste event (not navigator.clipboard.read) so no explicit
+      // Bridge browser clipboard images → PTY. Capture phase fires before
+      // xterm's own paste handler on the textarea, letting us intercept
+      // images while text paste falls through to xterm. Uses the native
+      // paste event (not navigator.clipboard.read) so no explicit
       // clipboard-read permission is needed.
       async function uploadPastedImage(file: File) {
         const base64 = bufferToBase64(await file.arrayBuffer());
@@ -674,11 +674,6 @@ const Terminal: Component<{
         } catch (err) {
           console.error("Failed to upload clipboard image:", err);
         }
-        // Forward Ctrl+V to PTY so Claude Code's xclip/wl-paste shim reads it
-        void client.terminal.sendInput({
-          id: props.terminalId,
-          data: "\x16",
-        });
       }
 
       makeEventListener(

@@ -8,7 +8,6 @@
 { pkgs }:
 {
   KOLU_FONTS_DIR          = pkgs.kolu-fonts;
-  KOLU_CLIPBOARD_SHIM_DIR = "${pkgs.kolu-clipboard-shims}/bin";
   # Pinned gh binary — the server's GitHub provider consumes this directly.
   # Required, not optional: github.ts throws at startup if unset. Set here so
   # both the packaged wrapper (default.nix) and the dev shell (shell.nix)

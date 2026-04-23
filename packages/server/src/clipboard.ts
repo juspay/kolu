@@ -1,50 +1,34 @@
 /**
- * Clipboard bridge: browser clipboard → PTY via server-side shim scripts.
- *
- * Claude Code reads images from the system clipboard via xclip/wl-paste
- * when the user presses Ctrl+V. In a web terminal, the server has no
- * access to the browser's clipboard. This module manages per-terminal
- * clipboard data directories that Nix-provided shim scripts read from.
- *
- * The shim scripts themselves are packaged as Nix derivations
- * (writeShellScriptBin) and their bin directory is passed via the
- * KOLU_CLIPBOARD_SHIM_DIR environment variable.
+ * Per-terminal on-disk storage for images pasted from the browser clipboard.
+ * The `router.ts` `pasteImage` handler calls `saveClipboardImage` and then
+ * bracketed-pastes the returned path into the PTY so agents that accept
+ * paste-as-file-path (codex, Claude Code) auto-attach the image.
  */
 
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { koluClipboardDir } from "./koluRoot.ts";
 
-/** Clipboard shim bin directory — required, crashes on startup if missing. */
-export const CLIPBOARD_SHIM_DIR = (() => {
-  const dir = process.env.KOLU_CLIPBOARD_SHIM_DIR;
-  if (!dir) {
-    throw new Error(
-      "KOLU_CLIPBOARD_SHIM_DIR must be set (points to the Nix-built xclip/wl-paste shim bin directory)",
-    );
-  }
-  return dir;
-})();
-
-/** Create a per-terminal clipboard directory under the server's per-instance root. */
-export function createClipboardDir(terminalId: string): string {
-  const dir = join(koluClipboardDir, terminalId);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+function dirFor(terminalId: string): string {
+  return join(koluClipboardDir, terminalId);
 }
 
-/** Save base64-encoded image data to the terminal's clipboard directory.
- *  Returns the on-disk path so callers can log / reference it. */
+/** Save base64-encoded image data into the terminal's clipboard directory,
+ *  creating the dir on first use. Returns the on-disk path so the caller
+ *  can bracketed-paste it into the PTY. */
 export function saveClipboardImage(
-  clipboardDir: string,
+  terminalId: string,
   base64Data: string,
 ): string {
-  const imagePath = join(clipboardDir, "image.png");
+  const dir = dirFor(terminalId);
+  mkdirSync(dir, { recursive: true });
+  const imagePath = join(dir, "image.png");
   writeFileSync(imagePath, Buffer.from(base64Data, "base64"));
   return imagePath;
 }
 
-/** Remove a terminal's clipboard directory. */
-export function cleanupClipboardDir(clipboardDir: string): void {
-  rmSync(clipboardDir, { recursive: true, force: true });
+/** Remove a terminal's clipboard directory. Safe to call when the dir was
+ *  never created. */
+export function cleanupClipboardDir(terminalId: string): void {
+  rmSync(dirFor(terminalId), { recursive: true, force: true });
 }

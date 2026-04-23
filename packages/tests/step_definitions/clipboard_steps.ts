@@ -5,7 +5,8 @@ import { KoluWorld, MOD_KEY } from "../support/world.ts";
  * Simulate the full image paste flow: write a valid PNG to the browser
  * clipboard, then press Ctrl+V so the browser fires a real paste event
  * with the image in clipboardData. The terminal's capture-phase paste
- * listener reads it and uploads to the server shim.
+ * listener reads it and uploads to the server, which saves the image
+ * and bracketed-pastes the file path into the PTY.
  *
  * Only clipboard-write permission is needed (for test setup). The paste
  * event provides clipboard data without clipboard-read permission —
