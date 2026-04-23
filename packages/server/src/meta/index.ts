@@ -134,13 +134,8 @@ export function startProviders(
   entry: TerminalProcess,
   terminalId: string,
 ): () => void {
-  // Tracker starts first so its subscription exists before any
-  // `commandRun` event could fire. Ordering between the tracker and the
-  // agent-reconcile subscribers isn't load-bearing: at preexec time the
-  // `shellIdle` gate in `snapshotTerminalState` skips any reconcile, so
-  // the stash is only ever read once the command has actually taken over
-  // the foreground — by which point both the `commandRun` and `title`
-  // events from that preexec have long since drained.
+  // Subscribe the tracker before any provider — the stash it maintains is
+  // read by `startAgentProvider`'s reconcile via `getLastAgentCommandName`.
   const stopAgentCommand = startAgentCommandTracker(terminalId);
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
