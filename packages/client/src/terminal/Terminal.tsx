@@ -663,9 +663,7 @@ const Terminal: Component<{
       // xterm's own paste handler on the textarea, letting us intercept
       // images while text paste falls through to xterm. Uses the native
       // paste event (not navigator.clipboard.read) so no explicit
-      // clipboard-read permission is needed. The server saves the image and
-      // bracketed-pastes its path into the PTY — agents that accept
-      // paste-as-file-path (codex, Claude Code) auto-attach.
+      // clipboard-read permission is needed.
       async function uploadPastedImage(file: File) {
         const base64 = bufferToBase64(await file.arrayBuffer());
         try {

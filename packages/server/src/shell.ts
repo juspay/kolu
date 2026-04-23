@@ -200,9 +200,7 @@ export function osc7Init(opts: {
         // commands. If a user's .bashrc clears it, bash-preexec-compatible
         // setups will still work if we're loaded first.
         `trap '__kolu_preexec_dispatch' DEBUG`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      ].join("\n"),
     );
     return {
       args: ["--rcfile", rcFile],
@@ -227,9 +225,7 @@ export function osc7Init(opts: {
         `add-zsh-hook precmd __kolu_osc7`,
         `add-zsh-hook precmd __kolu_title_precmd`,
         `add-zsh-hook preexec __kolu_preexec`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
+      ].join("\n"),
     );
     return {
       args: [],
