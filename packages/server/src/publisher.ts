@@ -29,6 +29,10 @@ type TerminalChannels = {
   git: GitInfo | null;
   /** Raw PTY output bytes — high frequency, drives xterm.js */
   data: string;
+  /** Raw command string from OSC 633;E preexec mark — triggers agent-command
+   *  tracking (per-terminal stash + recent-agents MRU). Not retained; each
+   *  event is an isolated "the user just typed this" notice. */
+  commandRun: string;
   /** Terminal process exited — fires once per terminal lifetime */
   exit: number;
 };

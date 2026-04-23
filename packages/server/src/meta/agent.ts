@@ -21,6 +21,7 @@ import type {
 import type { AgentInfo } from "kolu-common";
 import type { TerminalProcess } from "../terminals.ts";
 import { updateServerMetadata } from "./index.ts";
+import { getLastAgentCommandName } from "./agent-command.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
 
@@ -50,14 +51,16 @@ function readForegroundBasenameOnce(
  *  sysctl entirely on every reconcile. The cache is scoped to this one
  *  snapshot — a fresh snapshot on the next reconcile will re-read.
  *
- *  `lastAgentCommandName` is sourced from the preexec stash on
- *  `TerminalProcess`, gated on `foregroundPid !== handle.pid` — i.e. a
- *  foreground command is actually running. When the shell is idle at the
- *  prompt, tcgetpgrp returns the shell's own pid and the previous stash
- *  no longer describes a live process; null it out so providers don't
- *  match an agent that has already exited. */
+ *  `lastAgentCommandName` is sourced from the per-terminal agent-command
+ *  stash (`meta/agent-command.ts`, populated by the `commandRun` publisher
+ *  channel), gated on `foregroundPid !== handle.pid` — i.e. a foreground
+ *  command is actually running. When the shell is idle at the prompt,
+ *  tcgetpgrp returns the shell's own pid and the previous stash no longer
+ *  describes a live process; null it out so providers don't match an agent
+ *  that has already exited. */
 function snapshotTerminalState(
   entry: TerminalProcess,
+  terminalId: string,
   plog: Logger,
 ): AgentTerminalState {
   let basename: string | null | undefined = undefined;
@@ -72,7 +75,9 @@ function snapshotTerminalState(
         basename = readForegroundBasenameOnce(entry, plog);
       return basename;
     },
-    lastAgentCommandName: shellIdle ? null : entry.lastAgentCommandName,
+    lastAgentCommandName: shellIdle
+      ? null
+      : getLastAgentCommandName(terminalId),
   };
 }
 
@@ -97,7 +102,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   plog.debug("started");
 
   function reconcile() {
-    const state = snapshotTerminalState(entry, plog);
+    const state = snapshotTerminalState(entry, terminalId, plog);
     const next = provider.resolveSession(state, plog);
     const nextKey = next ? provider.sessionKey(next) : null;
     if ((current?.key ?? null) === nextKey) return;

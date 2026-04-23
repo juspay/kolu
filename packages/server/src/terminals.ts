@@ -22,8 +22,6 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import { parseAgentCommand } from "anyagent";
-import { trackRecentAgent } from "./activity.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -35,15 +33,6 @@ export interface TerminalProcess {
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
-  /** Basename of the agent binary the user most recently launched in this
-   *  terminal (from the OSC 633;E preexec hint, parsed via
-   *  `parseAgentCommand`). `null` when the last observed command wasn't a
-   *  known agent, or when no preexec has fired yet. Used by the agent
-   *  orchestrator to detect interpreter-shimmed agents (e.g. npm-installed
-   *  `codex`, whose kernel-level process name is `node`). Valid only while
-   *  the shell is actively running a command — the orchestrator gates on
-   *  `foregroundPid !== handle.pid` before consuming it. */
-  lastAgentCommandName: string | null;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();
@@ -183,24 +172,12 @@ export function createTerminal(
       onTitleChange: (title) => {
         publishForTerminal("title", id, title);
       },
-      // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
-      // if the first token matches a known agent binary, push it to the
-      // global recent-agents MRU and stash the agent name on the terminal
-      // so interpreter-shimmed launches (npm-installed codex → node process)
-      // still match. Commands that aren't agents clear the stash.
-      //
-      // No reconcile trigger needed here — preexec fires while the shell
-      // is still at the prompt, so any reconcile at this moment would be
-      // gated out by `shellIdle` in `snapshotTerminalState`. The actual
-      // match fires later, on the first WAL write (codex) or TUI-emitted
-      // OSC 2 title update (both), at which point the stash is exposed.
+      // PTY callback (OSC 633;E): raw preexec command line. Republished
+      // as-is on the `commandRun` channel; agent parsing, the per-terminal
+      // stash, and the recent-agents MRU all live in
+      // `meta/agent-command.ts` — terminals.ts stays out of agent concepts.
       onCommandRun: (raw) => {
-        const normalized = parseAgentCommand(raw);
-        const entry = terminals.get(id);
-        if (entry) {
-          entry.lastAgentCommandName = normalized?.split(" ")[0] ?? null;
-        }
-        if (normalized) trackRecentAgent(normalized);
+        publishForTerminal("commandRun", id, raw);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
@@ -233,7 +210,6 @@ export function createTerminal(
     handle,
     clipboardDir,
     stopProviders: () => {},
-    lastAgentCommandName: null,
   };
   // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);
