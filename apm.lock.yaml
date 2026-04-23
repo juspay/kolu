@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-04-22T19:34:51.132897+00:00'
-apm_version: 0.9.1
+generated_at: '2026-04-23T10:47:07.600109+00:00'
+apm_version: 0.9.2
 dependencies:
 - repo_url: _local/agents
   package_type: apm_package
