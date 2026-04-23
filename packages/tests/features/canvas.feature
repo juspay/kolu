@@ -108,6 +108,15 @@ Feature: Canvas workspace
     Then the canvas viewport state should have changed
     And there should be no page errors
 
+  Scenario: Dragging a minimap tile rect moves the canvas tile
+    Given I create a terminal
+    And I create a terminal
+    When I save canvas tile 1 position
+    And I drag minimap tile rect 1 by x=24 y=18
+    Then canvas tile 1 position should have changed
+    And canvas tile 1 should be the active tile
+    And there should be no page errors
+
   # Viewport-pan assertion is flaky after the maximize signal landed
   # (sibling order in canvas-container changed; see Show wrapping the
   # PillTree+Minimap). The selection half of the behaviour is covered

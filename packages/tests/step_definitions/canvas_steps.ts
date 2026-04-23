@@ -541,17 +541,54 @@ When("I save the canvas viewport state", async function (this: KoluWorld) {
 });
 
 When("I drag the minimap viewport rect", async function (this: KoluWorld) {
-  const rect = this.page.locator(MINIMAP_VIEWPORT_RECT_SELECTOR);
-  await rect.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await rect.boundingBox();
-  if (!box) throw new Error("Viewport rect not visible");
-  // Drag from center of viewport rect 30px to the right
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await this.page.mouse.move(cx, cy);
-  await this.page.mouse.down();
-  await this.page.mouse.move(cx + 30, cy, { steps: 5 });
-  await this.page.mouse.up();
+  await this.page.evaluate(
+    ({ mapSel, viewSel }: { mapSel: string; viewSel: string }) => {
+      const map = document.querySelector(mapSel) as HTMLElement | null;
+      const view = document.querySelector(viewSel) as HTMLElement | null;
+      if (!map) throw new Error("Minimap map not visible");
+      if (!view) throw new Error("Viewport rect not visible");
+      const box = view.getBoundingClientRect();
+      const cx = box.left + box.width / 2;
+      const cy = box.top + box.height / 2;
+      map.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointermove", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 1,
+          clientX: cx + 30,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      window.dispatchEvent(
+        new PointerEvent("pointerup", {
+          pointerId: 1,
+          pointerType: "mouse",
+          button: 0,
+          buttons: 0,
+          clientX: cx + 30,
+          clientY: cy,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { mapSel: MINIMAP_MAP_SELECTOR, viewSel: MINIMAP_VIEWPORT_RECT_SELECTOR },
+  );
   await this.waitForFrame();
 });
 
@@ -695,24 +732,136 @@ Then(
 async function readFirstTilePosition(
   world: KoluWorld,
 ): Promise<{ id: string; left: number; top: number }> {
-  const result = await world.page.evaluate((sel: string) => {
-    const container = document.querySelector(sel);
-    const inner = container?.querySelector(
-      "[data-terminal-id][data-visible]",
-    ) as HTMLElement | null;
-    if (!inner) return null;
-    const id = inner.getAttribute("data-terminal-id");
-    const tile = inner.closest("[style*='left']") as HTMLElement | null;
-    if (!tile || !id) return null;
-    return {
-      id,
-      left: parseFloat(tile.style.left),
-      top: parseFloat(tile.style.top),
-    };
-  }, CANVAS_SELECTOR);
+  return readCanvasTilePosition(world, 1);
+}
+
+async function readCanvasTilePosition(
+  world: KoluWorld,
+  index: number,
+): Promise<{ id: string; left: number; top: number }> {
+  const result = await world.page.evaluate(
+    ({ sel, index }: { sel: string; index: number }) => {
+      const container = document.querySelector(sel);
+      const inner = container?.querySelectorAll(
+        "[data-terminal-id][data-visible]",
+      )[index - 1] as HTMLElement | null;
+      if (!inner) return null;
+      const id = inner.getAttribute("data-terminal-id");
+      const tile = inner.closest("[style*='left']") as HTMLElement | null;
+      if (!tile || !id) return null;
+      return {
+        id,
+        left: parseFloat(tile.style.left),
+        top: parseFloat(tile.style.top),
+      };
+    },
+    { sel: CANVAS_SELECTOR, index },
+  );
   if (!result) throw new Error("No visible canvas tile found");
   return result;
 }
+
+When(
+  "I save canvas tile {int} position",
+  async function (this: KoluWorld, index: number) {
+    const saved = ((this as any).__savedCanvasTilePositions ??= {}) as Record<
+      number,
+      { id: string; left: number; top: number }
+    >;
+    saved[index] = await readCanvasTilePosition(this, index);
+  },
+);
+
+When(
+  "I drag minimap tile rect {int} by x={int} y={int}",
+  async function (this: KoluWorld, index: number, dx: number, dy: number) {
+    const saved = ((this as any).__savedCanvasTilePositions ?? {})[index] as
+      | { id: string; left: number; top: number }
+      | undefined;
+    if (!saved) throw new Error(`No saved canvas tile ${index} position`);
+    await this.page.evaluate(
+      ({ tileId, dx, dy }: { tileId: string; dx: number; dy: number }) => {
+        const rect = document.querySelector(
+          `[data-testid="minimap-tile-rect"][data-tile-id="${tileId}"]`,
+        ) as HTMLElement | null;
+        if (!rect) throw new Error(`minimap tile rect ${tileId} not found`);
+        const box = rect.getBoundingClientRect();
+        const cx = box.left + box.width / 2;
+        const cy = box.top + box.height / 2;
+        const eventInit = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          pointerId: 1,
+          pointerType: "mouse",
+          isPrimary: true,
+        };
+        rect.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            ...eventInit,
+            clientX: cx,
+            clientY: cy,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointermove", {
+            ...eventInit,
+            clientX: cx + dx,
+            clientY: cy + dy,
+          }),
+        );
+        window.dispatchEvent(
+          new PointerEvent("pointerup", {
+            ...eventInit,
+            clientX: cx + dx,
+            clientY: cy + dy,
+          }),
+        );
+      },
+      { tileId: saved.id, dx, dy },
+    );
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "canvas tile {int} position should have changed",
+  async function (this: KoluWorld, index: number) {
+    const saved = ((this as any).__savedCanvasTilePositions ?? {})[index] as
+      | { id: string; left: number; top: number }
+      | undefined;
+    if (!saved) throw new Error(`No saved canvas tile ${index} position`);
+    await this.page.waitForFunction(
+      ({
+        sel,
+        tileId,
+        left,
+        top,
+      }: {
+        sel: string;
+        tileId: string;
+        left: number;
+        top: number;
+      }) => {
+        const tile = document
+          .querySelector(`${sel} [data-terminal-id="${tileId}"]`)
+          ?.closest("[style*='left']") as HTMLElement | null;
+        if (!tile) return false;
+        return (
+          Math.abs(parseFloat(tile.style.left) - left) >= 1 ||
+          Math.abs(parseFloat(tile.style.top) - top) >= 1
+        );
+      },
+      {
+        sel: CANVAS_SELECTOR,
+        tileId: saved.id,
+        left: saved.left,
+        top: saved.top,
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 When(
   "I move the canvas tile to x={int} y={int}",
