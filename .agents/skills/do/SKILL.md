@@ -58,7 +58,6 @@ Each step is bookended by two calls to the `scripts/do-results` script (in this 
   - **End a step**: `scripts/do-results step-end <status> "<verification>" ["<reason>"]` — pops `pendingStep` and appends the completed step with `completedAt` set to the current UTC time.
   - **Record a step in one call** (advanced): `scripts/do-results step <name> <status> "<verification>" <startedAt> <completedAt> ["<reason>"]` — used by `scripts/steps/sync` where `startedAt` is captured in shell. Agent code should prefer `step-start` / `step-end`.
   - **Update top-level field**: `scripts/do-results set <field> <value>` (e.g., `set active waiting`, `set status completed`)
-  - **Patch last step**: `scripts/do-results patch-last <field> <value>` (e.g., `patch-last completedAt "2026-..."`)
 - **Bookend every step with `step-start` at the top and `step-end` at the bottom.** Calling `step-end` without a prior `step-start` is an error, and calling `step` with `now` for both timestamps collapses duration to 0 — neither pattern is allowed. The only exceptions: `sync` is recorded by `scripts/steps/sync` itself, and skipped steps (where duration is always 0 by definition) may use `step-start` followed immediately by `step-end` with status `skipped`.
 - Do not run `date` yourself or guess timestamps — `do-results` resolves the current UTC time internally.
 
@@ -235,7 +234,9 @@ This is the **primary feature commit**. Downstream **hickey+lowy** and **police*
 
 ### hickey + lowy
 
-Invoke `hickey` and `lowy` as two **parallel Claude Code sub-agents** via the `Agent` tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). Do NOT use the `Skill` tool for this step — `Skill` invocations serialize on the main conversation loop, so two back-to-back `Skill` calls run one after the other even when issued in the same response. Dedicated sub-agents run in isolated contexts and genuinely execute concurrently, cutting this step's wall-clock time roughly in half. Offloading their analysis into forked contexts also keeps the main context lean for the downstream police/ci steps.
+Invoke `hickey` and `lowy` as two **parallel sub-agents** via the harness's agent tool (`subagent_type: "hickey"` and `subagent_type: "lowy"`). On Claude Code this is the `Agent` tool. On Codex this is the sub-agent spawning tool for delegated work. Invoking `/do` is explicit authorization to run these two review agents; do not wait for a second user prompt before spawning them.
+
+**Fallback, never skip.** If the harness cannot honor the requested review model in sub-agents, run hickey and lowy as sub-agents on the available model instead. If a sub-agent invocation fails for harness/tooling reasons before producing a review, retry that reviewer once; if it still cannot produce a sub-agent review, run that review in the main model by loading the reviewer skill against the same diff. This fallback is slower and uses more main-context budget, but it is still the `/do` hickey+lowy step. Do not replace it with an informal/manual review, and do not mark the step `skipped` because the requested model was unavailable.
 
 **Why post-implement, not pre-implement.** Hickey's complecting critique and Lowy's volatility lens both bite harder on a concrete diff than on a plan sketch. Reviewing a plan tends to surface generic concerns; reviewing a real diff surfaces the specific interleavings and boundary misalignments that matter. Running here also means the review covers *everything* the diff contains — including whatever the plan glossed over and whatever drifted during implementation.
 
@@ -252,7 +253,7 @@ The sub-agent already knows to read its skill file and follow that methodology; 
 
 **Model override.** If the user passed `--review-model=<model>`, pass `model: "<model>"` in **both** `Agent` tool calls — this overrides the `model: sonnet` in the agents' frontmatter via the `Agent` tool's built-in `model` parameter. If the flag was not passed, omit the `model` parameter entirely so the agent definition's default (sonnet) applies. Accept only `opus`, `sonnet`, and `haiku`; reject anything else at argument-parse time with a one-line error, since a typo silently falling back to sonnet would hide a budget decision the user was trying to express.
 
-After both sub-agents return, synthesize their findings. Findings marked **"Defer #issue"** or **"No-op"** are surfaced in the PR comment (see **create-pr**) but not acted on here.
+After both reviewers return, synthesize their findings. Findings marked **"Defer #issue"** or **"No-op"** are surfaced in the PR comment (see **create-pr**) but not acted on here.
 
 **Apply each "Fix in this PR" finding as its own commit** — do not batch multiple findings into one commit. A reviewer reading the PR's commit history should be able to read one "address hickey finding: decomplect viewportDimensions" commit at a time and follow the structural refinement as a sequence, not decode a grab-bag diff. For each finding in turn:
 
@@ -264,7 +265,7 @@ After both sub-agents return, synthesize their findings. Findings marked **"Defe
 
 **Under `--no-git`**: Skip the commit/push steps entirely. Apply fixes to the working tree and move on — the user will review the combined working-tree delta themselves. Record the step as passed with verification noting "--no-git: fixes applied to working tree, not committed."
 
-**Verify**: Every finding has an action recorded (fix, defer, or no-op). Every "Fix in this PR" finding has a corresponding commit on the feature branch (check via `git log origin/HEAD..HEAD --oneline`), except under `--no-git`. No unactioned findings.
+**Verify**: Both hickey and lowy produced review output using their respective skills, either through sub-agents or the main-model fallback. Every finding has an action recorded (fix, defer, or no-op). Every "Fix in this PR" finding has a corresponding commit on the feature branch (check via `git log origin/HEAD..HEAD --oneline`), except under `--no-git`. No unactioned findings.
 
 ---
 

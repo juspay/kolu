@@ -83,7 +83,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: dc414175815fa9cc95acb00c4a0ba26e485b842f
+  resolved_commit: e74b9aa698e65882014cd28b8733d2bd0696b89d
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -133,7 +133,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:b9d316555a1509eabb610d32cccdcd1dacaf926b2fd831a3178c30d283756d69
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:f309878ce79ee166620ef89812d093707f07b79cbebaa74725dc6f32f3cac8d3
+  content_hash: sha256:b0b9918c731a4f79fa8c10e8e400a9584c5d3c03057a7a0eebe575dedba51e1d
 mcp_servers:
 - chrome-devtools
 mcp_configs:
