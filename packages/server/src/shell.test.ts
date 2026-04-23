@@ -55,10 +55,12 @@ describe("OSC7_FN", () => {
 });
 
 describe("OSC2_PREEXEC_FN", () => {
-  // __kolu_preexec emits TWO sequences per invocation:
-  //   1. OSC 2 title change (for terminal title + event-driven process detection)
-  //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for recent-agents MRU)
-  // See shell.ts OSC2_PREEXEC_FN docstring for why.
+  // __kolu_preexec emits TWO sequences per invocation, in this order:
+  //   1. OSC 633 ; E ; <command>  (VS Code semantic command mark, for
+  //      recent-agents MRU + per-terminal agent-command stash)
+  //   2. OSC 2 title change (terminal title + event-driven reconcile)
+  // Order matters — the reconcile triggered by OSC 2 must see the stash
+  // already set by OSC 633;E. See shell.ts OSC2_PREEXEC_FN docstring.
 
   it("emits OSC 2 with the passed command string", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
@@ -68,6 +70,11 @@ describe("OSC2_PREEXEC_FN", () => {
   it("emits OSC 633;E with the passed command string", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
     expect(out).toContain("\x1b]633;E;vim foo.ts\x1b\\");
+  });
+
+  it("emits OSC 633;E before OSC 2 so preexec stash beats title reconcile", () => {
+    const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);
+    expect(out.indexOf("\x1b]633;E;")).toBeLessThan(out.indexOf("\x1b]2;"));
   });
 
   it("handles commands with special characters", () => {

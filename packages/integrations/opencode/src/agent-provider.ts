@@ -20,7 +20,15 @@ export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
 
   resolveSession(state, log) {
-    if (state.readForegroundBasename() !== "opencode") return null;
+    // Kernel basename is `opencode` for native installs; for npm-shimmed
+    // installs it reports the interpreter (`node`). `lastAgentCommandName`
+    // comes from the preexec hint and names the agent verbatim, so
+    // accept either signal (mirrors codex-provider, see #673).
+    if (
+      state.readForegroundBasename() !== "opencode" &&
+      state.lastAgentCommandName !== "opencode"
+    )
+      return null;
     return findSessionByDirectory(state.cwd, log);
   },
 

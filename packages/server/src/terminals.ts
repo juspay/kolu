@@ -35,6 +35,15 @@ export interface TerminalProcess {
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
+  /** Basename of the agent binary the user most recently launched in this
+   *  terminal (from the OSC 633;E preexec hint, parsed via
+   *  `parseAgentCommand`). `null` when the last observed command wasn't a
+   *  known agent, or when no preexec has fired yet. Used by the agent
+   *  orchestrator to detect interpreter-shimmed agents (e.g. npm-installed
+   *  `codex`, whose kernel-level process name is `node`). Valid only while
+   *  the shell is actively running a command — the orchestrator gates on
+   *  `foregroundPid !== handle.pid` before consuming it. */
+  lastAgentCommandName: string | null;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();
@@ -176,9 +185,17 @@ export function createTerminal(
       },
       // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
       // if the first token matches a known agent binary, push it to the
-      // global recent-agents MRU. Commands that aren't agents are discarded.
+      // global recent-agents MRU and stash the agent name on the terminal
+      // so interpreter-shimmed launches (npm-installed codex → node process)
+      // still match. Commands that aren't agents clear the stash.
       onCommandRun: (raw) => {
         const normalized = parseAgentCommand(raw);
+        const entry = terminals.get(id);
+        if (entry) {
+          entry.lastAgentCommandName = normalized
+            ? (normalized.split(" ")[0] ?? null)
+            : null;
+        }
         if (normalized) trackRecentAgent(normalized);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
@@ -212,6 +229,7 @@ export function createTerminal(
     handle,
     clipboardDir,
     stopProviders: () => {},
+    lastAgentCommandName: null,
   };
   // Start providers after entry is in the map (providers may emit immediately)
   terminals.set(id, entry);

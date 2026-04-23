@@ -21,7 +21,15 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
 
   resolveSession(state, log) {
-    if (state.readForegroundBasename() !== "codex") return null;
+    // `readForegroundBasename()` is the kernel-observed process name —
+    // correct for native installs, but reports `node` for npm-installed
+    // codex (#673). `lastAgentCommandName` comes from the shell preexec
+    // hint and sees `codex` verbatim in that case, so accept either.
+    if (
+      state.readForegroundBasename() !== "codex" &&
+      state.lastAgentCommandName !== "codex"
+    )
+      return null;
     return findSessionByDirectory(state.cwd, log);
   },
 

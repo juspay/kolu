@@ -35,6 +35,14 @@ export interface AgentTerminalState {
    *  claude-code) avoid invoking it. Idempotent within one snapshot — the
    *  second call returns the cached value without a second syscall. */
   readForegroundBasename: () => string | null;
+  /** Agent name parsed from the most recent OSC 633;E preexec hint (e.g.
+   *  "codex", "opencode"), or null. Populated by the shell's preexec hook
+   *  before the command runs, so it reflects the user's typed command even
+   *  when the kernel-level process is an interpreter shim (npm-installed
+   *  `codex` shows up as `node` to the kernel). Only set while a command
+   *  is actively running — clears to null once the shell is idle at the
+   *  prompt again, so stale hints don't outlive the process they name. */
+  lastAgentCommandName: string | null;
 }
 
 /** Handle returned by `createWatcher`. Callers invoke `destroy()` when the
