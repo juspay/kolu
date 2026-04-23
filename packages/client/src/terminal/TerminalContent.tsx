@@ -70,15 +70,18 @@ const TerminalContent: Component<{
   // sub-terminal split UX is preserved on mobile.
   const sidePanelsVisible = () => !isMobile();
 
+  // Track only the `collapsed` flag (a primitive) rather than the slot
+  // object identity — every metadata push from the server creates a fresh
+  // panels object, so depending on the slot's identity would invalidate
+  // these memos on unrelated changes (a bottom-slot tab switch firing the
+  // left-active recompute, etc.).
   const leftActive = createMemo(
-    () => sidePanelsVisible() && Boolean(left() && !left()!.collapsed),
+    () => sidePanelsVisible() && !(left()?.collapsed ?? true),
   );
   const rightActive = createMemo(
-    () => sidePanelsVisible() && Boolean(right() && !right()!.collapsed),
+    () => sidePanelsVisible() && !(right()?.collapsed ?? true),
   );
-  const bottomActive = createMemo(() =>
-    Boolean(bottom() && !bottom()!.collapsed),
-  );
+  const bottomActive = createMemo(() => !(bottom()?.collapsed ?? true));
 
   const focusEdge = () => panels.getFocusEdge(props.terminalId);
   const mainFocused = () => props.focused && focusEdge() === "main";
@@ -153,24 +156,23 @@ const TerminalContent: Component<{
   const leftSize = () => (leftActive() ? left()!.size : 0);
   const rightSize = () => (rightActive() ? right()!.size : 0);
 
-  function handleOuterSizesChange(sizes: number[]) {
-    const next = sizes[0];
-    if (next !== undefined && next > 0.02 && leftActive()) {
-      panels.setSize(props.terminalId, "left", next);
-    }
-  }
-  function handleMiddleSizesChange(sizes: number[]) {
-    const next = sizes[1];
-    if (next !== undefined && next > 0.02 && rightActive()) {
-      panels.setSize(props.terminalId, "right", next);
-    }
-  }
-  function handleInnerSizesChange(sizes: number[]) {
-    const next = sizes[1];
-    if (next !== undefined && next > 0.02 && bottomActive()) {
-      panels.setSize(props.terminalId, "bottom", next);
-    }
-  }
+  /** Build a Resizable `onSizesChange` handler for one edge — picks the
+   *  size at `sizesIdx` from the array Corvu passes, gates on the slot
+   *  being open, and writes through the panels primitive. The 0.02 floor
+   *  ignores the [1, 0] event Corvu fires during programmatic transitions
+   *  (collapse/expand), which would otherwise immediately re-collapse the
+   *  slot the user just opened. */
+  const makeResizeHandler =
+    (sizesIdx: number, edge: PanelEdge, isActive: () => boolean) =>
+    (sizes: number[]) => {
+      const next = sizes[sizesIdx];
+      if (next !== undefined && next > 0.02 && isActive()) {
+        panels.setSize(props.terminalId, edge, next);
+      }
+    };
+  const handleOuterSizesChange = makeResizeHandler(0, "left", leftActive);
+  const handleMiddleSizesChange = makeResizeHandler(1, "right", rightActive);
+  const handleInnerSizesChange = makeResizeHandler(1, "bottom", bottomActive);
 
   // Build the inner (main + bottom) vertical region.
   const renderCenter = () => (
