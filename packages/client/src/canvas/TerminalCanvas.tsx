@@ -379,6 +379,27 @@ const TerminalCanvas: Component<{
             tileIds={props.tileIds}
             layouts={layouts()}
             onSelect={props.onSelect}
+            onStartTileDrag={(id) => {
+              const origin = layoutOf(id);
+              if (!origin) return null;
+              return {
+                preview: (dx, dy) =>
+                  setPendingLayout(id, {
+                    ...origin,
+                    x: origin.x + dx,
+                    y: origin.y + dy,
+                  }),
+                commit: (dx, dy) => {
+                  const next: TileLayout = {
+                    ...origin,
+                    x: viewport.snapToGrid(origin.x + dx),
+                    y: viewport.snapToGrid(origin.y + dy),
+                  };
+                  setPendingLayout(id, next);
+                  props.onLayoutChange(id, next);
+                },
+              };
+            }}
           />
         </Show>
       </div>
