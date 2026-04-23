@@ -1,53 +1,7 @@
 lockfile_version: '1'
-generated_at: '2026-04-23T10:47:07.600109+00:00'
+generated_at: '2026-04-23T15:50:20.300993+00:00'
 apm_version: 0.9.2
 dependencies:
-- repo_url: _local/agents
-  package_type: apm_package
-  deployed_files:
-  - .agents/skills/ci
-  - .agents/skills/hk
-  - .agents/skills/perf-diagnose
-  - .agents/skills/test
-  - .claude/commands/whatchanged.md
-  - .claude/rules/apm-workflow.md
-  - .claude/rules/architecture.md
-  - .claude/rules/code-police-rules.md
-  - .claude/rules/e2e-testing.md
-  - .claude/rules/hickey-catalog.md
-  - .claude/rules/lowy-volatilities.md
-  - .claude/rules/nix.md
-  - .claude/rules/solidjs.md
-  - .claude/rules/state.md
-  - .claude/rules/streaming.md
-  - .claude/rules/toast-conventions.md
-  - .claude/rules/workflow.md
-  - .claude/skills/ci
-  - .claude/skills/hk
-  - .claude/skills/perf-diagnose
-  - .claude/skills/test
-  - .opencode/commands/whatchanged.md
-  - .opencode/skills/ci
-  - .opencode/skills/hk
-  - .opencode/skills/perf-diagnose
-  - .opencode/skills/test
-  deployed_file_hashes:
-    .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
-    .claude/rules/apm-workflow.md: sha256:ddb46a34e22a566a11c220ec8ab6dc1c0f394a86935702d8275926c23a4cc8c0
-    .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-    .claude/rules/code-police-rules.md: sha256:26bdd1b7aad795ab64c7fa939b2e854dc7ace5c562396e87a90ffce1ee760329
-    .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
-    .claude/rules/hickey-catalog.md: sha256:11144a19e7037941b34921fc9326245e4702e51b258fb3890b2984561e06af60
-    .claude/rules/lowy-volatilities.md: sha256:82aeded3cd5a0e2016027b796abc3058544663f3e7bf636c54fb65704f1af0fd
-    .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
-    .claude/rules/solidjs.md: sha256:d6b03eb7701e4ae637d8c5a389148811ef028f68c40bf0e76e8769d816e6e545
-    .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
-    .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
-    .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-    .claude/rules/workflow.md: sha256:9fd3625ba30f63cd5ec7543fcc71cd3dbd80cf12d6a88da046c7f11b03a83543
-    .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
-  source: local
-  local_path: ./agents
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
@@ -148,3 +102,45 @@ mcp_configs:
     - ai::mcp-chrome-devtools
     registry: false
     command: nix
+local_deployed_files:
+- .agents/skills/ci
+- .agents/skills/hk
+- .agents/skills/perf-diagnose
+- .agents/skills/test
+- .claude/commands/whatchanged.md
+- .claude/rules/apm-workflow.md
+- .claude/rules/architecture.md
+- .claude/rules/code-police-rules.md
+- .claude/rules/e2e-testing.md
+- .claude/rules/hickey-catalog.md
+- .claude/rules/lowy-volatilities.md
+- .claude/rules/nix.md
+- .claude/rules/solidjs.md
+- .claude/rules/state.md
+- .claude/rules/streaming.md
+- .claude/rules/toast-conventions.md
+- .claude/rules/workflow.md
+- .claude/skills/ci
+- .claude/skills/hk
+- .claude/skills/perf-diagnose
+- .claude/skills/test
+- .opencode/commands/whatchanged.md
+- .opencode/skills/ci
+- .opencode/skills/hk
+- .opencode/skills/perf-diagnose
+- .opencode/skills/test
+local_deployed_file_hashes:
+  .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
+  .claude/rules/apm-workflow.md: sha256:094801d4b980f9eb7cd8c64ce1e67ddb008307851ef7c4203eba13f17a87b446
+  .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
+  .claude/rules/code-police-rules.md: sha256:26bdd1b7aad795ab64c7fa939b2e854dc7ace5c562396e87a90ffce1ee760329
+  .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
+  .claude/rules/hickey-catalog.md: sha256:11144a19e7037941b34921fc9326245e4702e51b258fb3890b2984561e06af60
+  .claude/rules/lowy-volatilities.md: sha256:82aeded3cd5a0e2016027b796abc3058544663f3e7bf636c54fb65704f1af0fd
+  .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
+  .claude/rules/solidjs.md: sha256:d6b03eb7701e4ae637d8c5a389148811ef028f68c40bf0e76e8769d816e6e545
+  .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
+  .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
+  .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
+  .claude/rules/workflow.md: sha256:9fd3625ba30f63cd5ec7543fcc71cd3dbd80cf12d6a88da046c7f11b03a83543
+  .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69

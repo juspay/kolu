@@ -1,6 +1,6 @@
 ---
 paths:
-  - "agents/**,apm.lock.yaml"
+  - "{.apm/**,agents/**,apm.yml,apm.lock.yaml}"
 ---
 
 ## APM Workflow

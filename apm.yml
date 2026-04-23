@@ -8,7 +8,6 @@ target: [claude, codex, opencode]
 # Reinstall all:       just ai::apm
 dependencies:
   apm:
-    - ./agents
     - srid/agency#master
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript

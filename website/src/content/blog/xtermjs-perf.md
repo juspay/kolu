@@ -268,7 +268,7 @@ work:
 - [`docs/perf-investigations/memory-learnings.md`](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/memory-learnings.md)
   — three chapters of leak-hunts, with all the failed theories
   preserved.
-- [`agents/.apm/skills/perf-diagnose/SKILL.md`](https://github.com/juspay/kolu/blob/master/agents/.apm/skills/perf-diagnose/SKILL.md)
+- [`.apm/skills/perf-diagnose/SKILL.md`](https://github.com/juspay/kolu/blob/master/.apm/skills/perf-diagnose/SKILL.md)
   — the runbook future Claude Code sessions will read before they
   re-tread the proxy-metric path I spent the afternoon on.
 - [`docs/perf-investigations/scripts/`](https://github.com/juspay/kolu/tree/master/docs/perf-investigations/scripts)

@@ -1,6 +1,6 @@
 ---
 description: APM workflow — how to install, update, and verify agent packages via justfile recipes
-applyTo: "agents/**,apm.lock.yaml"
+applyTo: "{.apm/**,agents/**,apm.yml,apm.lock.yaml}"
 ---
 
 ## APM Workflow

@@ -6,7 +6,7 @@
 
 ## Files matching `packages/client/src/**`
 
-<!-- Source: local agents/.apm/instructions/hickey-catalog.instructions.md -->
+<!-- Source: local .apm/instructions/hickey-catalog.instructions.md -->
 ## Additional Complecting Patterns
 
 These extend the hickey skill's built-in complecting catalog with patterns specific to this project's SolidJS + oRPC architecture.
@@ -19,7 +19,7 @@ These extend the hickey skill's built-in complecting catalog with patterns speci
 | Dual stores for one concern (local `createStore` + subscription/query for same data)                                 | Value + time + two sources of truth                          | Single reactive source; only justify dual stores when async round-trip latency is measurable (>16ms)             |
 | `createEffect` that writes to signals/stores (effect-as-state-machine)                                               | When + what + control flow                                   | `createMemo` for derived values, `mapArray` for per-item derivations, `on()` for explicit dependency tracking    |
 
-<!-- Source: local agents/.apm/instructions/lowy-volatilities.instructions.md -->
+<!-- Source: local .apm/instructions/lowy-volatilities.instructions.md -->
 ## Areas of Volatility
 
 Surviving candidates from Kolu's own variable-vs-volatile screen. Each row names a volatility that has already shifted in this codebase and has a concrete encapsulation target. Rows are not findings — `/lowy` re-applies Lowy's bar (what + why + risk × likelihood × effect) and audits whether the boundaries under review actually encapsulate these, rather than leaking them into consumers.
@@ -31,7 +31,7 @@ Surviving candidates from Kolu's own variable-vs-volatile screen. Each row names
 | xterm private buffer / service path       | The shape of xterm.js's internals — `_core`, `_bufferService`, `buffers.normal/alt`, `BufferLine._data` — that diagnostic code must read to measure cell-grid bytes, atlas state, etc. xterm's public API exposes neither.                                                                                                                           | Likelihood: xterm is actively developed and private fields get renamed between majors. Effect: a direct reach-through from a component file crashes the whole render path when a rename lands. Low-likelihood-per-release × high-effect-on-hit.                                                                                                                                                                                                                                              | Behind `TerminalProbes` in `packages/client/src/terminal/terminalRefs.ts` (`webglAtlas`, `bufferBytes`, …) — each probe is a `() => T \| null` thunk registered from `Terminal.tsx` where the xterm instance lives. Consumers read `refs?.probes.X() ?? null` and render "unknown" on null. Adding a new private-path read means adding a probe, not a new reach-through from the consumer.                                                    |
 | Canvas lifecycle + runtime geometry       | The set of still-alive `HTMLCanvasElement`s minted by xterm's `WebglAddon`, whether they are DOM-connected, whether their GL context is lost, and their pixel-buffer dimensions. Every terminal create/focus-swap/mode-toggle changes this set.                                                                                                      | Surfaced during the [#591](https://github.com/juspay/kolu/issues/591) zombie-context hunt and remains the key signal for post-#600 residual GPU memory. Effect: consumers that hand-walk the DOM for canvases (or `WeakRef` their own) duplicate state the tracker already owns, risking divergent counts.                                                                                                                                                                                   | In `packages/client/src/terminal/webglTracker.ts`. `webglLifecycleSnapshot()` emits `WebglLifecycleSnapshot` with aggregated counts (`aliveInDom`, `aliveDetached`, `gced`, `contextsLost`) and `aliveCanvases: CanvasSizeEntry[]` carrying `{ canvasId, terminalId, width, height, bytesEst, isConnected, contextLost }` per canvas. Consumers never touch `WeakRef`, DOM queries, or `gl.isContextLost()` directly — they read the snapshot. |
 
-<!-- Source: local agents/.apm/instructions/solidjs.instructions.md -->
+<!-- Source: local .apm/instructions/solidjs.instructions.md -->
 ## UI
 
 - Extract reusable UI into SolidJS components (one component per file in `packages/client/src/`).
@@ -50,7 +50,7 @@ Surviving candidates from Kolu's own variable-vs-volatile screen. Each row names
 - **`mapArray` for dynamic per-entity subscriptions**: When the set of subscriptions is driven by a reactive list (e.g., per-terminal metadata), use `mapArray` to create subscriptions. SolidJS handles lifecycle — each item gets its own reactive owner, automatically disposed when removed from the list.
 - **Plain client calls for mutations**: No mutation wrappers needed. Call `client.terminal.create(...)` directly and handle errors with `.catch(() => toast.error(...))`. Server pushes update subscriptions automatically.
 
-<!-- Source: local agents/.apm/instructions/toast-conventions.instructions.md -->
+<!-- Source: local .apm/instructions/toast-conventions.instructions.md -->
 ## Toast Conventions
 
 - **Semantic variants**: Use `toast.success()` for success outcomes, `toast.error()` for failures, `toast.warning()` for degraded states (e.g. non-zero exit codes), `toast.info()` for informational notices with actions. Never use bare `toast()` for outcomes — reserve it for neutral notifications (tips, exit-code-0).

@@ -290,7 +290,7 @@ onMount(async () => {
 ```
 
 Catalogued under "Async-initialization cleanup registration" in
-`agents/.apm/instructions/lowy-volatilities.instructions.md`.
+`.apm/instructions/lowy-volatilities.instructions.md`.
 
 ---
 
@@ -480,6 +480,6 @@ in [#610](https://github.com/juspay/kolu/issues/610).
   lifecycle counters), `packages/client/src/debug/consoleHooks.ts`
   (`__kolu` hook), `packages/client/src/DiagnosticInfo.tsx` (dialog).
 - Scripts: `docs/perf-investigations/scripts/{count-rn,check-yn-disposed,orphan-paths}.mjs`.
-- Skill: `agents/.apm/skills/perf-diagnose/SKILL.md`.
+- Skill: `.apm/skills/perf-diagnose/SKILL.md`.
 - Upstream: juspay/xterm.js fork + xtermjs/xterm.js#5817 / #5818.
 - Master tracking: [#610](https://github.com/juspay/kolu/issues/610).
