@@ -317,7 +317,28 @@ export function useTerminalPanels() {
   }
 
   function removeTerminalRuntime(id: TerminalId): void {
+    // Clear the pending size-debounce timer before dropping the entry —
+    // otherwise the queued `setPanels` fires against a deleted terminal
+    // and surfaces a spurious "terminal not found" toast to the user.
+    const rt = runtime[id];
+    if (rt?.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
     setRuntime(produce((s) => delete s[id]));
+  }
+
+  /** Drop every terminal's runtime state. Used by the "Close all"
+   *  command, which kills every PTY in one server call rather than walking
+   *  per-terminal — the per-terminal cleanup hooks would otherwise be
+   *  bypassed and the runtime map would leak entries. */
+  function resetAllRuntime(): void {
+    for (const id of Object.keys(runtime)) {
+      const rt = runtime[id];
+      if (rt?.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
+    }
+    setRuntime(
+      produce((s) => {
+        for (const k of Object.keys(s)) delete s[k];
+      }),
+    );
   }
 
   return {
@@ -335,5 +356,6 @@ export function useTerminalPanels() {
     getFocusEdge,
     setFocusEdge,
     removeTerminalRuntime,
+    resetAllRuntime,
   } as const;
 }

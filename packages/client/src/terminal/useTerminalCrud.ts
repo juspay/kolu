@@ -218,6 +218,9 @@ export function useTerminalCrud(deps: {
     try {
       await client.terminal.killAll();
       store.reset();
+      // killAll bypasses per-terminal cleanup paths — drop every panel
+      // runtime entry directly so the keyed store doesn't leak.
+      panels.resetAllRuntime();
     } catch (err) {
       toast.error(`Failed to close all terminals: ${(err as Error).message}`);
     }
