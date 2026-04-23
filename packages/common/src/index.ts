@@ -5,10 +5,10 @@
 
 import { z } from "zod";
 import { match } from "ts-pattern";
-import { TaskProgressSchema } from "anyagent";
 // Import from `/schemas` subpaths, not package roots — keeps the
-// client bundle free of `@anthropic-ai/claude-agent-sdk` and `node:sqlite`
-// (see juspay/kolu#682).
+// client bundle free of `@anthropic-ai/claude-agent-sdk`, `node:sqlite`,
+// `node:child_process`, etc. (see juspay/kolu#682).
+import { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
@@ -30,7 +30,7 @@ import {
   FsListDirOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
-} from "kolu-git";
+} from "kolu-git/schemas";
 
 // Re-export integration schemas so consumers import from kolu-common only.
 export {
@@ -69,7 +69,7 @@ export type {
   GitStatusOutput,
   GitDiffOutput,
   FsListDirOutput,
-} from "kolu-git";
+} from "kolu-git/schemas";
 
 // --- Zod schemas ---
 
