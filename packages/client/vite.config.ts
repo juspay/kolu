@@ -3,11 +3,10 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
-import clientPackage from "./package.json" with { type: "json" };
+import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
-const xtermVersion =
-  clientPackage.dependencies["@xterm/xterm"]?.replace(/^[~^]/, "") ?? "unknown";
+const xtermVersion = xtermPackage.version;
 
 const fontsDir = process.env.KOLU_FONTS_DIR;
 if (!fontsDir) {
