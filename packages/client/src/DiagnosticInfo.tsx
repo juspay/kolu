@@ -34,6 +34,7 @@ function browserFacts() {
     webgl2Supported: WEBGL2_SUPPORTED,
     crossOriginIsolated: self.crossOriginIsolated,
     devicePixelRatio: window.devicePixelRatio,
+    xtermVersion: __XTERM_VERSION__,
   };
 }
 
@@ -147,6 +148,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               <span class="font-mono text-fg-3">
                 {browser.devicePixelRatio}
               </span>
+            </Row>
+            <Row label="xterm.js">
+              <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
             </Row>
             <Row label="UA">
               <span class="font-mono text-fg-3 break-all">
