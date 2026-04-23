@@ -56,9 +56,11 @@ describe("OSC7_FN", () => {
 
 describe("OSC2_PREEXEC_FN", () => {
   // __kolu_preexec emits TWO sequences per invocation:
-  //   1. OSC 2 title change (for terminal title + event-driven process detection)
-  //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for recent-agents MRU)
-  // See shell.ts OSC2_PREEXEC_FN docstring for why.
+  //   1. OSC 2 title change (for terminal title + event-driven reconcile)
+  //   2. OSC 633 ; E ; <command>  (VS Code semantic command mark, for
+  //      recent-agents MRU + per-terminal agent-command stash)
+  // Order is NOT load-bearing — onCommandRun in terminals.ts publishes
+  // its own reconcile trigger after stashing. See shell.ts docstring.
 
   it("emits OSC 2 with the passed command string", () => {
     const out = runBash(`${OSC2_PREEXEC_FN}; __kolu_preexec "vim foo.ts"`);

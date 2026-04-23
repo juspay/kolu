@@ -11,7 +11,7 @@
  * match succeeds.
  */
 
-import type { AgentProvider } from "anyagent";
+import { type AgentProvider, matchesAgent } from "anyagent";
 import { findSessionByDirectory } from "./index.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
@@ -21,7 +21,7 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
 
   resolveSession(state, log) {
-    if (state.readForegroundBasename() !== "codex") return null;
+    if (!matchesAgent(state, "codex")) return null;
     return findSessionByDirectory(state.cwd, log);
   },
 

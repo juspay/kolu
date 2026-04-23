@@ -11,6 +11,7 @@ export {
   type AgentInfoShape,
   type AgentProvider,
   agentInfoEqual,
+  matchesAgent,
 } from "./agent-provider.ts";
 
 export { withDb, type Closable } from "./with-db.ts";

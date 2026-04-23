@@ -48,20 +48,31 @@ function readForegroundBasenameOnce(
 /** Build a snapshot. `readForegroundBasename` is a lazy, memoized accessor
  *  so providers that match by PID alone (e.g. claude-code) skip the darwin
  *  sysctl entirely on every reconcile. The cache is scoped to this one
- *  snapshot — a fresh snapshot on the next reconcile will re-read. */
+ *  snapshot — a fresh snapshot on the next reconcile will re-read.
+ *
+ *  `lastAgentCommandName` is sourced from the preexec stash on
+ *  `TerminalProcess`, gated on `foregroundPid !== handle.pid` — i.e. a
+ *  foreground command is actually running. When the shell is idle at the
+ *  prompt, tcgetpgrp returns the shell's own pid and the previous stash
+ *  no longer describes a live process; null it out so providers don't
+ *  match an agent that has already exited. */
 function snapshotTerminalState(
   entry: TerminalProcess,
   plog: Logger,
 ): AgentTerminalState {
   let basename: string | null | undefined = undefined;
+  const foregroundPid = entry.handle.foregroundPid;
+  const shellIdle =
+    foregroundPid === undefined || foregroundPid === entry.handle.pid;
   return {
-    foregroundPid: entry.handle.foregroundPid,
+    foregroundPid,
     cwd: entry.info.meta.cwd,
     readForegroundBasename: () => {
       if (basename === undefined)
         basename = readForegroundBasenameOnce(entry, plog);
       return basename;
     },
+    lastAgentCommandName: shellIdle ? null : entry.lastAgentCommandName,
   };
 }
 
