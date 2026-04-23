@@ -22,8 +22,8 @@ import { waitForBufferContains } from "../support/buffer.ts";
 import {
   writeCodexFixture,
   updateCodexRollout,
-  type AgentLifecycleState,
-} from "../support/agent-mock.ts";
+} from "../support/agent-mock-codex.ts";
+import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 
 const getCodexDir = () => process.env.KOLU_CODEX_DIR;
 

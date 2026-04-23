@@ -18,10 +18,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
-import {
-  writeOpenCodeFixture,
-  type AgentLifecycleState,
-} from "../support/agent-mock.ts";
+import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
+import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
 
