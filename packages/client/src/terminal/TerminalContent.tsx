@@ -43,12 +43,11 @@ const TerminalContent: Component<{
   /** Active terminal metadata — fed to Inspector / Code panels. */
   meta: TerminalMetadata | null;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  /** Caller orchestrates terminal creation when the user adds a sub-terminal
-   *  tab to the bottom slot. The newly-created id is added as a tab. */
-  onCreateSubTerminal: (
-    parentId: TerminalId,
-    cwd?: string,
-  ) => Promise<TerminalId | null>;
+  /** Add a sub-terminal tab to the parent's bottom slot. App owns the
+   *  underlying terminal-create RPC + panel-mutation step so there's a
+   *  single canonical implementation; this component just signals
+   *  intent. */
+  onAddSubTerminalTab: (parentId: TerminalId) => void;
   /** Close a terminal — used when the user dismisses a `kind: "terminal"`
    *  tab. The panels primitive removes the tab; this kills the underlying
    *  PTY. The server prunes any dangling references in panels. */
@@ -103,18 +102,6 @@ const TerminalContent: Component<{
       kind: "code",
       mode,
     });
-  }
-
-  // Bottom slot: + button creates a new sub-terminal and adds it as a tab.
-  function handleAddBottomTab(): void {
-    void (async () => {
-      const id = await props.onCreateSubTerminal(
-        props.terminalId,
-        props.meta?.cwd,
-      );
-      if (id)
-        panels.addTab(props.terminalId, "bottom", { kind: "terminal", id });
-    })();
   }
 
   function handleCloseTab(edge: PanelEdge, tabIdx: number): void {
@@ -203,7 +190,7 @@ const TerminalContent: Component<{
                 panels.setActiveTab(props.terminalId, "bottom", idx)
               }
               onCloseTab={(idx) => handleCloseTab("bottom", idx)}
-              onAddTab={handleAddBottomTab}
+              onAddTab={() => props.onAddSubTerminalTab(props.terminalId)}
               onCollapse={() => panels.toggleSlot(props.terminalId, "bottom")}
               onMoveTab={(idx, target) =>
                 panels.moveTabToEdge(props.terminalId, "bottom", idx, target)

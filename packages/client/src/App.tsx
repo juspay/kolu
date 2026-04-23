@@ -295,9 +295,7 @@ const App: Component = () => {
         onSearchOpenChange={setSearchOpen}
         meta={store.getMetadata(id) ?? null}
         getMetadata={store.getMetadata}
-        onCreateSubTerminal={(parentId, cwd) =>
-          crud.handleCreateSubTerminal(parentId, cwd).catch(() => null)
-        }
+        onAddSubTerminalTab={(pid) => void handleAddSubTerminalTab(pid)}
         onCloseTerminal={closeTerminal}
         onFocus={() => store.setActiveId(id)}
         onThemeClick={() => openPaletteGroup("Theme")}
@@ -323,9 +321,7 @@ const App: Component = () => {
         onSearchOpenChange={setSearchOpen}
         meta={store.getMetadata(id) ?? null}
         getMetadata={store.getMetadata}
-        onCreateSubTerminal={(parentId, cwd) =>
-          crud.handleCreateSubTerminal(parentId, cwd).catch(() => null)
-        }
+        onAddSubTerminalTab={(pid) => void handleAddSubTerminalTab(pid)}
         onCloseTerminal={closeTerminal}
         onThemeClick={() => openPaletteGroup("Theme")}
       />
