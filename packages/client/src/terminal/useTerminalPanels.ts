@@ -162,22 +162,30 @@ export function useTerminalPanels() {
     updateSlot(id, edge, (slot) => ({ ...slot, collapsed: !slot.collapsed }));
   }
 
+  /** Activate a tab and expand the slot. Selecting the already-active tab
+   *  in an already-expanded slot is a no-op — short-circuit so a stray
+   *  click doesn't trigger a server round-trip. */
   function setActiveTab(id: TerminalId, edge: PanelEdge, tabIdx: number): void {
-    updateSlot(id, edge, (slot) => ({
-      ...slot,
-      active: Math.max(0, Math.min(tabIdx, slot.tabs.length - 1)),
-      collapsed: false,
-    }));
+    const slot = getSlot(id, edge);
+    if (!slot) return;
+    const next = Math.max(0, Math.min(tabIdx, slot.tabs.length - 1));
+    if (slot.active === next && !slot.collapsed) return;
+    setSlot(id, edge, { ...slot, active: next, collapsed: false });
   }
 
   /** Trailing-edge debounce — Resizable fires per-frame during drag, but
-   *  the server only needs the settled value. */
+   *  the server only needs the settled value. The post-debounce write also
+   *  short-circuits when the settled size matches what's already on disk
+   *  (a drag that lands at the same fractional position contributes a
+   *  no-op write otherwise). */
   function setSize(id: TerminalId, edge: PanelEdge, size: number): void {
     const rt = ensureRuntime(id);
     if (rt.sizeDebounce !== undefined) clearTimeout(rt.sizeDebounce);
     const handle = window.setTimeout(() => {
       setRuntime(id, "sizeDebounce", undefined);
-      updateSlot(id, edge, (slot) => ({ ...slot, size }));
+      const current = getSlot(id, edge);
+      if (!current || current.size === size) return;
+      setSlot(id, edge, { ...current, size });
     }, SIZE_DEBOUNCE_MS);
     setRuntime(id, "sizeDebounce", handle);
   }
