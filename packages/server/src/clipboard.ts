@@ -53,6 +53,10 @@ export type ImagePasteMode = "raw-ctrl-v" | "bracketed-path";
 /** Collapse terminal metadata into one authoritative image-paste mode so
  *  routing decisions do not have to reconstruct policy from multiple fields. */
 export function imagePasteMode(meta: TerminalMetadata): ImagePasteMode {
+  // Two observations of the same fact at different latencies:
+  // `foreground` is the fast path (OSC 7 process name from the PTY);
+  // `agent` is the slower detection path that catches sessions where
+  // foreground has not yet resolved at paste time.
   if (meta.foreground?.name === "codex" || meta.agent?.kind === "codex") {
     return "bracketed-path";
   }
