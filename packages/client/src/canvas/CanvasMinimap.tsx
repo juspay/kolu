@@ -34,6 +34,13 @@ const CanvasMinimap: Component<{
   layouts: Record<string, TileLayout>;
   /** Activate a tile (make it the focused terminal). */
   onSelect: (id: string) => void;
+  /** Start dragging a tile directly from its minimap rect. */
+  onTilePointerDown: (
+    id: string,
+    e: PointerEvent,
+    minimapScale: number,
+    onDragStateChange: (dragging: boolean) => void,
+  ) => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -161,10 +168,20 @@ const CanvasMinimap: Component<{
               const handleTileClick = (e: MouseEvent) => {
                 // Don't let this also trigger the background pan-to-point.
                 e.stopPropagation();
+                if (suppressNextClick) {
+                  suppressNextClick = false;
+                  return;
+                }
                 const l = layout();
                 if (!l) return;
                 props.onSelect(id);
                 viewport.centerOnTile(l);
+              };
+              const handleTilePointerDown = (e: PointerEvent) => {
+                e.stopPropagation();
+                props.onTilePointerDown(id, e, minimapScale(), (dragging) => {
+                  if (!dragging) suppressNextClick = true;
+                });
               };
               return (
                 <Show when={pos()}>
@@ -187,6 +204,7 @@ const CanvasMinimap: Component<{
                         border: `1px solid ${tileMinimapBorder(theme())}`,
                       }}
                       title={id}
+                      onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
                     />
                   )}
@@ -197,8 +215,7 @@ const CanvasMinimap: Component<{
 
           {/* Viewport rectangle */}
           <div
-            data-testid="minimap-viewport-rect"
-            class="absolute border-2 border-accent/50 rounded-sm cursor-grab active:cursor-grabbing"
+            class="absolute pointer-events-none border-2 border-accent/50 rounded-sm"
             style={{
               left: `${viewportRect().x}px`,
               top: `${viewportRect().y}px`,
@@ -207,8 +224,13 @@ const CanvasMinimap: Component<{
               "background-color":
                 "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
             }}
-            onPointerDown={handleViewportDrag}
-          />
+          >
+            <div
+              data-testid="minimap-viewport-rect"
+              class="absolute inset-x-0 top-0 h-2 pointer-events-auto cursor-grab active:cursor-grabbing"
+              onPointerDown={handleViewportDrag}
+            />
+          </div>
         </div>
       </Show>
 
