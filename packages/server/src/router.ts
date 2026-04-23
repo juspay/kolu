@@ -22,7 +22,11 @@ import {
   reorderTerminals,
   type TerminalProcess,
 } from "./terminals.ts";
-import { dispatchPastedImage, saveClipboardImage } from "./clipboard.ts";
+import {
+  dispatchPastedImage,
+  imagePasteMode,
+  saveClipboardImage,
+} from "./clipboard.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import {
@@ -165,7 +169,9 @@ export const appRouter = t.router({
           : 0;
       const bytes = Math.floor((input.data.length * 3) / 4) - padding;
       const path = saveClipboardImage(entry.clipboardDir, input.data);
-      entry.handle.write(dispatchPastedImage(entry.info.meta, path));
+      entry.handle.write(
+        dispatchPastedImage(imagePasteMode(entry.info.meta), path),
+      );
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
 

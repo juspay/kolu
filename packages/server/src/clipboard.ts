@@ -45,14 +45,25 @@ export function saveClipboardImage(
   return imagePath;
 }
 
+export type ImagePasteMode = "raw-ctrl-v" | "bracketed-path";
+
+/** Collapse terminal metadata into one authoritative image-paste mode so
+ *  routing decisions do not have to reconstruct policy from multiple fields. */
+export function imagePasteMode(meta: TerminalMetadata): ImagePasteMode {
+  if (meta.foreground?.name === "codex" || meta.agent?.kind === "codex") {
+    return "bracketed-path";
+  }
+  return "raw-ctrl-v";
+}
+
 /** Translate an uploaded browser image into the PTY input expected by the
- *  foreground app. Claude reads the clipboard on raw Ctrl+V; Codex expects a
- *  bracketed-paste path and attaches local images from that path. */
+ *  resolved terminal paste mode. Claude reads the clipboard on raw Ctrl+V;
+ *  Codex expects a bracketed-paste path and attaches local images from it. */
 export function dispatchPastedImage(
-  meta: TerminalMetadata,
+  mode: ImagePasteMode,
   imagePath: string,
 ): string {
-  if (meta.foreground?.name === "codex" || meta.agent?.kind === "codex") {
+  if (mode === "bracketed-path") {
     return `\x1b[200~${imagePath}\x1b[201~`;
   }
   return "\x16";
