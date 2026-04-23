@@ -3,8 +3,10 @@ import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { DEFAULT_PORT } from "kolu-common/config";
+import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
+const xtermVersion = xtermPackage.version;
 
 const fontsDir = process.env.KOLU_FONTS_DIR;
 if (!fontsDir) {
@@ -50,6 +52,7 @@ export default defineConfig({
   },
   define: {
     __KOLU_COMMIT__: JSON.stringify(commitHash),
+    __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
   build: {
     target: "esnext",
