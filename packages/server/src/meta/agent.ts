@@ -54,6 +54,7 @@ function snapshotTerminalState(
   plog: Logger,
 ): AgentTerminalState {
   let basename: string | null | undefined = undefined;
+  let invokedAgentBasename: string | null | undefined = undefined;
   return {
     foregroundPid: entry.handle.foregroundPid,
     cwd: entry.info.meta.cwd,
@@ -61,6 +62,16 @@ function snapshotTerminalState(
       if (basename === undefined)
         basename = readForegroundBasenameOnce(entry, plog);
       return basename;
+    },
+    readInvokedAgentBasename: () => {
+      if (invokedAgentBasename !== undefined) return invokedAgentBasename;
+      invokedAgentBasename =
+        entry.currentTitle &&
+        entry.lastAgentCommandRaw &&
+        entry.currentTitle === entry.lastAgentCommandRaw
+          ? entry.lastAgentBasename
+          : null;
+      return invokedAgentBasename;
     },
   };
 }

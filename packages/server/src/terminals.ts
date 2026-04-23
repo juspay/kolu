@@ -31,6 +31,14 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
+  /** Raw command string from the most recent OSC 633;E mark, if it was a
+   *  known agent invocation. Cleared logically when the title no longer
+   *  matches this command (prompt/title reset after the command exits). */
+  lastAgentCommandRaw: string | null;
+  /** Normalized basename of the last known agent command (e.g. "codex"). */
+  lastAgentBasename: string | null;
+  /** Latest OSC 0/2 title observed for the terminal. */
+  currentTitle: string | null;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
@@ -172,6 +180,8 @@ export function createTerminal(
       },
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
+        const entry = terminals.get(id);
+        if (entry) entry.currentTitle = title;
         publishForTerminal("title", id, title);
       },
       // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
@@ -179,6 +189,13 @@ export function createTerminal(
       // global recent-agents MRU. Commands that aren't agents are discarded.
       onCommandRun: (raw) => {
         const normalized = parseAgentCommand(raw);
+        const entry = terminals.get(id);
+        if (entry) {
+          entry.lastAgentCommandRaw = normalized ? raw : null;
+          entry.lastAgentBasename = normalized
+            ? (normalized.split(" ")[0] ?? null)
+            : null;
+        }
         if (normalized) trackRecentAgent(normalized);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
@@ -210,6 +227,9 @@ export function createTerminal(
       meta,
     },
     handle,
+    lastAgentCommandRaw: null,
+    lastAgentBasename: null,
+    currentTitle: null,
     clipboardDir,
     stopProviders: () => {},
   };

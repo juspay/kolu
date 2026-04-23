@@ -35,6 +35,11 @@ export interface AgentTerminalState {
    *  claude-code) avoid invoking it. Idempotent within one snapshot — the
    *  second call returns the cached value without a second syscall. */
   readForegroundBasename: () => string | null;
+  /** Agent basename from the currently-running shell command (derived from
+   *  OSC 633;E command marks), or null when no known agent command is active.
+   *  This captures wrapper launches like `codex` via a Node shim without
+   *  forcing providers to know wrapper binary names. */
+  readInvokedAgentBasename: () => string | null;
 }
 
 /** Handle returned by `createWatcher`. Callers invoke `destroy()` when the

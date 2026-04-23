@@ -21,7 +21,9 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
 
   resolveSession(state, log) {
-    if (state.readForegroundBasename() !== "codex") return null;
+    const foreground = state.readForegroundBasename();
+    const invoked = state.readInvokedAgentBasename();
+    if (foreground !== "codex" && invoked !== "codex") return null;
     return findSessionByDirectory(state.cwd, log);
   },
 
