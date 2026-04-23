@@ -2,7 +2,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { codexProvider } from "./agent-provider.ts";
 import type { AgentTerminalState } from "anyagent";
 
-const findSessionByDirectory = vi.fn();
+const { findSessionByDirectory } = vi.hoisted(() => ({
+  findSessionByDirectory: vi.fn(),
+}));
 
 vi.mock("./index.ts", () => ({
   findSessionByDirectory,
