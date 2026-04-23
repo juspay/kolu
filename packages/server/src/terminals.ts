@@ -172,10 +172,9 @@ export function createTerminal(
       onTitleChange: (title) => {
         publishForTerminal("title", id, title);
       },
-      // PTY callback (OSC 633;E): raw preexec command line. Republished
-      // as-is on the `commandRun` channel; agent parsing, the per-terminal
-      // stash, and the recent-agents MRU all live in
-      // `meta/agent-command.ts` — terminals.ts stays out of agent concepts.
+      // PTY callback (OSC 633;E): raw preexec command line. Agent parsing,
+      // the per-terminal stash, and the recent-agents MRU all live in
+      // `meta/agent-command.ts`, fed via this channel.
       onCommandRun: (raw) => {
         publishForTerminal("commandRun", id, raw);
       },
