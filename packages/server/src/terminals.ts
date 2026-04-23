@@ -3,14 +3,14 @@
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
 import { spawnPty, type PtyHandle } from "./pty.ts";
-import type {
-  InitialTerminalMetadata,
-  PanelContent,
-  PanelEdge,
-  TerminalId,
-  TerminalInfo,
-  TerminalMetadata,
-  TerminalPanels,
+import {
+  panelContentKey,
+  type InitialTerminalMetadata,
+  type PanelEdge,
+  type TerminalId,
+  type TerminalInfo,
+  type TerminalMetadata,
+  type TerminalPanels,
 } from "kolu-common";
 import { log } from "./log.ts";
 import { cleanupClipboardDir } from "./clipboard.ts";
@@ -335,24 +335,10 @@ export function setCanvasLayout(
   });
 }
 
-/** Stable string key for a panel content — used by the duplicate check
- *  so detection is independent of object identity. Mirrors `contentEquals`
- *  in the client's `useTerminalPanels.ts`. */
-function panelContentKey(c: PanelContent): string {
-  switch (c.kind) {
-    case "inspector":
-      return "inspector";
-    case "code":
-      return `code:${c.mode}`;
-    case "terminal":
-      return `terminal:${c.id}`;
-    case "browser":
-      return `browser:${c.url}`;
-  }
-}
-
 /** Find a `PanelContent` (by key) that appears in more than one tab across
- *  a tile's slots. Returns the offending key, or `null` if all unique. */
+ *  a tile's slots. Returns the offending key, or `null` if all unique.
+ *  Key derivation is shared with the client's de-dupe via the
+ *  `panelContentKey` helper in `kolu-common`. */
 function findDuplicatePanelContent(panels: TerminalPanels): string | null {
   const seen = new Set<string>();
   for (const edge of [

@@ -182,6 +182,24 @@ export const TerminalPanelsSchema = z.object({
 });
 export type TerminalPanels = z.infer<typeof TerminalPanelsSchema>;
 
+/** Stable string key for a `PanelContent`, used to enforce per-tile
+ *  uniqueness in both directions: the client de-dupes on insert (so a
+ *  second click on "Open Inspector" surfaces the existing slot), and
+ *  the server validates inbound `setPanels` payloads against the same
+ *  key so a malformed RPC can't bypass the client's check. */
+export function panelContentKey(c: PanelContent): string {
+  switch (c.kind) {
+    case "inspector":
+      return "inspector";
+    case "code":
+      return `code:${c.mode}`;
+    case "terminal":
+      return `terminal:${c.id}`;
+    case "browser":
+      return `browser:${c.url}`;
+  }
+}
+
 /**
  * Server-derived metadata — populated by providers from external state
  * (git working tree, PTY foreground process, agent CLI transcripts).

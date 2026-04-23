@@ -16,6 +16,7 @@
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import {
+  panelContentKey,
   type PanelContent,
   type PanelEdge,
   type PanelSlot,
@@ -59,25 +60,20 @@ function hasAnySlot(p: TerminalPanels): boolean {
   return Boolean(p.left || p.right || p.bottom);
 }
 
-function contentEquals(a: PanelContent, b: PanelContent): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "terminal" && b.kind === "terminal") return a.id === b.id;
-  if (a.kind === "code" && b.kind === "code") return a.mode === b.mode;
-  if (a.kind === "browser" && b.kind === "browser") return a.url === b.url;
-  return a.kind === "inspector" && b.kind === "inspector";
-}
-
 /** Locate a content occurrence anywhere in a tile's panels. Used to enforce
  *  the per-tile uniqueness rule on insert: an Inspector belongs in at most
- *  one slot, Code+local in at most one slot, terminal+id in at most one. */
+ *  one slot, Code+local in at most one slot, terminal+id in at most one.
+ *  Identity is via the shared `panelContentKey` helper so the client and
+ *  server agree on what "duplicate" means. */
 function findContent(
   panels: TerminalPanels,
   needle: PanelContent,
 ): { edge: PanelEdge; tabIdx: number } | null {
+  const needleKey = panelContentKey(needle);
   for (const edge of ["left", "right", "bottom"] as const) {
     const slot = panels[edge];
     if (!slot) continue;
-    const idx = slot.tabs.findIndex((t) => contentEquals(t, needle));
+    const idx = slot.tabs.findIndex((t) => panelContentKey(t) === needleKey);
     if (idx >= 0) return { edge, tabIdx: idx };
   }
   return null;
@@ -246,6 +242,7 @@ export function useTerminalPanels() {
     const slot = panels[edge];
     if (!slot || tabIdx < 0 || tabIdx >= slot.tabs.length) return;
     const next: TerminalPanels = { ...panels };
+    const contentKey = panelContentKey(content);
     // First pass: drop any other tab anywhere that collides with the new
     // content, so the result respects per-tile uniqueness.
     for (const e of ["left", "right", "bottom"] as const) {
@@ -253,7 +250,7 @@ export function useTerminalPanels() {
       if (!s) continue;
       const filtered = s.tabs.filter((t, i) => {
         if (e === edge && i === tabIdx) return true; // keep the slot we're editing
-        return !contentEquals(t, content);
+        return panelContentKey(t) !== contentKey;
       });
       if (filtered.length === s.tabs.length) continue;
       if (filtered.length === 0) {
