@@ -95,6 +95,14 @@ describe("parseAgentCommand", () => {
     );
   });
 
+  it("preserves --yolo for opencode", () => {
+    expect(parseAgentCommand("opencode --yolo")).toBe("opencode --yolo");
+  });
+
+  it("preserves --yolo for codex", () => {
+    expect(parseAgentCommand("codex --yolo")).toBe("codex --yolo");
+  });
+
   it("recognizes all known agents", () => {
     for (const agent of [
       "claude",
