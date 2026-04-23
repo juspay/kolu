@@ -31,8 +31,8 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Currently active known-agent invocation, if any. Cleared when the
-   *  title no longer matches the preexec command that started it. */
+  /** Most recent known-agent invocation from the shell preexec command mark.
+   *  The agent snapshot decides whether it still counts as active. */
   activeAgentCommand: { raw: string; basename: string } | null;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
@@ -175,13 +175,6 @@ export function createTerminal(
       },
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
-        const entry = terminals.get(id);
-        if (
-          entry?.activeAgentCommand &&
-          title !== entry.activeAgentCommand.raw
-        ) {
-          entry.activeAgentCommand = null;
-        }
         publishForTerminal("title", id, title);
       },
       // PTY callback (OSC 633;E): raw preexec command line. Normalize and,

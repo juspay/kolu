@@ -45,6 +45,27 @@ function readForegroundBasenameOnce(
   }
 }
 
+const SHELL_BASENAMES: ReadonlySet<string> = new Set([
+  "bash",
+  "zsh",
+  "fish",
+  "sh",
+  "nu",
+]);
+
+/** The last invoked agent command only counts while the foreground is not
+ *  clearly back at a shell prompt. This preserves wrapper-launched agents
+ *  like `node -> codex`, while dropping stale command marks once the shell
+ *  regains the foreground after the agent exits. */
+export function activeInvokedAgentBasename(
+  foregroundBasename: string | null,
+  activeAgentCommand: { raw: string; basename: string } | null,
+): string | null {
+  if (!activeAgentCommand) return null;
+  if (foregroundBasename && SHELL_BASENAMES.has(foregroundBasename)) return null;
+  return activeAgentCommand.basename;
+}
+
 /** Build a snapshot. `readForegroundBasename` is a lazy, memoized accessor
  *  so providers that match by PID alone (e.g. claude-code) skip the darwin
  *  sysctl entirely on every reconcile. The cache is scoped to this one
@@ -65,7 +86,10 @@ function snapshotTerminalState(
     },
     readInvokedAgentBasename: () => {
       if (invokedAgentBasename !== undefined) return invokedAgentBasename;
-      invokedAgentBasename = entry.activeAgentCommand?.basename ?? null;
+      invokedAgentBasename = activeInvokedAgentBasename(
+        basename === undefined ? readForegroundBasenameOnce(entry, plog) : basename,
+        entry.activeAgentCommand,
+      );
       return invokedAgentBasename;
     },
   };
