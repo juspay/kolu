@@ -31,14 +31,9 @@ export interface TerminalProcess {
   /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
   handle: PtyHandle;
-  /** Raw command string from the most recent OSC 633;E mark, if it was a
-   *  known agent invocation. Cleared logically when the title no longer
-   *  matches this command (prompt/title reset after the command exits). */
-  lastAgentCommandRaw: string | null;
-  /** Normalized basename of the last known agent command (e.g. "codex"). */
-  lastAgentBasename: string | null;
-  /** Latest OSC 0/2 title observed for the terminal. */
-  currentTitle: string | null;
+  /** Currently active known-agent invocation, if any. Cleared when the
+   *  title no longer matches the preexec command that started it. */
+  activeAgentCommand: { raw: string; basename: string } | null;
   /** Per-terminal clipboard directory for image paste shims. */
   clipboardDir: string;
   /** Cleanup function for all metadata providers. */
@@ -181,7 +176,12 @@ export function createTerminal(
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
         const entry = terminals.get(id);
-        if (entry) entry.currentTitle = title;
+        if (
+          entry?.activeAgentCommand &&
+          title !== entry.activeAgentCommand.raw
+        ) {
+          entry.activeAgentCommand = null;
+        }
         publishForTerminal("title", id, title);
       },
       // PTY callback (OSC 633;E): raw preexec command line. Normalize and,
@@ -191,9 +191,11 @@ export function createTerminal(
         const normalized = parseAgentCommand(raw);
         const entry = terminals.get(id);
         if (entry) {
-          entry.lastAgentCommandRaw = normalized ? raw : null;
-          entry.lastAgentBasename = normalized
-            ? (normalized.split(" ")[0] ?? null)
+          entry.activeAgentCommand = normalized
+            ? {
+                raw,
+                basename: normalized.split(" ")[0] ?? "unknown-agent",
+              }
             : null;
         }
         if (normalized) trackRecentAgent(normalized);
@@ -227,9 +229,7 @@ export function createTerminal(
       meta,
     },
     handle,
-    lastAgentCommandRaw: null,
-    lastAgentBasename: null,
-    currentTitle: null,
+    activeAgentCommand: null,
     clipboardDir,
     stopProviders: () => {},
   };

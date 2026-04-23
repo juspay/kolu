@@ -65,12 +65,7 @@ function snapshotTerminalState(
     },
     readInvokedAgentBasename: () => {
       if (invokedAgentBasename !== undefined) return invokedAgentBasename;
-      invokedAgentBasename =
-        entry.currentTitle &&
-        entry.lastAgentCommandRaw &&
-        entry.currentTitle === entry.lastAgentCommandRaw
-          ? entry.lastAgentBasename
-          : null;
+      invokedAgentBasename = entry.activeAgentCommand?.basename ?? null;
       return invokedAgentBasename;
     },
   };
