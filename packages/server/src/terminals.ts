@@ -5,6 +5,7 @@
 import { spawnPty, type PtyHandle } from "./pty.ts";
 import type {
   InitialTerminalMetadata,
+  PanelContent,
   PanelEdge,
   TerminalId,
   TerminalInfo,
@@ -334,15 +335,67 @@ export function setCanvasLayout(
   });
 }
 
+/** Stable string key for a panel content — used by the duplicate check
+ *  so detection is independent of object identity. Mirrors `contentEquals`
+ *  in the client's `useTerminalPanels.ts`. */
+function panelContentKey(c: PanelContent): string {
+  switch (c.kind) {
+    case "inspector":
+      return "inspector";
+    case "code":
+      return `code:${c.mode}`;
+    case "terminal":
+      return `terminal:${c.id}`;
+    case "browser":
+      return `browser:${c.url}`;
+  }
+}
+
+/** Find a `PanelContent` (by key) that appears in more than one tab across
+ *  a tile's slots. Returns the offending key, or `null` if all unique. */
+function findDuplicatePanelContent(panels: TerminalPanels): string | null {
+  const seen = new Set<string>();
+  for (const edge of [
+    "left",
+    "right",
+    "bottom",
+  ] as const satisfies readonly PanelEdge[]) {
+    const slot = panels[edge];
+    if (!slot) continue;
+    for (const tab of slot.tabs) {
+      const key = panelContentKey(tab);
+      if (seen.has(key)) return key;
+      seen.add(key);
+    }
+  }
+  return null;
+}
+
+/** Thrown by `setTerminalPanels` when the client (or some other writer)
+ *  submits a panels payload that violates the per-tile uniqueness rule.
+ *  The router translates this into a 422 for the client. */
+export class DuplicatePanelContentError extends Error {
+  constructor(public readonly key: string) {
+    super(`duplicate panel content within tile: ${key}`);
+    this.name = "DuplicatePanelContentError";
+  }
+}
+
 /** Store a terminal's panels (client-reported).
  *  Mutate metadata directly and republish so other clients see the change.
- *  Empty panels (`{}`) collapse to `undefined` so the wire stays minimal. */
+ *  Empty panels (`{}`) collapse to `undefined` so the wire stays minimal.
+ *  Throws `DuplicatePanelContentError` on a malformed payload — the
+ *  per-tile uniqueness rule ("one Inspector per tile, one terminal+id per
+ *  tile") is enforced here so a future client (or a buggy current one)
+ *  can't bypass the client-side check and corrupt persisted state. */
 export function setTerminalPanels(
   id: TerminalId,
   panels: TerminalPanels,
 ): void {
   const entry = terminals.get(id);
   if (!entry) return;
+  const dupe = findDuplicatePanelContent(panels);
+  if (dupe) throw new DuplicatePanelContentError(dupe);
   const hasAnySlot = panels.left || panels.right || panels.bottom;
   entry.info.meta.panels = hasAnySlot ? panels : undefined;
   publishForTerminal("metadata", id, { ...entry.info.meta });

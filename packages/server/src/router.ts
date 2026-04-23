@@ -20,6 +20,7 @@ import {
   setActiveTerminalId,
   setTerminalParent,
   reorderTerminals,
+  DuplicatePanelContentError,
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
@@ -114,7 +115,16 @@ export const appRouter = t.router({
 
     setPanels: t.terminal.setPanels.handler(async ({ input }) => {
       requireTerminal(input.id);
-      setTerminalPanels(input.id, input.panels);
+      try {
+        setTerminalPanels(input.id, input.panels);
+      } catch (err) {
+        if (err instanceof DuplicatePanelContentError) {
+          throw new ORPCError("UNPROCESSABLE_CONTENT", {
+            message: err.message,
+          });
+        }
+        throw err;
+      }
     }),
 
     setActive: t.terminal.setActive.handler(async ({ input }) => {
