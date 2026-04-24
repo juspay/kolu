@@ -33,8 +33,7 @@ const CloseConfirm: Component<{
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
   const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
-  const sharedWorktree = () =>
-    isWorktree() && (props.target?.worktreeSharedWithOthers ?? false);
+  const sharedWorktree = () => props.target?.worktreeSharedWithOthers ?? false;
   const canRemoveWorktree = () => isWorktree() && !sharedWorktree();
   const splitCount = () => props.target?.splitCount ?? 0;
   const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
