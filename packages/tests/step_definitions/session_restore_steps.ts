@@ -301,14 +301,26 @@ Then(
   },
 );
 
-When(
-  "I opt out of resuming terminal {int}",
-  async function (this: KoluWorld, index: number) {
-    const id = String(index);
-    const toggle = this.page.locator(
-      `[data-testid="resume-toggle"][data-terminal-id="${id}"]`,
+When("I turn off the resume-agents toggle", async function (this: KoluWorld) {
+  const toggle = this.page.locator('[data-testid="resume-agents-toggle"]');
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
+});
+
+Then(
+  "the restore card should not show agent command {string}",
+  async function (this: KoluWorld, command: string) {
+    // Wait for the command row to disappear. Uses waitForFunction so we poll
+    // the reactive DOM rather than race the toggle's state flush.
+    await this.page.waitForFunction(
+      (cmd) => {
+        const nodes = document.querySelectorAll(
+          '[data-testid="resume-command"]',
+        );
+        return !Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
+      },
+      command,
+      { timeout: POLL_TIMEOUT },
     );
-    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await toggle.click();
   },
 );

@@ -53,11 +53,12 @@ Feature: Session restore
     Then pill tree entry 2 should be active
     And there should be no page errors
 
-  # Per-terminal captured agent commands are persisted via `agent-resume.ts`
-  # and surfaced as "resume" buttons on the restore card. Resumable terminals
-  # render their normalized command and a checkbox; the total button label
-  # splits the terminal + agent counts so the user sees what will auto-fire.
-  Scenario: Restore card surfaces per-terminal agent commands with opt-out
+  # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)
+  # surface as a "resume M agents" suffix on the restore button, with each
+  # command shown beneath its terminal. A single "Resume agent sessions" toggle
+  # (default on) controls whether the agents are re-run at all — turning it off
+  # hides the CLI lines and drops the suffix.
+  Scenario: Restore card surfaces agent commands behind a global resume toggle
     Given a saved session with 2 terminals
     And terminal 0 has captured agent command "claude --model sonnet"
     And terminal 1 has captured agent command "codex --yolo"
@@ -66,8 +67,9 @@ Feature: Session restore
     And the restore card should show agent command "claude --model sonnet"
     And the restore card should show agent command "codex --yolo"
     And the restore button should mention "resume 2 agents"
-    When I opt out of resuming terminal 1
-    Then the restore button should mention "resume 1 agent"
+    When I turn off the resume-agents toggle
+    Then the restore button should not mention "resume"
+    And the restore card should not show agent command "claude --model sonnet"
     And there should be no page errors
 
   Scenario: Plain shell terminals are grouped but carry no resume offer
