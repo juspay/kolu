@@ -134,10 +134,6 @@ export const SHORTCUTS = {
     keybind: { key: "j", mod: true },
     label: "Shuffle theme",
   },
-  exportSessionAsPdf: {
-    keybind: { key: "p", code: "KeyP", mod: true },
-    label: "Export session as PDF",
-  },
   screenshotTerminal: {
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     label: "Screenshot terminal",

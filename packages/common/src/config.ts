@@ -18,7 +18,7 @@ export const DEFAULT_PORT = 7681;
 export const DEFAULT_FONT_SIZE = 14;
 
 /** Scrollback buffer size in lines. Sized for multi-hour Claude sessions
- *  so PDF export (see `exportSessionAsPdf.ts`) captures a useful window —
+ *  so PDF export (see `exportScrollbackAsPdf.ts`) captures a useful window —
  *  the export reads from this same ring buffer. Per-line memory in xterm
  *  is small, so 50K is low tens of MB per terminal in the worst case. */
 export const DEFAULT_SCROLLBACK = 50_000;
