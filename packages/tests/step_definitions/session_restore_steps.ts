@@ -6,7 +6,7 @@ import {
 } from "../support/world.ts";
 import * as assert from "node:assert";
 import * as os from "node:os";
-import type { SavedTerminal, SavedAgentResume } from "kolu-common";
+import type { SavedTerminal } from "kolu-common";
 
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */
@@ -250,28 +250,25 @@ Then(
 
 // --- Agent-resume scenarios ---
 
-async function postAgentResumePayload(
-  page: KoluWorld["page"],
-  payload: SavedAgentResume,
-): Promise<void> {
-  const resp = await page.request.fetch("/rpc/agentResume/test__set", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({ json: payload }),
-  });
-  assert.ok(resp.ok(), `agentResume/test__set failed: ${resp.status()}`);
-}
-
 Given(
   "terminal {int} has captured agent command {string}",
   async function (this: KoluWorld, index: number, command: string) {
-    // Idempotent merge — earlier "a saved session with N terminals" seeded
-    // the session with terminal ids "0", "1", …; key into that id-space.
+    // Idempotent edit to the saved session's `lastAgentCommand` field for
+    // the matching terminal. Relies on an earlier
+    // "a saved session with N terminals" step seeding ids "0", "1", … and
+    // stashing the payload on `this.savedSessionTerminals`.
     const id = String(index);
-    const existing = (this.savedAgentResume ?? {}) as SavedAgentResume;
-    existing[id] = { command, lastSeen: Date.now() };
-    this.savedAgentResume = existing;
-    await postAgentResumePayload(this.page, existing);
+    const terminals =
+      this.savedSessionTerminals ??
+      [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
+        id: String(i),
+        cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
+      }));
+    const updated: SavedTerminal[] = terminals.map((t) =>
+      t.id === id ? { ...t, lastAgentCommand: command } : t,
+    );
+    this.savedSessionTerminals = updated;
+    await postSavedSessionPayload(this.page, updated);
   },
 );
 

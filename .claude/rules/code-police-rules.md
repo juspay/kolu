@@ -53,7 +53,7 @@ Integration code (under `packages/integrations/`) runs in a long-lived Node proc
 
 ### no-preference-prop-drilling
 
-Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`), saved session (`useSavedSession()`), and per-terminal agent-resume map (`useAgentResume()`) — each domain has its own dedicated singleton hook.
+Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`) and saved session (`useSavedSession()`) — each domain has its own dedicated singleton hook.
 Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` in child
 Good: `const { preferences } = usePreferences();` inside the child component
 _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.

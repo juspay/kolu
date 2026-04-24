@@ -18,7 +18,7 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import { clearAgentResume } from "./agent-resume.ts";
+import { getLastAgentCommand } from "./meta/agent-command.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -55,6 +55,7 @@ export function snapshotSession(): {
 } {
   const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
+    const lastAgentCommand = getLastAgentCommand(id);
     return {
       id,
       cwd: m.cwd,
@@ -64,6 +65,7 @@ export function snapshotSession(): {
       ...(m.themeName && { themeName: m.themeName }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
       ...(m.subPanel && { subPanel: m.subPanel }),
+      ...(lastAgentCommand && { lastAgentCommand }),
     };
   });
   return { terminals: snappedTerminals, activeTerminalId };
@@ -157,11 +159,6 @@ export function createTerminal(
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) {
-          // Keep the resume map bounded to live terminals: a resume entry for
-          // a terminal the user already closed this session has no session to
-          // restore into. Entries that outlive a kolu crash still persist
-          // because onExit never fires for a SIGKILLed server.
-          clearAgentResume(id);
           publishSuffixChanges();
           emitChanged();
           emitListChanged();

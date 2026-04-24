@@ -5,7 +5,6 @@ import { toast } from "solid-sonner";
 import { resumeAgentCommand } from "anyagent/cli";
 import { useSubPanel } from "./useSubPanel";
 import { useSavedSession } from "../settings/useSavedSession";
-import { useAgentResume } from "../settings/useAgentResume";
 import { lifecycle, client } from "../rpc/rpc";
 import type {
   InitialTerminalMetadata,
@@ -30,7 +29,6 @@ export function useSessionRestore(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const serverSaved = useSavedSession();
-  const resumeState = useAgentResume();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -133,7 +131,6 @@ export function useSessionRestore(deps: {
     const session = savedSession();
     if (!session) return;
     setSavedSession(null);
-    const resumeMap = resumeState.agentResume();
     const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
@@ -171,10 +168,9 @@ export function useSessionRestore(deps: {
         // command, if the user didn't opt out. The command is already
         // normalized (prompts/positionals stripped by the allowlist at
         // capture time), so there's nothing arbitrary to smuggle through.
-        const capture = resumeMap[t.id];
         const optedIn = !resumeIds || resumeIds.has(t.id);
-        if (capture && optedIn) {
-          const resumeForm = resumeAgentCommand(capture.command);
+        if (t.lastAgentCommand && optedIn) {
+          const resumeForm = resumeAgentCommand(t.lastAgentCommand);
           if (resumeForm) {
             await client.terminal.sendInput({
               id: newId,

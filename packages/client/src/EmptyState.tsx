@@ -1,13 +1,8 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
 import { type Component, For, Show, createSignal, createMemo } from "solid-js";
-import type {
-  SavedSession,
-  SavedAgentResume,
-  SavedTerminal,
-} from "kolu-common";
+import type { SavedSession, SavedTerminal } from "kolu-common";
 import { SHORTCUTS, formatKeybind } from "./input/keyboard";
-import { useAgentResume } from "./settings/useAgentResume";
 import Kbd from "./ui/Kbd";
 
 const features = [
@@ -21,20 +16,20 @@ interface RepoGroup {
   /** Display name — the repo name for git worktrees, or the cwd fallback. */
   key: string;
   terminals: SavedTerminal[];
-  /** Most-recent `lastSeen` across the group's captured agent commands,
-   *  or 0 when the group has no agents. Drives MRU group ordering. */
-  lastSeen: number;
 }
 
-/** Group top-level terminals by repoName (falling back to cwd), sort groups
- *  by most-recent agent `lastSeen`, and preserve saved sortOrder within
- *  each group. */
-function groupSavedTerminals(
-  terminals: readonly SavedTerminal[],
-  agentResume: SavedAgentResume,
-): RepoGroup[] {
+/** Group top-level terminals by repoName (falling back to cwd). Groups are
+ *  sorted by the minimum `canvasLayout.x` of their members so the restore
+ *  card's left-to-right order matches the canvas the user saw. Within-group
+ *  order preserves saved sortOrder. */
+function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const bySortOrder = (a: SavedTerminal, b: SavedTerminal) =>
     (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  const minX = (ts: readonly SavedTerminal[]) =>
+    ts.reduce(
+      (acc, t) => Math.min(acc, t.canvasLayout?.x ?? Infinity),
+      Infinity,
+    );
   const groups = new Map<string, SavedTerminal[]>();
   for (const t of terminals) {
     if (t.parentId) continue;
@@ -46,14 +41,9 @@ function groupSavedTerminals(
   const out: RepoGroup[] = [];
   for (const [key, list] of groups) {
     list.sort(bySortOrder);
-    let lastSeen = 0;
-    for (const t of list) {
-      const entry = agentResume[t.id];
-      if (entry && entry.lastSeen > lastSeen) lastSeen = entry.lastSeen;
-    }
-    out.push({ key, terminals: list, lastSeen });
+    out.push({ key, terminals: list });
   }
-  out.sort((a, b) => b.lastSeen - a.lastSeen);
+  out.sort((a, b) => minX(a.terminals) - minX(b.terminals));
   return out;
 }
 
@@ -63,22 +53,16 @@ interface EmptyStateProps {
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
-  // Read per-terminal captured agent commands directly from the singleton —
-  // prop-drilling through App.tsx was the original shape but violated the
-  // no-preference-prop-drilling convention.
-  const { agentResume } = useAgentResume();
-
   // Opt-out set: terminal IDs that have a captured agent but the user
   // doesn't want auto-resumed. Default empty — everything with a capture
   // is in by default (checkbox pre-ticked).
   const [optedOut, setOptedOut] = createSignal<ReadonlySet<string>>(new Set());
 
   const resumableIds = createMemo(() => {
-    const map = agentResume();
     const session = props.savedSession;
     if (!session) return [] as string[];
     return session.terminals
-      .filter((t) => !t.parentId && map[t.id] !== undefined)
+      .filter((t) => !t.parentId && t.lastAgentCommand !== undefined)
       .map((t) => t.id);
   });
 
@@ -108,8 +92,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
           {(session) => {
             const subCount = () =>
               session().terminals.filter((t) => t.parentId).length;
-            const groups = () =>
-              groupSavedTerminals(session().terminals, agentResume());
+            const groups = () => groupSavedTerminals(session().terminals);
             return (
               <div
                 data-testid="session-restore"
@@ -128,48 +111,41 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                           {group.key}
                         </div>
                         <For each={group.terminals}>
-                          {(t) => {
-                            const entry = () => agentResume()[t.id];
-                            const resumable = () => entry() !== undefined;
-                            const optIn = () => !optedOut().has(t.id);
-                            return (
-                              <div
-                                class="flex items-center gap-2 text-xs text-fg-3 py-0.5"
-                                title={t.cwd}
+                          {(t) => (
+                            <div
+                              class="flex items-center gap-2 text-xs text-fg-3 py-0.5"
+                              title={t.cwd}
+                            >
+                              <span class="shrink-0 truncate max-w-[6rem] text-fg-3/70">
+                                {t.branch ?? "—"}
+                              </span>
+                              <Show
+                                when={t.lastAgentCommand}
+                                fallback={<span class="truncate grow">—</span>}
                               >
-                                <span class="shrink-0 truncate max-w-[6rem] text-fg-3/70">
-                                  {t.branch ?? "—"}
-                                </span>
-                                <Show
-                                  when={entry()}
-                                  fallback={
-                                    <span class="truncate grow">—</span>
-                                  }
-                                >
-                                  {(e) => (
-                                    <span
-                                      data-testid="resume-command"
-                                      data-terminal-id={t.id}
-                                      class="truncate grow font-mono"
-                                    >
-                                      {e().command}
-                                    </span>
-                                  )}
-                                </Show>
-                                <Show when={resumable()}>
-                                  <input
-                                    type="checkbox"
-                                    data-testid="resume-toggle"
+                                {(cmd) => (
+                                  <span
+                                    data-testid="resume-command"
                                     data-terminal-id={t.id}
-                                    checked={optIn()}
-                                    onChange={() => toggleOptOut(t.id)}
-                                    class="shrink-0"
-                                    aria-label={`Resume agent in ${t.branch ?? t.cwd}`}
-                                  />
-                                </Show>
-                              </div>
-                            );
-                          }}
+                                    class="truncate grow font-mono"
+                                  >
+                                    {cmd()}
+                                  </span>
+                                )}
+                              </Show>
+                              <Show when={t.lastAgentCommand !== undefined}>
+                                <input
+                                  type="checkbox"
+                                  data-testid="resume-toggle"
+                                  data-terminal-id={t.id}
+                                  checked={!optedOut().has(t.id)}
+                                  onChange={() => toggleOptOut(t.id)}
+                                  class="shrink-0"
+                                  aria-label={`Resume agent in ${t.branch ?? t.cwd}`}
+                                />
+                              </Show>
+                            </div>
+                          )}
                         </For>
                       </div>
                     )}

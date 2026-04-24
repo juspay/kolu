@@ -24,7 +24,6 @@ import {
   RecentRepoSchema,
   RecentAgentSchema,
   SavedSessionSchema,
-  SavedAgentResumeSchema,
   type Preferences,
 } from "kolu-common";
 import { log } from "./log.ts";
@@ -36,7 +35,6 @@ const PersistedStateSchema = z.object({
   recentRepos: z.array(RecentRepoSchema),
   recentAgents: z.array(RecentAgentSchema),
   session: SavedSessionSchema.nullable(),
-  agentResume: SavedAgentResumeSchema,
   preferences: PreferencesSchema,
 });
 
@@ -47,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.18.0";
+const SCHEMA_VERSION = "1.17.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -73,7 +71,6 @@ export const store = new Conf<PersistedState>({
     recentRepos: [],
     recentAgents: [],
     session: null,
-    agentResume: {},
     preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
@@ -292,15 +289,6 @@ export const store = new Conf<PersistedState>({
         });
       }
     },
-    // agentResume added — per-terminal captured agent CLI invocations,
-    // used by session restore to auto-resume claude/codex/opencode on
-    // kolu restart. Seed as empty for existing state files; will populate
-    // naturally as users run agents after upgrade.
-    "1.18.0": (store: Conf<PersistedState>) => {
-      if (!store.has("agentResume")) {
-        store.set("agentResume", {});
-      }
-    },
   },
 });
 
@@ -312,7 +300,6 @@ const result = PersistedStateSchema.safeParse({
   recentRepos: store.get("recentRepos"),
   recentAgents: store.get("recentAgents"),
   session: store.get("session"),
-  agentResume: store.get("agentResume"),
   preferences: store.get("preferences"),
 });
 if (!result.success) {

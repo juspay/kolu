@@ -363,7 +363,6 @@ Before(async function (this: KoluWorld, scenario) {
       json: { recentRepos: [], recentAgents: [] },
     }),
     postJSON(`${baseUrl}/rpc/session/test__set`, { json: null }),
-    postJSON(`${baseUrl}/rpc/agentResume/test__set`, { json: {} }),
   ]);
 
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,

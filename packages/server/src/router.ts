@@ -41,7 +41,6 @@ import {
 } from "./preferences.ts";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
-import { getSavedAgentResume, setAgentResumeForTest } from "./agent-resume.ts";
 import { log } from "./log.ts";
 
 const t = implement(contract);
@@ -307,17 +306,6 @@ export const appRouter = t.router({
     }),
     test__set: t.session.test__set.handler(async ({ input }) => {
       setSavedSession(input);
-    }),
-  },
-  agentResume: {
-    get: t.agentResume.get.handler(async function* ({ signal }) {
-      yield getSavedAgentResume();
-      for await (const map of subscribeSystem_("agentResume:changed", signal)) {
-        yield map;
-      }
-    }),
-    test__set: t.agentResume.test__set.handler(async ({ input }) => {
-      setAgentResumeForTest(input);
     }),
   },
 });
