@@ -60,7 +60,7 @@ export function snapshotSession(): {
       ...(m.parentId && { parentId: m.parentId }),
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
-      ...(m.themeName && { themeName: m.themeName }),
+      ...(m.themeSlots && { themeSlots: m.themeSlots }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
       ...(m.subPanel && { subPanel: m.subPanel }),
     };
@@ -189,7 +189,7 @@ export function createTerminal(
   if (parentId) meta.parentId = parentId;
   // Seed client-owned initial metadata BEFORE emitListChanged so the
   // first list snapshot carries these fields (see #642).
-  if (initial?.themeName) meta.themeName = initial.themeName;
+  if (initial?.themeSlots) meta.themeSlots = { ...initial.themeSlots };
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
   const entry: TerminalProcess = {
@@ -313,12 +313,19 @@ export function setActiveTerminalId(id: TerminalId | null): void {
   if (id !== null) emitChanged();
 }
 
-/** Set the theme name for a terminal (stored in metadata, published to clients). */
-export function setTerminalTheme(id: TerminalId, themeName: string): void {
+/** Set one appearance slot's theme name for a terminal (stored in metadata, published to clients). */
+export function setTerminalTheme(
+  id: TerminalId,
+  mode: "light" | "dark",
+  themeName: string,
+): void {
   const entry = terminals.get(id);
   if (entry) {
     updateClientMetadata(entry, id, (m) => {
-      m.themeName = themeName;
+      m.themeSlots = {
+        ...m.themeSlots,
+        [mode]: themeName,
+      };
     });
   }
 }

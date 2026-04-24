@@ -175,7 +175,13 @@ Given(
   "a saved session with theme {string}",
   async function (this: KoluWorld, themeName: string) {
     this.savedSessionTerminalCount = 1;
-    const terminals = [{ id: "0", cwd: os.homedir(), themeName }];
+    const terminals = [
+      {
+        id: "0",
+        cwd: os.homedir(),
+        themeSlots: { light: themeName, dark: themeName },
+      },
+    ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this.page, terminals);
   },

@@ -63,8 +63,8 @@ const App: Component = () => {
   (window as any).__koluSimulateAlert = alerts.simulateAlert;
 
   const {
-    committedThemeName,
     setPreviewThemeName,
+    clearPreviewTheme,
     activeThemeName,
     activeTheme,
     getTerminalTheme,
@@ -75,7 +75,7 @@ const App: Component = () => {
 
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
-  const { colorScheme, setColorScheme } = useColorScheme();
+  const { colorScheme, resolvedColorScheme, setColorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
   const posture = useViewPosture();
   const { showTipOnce } = useTips();
@@ -247,8 +247,9 @@ const App: Component = () => {
     handleExportScrollbackAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
-    committedThemeName,
+    resolvedColorScheme,
     setPreviewThemeName,
+    clearPreviewTheme,
     handleSetTheme,
     handleShuffleTheme,
     setShortcutsHelpOpen,

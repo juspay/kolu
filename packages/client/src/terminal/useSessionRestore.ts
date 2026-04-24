@@ -23,6 +23,7 @@ export function useSessionRestore(deps: {
   handleCreateSubTerminal: (
     parentId: TerminalId,
     cwd?: string,
+    initial?: InitialTerminalMetadata,
   ) => Promise<void>;
 }) {
   const { store } = deps;
@@ -149,7 +150,7 @@ export function useSessionRestore(deps: {
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
         const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
+          themeSlots: t.themeSlots,
           canvasLayout: t.canvasLayout,
           subPanel: t.subPanel,
         });
@@ -162,7 +163,12 @@ export function useSessionRestore(deps: {
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
-        if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
+        if (newParentId) {
+          await deps.handleCreateSubTerminal(newParentId, t.cwd, {
+            themeSlots: t.themeSlots,
+            subPanel: t.subPanel,
+          });
+        }
       }
       // Restore active terminal
       if (session.activeTerminalId) {

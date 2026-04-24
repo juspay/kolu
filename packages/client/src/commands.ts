@@ -1,12 +1,19 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import { createMemo, batch } from "solid-js";
+import { createMemo, createSignal, batch } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
 import { availableThemes } from "terminal-themes";
-import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalMetadata,
+  RecentAgent,
+  ThemeMode,
+} from "kolu-common";
+import SegmentedControl from "./ui/SegmentedControl";
 import { useActivityFeed } from "./settings/useActivityFeed";
+import { storedThemeNameForMode } from "./themeSlots";
 import { client } from "./rpc/rpc";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
@@ -50,9 +57,18 @@ export interface CommandDeps {
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
-  committedThemeName: Accessor<string>;
-  setPreviewThemeName: (name: string | undefined) => void;
-  handleSetTheme: (name: string) => void;
+  resolvedColorScheme: Accessor<ThemeMode>;
+  setPreviewThemeName: (
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) => void;
+  clearPreviewTheme: () => void;
+  handleSetTheme: (
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) => void;
   handleShuffleTheme: () => void;
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
@@ -75,6 +91,16 @@ export interface CommandDeps {
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const { recentRepos, recentAgents } = useActivityFeed();
+  const [themePickerMode, setThemePickerMode] = createSignal<ThemeMode>(
+    deps.resolvedColorScheme(),
+  );
+  const [themePickerTerminalId, setThemePickerTerminalId] =
+    createSignal<TerminalId | null>(deps.activeId());
+  const resetThemePickerMode = () => {
+    deps.clearPreviewTheme();
+    setThemePickerMode(deps.resolvedColorScheme());
+    setThemePickerTerminalId(deps.activeId());
+  };
 
   return createMemo((): PaletteCommand[] => [
     {
@@ -199,17 +225,47 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     {
       name: "Theme",
-      onCancel: () => deps.setPreviewThemeName(undefined),
+      onEnter: resetThemePickerMode,
+      onCancel: () => deps.clearPreviewTheme(),
+      toolbar: () =>
+        SegmentedControl({
+          options: [
+            { value: "light", label: "Light" },
+            { value: "dark", label: "Dark" },
+          ],
+          value: themePickerMode(),
+          onChange: (mode) => {
+            deps.clearPreviewTheme();
+            setThemePickerMode(mode);
+          },
+          testIdPrefix: "theme-slot",
+        }),
       children: () =>
         availableThemes
-          .filter((t) => t.name !== deps.committedThemeName())
+          .filter(
+            (t) =>
+              t.name !==
+              storedThemeNameForMode(
+                deps.activeMeta()?.themeSlots,
+                themePickerMode(),
+              ),
+          )
           .map((t) => ({
             name: t.name,
-            onHighlight: () => deps.setPreviewThemeName(t.name),
+            onHighlight: () =>
+              deps.setPreviewThemeName(
+                themePickerTerminalId(),
+                themePickerMode(),
+                t.name,
+              ),
             onSelect: () =>
               batch(() => {
-                deps.setPreviewThemeName(undefined);
-                deps.handleSetTheme(t.name);
+                deps.clearPreviewTheme();
+                deps.handleSetTheme(
+                  themePickerTerminalId(),
+                  themePickerMode(),
+                  t.name,
+                );
               }),
           })),
     },

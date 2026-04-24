@@ -14,72 +14,116 @@ import {
   pickTheme,
   type ITheme,
 } from "terminal-themes";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId, ThemeMode } from "kolu-common";
 import { client } from "./rpc/rpc";
+import { useColorScheme } from "./settings/useColorScheme";
+import { effectiveThemeNameForMode, previewAppliesToMode } from "./themeSlots";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 function init() {
   const store = useTerminalStore();
-  const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
+  const { resolvedColorScheme } = useColorScheme();
+  const getThemeSlots = (id: TerminalId) => store.getMetadata(id)?.themeSlots;
 
   const committedThemeName = createMemo(() => {
     const id = store.activeId();
-    return (id !== null && getThemeName(id)) || DEFAULT_THEME_NAME;
+    return id !== null
+      ? effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme())
+      : DEFAULT_THEME_NAME;
   });
 
-  const [previewThemeName, setPreviewThemeName] = createSignal<
-    string | undefined
+  const [previewTheme, setPreviewTheme] = createSignal<
+    { terminalId: TerminalId; mode: ThemeMode; name: string } | undefined
   >(undefined);
 
-  const activeThemeName = createMemo(
-    () => previewThemeName() ?? committedThemeName(),
-  );
+  const activeThemeName = createMemo(() => {
+    const activeId = store.activeId();
+    return activeId !== null
+      ? getEffectiveThemeName(activeId)
+      : DEFAULT_THEME_NAME;
+  });
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  function getTerminalTheme(id: TerminalId): ITheme {
-    const preview = store.activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? getThemeName(id));
+  function getEffectiveThemeName(id: TerminalId): string {
+    const preview = previewTheme();
+    return preview?.terminalId === id &&
+      previewAppliesToMode(preview.mode, resolvedColorScheme())
+      ? preview.name
+      : effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme());
   }
 
-  function setThemeName(id: TerminalId, name: string) {
+  function getTerminalTheme(id: TerminalId): ITheme {
+    return getThemeByName(getEffectiveThemeName(id));
+  }
+
+  function setThemeName(id: TerminalId, mode: ThemeMode, name: string) {
     void client.terminal
-      .setTheme({ id, themeName: name })
+      .setTheme({ id, mode, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
       );
   }
 
-  function handleSetTheme(themeName: string) {
-    const id = store.activeId();
-    if (id === null) return;
-    setThemeName(id, themeName);
+  function handleSetTheme(
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    themeName: string,
+  ) {
+    if (terminalId === null) return;
+    setThemeName(terminalId, mode, themeName);
   }
 
-  /** Shuffle the active terminal to a random theme. Random — not argmax —
-   *  because argmax ping-pongs (theme A's farthest neighbour is theme B,
-   *  and B's farthest is A, so repeated ⌘J just bounces between two).
-   *  Excludes every live terminal's bg so we don't land on a duplicate of
-   *  a sibling, and stays under the chroma cap so we don't surface neon
-   *  yellow. New-terminal creation uses spread mode instead —
-   *  see {@link pickTheme} for the rationale. */
+  function setPreviewThemeName(
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) {
+    if (terminalId === null) {
+      setPreviewTheme(undefined);
+      return;
+    }
+    setPreviewTheme({ terminalId, mode, name });
+  }
+
+  function clearPreviewTheme() {
+    setPreviewTheme(undefined);
+  }
+
+  /** Shuffle the active terminal's current appearance slot to a random theme.
+   *  Random — not argmax — because argmax ping-pongs (theme A's farthest
+   *  neighbour is theme B, and B's farthest is A, so repeated ⌘J just bounces
+   *  between two). Excludes every live terminal's effective bg so we don't land
+   *  on a duplicate of a sibling, and stays under the chroma cap so we don't
+   *  surface neon yellow. New-terminal creation uses spread mode instead — see
+   *  {@link pickTheme} for the rationale. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;
-    const current = getThemeName(id);
+    const mode = resolvedColorScheme();
+    const current = effectiveThemeNameForMode(getThemeSlots(id), mode);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
-    const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
-    handleSetTheme(pickTheme(candidates, { excludeBgs }));
+    const excludeBgs = resolveThemeBgs(store.terminalIds(), (terminalId) =>
+      effectiveThemeNameForMode(getThemeSlots(terminalId), mode),
+    );
+    setThemeName(id, mode, pickTheme(candidates, { excludeBgs }));
   }
 
   return {
-    committedThemeName,
     setPreviewThemeName,
+    clearPreviewTheme,
     activeThemeName,
     activeTheme,
+    getEffectiveThemeName,
     getTerminalTheme,
-    isPreviewingTheme: () => previewThemeName() !== undefined,
+    isPreviewingTheme: () => {
+      const preview = previewTheme();
+      return (
+        preview?.terminalId === store.activeId() &&
+        previewAppliesToMode(preview?.mode, resolvedColorScheme())
+      );
+    },
     handleSetTheme,
     handleShuffleTheme,
     setThemeName,

@@ -13,6 +13,7 @@
 import {
   type Component,
   type Accessor,
+  type JSX,
   createSignal,
   createMemo,
   createEffect,
@@ -37,6 +38,10 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteItem[] | (() => PaletteItem[]);
+  /** Optional inline toolbar rendered under the search input while this group is open. */
+  toolbar?: JSX.Element | (() => JSX.Element);
+  /** Called when drilling into this group. */
+  onEnter?: () => void;
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
@@ -66,6 +71,11 @@ function isHint(item: PaletteItem): item is PaletteHint {
 function resolveChildren(cmd: PaletteCommand): PaletteItem[] {
   if (!cmd.children) return [];
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
+}
+
+function resolveToolbar(cmd: PaletteCommand): JSX.Element | undefined {
+  if (!cmd.toolbar) return undefined;
+  return typeof cmd.toolbar === "function" ? cmd.toolbar() : cmd.toolbar;
 }
 
 /** Whether a command is a group (has children rather than an action). */
@@ -131,6 +141,23 @@ const CommandPalette: Component<{
     return level;
   });
 
+  const currentGroup = createMemo((): PaletteCommand | undefined => {
+    const p = path();
+    if (p.length === 0) return undefined;
+    let level: PaletteItem[] = props.commands();
+    let current: PaletteCommand | undefined;
+    for (const segment of p) {
+      const match = level.find(
+        (item): item is PaletteCommand =>
+          isCommand(item) && item.name === segment.name,
+      );
+      if (!match || !isGroup(match)) return current ?? segment;
+      current = match;
+      level = resolveChildren(match);
+    }
+    return current;
+  });
+
   /** Commands at the current level, filtered by the search query. Hints are excluded. */
   const filtered = createMemo((): PaletteCommand[] => {
     const q = query().toLowerCase();
@@ -150,6 +177,7 @@ const CommandPalette: Component<{
   );
 
   function drillIn(cmd: PaletteCommand) {
+    cmd.onEnter?.();
     setPath((p) => [...p, cmd]);
     setQuery("");
     setSelectedIndex(0);
@@ -252,6 +280,7 @@ const CommandPalette: Component<{
                     isCommand(c) && c.name === props.initialGroup,
                 )
             : undefined;
+          group?.onEnter?.();
           setPath(group ? [group] : []);
           didSelect = false;
           // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
@@ -335,6 +364,17 @@ const CommandPalette: Component<{
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
+        <Show when={currentGroup()}>
+          {(group) => (
+            <Show when={resolveToolbar(group())}>
+              {(toolbar) => (
+                <div class="px-4 py-2 border-b border-edge bg-surface-1">
+                  {toolbar()}
+                </div>
+              )}
+            </Show>
+          )}
+        </Show>
         <div
           class="flex-1 min-h-0 overflow-y-auto"
           onMouseMove={() => (mouseActive = true)}
