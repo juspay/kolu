@@ -80,6 +80,25 @@ export function useTerminalMetadata(deps: {
     );
   }
 
+  /** True if any terminal outside of `excludeId`'s tree is also on
+   *  `worktreePath`. Callers use this to decide whether removing the
+   *  worktree would yank it out from under a live terminal.
+   *
+   *  A sub-terminal of a different top-level must also count: its git
+   *  metadata is derived from its own CWD and it survives when
+   *  `excludeId` dies. */
+  function isWorktreeShared(
+    worktreePath: string,
+    excludeId: TerminalId,
+  ): boolean {
+    const onWorktree = (id: TerminalId) =>
+      getMetadata(id)?.git?.worktreePath === worktreePath;
+    return terminalIds().some((otherId) => {
+      if (otherId === excludeId) return false;
+      return onWorktree(otherId) || getSubTerminalIds(otherId).some(onWorktree);
+    });
+  }
+
   // --- Derived accessors ---
 
   const activeMeta = createMemo((): TerminalMetadata | null => {
@@ -105,6 +124,7 @@ export function useTerminalMetadata(deps: {
     getMetadata,
     terminalIds,
     getSubTerminalIds,
+    isWorktreeShared,
     activeMeta,
     getDisplayInfo,
     terminalLabel,

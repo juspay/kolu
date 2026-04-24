@@ -232,7 +232,15 @@ const App: Component = () => {
       return;
     }
     const splitCount = store.getSubTerminalIds(id).length;
-    setCloseConfirmTarget({ id, meta, splitCount });
+    const worktreePath = meta.git?.isWorktree
+      ? meta.git.worktreePath
+      : undefined;
+    const worktreeRemoval = worktreePath
+      ? store.isWorktreeShared(worktreePath, id)
+        ? ({ eligible: false, reason: "sharedWithOtherTerminals" } as const)
+        : ({ eligible: true } as const)
+      : undefined;
+    setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
   const commands = createCommands({
