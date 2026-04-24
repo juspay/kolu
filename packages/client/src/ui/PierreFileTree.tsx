@@ -52,9 +52,13 @@ export type PierreFileTreeProps = {
   onSelect?: (path: string | null) => void;
   /** Enable the search affordance inside the tree header. */
   search?: boolean;
-  /** Initial folder expansion. Defaults to "closed" (full repo can be huge);
-   *  pass "open" for change-set views where the user expects every changed
-   *  file visible without clicking. */
+  /** Initial folder expansion — captured at construction and **not
+   *  reactive**. Pierre takes this once in the `FileTree` constructor;
+   *  later prop changes are silently ignored. Re-mount the component
+   *  (e.g. by toggling its parent `<Show when>`) to apply a new value.
+   *  Defaults to "closed" (full repo can be huge); pass "open" for
+   *  change-set views where every entry should be visible without
+   *  clicking. */
   initialExpansion?: FileTreeInitialExpansion;
 };
 

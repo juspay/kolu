@@ -41,6 +41,9 @@ async function waitForChangedFile(world: KoluWorld, path: string) {
   let nextRefresh = Date.now();
 
   while (Date.now() < deadline) {
+    // Best-effort polling — `isVisible` can throw if the page navigates
+    // between locator resolutions, and the refresh button can race with
+    // re-renders; a thrown probe just falls through to the next tick.
     if (await item.isVisible().catch(() => false)) return;
 
     if (Date.now() >= nextRefresh && (await refresh.isVisible())) {
