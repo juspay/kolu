@@ -1,9 +1,10 @@
-/** Export a terminal session as a printable PDF.
+/** Export the active terminal's available scrollback as a printable PDF.
  *
- *  Serializes the active terminal's buffer (scrollback + viewport) to themed
- *  HTML via xterm's SerializeAddon, opens it in a new window with the live
- *  theme and FiraCode Nerd Font applied, and triggers the browser print
- *  dialog. The user picks "Save as PDF" from there.
+ *  Serializes whatever the xterm ring buffer currently holds (scrollback +
+ *  viewport — NOT the full session, which may have scrolled past the buffer
+ *  cap) to themed HTML via xterm's SerializeAddon, opens it in a new window
+ *  with the live theme and FiraCode Nerd Font applied, and triggers the
+ *  browser print dialog. The user picks "Save as PDF" from there.
  *
  *  Client-side only — the server's headless xterm has no theme, so
  *  serializing there would produce unstyled HTML. */
@@ -14,7 +15,7 @@ import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { terminalName } from "./terminal/terminalDisplay";
 
-export function exportSessionAsPdf(
+export function exportScrollbackAsPdf(
   id: TerminalId,
   meta: TerminalMetadata | undefined,
 ): void {

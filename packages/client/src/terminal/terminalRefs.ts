@@ -1,7 +1,7 @@
 /** Per-terminal runtime refs (xterm instance + addons).
  *
  *  Handlers outside the Terminal component sometimes need the live xterm
- *  instance or one of its addons — e.g. "Export session as PDF" needs the
+ *  instance or one of its addons — e.g. "Export scrollback as PDF" needs the
  *  SerializeAddon to produce themed HTML. Rather than drill callbacks through
  *  CanvasTile or reach into the DOM, Terminal.tsx registers its refs here on
  *  mount and unregisters on cleanup. The `__xterm` DOM attachment on the
