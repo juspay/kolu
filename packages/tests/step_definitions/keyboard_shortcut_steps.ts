@@ -156,8 +156,6 @@ Then(
         return {
           rows,
           bufferLength,
-          dpr,
-          height: img.naturalHeight,
           logicalHeight: img.naturalHeight / dpr,
         };
       }
