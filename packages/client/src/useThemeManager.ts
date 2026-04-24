@@ -33,22 +33,23 @@ function init() {
   });
 
   const [previewTheme, setPreviewTheme] = createSignal<
-    { mode: ThemeMode; name: string } | undefined
+    { terminalId: TerminalId; mode: ThemeMode; name: string } | undefined
   >(undefined);
 
   const activeThemeName = createMemo(() => {
-    const preview = previewTheme();
-    return previewAppliesToMode(preview?.mode, resolvedColorScheme())
-      ? preview!.name
-      : committedThemeName();
+    const activeId = store.activeId();
+    return activeId !== null
+      ? getEffectiveThemeName(activeId)
+      : DEFAULT_THEME_NAME;
   });
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
   function getEffectiveThemeName(id: TerminalId): string {
-    const preview = store.activeId() === id ? previewTheme() : undefined;
-    return previewAppliesToMode(preview?.mode, resolvedColorScheme())
-      ? preview!.name
+    const preview = previewTheme();
+    return preview?.terminalId === id &&
+      previewAppliesToMode(preview.mode, resolvedColorScheme())
+      ? preview.name
       : effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme());
   }
 
@@ -64,14 +65,25 @@ function init() {
       );
   }
 
-  function handleSetTheme(mode: ThemeMode, themeName: string) {
-    const id = store.activeId();
-    if (id === null) return;
-    setThemeName(id, mode, themeName);
+  function handleSetTheme(
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    themeName: string,
+  ) {
+    if (terminalId === null) return;
+    setThemeName(terminalId, mode, themeName);
   }
 
-  function setPreviewThemeName(mode: ThemeMode, name: string) {
-    setPreviewTheme({ mode, name });
+  function setPreviewThemeName(
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) {
+    if (terminalId === null) {
+      setPreviewTheme(undefined);
+      return;
+    }
+    setPreviewTheme({ terminalId, mode, name });
   }
 
   function clearPreviewTheme() {
@@ -105,8 +117,13 @@ function init() {
     activeTheme,
     getEffectiveThemeName,
     getTerminalTheme,
-    isPreviewingTheme: () =>
-      previewAppliesToMode(previewTheme()?.mode, resolvedColorScheme()),
+    isPreviewingTheme: () => {
+      const preview = previewTheme();
+      return (
+        preview?.terminalId === store.activeId() &&
+        previewAppliesToMode(preview?.mode, resolvedColorScheme())
+      );
+    },
     handleSetTheme,
     handleShuffleTheme,
     setThemeName,

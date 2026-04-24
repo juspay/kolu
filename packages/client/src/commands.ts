@@ -58,9 +58,17 @@ export interface CommandDeps {
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
   resolvedColorScheme: Accessor<ThemeMode>;
-  setPreviewThemeName: (mode: ThemeMode, name: string) => void;
+  setPreviewThemeName: (
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) => void;
   clearPreviewTheme: () => void;
-  handleSetTheme: (mode: ThemeMode, name: string) => void;
+  handleSetTheme: (
+    terminalId: TerminalId | null,
+    mode: ThemeMode,
+    name: string,
+  ) => void;
   handleShuffleTheme: () => void;
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
@@ -86,9 +94,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const [themePickerMode, setThemePickerMode] = createSignal<ThemeMode>(
     deps.resolvedColorScheme(),
   );
+  const [themePickerTerminalId, setThemePickerTerminalId] =
+    createSignal<TerminalId | null>(deps.activeId());
   const resetThemePickerMode = () => {
     deps.clearPreviewTheme();
     setThemePickerMode(deps.resolvedColorScheme());
+    setThemePickerTerminalId(deps.activeId());
   };
 
   return createMemo((): PaletteCommand[] => [
@@ -243,11 +254,19 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           .map((t) => ({
             name: t.name,
             onHighlight: () =>
-              deps.setPreviewThemeName(themePickerMode(), t.name),
+              deps.setPreviewThemeName(
+                themePickerTerminalId(),
+                themePickerMode(),
+                t.name,
+              ),
             onSelect: () =>
               batch(() => {
                 deps.clearPreviewTheme();
-                deps.handleSetTheme(themePickerMode(), t.name);
+                deps.handleSetTheme(
+                  themePickerTerminalId(),
+                  themePickerMode(),
+                  t.name,
+                );
               }),
           })),
     },

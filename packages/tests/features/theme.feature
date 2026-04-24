@@ -119,6 +119,18 @@ Feature: Theme switching
     And the palette search input should be focused
     And there should be no page errors
 
+  Scenario: Theme selection stays on the terminal that opened the picker
+    When I create a terminal
+    And I select pill tree entry 1
+    And I click the theme name in the header
+    And I type "Dracula" in the palette
+    And I press the switch to terminal 2 shortcut
+    And I press Enter
+    Then the header should show theme "Tomorrow Night"
+    When I press the switch to terminal 1 shortcut
+    Then the header should show theme "Dracula"
+    And there should be no page errors
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I select "Theme" in the palette
