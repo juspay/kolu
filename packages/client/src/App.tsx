@@ -334,6 +334,7 @@ const App: Component = () => {
   const showEmpty = () =>
     !session.isLoading() && store.terminalIds().length === 0;
 
+  /** Workspace route leaf — preserves the existing Kolu terminal experience. */
   const WorkspacePage: Component = () => (
     <>
       {/* Desktop chrome — docked top bar carrying pill tree, identity,

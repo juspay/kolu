@@ -1,6 +1,7 @@
 import type { Component } from "solid-js";
 import { A } from "@solidjs/router";
 
+/** Temporary board route until the real board UI lands. */
 const BoardPlaceholder: Component = () => (
   <main class="flex flex-1 items-center justify-center px-6 py-10">
     <div class="max-w-md rounded-2xl border border-edge bg-surface-1 p-6 text-center shadow-lg">
