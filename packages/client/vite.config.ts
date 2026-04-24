@@ -24,10 +24,9 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        // Raised from the 2 MiB default to accommodate the highlight.js +
-        // lowlight bundle pulled in by @git-diff-view/solid. The Code
-        // Code tab's diff renderer ships syntax highlighting for dozens
-        // of languages; precaching it keeps the tab snappy offline.
+        // Raised from the 2 MiB default to accommodate the shiki bundle
+        // pulled in by @pierre/diffs. Precaching keeps the Code tab snappy
+        // offline.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
     }),

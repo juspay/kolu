@@ -27,6 +27,8 @@ import {
   FsListDirInputSchema,
   FsDirEntrySchema,
   FsListDirOutputSchema,
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
 } from "kolu-git/schemas";
@@ -56,6 +58,8 @@ export {
   FsListDirInputSchema,
   FsDirEntrySchema,
   FsListDirOutputSchema,
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
 };
@@ -68,6 +72,7 @@ export type {
   GitStatusOutput,
   GitDiffOutput,
   FsListDirOutput,
+  FsListAllOutput,
 } from "kolu-git/schemas";
 
 // --- Zod schemas ---

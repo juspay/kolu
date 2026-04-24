@@ -122,6 +122,31 @@ export async function listDir(
   return ok(sorted);
 }
 
+/** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
+ *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
+ *  hierarchy itself from a flat path list.
+ *
+ *  @param repoPath  Absolute path to the repo root.
+ *  @param log       Optional logger. */
+export async function listAll(
+  repoPath: string,
+  log?: Logger,
+): Promise<GitResult<string[]>> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["ls-files", "--cached", "--others", "--exclude-standard"],
+      { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
+    );
+    const paths = stdout.split("\n").filter((l) => l.length > 0);
+    return ok(paths);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log?.error({ err: e, repoPath }, "git ls-files failed");
+    return err({ code: "GIT_FAILED", message: `Failed to list files: ${msg}` });
+  }
+}
+
 /** Max file size to read (1 MB). Larger files get a truncation notice. */
 const MAX_READ_BYTES = 1_048_576;
 

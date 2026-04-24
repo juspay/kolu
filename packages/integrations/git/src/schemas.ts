@@ -132,6 +132,17 @@ export const FsListDirOutputSchema = z.object({
 });
 export type FsListDirOutput = z.infer<typeof FsListDirOutputSchema>;
 
+export const FsListAllInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+});
+
+export const FsListAllOutputSchema = z.object({
+  /** Flat list of all repo-relative file paths (tracked + untracked, respecting .gitignore). */
+  paths: z.array(z.string()),
+});
+export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
+
 export const FsReadFileInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),

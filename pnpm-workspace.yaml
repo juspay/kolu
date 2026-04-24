@@ -1,2 +1,19 @@
 packages:
   - packages/**
+
+# @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
+# need them for their /react entry points. Kolu consumes the vanilla classes
+# directly from SolidJS, so these are optional.
+packageExtensions:
+  "@pierre/trees":
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+  "@pierre/diffs":
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
