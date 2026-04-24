@@ -95,18 +95,18 @@ export const GitDiffInputSchema = z.object({
   oldPath: z.string().optional(),
 });
 
-/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop.
- *  The same shape serves both modes — only the `git diff` base changes
- *  (HEAD in local mode, merge-base with origin/<default> in branch mode). */
+/** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s
+ *  `parsePatchFiles`). The same shape serves both modes — only the `git diff`
+ *  base changes (HEAD in local mode, merge-base with origin/<default> in
+ *  branch mode). */
 export const GitDiffOutputSchema = z.object({
   oldFileName: z.string().nullable(),
   newFileName: z.string().nullable(),
   oldContent: z.string(),
   newContent: z.string(),
-  /** Raw unified-diff strings, shaped for `@git-diff-view/core`'s parser:
-   *  each entry carries its own `--- / +++ / @@` header block (i.e.
-   *  passthrough of `git diff` output), not a bare hunk body. Currently
-   *  always zero or one element — a single per-file patch. */
+  /** Raw unified-diff strings: each entry carries its own `--- / +++ / @@`
+   *  header block (i.e. passthrough of `git diff` output), not a bare hunk
+   *  body. Currently always zero or one element — a single per-file patch. */
   hunks: z.array(z.string()),
 });
 export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
