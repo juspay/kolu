@@ -74,8 +74,10 @@ export const store = new Conf<PersistedState>({
     preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
-    // sortOrder added to SavedTerminal — old sessions don't have it.
-    // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
+    // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
+    // removed entirely in 1.18.0 (replaced by Map insertion order);
+    // this migration stays as a no-op so users who walked through
+    // earlier versions keep their ladder position intact.
     "1.1.0": () => {},
     // Preferences added — old state files don't have them.
     // conf auto-merges defaults, but explicit migration ensures clean shape.
