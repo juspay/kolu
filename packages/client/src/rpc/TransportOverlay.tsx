@@ -13,6 +13,7 @@
 import { type Component, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { lifecycle } from "./rpc";
+import { forceUpdateAndReload } from "../pwa";
 
 const TransportOverlay: Component = () => {
   const visible = () => {
@@ -45,18 +46,7 @@ const TransportOverlay: Component = () => {
                 <button
                   type="button"
                   class="bg-accent text-surface-1 font-semibold rounded px-3 py-1.5 hover:opacity-90"
-                  onClick={async () => {
-                    // Force the SW update to install *before* reload, so the
-                    // single navigation below lands on the fresh SW. Without
-                    // this, `location.reload()` serves old precached assets
-                    // while the new SW is still installing — the user sees
-                    // stale UI until a second reload. No-op on HTTP
-                    // (serviceWorker is undefined in insecure contexts).
-                    const reg =
-                      await navigator.serviceWorker?.getRegistration();
-                    await reg?.update();
-                    location.reload();
-                  }}
+                  onClick={forceUpdateAndReload}
                 >
                   Reload
                 </button>
