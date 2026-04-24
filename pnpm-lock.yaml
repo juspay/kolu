@@ -119,6 +119,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
       kolu-common:
         specifier: workspace:*
         version: link:../common

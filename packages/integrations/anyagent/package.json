@@ -9,7 +9,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./schemas": "./src/schemas.ts"
+    "./schemas": "./src/schemas.ts",
+    "./cli": "./src/agent-cli.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

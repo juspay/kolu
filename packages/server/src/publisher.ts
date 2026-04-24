@@ -14,6 +14,7 @@ import type {
   Preferences,
   ActivityFeed,
   SavedSession,
+  SavedAgentResume,
 } from "kolu-common";
 import { log } from "./log.ts";
 
@@ -54,6 +55,9 @@ type SystemChannels = {
   /** Saved-session content changed — drives the session live query.
    *  Fired when the persisted session blob is written or cleared. */
   "session:changed": SavedSession | null;
+  /** Per-terminal agent-resume map changed — drives the agentResume live
+   *  query. Fired whenever `trackAgentResume` writes a new entry. */
+  "agentResume:changed": SavedAgentResume;
 };
 
 // The publisher accepts any string channel at runtime.

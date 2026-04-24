@@ -57,7 +57,7 @@ Integration code (under `packages/integrations/`) runs in a long-lived Node proc
 
 ### no-preference-prop-drilling
 
-Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`) and saved session (`useSavedSession()`) — each domain has its own dedicated singleton hook.
+Components must read preferences from `usePreferences()` directly, not receive them as props from a parent. The singleton subscription guarantees shared reactivity — all callers read through one `createSubscription` instance. The same applies to the activity feed (`useActivityFeed()`), saved session (`useSavedSession()`), and per-terminal agent-resume map (`useAgentResume()`) — each domain has its own dedicated singleton hook.
 Bad: `<Child scrollLock={preferences().scrollLock} />` then `props.scrollLock` in child
 Good: `const { preferences } = usePreferences();` inside the child component
 _Rationale_: Prop-drilling preferences creates unenforced coupling ("parent extracts the right field and passes it to the right consumer") and bloats App.tsx's wiring surface. Components that own their behavior should own their preference reads too.
@@ -111,7 +111,7 @@ Every server-side streaming handler in `packages/server/src/router.ts` MUST yiel
 
 Two acceptable shapes:
 
-- **Implicit**: each yield is already a full replacement (e.g. `onMetadataChange` yields a current `TerminalMetadata`; `preferences.get` yields a current `Preferences`; `activity.get` yields a current `ActivityFeed`; `session.get` yields the current `SavedSession | null`; `terminal.list` yields a current `TerminalInfo[]`). Client reducers can just use the latest value.
+- **Implicit**: each yield is already a full replacement (e.g. `onMetadataChange` yields a current `TerminalMetadata`; `preferences.get` yields a current `Preferences`; `activity.get` yields a current `ActivityFeed`; `session.get` yields the current `SavedSession | null`; `agentResume.get` yields the current `SavedAgentResume`; `terminal.list` yields a current `TerminalInfo[]`). Client reducers can just use the latest value.
 - **Explicit discriminated union**: when clients accumulate deltas into a derived structure, yield `{ kind: "snapshot", ... } | { kind: "delta", ... }`. Client reducers replace on snapshot, append on delta. Without the discriminator, reconnect replays the history into an already-populated accumulator and duplicates state.
 
 If a new handler yields deltas only (no initial snapshot), reconnects will silently lose state with no error.

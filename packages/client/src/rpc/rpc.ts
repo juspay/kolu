@@ -74,6 +74,10 @@ export const stream = {
     client.activity.get(undefined, { signal, context: STREAM_RETRY }),
   session: (signal?: AbortSignal) =>
     client.session.get(undefined, { signal, context: STREAM_RETRY }),
+  /** Per-terminal captured agent commands, used by the session-restore UI
+   *  to offer resume on kolu restart. */
+  agentResume: (signal?: AbortSignal) =>
+    client.agentResume.get(undefined, { signal, context: STREAM_RETRY }),
   terminalList: (signal?: AbortSignal) =>
     client.terminal.list(undefined, { signal, context: STREAM_RETRY }),
   metadata: (id: TerminalId, signal?: AbortSignal) =>

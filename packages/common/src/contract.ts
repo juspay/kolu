@@ -34,6 +34,7 @@ import {
   PreferencesPatchSchema,
   ActivityFeedSchema,
   SavedSessionSchema,
+  SavedAgentResumeSchema,
   FsListDirInputSchema,
   FsListDirOutputSchema,
   FsReadFileInputSchema,
@@ -124,5 +125,14 @@ export const contract = oc.router({
     get: oc.output(eventIterator(SavedSessionSchema.nullable())),
     // Reset saved session (test-only: seed/clear between scenarios)
     test__set: oc.input(SavedSessionSchema.nullable()).output(z.void()),
+  },
+  agentResume: {
+    // Stream per-terminal captured agent commands, keyed by saved-terminal id.
+    // Read-only — server writes whenever the preexec OSC 633;E hook observes
+    // a known agent invocation. Consumed by the session-restore UI to offer
+    // per-terminal "resume <agent>" on restart.
+    get: oc.output(eventIterator(SavedAgentResumeSchema)),
+    // Reset per-terminal agent commands (test-only: seed/clear between scenarios)
+    test__set: oc.input(SavedAgentResumeSchema).output(z.void()),
   },
 });

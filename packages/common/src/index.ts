@@ -341,6 +341,29 @@ export const SavedSessionSchema = z.object({
   savedAt: z.number(),
 });
 
+// --- Per-terminal agent-resume persistence ---
+
+/** A captured agent CLI invocation for a single terminal, used to offer
+ *  resume on session restore. The `command` is the normalized form from
+ *  `parseAgentCommand` — first token is the agent basename, followed by
+ *  its stable flags. Prompts and positional arguments are already stripped.
+ *  `lastSeen` is updated each time a new agent command fires in the
+ *  terminal; it drives per-repo MRU ordering in the restore UI. */
+export const AgentResumeEntrySchema = z.object({
+  command: z.string(),
+  lastSeen: z.number(),
+});
+
+/** Map of terminal id → captured agent command. Only terminals that
+ *  launched a known agent appear here; plain shells are absent. Keyed by
+ *  the same `SavedTerminal.id` persisted in `SavedSession`, so the restore
+ *  UI can join the two. Cleared alongside the session when the last
+ *  terminal dies. */
+export const SavedAgentResumeSchema = z.record(
+  z.string(),
+  AgentResumeEntrySchema,
+);
+
 // --- User preferences (server-side, shared with client) ---
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
@@ -426,6 +449,8 @@ export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type AgentResumeEntry = z.infer<typeof AgentResumeEntrySchema>;
+export type SavedAgentResume = z.infer<typeof SavedAgentResumeSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;

@@ -2,9 +2,11 @@
 
 import { createSignal, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
+import { resumeAgentCommand } from "anyagent/cli";
 import { useSubPanel } from "./useSubPanel";
 import { useSavedSession } from "../settings/useSavedSession";
-import { lifecycle } from "../rpc/rpc";
+import { useAgentResume } from "../settings/useAgentResume";
+import { lifecycle, client } from "../rpc/rpc";
 import type {
   InitialTerminalMetadata,
   TerminalId,
@@ -28,6 +30,7 @@ export function useSessionRestore(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const serverSaved = useSavedSession();
+  const resumeState = useAgentResume();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -124,10 +127,14 @@ export function useSessionRestore(deps: {
     }
   });
 
-  async function handleRestoreSession() {
+  async function handleRestoreSession(
+    options: { resumeIds?: ReadonlySet<string> } = {},
+  ) {
     const session = savedSession();
     if (!session) return;
     setSavedSession(null);
+    const resumeMap = resumeState.agentResume();
+    const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
@@ -143,6 +150,7 @@ export function useSessionRestore(deps: {
       const subTerminals = session.terminals
         .filter((t) => t.parentId)
         .sort(bySortOrder);
+      let resumed = 0;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
       // so the canvas cascade effect sees the saved layout on its first run
@@ -159,6 +167,22 @@ export function useSessionRestore(deps: {
         // to the same tab. The server-persisted fields (collapsed, panelSize)
         // ride along via handleCreate above.
         if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
+        // Auto-launch the resume form of the previously captured agent
+        // command, if the user didn't opt out. The command is already
+        // normalized (prompts/positionals stripped by the allowlist at
+        // capture time), so there's nothing arbitrary to smuggle through.
+        const capture = resumeMap[t.id];
+        const optedIn = !resumeIds || resumeIds.has(t.id);
+        if (capture && optedIn) {
+          const resumeForm = resumeAgentCommand(capture.command);
+          if (resumeForm) {
+            await client.terminal.sendInput({
+              id: newId,
+              data: `${resumeForm}\r`,
+            });
+            resumed++;
+          }
+        }
       }
       for (const t of subTerminals) {
         const newParentId = oldToNew.get(t.parentId!);
@@ -169,7 +193,11 @@ export function useSessionRestore(deps: {
         const newActiveId = oldToNew.get(session.activeTerminalId);
         if (newActiveId) store.setActiveId(newActiveId);
       }
-      toast.success("Session restored", { id });
+      const summary =
+        resumed > 0
+          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
+          : "Session restored";
+      toast.success(summary, { id });
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;
@@ -179,6 +207,7 @@ export function useSessionRestore(deps: {
   return {
     isLoading: () => store.listSub.pending(),
     savedSession,
+    agentResume: resumeState.agentResume,
     handleRestoreSession,
   };
 }

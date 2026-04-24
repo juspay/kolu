@@ -6,7 +6,7 @@ import {
 } from "../support/world.ts";
 import * as assert from "node:assert";
 import * as os from "node:os";
-import type { SavedTerminal } from "kolu-common";
+import type { SavedTerminal, SavedAgentResume } from "kolu-common";
 
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */
@@ -245,5 +245,73 @@ Then(
       id,
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+// --- Agent-resume scenarios ---
+
+async function postAgentResumePayload(
+  page: KoluWorld["page"],
+  payload: SavedAgentResume,
+): Promise<void> {
+  const resp = await page.request.fetch("/rpc/agentResume/test__set", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: JSON.stringify({ json: payload }),
+  });
+  assert.ok(resp.ok(), `agentResume/test__set failed: ${resp.status()}`);
+}
+
+Given(
+  "terminal {int} has captured agent command {string}",
+  async function (this: KoluWorld, index: number, command: string) {
+    // Idempotent merge — earlier "a saved session with N terminals" seeded
+    // the session with terminal ids "0", "1", …; key into that id-space.
+    const id = String(index);
+    const existing = (this.savedAgentResume ?? {}) as SavedAgentResume;
+    existing[id] = { command, lastSeen: Date.now() };
+    this.savedAgentResume = existing;
+    await postAgentResumePayload(this.page, existing);
+  },
+);
+
+Then(
+  "the restore card should show agent command {string}",
+  async function (this: KoluWorld, command: string) {
+    await this.page.waitForFunction(
+      (cmd) => {
+        const nodes = document.querySelectorAll(
+          '[data-testid="resume-command"]',
+        );
+        return Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
+      },
+      command,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the restore button should not mention {string}",
+  async function (this: KoluWorld, text: string) {
+    const btn = this.page.locator('[data-testid="restore-session"]');
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const content = await btn.textContent();
+    assert.ok(
+      !content?.includes(text),
+      `Expected restore button NOT to contain "${text}", got "${content}"`,
+    );
+  },
+);
+
+When(
+  "I opt out of resuming terminal {int}",
+  async function (this: KoluWorld, index: number) {
+    const id = String(index);
+    const toggle = this.page.locator(
+      `[data-testid="resume-toggle"][data-terminal-id="${id}"]`,
+    );
+    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await toggle.click();
   },
 );

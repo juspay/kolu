@@ -43,6 +43,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
     "@types/node": "^22.0.0",
+    "anyagent": "workspace:*",
     "kolu-common": "workspace:*",
     "tailwindcss": "^4.1.0",
     "terminal-themes": "workspace:*",
