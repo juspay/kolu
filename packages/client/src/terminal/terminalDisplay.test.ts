@@ -13,7 +13,6 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    sortOrder: 0,
     ...overrides,
   };
 }
@@ -119,5 +118,32 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.size).toBe(1);
     expect(result.has("id-1")).toBe(true);
     expect(result.has("id-2")).toBe(false);
+  });
+
+  it("leaves unique terminals without a collision suffix", () => {
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2"],
+      (id) =>
+        id === "aaaa-1"
+          ? makeMeta({ git: makeGit({ branch: "main" }) })
+          : makeMeta({ git: makeGit({ branch: "feature" }) }),
+      () => [],
+    );
+    expect(result.get("aaaa-1")!.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2")!.key.suffix).toBeUndefined();
+  });
+
+  it("stamps collision suffixes on terminals sharing (group, label)", () => {
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2", "cccc-3"],
+      (id) =>
+        id === "cccc-3"
+          ? makeMeta({ git: makeGit({ branch: "feature" }) })
+          : makeMeta({ git: makeGit({ branch: "main" }) }),
+      () => [],
+    );
+    expect(result.get("aaaa-1")!.key.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2")!.key.suffix).toBe("#bbbb");
+    expect(result.get("cccc-3")!.key.suffix).toBeUndefined();
   });
 });

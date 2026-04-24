@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.17.0";
+const SCHEMA_VERSION = "1.18.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -74,8 +74,10 @@ export const store = new Conf<PersistedState>({
     preferences: DEFAULT_PREFERENCES,
   },
   migrations: {
-    // sortOrder added to SavedTerminal — old sessions don't have it.
-    // No-op: sortOrder is optional on SavedTerminalSchema, assigned sequentially on restore.
+    // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
+    // removed entirely in 1.18.0 (replaced by Map insertion order);
+    // this migration stays as a no-op so users who walked through
+    // earlier versions keep their ladder position intact.
     "1.1.0": () => {},
     // Preferences added — old state files don't have them.
     // conf auto-merges defaults, but explicit migration ensures clean shape.
@@ -288,6 +290,32 @@ export const store = new Conf<PersistedState>({
           rightPanel: rest as typeof current.rightPanel,
         });
       }
+    },
+    // SavedTerminal unified with TerminalMetadata — the flattened
+    // `repoName`/`branch` (now read from `git`) and the `sortOrder`
+    // index (replaced by Map insertion order) are gone. Strip the
+    // obsolete fields and seed `git: null` for entries that lacked the
+    // key entirely so the 1.18.0 shape matches the schema exactly
+    // (the unified `PersistedTerminalFieldsSchema` makes `git`
+    // required-but-nullable, so `undefined` fails validation).
+    "1.18.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map((t) => {
+        const {
+          sortOrder: _sortOrder,
+          repoName: _repoName,
+          branch: _branch,
+          ...kept
+        } = t;
+        return { git: null, ...kept };
+      });
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
     },
   },
 });

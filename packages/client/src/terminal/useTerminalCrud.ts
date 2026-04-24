@@ -1,4 +1,4 @@
-/** Terminal CRUD — create, kill, close-all, theme, reorder, copy text.
+/** Terminal CRUD — create, kill, close-all, theme, copy text.
  *
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
@@ -46,15 +46,6 @@ export function useTerminalCrud(deps: {
       .setTheme({ id, themeName: name })
       .catch((err: Error) =>
         toast.error(`Failed to set theme: ${err.message}`),
-      );
-  }
-
-  /** Reorder terminals on the server. */
-  function reorderTerminals(ids: TerminalId[]) {
-    void client.terminal
-      .reorder({ ids })
-      .catch((err: Error) =>
-        toast.error(`Failed to reorder terminals: ${err.message}`),
       );
   }
 
@@ -215,7 +206,6 @@ export function useTerminalCrud(deps: {
 
   return {
     setThemeName,
-    reorderTerminals,
     setCanvasLayout,
     removeAndAutoSwitch,
     handleCreate,

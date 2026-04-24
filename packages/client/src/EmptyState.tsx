@@ -1,7 +1,11 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
 import { type Component, For, Show, createSignal, createMemo } from "solid-js";
-import type { SavedSession, SavedTerminal } from "kolu-common";
+import {
+  terminalKey,
+  type SavedSession,
+  type SavedTerminal,
+} from "kolu-common";
 import { SHORTCUTS, formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
@@ -22,10 +26,9 @@ interface RepoGroup {
 /** Group top-level terminals by repoName (falling back to cwd). Groups are
  *  sorted by the minimum `canvasLayout.x` of their members so the restore
  *  card's left-to-right order matches the canvas the user saw. Within-group
- *  order preserves saved sortOrder. */
+ *  order preserves the array order of the saved session, which is the same
+ *  Map insertion order the server stamps. */
 function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
-  const bySortOrder = (a: SavedTerminal, b: SavedTerminal) =>
-    (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
   const minX = (ts: readonly SavedTerminal[]) =>
     ts.reduce(
       (acc, t) => Math.min(acc, t.canvasLayout?.x ?? Infinity),
@@ -34,14 +37,15 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const groups = new Map<string, SavedTerminal[]>();
   for (const t of terminals) {
     if (t.parentId) continue;
-    const key = t.repoName ?? t.cwd;
+    // Share `terminalKey` with the live pill tree so the restore card
+    // groups terminals the same way the running app does.
+    const key = terminalKey({ id: t.id, git: t.git, cwd: t.cwd }).group;
     const list = groups.get(key) ?? [];
     list.push(t);
     groups.set(key, list);
   }
   const out: RepoGroup[] = [];
   for (const [key, list] of groups) {
-    list.sort(bySortOrder);
     out.push({ key, terminals: list });
   }
   out.sort((a, b) => minX(a.terminals) - minX(b.terminals));
@@ -107,7 +111,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             {(t) => (
                               <div title={t.cwd}>
                                 <div class="text-sm text-fg-2 truncate leading-snug">
-                                  {t.branch ?? t.cwd}
+                                  {t.git?.branch ?? t.cwd}
                                 </div>
                                 <Show
                                   when={

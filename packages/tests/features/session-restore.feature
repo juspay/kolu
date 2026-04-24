@@ -12,13 +12,13 @@ Feature: Session restore
     Then there should be 2 pill tree entries
     And there should be no page errors
 
-  Scenario: Restored terminals preserve their original pill tree order
-    Given a saved session with reversed sort order
+  Scenario: Restored terminals preserve their saved array order
+    Given a saved session in a specific order
     When I open the app
     Then the session restore card should be visible
     When I click the restore button
     Then there should be 3 pill tree entries
-    And the pill tree entries should be in sort order
+    And the pill tree entries should be in the saved order
     And there should be no page errors
 
   Scenario: Restored terminals preserve their theme

@@ -14,9 +14,14 @@ import type { SavedTerminal } from "kolu-common";
 const terminal: SavedTerminal = {
   id: "term-1",
   cwd: "/home/user/project",
-  repoName: "project",
-  branch: "main",
-  sortOrder: 0,
+  git: {
+    repoRoot: "/home/user/project",
+    repoName: "project",
+    worktreePath: "/home/user/project",
+    branch: "main",
+    isWorktree: false,
+    mainRepoRoot: "/home/user/project",
+  },
 };
 
 describe("session persistence", () => {
@@ -40,8 +45,7 @@ describe("session persistence", () => {
     expect(session!.terminals[0]).toMatchObject({
       id: "term-1",
       cwd: "/home/user/project",
-      repoName: "project",
-      branch: "main",
+      git: { repoName: "project", branch: "main" },
     });
     expect(session!.savedAt).toBeTypeOf("number");
   });
@@ -65,11 +69,11 @@ describe("session persistence", () => {
     expect(getSavedSession()).toBeNull();
   });
 
-  it("preserves multiple terminals with ordering", () => {
+  it("preserves multiple terminals with array order", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", sortOrder: 0 },
-      { id: "b", cwd: "/b", sortOrder: 1 },
-      { id: "c", cwd: "/c", parentId: "a", sortOrder: 2 },
+      { id: "a", cwd: "/a", git: null },
+      { id: "b", cwd: "/b", git: null },
+      { id: "c", cwd: "/c", git: null, parentId: "a" },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -80,8 +84,8 @@ describe("session persistence", () => {
 
   it("preserves themeName on round-trip", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", sortOrder: 0, themeName: "Dracula" },
-      { id: "b", cwd: "/b", sortOrder: 1 },
+      { id: "a", cwd: "/a", git: null, themeName: "Dracula" },
+      { id: "b", cwd: "/b", git: null },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();

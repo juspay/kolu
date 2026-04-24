@@ -7,7 +7,6 @@ import type {
   InitialTerminalMetadata,
   TerminalId,
   TerminalInfo,
-  TerminalMetadata,
 } from "kolu-common";
 import { log } from "./log.ts";
 import { cleanupClipboardDir } from "./clipboard.ts";
@@ -18,7 +17,6 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import { getLastAgentCommand } from "./meta/agent-command.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -32,42 +30,29 @@ export interface TerminalProcess {
 
 const terminals = new Map<TerminalId, TerminalProcess>();
 
-const SORT_GAP = 1000;
-
-/** Next sortOrder for a group (top-level or siblings of a parent). */
-function nextSortOrder(parentId?: string): number {
-  let max = 0;
-  for (const entry of terminals.values()) {
-    if (
-      entry.info.meta.parentId === parentId &&
-      entry.info.meta.sortOrder > max
-    ) {
-      max = entry.info.meta.sortOrder;
-    }
-  }
-  return max + SORT_GAP;
-}
-
-/** Build a session snapshot from current terminal + client-reported state. */
+/** Build a session snapshot from current terminal state.
+ *
+ *  The persisted fields live on `TerminalMetadata` in the exact shape
+ *  `SavedTerminal` needs — so a snapshot is "strip the live fields,
+ *  add id". Adding a future persisted field to
+ *  `PersistedTerminalFieldsSchema` flows through here with no change.
+ *  Order is `Map` insertion order — terminals appear in the sequence
+ *  they were created. */
 export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
 } {
-  const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
-    const m = entry.info.meta;
-    const lastAgentCommand = getLastAgentCommand(id);
-    return {
-      id,
-      cwd: m.cwd,
-      ...(m.parentId && { parentId: m.parentId }),
-      ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
-      sortOrder: m.sortOrder,
-      ...(m.themeName && { themeName: m.themeName }),
-      ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
-      ...(m.subPanel && { subPanel: m.subPanel }),
-      ...(lastAgentCommand && { lastAgentCommand }),
-    };
-  });
+  const snappedTerminals = [...terminals.entries()].map(
+    ([id, entry]): SavedTerminal => {
+      const {
+        pr: _pr,
+        agent: _agent,
+        foreground: _foreground,
+        ...persisted
+      } = entry.info.meta;
+      return { id, ...persisted };
+    },
+  );
   return { terminals: snappedTerminals, activeTerminalId };
 }
 
@@ -76,54 +61,10 @@ function emitChanged(): void {
   publishSystem("terminals:dirty", {});
 }
 
-/** Notify that terminal membership changed (create/kill/reorder).
+/** Notify that terminal membership changed (create/kill).
  *  Drives the live terminal.list stream to clients. */
 function emitListChanged(): void {
   publishSystem("terminal-list", listTerminals());
-}
-
-/** Identity tuple — two terminals "collide" iff this matches. Git-aware
- *  terminals key on (repo, branch); the rest fall back to cwd. Mirrors the
- *  user-facing notion of "same place" — opening the same branch twice
- *  should look distinguishable, but two unrelated cwds never need a suffix. */
-function identityKey(m: TerminalMetadata): string {
-  return m.git ? `git|${m.git.repoName}|${m.git.branch}` : `cwd|${m.cwd}`;
-}
-
-/** Recompute `displaySuffix` for every terminal. Mutates each entry's
- *  metadata in place; returns the ids whose suffix flipped so callers
- *  can fan out per-terminal `metadata` republishes. Cheap O(N) — runs
- *  on every metadata mutation (collisions can change with any cwd/git
- *  update) and the delta gate keeps the network quiet. */
-export function recomputeDisplaySuffixes(): TerminalId[] {
-  const counts = new Map<string, number>();
-  for (const entry of terminals.values()) {
-    const k = identityKey(entry.info.meta);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-  const changed: TerminalId[] = [];
-  for (const [id, entry] of terminals.entries()) {
-    const m = entry.info.meta;
-    const next =
-      (counts.get(identityKey(m)) ?? 0) > 1 ? `#${id.slice(0, 4)}` : undefined;
-    if (m.displaySuffix !== next) {
-      m.displaySuffix = next;
-      changed.push(id);
-    }
-  }
-  return changed;
-}
-
-/** Lifecycle-side companion to `recomputeDisplaySuffixes`: recompute and
- *  publish per-terminal metadata for every terminal whose suffix flipped.
- *  Used on create/kill, where no metadata publish would otherwise fire
- *  for the OTHER terminals whose collision status just changed. */
-function publishSuffixChanges(): void {
-  const changed = recomputeDisplaySuffixes();
-  for (const id of changed) {
-    const entry = terminals.get(id);
-    if (entry) publishForTerminal("metadata", id, { ...entry.info.meta });
-  }
 }
 
 /** Create a new terminal, spawn a PTY process. `initial` seeds
@@ -159,7 +100,6 @@ export function createTerminal(
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = terminals.delete(id);
         if (wasNaturalExit) {
-          publishSuffixChanges();
           emitChanged();
           emitListChanged();
         }
@@ -188,7 +128,7 @@ export function createTerminal(
     cwd,
   );
 
-  const meta = createMetadata(handle.cwd, nextSortOrder(parentId));
+  const meta = createMetadata(handle.cwd);
   if (parentId) meta.parentId = parentId;
   // Seed client-owned initial metadata BEFORE emitListChanged so the
   // first list snapshot carries these fields (see #642).
@@ -209,18 +149,18 @@ export function createTerminal(
   entry.stopProviders = startProviders(entry, id);
 
   tlog.info({ pid: handle.pid, total: terminals.size }, "created");
-  // New terminal can collide with an existing one — fan out metadata
-  // republishes for any terminal whose suffix just flipped on or off.
-  publishSuffixChanges();
   emitChanged();
   emitListChanged();
   return entry.info;
 }
 
+/** Current terminals in their canonical `Map` insertion order.
+ *
+ *  Insertion order is the ordering model — new terminals append to the
+ *  tail. Clients render this order directly; within-group pill ordering
+ *  is a separate spatial sort driven by saved canvas layouts. */
 export function listTerminals(): TerminalInfo[] {
-  const list = [...terminals.values()]
-    .map((entry) => entry.info)
-    .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+  const list = [...terminals.values()].map((entry) => entry.info);
   log.debug({ count: list.length }, "terminal list");
   return list;
 }
@@ -254,15 +194,12 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.handle.dispose();
   cleanupClipboardDir(id);
   terminals.delete(id);
-  // Removing a terminal can resolve a collision — fan out metadata
-  // republishes so the survivor's suffix clears.
-  publishSuffixChanges();
   emitChanged();
   emitListChanged();
   return entry.info;
 }
 
-/** Set or clear a terminal's parent relationship. Assigns sortOrder for the new group. */
+/** Set or clear a terminal's parent relationship. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
@@ -272,7 +209,6 @@ export function setTerminalParent(
     const newParent = parentId ?? undefined;
     updateClientMetadata(entry, id, (m) => {
       m.parentId = newParent;
-      m.sortOrder = nextSortOrder(newParent);
     });
   }
 }
@@ -324,20 +260,6 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
       m.themeName = themeName;
     });
   }
-}
-
-/** Reorder terminals by assigning sequential sortOrder values. */
-export function reorderTerminals(ids: TerminalId[]): void {
-  for (let i = 0; i < ids.length; i++) {
-    const entry = terminals.get(ids[i]!);
-    if (entry) {
-      updateClientMetadata(entry, ids[i]!, (m) => {
-        m.sortOrder = (i + 1) * SORT_GAP;
-      });
-    }
-  }
-  log.debug({ count: ids.length }, "terminals reordered");
-  emitListChanged();
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
