@@ -40,5 +40,9 @@ export function useColorScheme() {
   }
 
   const isDark = () => sharedIsDark!();
-  return { colorScheme, setColorScheme, isDark } as const;
+  /** Resolved scheme as a string literal, for libraries that accept
+   *  `"dark" | "light"` (e.g. Pierre's `themeType`). */
+  const themeTypeLiteral = (): "light" | "dark" =>
+    sharedIsDark!() ? "dark" : "light";
+  return { colorScheme, setColorScheme, isDark, themeTypeLiteral } as const;
 }

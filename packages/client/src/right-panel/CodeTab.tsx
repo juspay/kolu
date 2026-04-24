@@ -78,7 +78,7 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
 );
 
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
-  const { isDark } = useColorScheme();
+  const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
@@ -127,8 +127,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     },
     (input) => client.fs.listAll(input).then((r) => r.paths),
   );
-
-  const diffTheme = (): "light" | "dark" => (isDark() ? "dark" : "light");
 
   const handleRefresh = () => {
     if (isDiffView()) {
@@ -287,8 +285,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     {(d) => (
                       <PierreDiffView
                         rawDiff={d().hunks[0] ?? ""}
-                        oldFileName={d().oldFileName}
-                        newFileName={d().newFileName}
                         theme={diffTheme()}
                       />
                     )}

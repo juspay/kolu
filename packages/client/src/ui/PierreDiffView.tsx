@@ -16,11 +16,8 @@ import { pierreDiffsStyle } from "./pierreTheme";
 export type PierreDiffViewProps = {
   /** Raw per-file unified diff (one element of `GitDiffOutput.hunks`). */
   rawDiff: string;
-  /** Fallback for rename/delete cases where `rawDiff` is empty. */
-  oldFileName?: string | null;
-  newFileName?: string | null;
   /** Light vs dark syntax-highlight theme. */
-  theme?: "light" | "dark";
+  theme: "light" | "dark";
 };
 
 function parseFirstFile(raw: string): FileDiffMetadata | undefined {
@@ -28,7 +25,10 @@ function parseFirstFile(raw: string): FileDiffMetadata | undefined {
   try {
     const patches = parsePatchFiles(raw);
     return patches[0]?.files[0];
-  } catch {
+  } catch (e) {
+    // Pierre rejects malformed headers; surface to console so the blank
+    // pane doesn't look like a silent data-loading bug.
+    console.warn("pierre-diffs: parsePatchFiles failed", e);
     return undefined;
   }
 }
@@ -41,7 +41,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
     const fileDiff = parseFirstFile(props.rawDiff);
     instance = new FileDiff({
       theme: DEFAULT_THEMES,
-      themeType: props.theme ?? "dark",
+      themeType: props.theme,
       diffStyle: "unified",
       overflow: "wrap",
       lineHoverHighlight: "both",
@@ -63,7 +63,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
   createEffect(
     on(
       () => props.theme,
-      (t) => instance?.setThemeType(t ?? "dark"),
+      (t) => instance?.setThemeType(t),
       { defer: true },
     ),
   );

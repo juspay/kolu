@@ -11,7 +11,7 @@ export type PierreFileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
   name: string;
   contents: string;
-  theme?: "light" | "dark";
+  theme: "light" | "dark";
 };
 
 const PierreFileView: Component<PierreFileViewProps> = (props) => {
@@ -26,7 +26,7 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
   onMount(() => {
     instance = new File({
       theme: DEFAULT_THEMES,
-      themeType: props.theme ?? "dark",
+      themeType: props.theme,
     });
     instance.render({ containerWrapper: container, file: fileContents() });
   });
@@ -43,7 +43,7 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
   createEffect(
     on(
       () => props.theme,
-      (t) => instance?.setThemeType(t ?? "dark"),
+      (t) => instance?.setThemeType(t),
       { defer: true },
     ),
   );
