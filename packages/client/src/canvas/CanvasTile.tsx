@@ -140,6 +140,12 @@ const CanvasTile: Component<{
           "--color-fg-2": tileFgTier(props.theme, 2),
           "--color-fg-3": tileFgTier(props.theme, 3),
         }}
+        // Non-interactive chrome: prevent the browser's default
+        // mousedown focus shift so clicks on the title bar don't blur
+        // the xterm textarea. solid-dnd's drag uses pointerdown, not
+        // mousedown, so drag is unaffected; child buttons handle their
+        // own focus via stopPropagation on pointerdown.
+        onMouseDown={(e) => e.preventDefault()}
         onDblClick={(e) => {
           e.stopPropagation();
           props.onToggleMaximize();

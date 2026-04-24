@@ -36,7 +36,7 @@ import EmptyState from "./EmptyState";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import { createCommands } from "./commands";
-import { exportSessionAsPdf } from "./exportSessionAsPdf";
+import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { screenshotTerminal } from "./screenshotTerminal";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import { useRecorder } from "./recorder/useRecorder";
@@ -148,10 +148,10 @@ const App: Component = () => {
     }
   }
 
-  function handleExportSessionAsPdf() {
+  function handleExportScrollbackAsPdf() {
     const id = store.activeId();
     if (id === null) return;
-    exportSessionAsPdf(id, store.getMetadata(id));
+    exportScrollbackAsPdf(id, store.getMetadata(id));
   }
 
   function handleScreenshotTerminal(id?: TerminalId) {
@@ -195,7 +195,6 @@ const App: Component = () => {
         direction,
       ),
     handleShuffleTheme,
-    handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
@@ -245,7 +244,7 @@ const App: Component = () => {
       void crud.handleCreateSubTerminal(parentId, cwd),
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
-    handleExportSessionAsPdf,
+    handleExportScrollbackAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
