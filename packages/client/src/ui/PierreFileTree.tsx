@@ -57,16 +57,6 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   // set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
-  // Pierre clears the search query whenever the input blurs (clicking a row
-  // steals focus → query gone). Their `searchBlurBehavior: 'retain'` only
-  // protects the *initial* mount query, not user-typed queries. We work
-  // around it: track the live query, and when a row click closes the search,
-  // re-open it with the saved query. Escape / explicit clear still close
-  // because they aren't followed by a selection.
-  let liveQuery = "";
-  let pendingRestore: number | undefined;
-  const RESTORE_WINDOW_MS = 120;
-
   onMount(() => {
     tree = new FileTree({
       paths: props.paths,
@@ -75,38 +65,11 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
       search: props.search ?? true,
       gitStatus: props.gitStatus,
       initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
-      onSearchChange: (value) => {
-        if (value !== null) {
-          liveQuery = value;
-          if (pendingRestore !== undefined) {
-            clearTimeout(pendingRestore);
-            pendingRestore = undefined;
-          }
-          return;
-        }
-        if (!liveQuery) return;
-        // Session closed; wait briefly to see if a selection follows. If so,
-        // we treat the close as a side-effect of the row click and restore.
-        // If no selection arrives in the window, the user pressed Escape (or
-        // similar) and we let the close stand.
-        pendingRestore = window.setTimeout(() => {
-          pendingRestore = undefined;
-          liveQuery = "";
-        }, RESTORE_WINDOW_MS);
-      },
       onSelectionChange: (paths) => {
         // Pierre fires with all selected paths; we model single-select.
         const p = paths[0] ?? null;
         if (p !== null && !fileSet().has(p)) return; // ignore directories
         props.onSelect?.(p);
-        if (pendingRestore !== undefined) {
-          clearTimeout(pendingRestore);
-          pendingRestore = undefined;
-          if (liveQuery) {
-            const q = liveQuery;
-            queueMicrotask(() => tree?.openSearch(q));
-          }
-        }
       },
     });
     tree.render({ containerWrapper: container });
@@ -128,10 +91,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     ),
   );
 
-  onCleanup(() => {
-    if (pendingRestore !== undefined) clearTimeout(pendingRestore);
-    tree?.cleanUp();
-  });
+  onCleanup(() => tree?.cleanUp());
 
   return (
     <div
