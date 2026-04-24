@@ -5,7 +5,6 @@
  *  handler so the two views never diverge. */
 
 import type { TerminalId } from "kolu-common";
-import { cwdBasename } from "../path";
 import {
   terminalName,
   type TerminalDisplayInfo,
@@ -59,8 +58,7 @@ export function groupByRepo(
     // always agree. Display name is the nicer basename fallback —
     // two separate concerns, one identity per terminal.
     const groupKey = info.key.group;
-    const displayName =
-      meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
+    const displayName = terminalName(meta);
     let group = groups.get(groupKey);
     if (!group) {
       group = { repoName: displayName, branches: [] };
