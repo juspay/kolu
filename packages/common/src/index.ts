@@ -474,23 +474,45 @@ export type TerminalIdentity = {
   cwd: string;
 };
 
+/** Canonical `(group, label)` projection for a terminal. Single source
+ *  of truth for every surface that needs to group or deduplicate
+ *  terminals (pill tree, restore card, `computeTerminalKeys`).
+ *
+ *  The mapping is `git → (repoName, branch)` for git-aware terminals,
+ *  `no git → (cwd, cwd)` otherwise. Keep callers on this helper — a
+ *  divergent projection elsewhere (e.g. `cwdBasename(cwd)`) silently
+ *  breaks collision detection because `computeTerminalKeys` no longer
+ *  sees the same equivalence.
+ */
+export function terminalKey(t: TerminalIdentity): {
+  group: string;
+  label: string;
+} {
+  if (t.git) return { group: t.git.repoName, label: t.git.branch };
+  return { group: t.cwd, label: t.cwd };
+}
+
 /** Compute keys for every terminal in one pass.
  *
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Suffixes are assigned only
  *  when two terminals collide on `(group, label)`; unique pills get
- *  `suffix: undefined`.
+ *  `suffix: undefined`. Note: `terminalKey` is the single definition
+ *  of "same place" — any server-side code making equivalent identity
+ *  assumptions must move together with changes here, since there is
+ *  no runtime check keeping them in sync.
  */
 export function computeTerminalKeys(
   terminals: readonly TerminalIdentity[],
 ): Map<TerminalId, TerminalKey> {
   const counts = new Map<string, number>();
   for (const t of terminals) {
-    counts.set(keyOf(t), (counts.get(keyOf(t)) ?? 0) + 1);
+    const k = keyOf(t);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   const result = new Map<TerminalId, TerminalKey>();
   for (const t of terminals) {
-    const { group, label } = projectKey(t);
+    const { group, label } = terminalKey(t);
     const suffix =
       (counts.get(keyOf(t)) ?? 0) > 1 ? `#${t.id.slice(0, 4)}` : undefined;
     result.set(t.id, { group, label, suffix });
@@ -498,12 +520,7 @@ export function computeTerminalKeys(
   return result;
 }
 
-function projectKey(t: TerminalIdentity): { group: string; label: string } {
-  if (t.git) return { group: t.git.repoName, label: t.git.branch };
-  return { group: t.cwd, label: t.cwd };
-}
-
 function keyOf(t: TerminalIdentity): string {
-  const { group, label } = projectKey(t);
+  const { group, label } = terminalKey(t);
   return `${group} ${label}`;
 }

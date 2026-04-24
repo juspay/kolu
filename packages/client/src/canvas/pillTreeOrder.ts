@@ -54,12 +54,18 @@ export function groupByRepo(
     const info = getDisplayInfo(id);
     if (!info) continue;
     const meta = info.meta;
-    const repoName = meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
-    let group = groups.get(repoName);
+    // Group identity comes from the canonical `terminalKey` (via
+    // `info.key.group`) so collision detection and pill grouping
+    // always agree. Display name is the nicer basename fallback —
+    // two separate concerns, one identity per terminal.
+    const groupKey = info.key.group;
+    const displayName =
+      meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
+    let group = groups.get(groupKey);
     if (!group) {
-      group = { repoName, branches: [] };
-      groups.set(repoName, group);
-      order.push(repoName);
+      group = { repoName: displayName, branches: [] };
+      groups.set(groupKey, group);
+      order.push(groupKey);
     }
     group.branches.push({
       id,
@@ -70,9 +76,9 @@ export function groupByRepo(
       const layout = getLayout(id);
       layoutOf.set(id, layout);
       if (layout) {
-        const prev = repoMinX.get(repoName);
+        const prev = repoMinX.get(groupKey);
         if (prev === undefined || layout.x < prev) {
-          repoMinX.set(repoName, layout.x);
+          repoMinX.set(groupKey, layout.x);
         }
       }
     }

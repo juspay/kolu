@@ -1,7 +1,11 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
 import { type Component, For, Show, createSignal, createMemo } from "solid-js";
-import type { SavedSession, SavedTerminal } from "kolu-common";
+import {
+  terminalKey,
+  type SavedSession,
+  type SavedTerminal,
+} from "kolu-common";
 import { SHORTCUTS, formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
@@ -33,7 +37,9 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const groups = new Map<string, SavedTerminal[]>();
   for (const t of terminals) {
     if (t.parentId) continue;
-    const key = t.git?.repoName ?? t.cwd;
+    // Share `terminalKey` with the live pill tree so the restore card
+    // groups terminals the same way the running app does.
+    const key = terminalKey({ id: t.id, git: t.git, cwd: t.cwd }).group;
     const list = groups.get(key) ?? [];
     list.push(t);
     groups.set(key, list);
