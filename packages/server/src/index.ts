@@ -19,6 +19,7 @@ import { configureNixShellEnv } from "./shell.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { startDiagnostics } from "./diagnostics.ts";
+import { getCacheControlHeader } from "./cacheControl.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const argv = cli({
@@ -166,6 +167,11 @@ app.get("/manifest.webmanifest", (c) => {
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
   const root = resolve(clientDist);
+  app.use("/*", async (c, next) => {
+    const directive = getCacheControlHeader(c.req.path);
+    if (directive) c.header("Cache-Control", directive);
+    return next();
+  });
   app.use("/*", serveStatic({ root }));
   app.get("/*", serveStatic({ root, path: "index.html" }));
 }
