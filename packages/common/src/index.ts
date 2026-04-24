@@ -24,9 +24,6 @@ import {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
-  FsListDirInputSchema,
-  FsDirEntrySchema,
-  FsListDirOutputSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
@@ -55,9 +52,6 @@ export {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
-  FsListDirInputSchema,
-  FsDirEntrySchema,
-  FsListDirOutputSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
@@ -71,7 +65,6 @@ export type {
   GitBaseRef,
   GitStatusOutput,
   GitDiffOutput,
-  FsListDirOutput,
   FsListAllOutput,
 } from "kolu-git/schemas";
 

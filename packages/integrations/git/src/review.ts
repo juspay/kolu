@@ -1,11 +1,11 @@
 /**
- * Diff review — powers the "Code Diff" right-panel tab.
+ * Diff review — powers the Code tab's Local and Branch modes.
  *
  * Two operations, each parameterized by a `mode`:
  *   - `getStatus(repoPath, mode)` → files changed for that mode.
- *   - `getDiff(repoPath, filePath, mode)` → old/new content + the raw
- *     unified diff string, pre-shaped for `@git-diff-view/solid`'s
- *     `DiffView` data prop.
+ *   - `getDiff(repoPath, filePath, mode)` → raw unified-diff string for
+ *     the file, plus the resolved old/new path names. Consumed by
+ *     `@pierre/diffs`'s `parsePatchFiles` on the client.
  *
  * Modes:
  *   - `local`: working tree vs `HEAD`. Includes untracked files.
@@ -18,7 +18,6 @@
  * which exits 1 by design when files differ; we capture stdout regardless.
  */
 
-import fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { simpleGit } from "simple-git";
@@ -157,46 +156,6 @@ export async function getStatus(
 }
 
 /**
- * Read the contents of `relPath` at the given git revision. Returns
- * empty string when the path is absent from `rev` (newly added on this
- * side of the diff); any other git failure (missing rev, permission
- * denied, corrupted object) propagates.
- */
-async function readContentAtRev(
-  repoPath: string,
-  rev: string,
-  relPath: string,
-): Promise<string> {
-  const git = simpleGit(repoPath);
-  try {
-    return await git.show([`${rev}:${relPath}`]);
-  } catch (e) {
-    // Narrow to the one expected failure: simple-git wraps the fatal
-    // line, which for a missing path reads either
-    //   "fatal: path '<p>' does not exist in '<rev>'"
-    // or
-    //   "fatal: Path '<p>' exists on disk, but not in '<rev>'"
-    const msg = e instanceof Error ? e.message : "";
-    if (/does not exist in |exists on disk, but not in /.test(msg)) return "";
-    throw e;
-  }
-}
-
-/**
- * Read the working-tree version of a pre-resolved absolute path. Returns
- * empty string only for ENOENT ("the file was deleted"); all other
- * errors (permissions, EISDIR, etc.) propagate.
- */
-async function readWorkingContent(fileAbs: string): Promise<string> {
-  try {
-    return await fs.readFile(fileAbs, "utf8");
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
-    throw e;
-  }
-}
-
-/**
  * Run git and return stdout, surviving the `--no-index` exit-1 convention.
  *
  * `git diff --no-index` exits 1 when the two paths differ — that's its
@@ -222,8 +181,7 @@ async function gitOutput(cwd: string, args: string[]): Promise<string> {
 }
 
 /**
- * Compute the unified diff of one file for the given mode, pre-shaped
- * for `@git-diff-view/solid`'s `DiffView` data prop.
+ * Compute the unified diff of one file for the given mode.
  *
  * Local mode: `git diff HEAD -- <file>` for tracked changes; falls back
  * to `git diff --no-index /dev/null <file>` for untracked files.
@@ -261,13 +219,9 @@ export async function getDiff(
   }
 
   try {
-    const [oldContent, newContent, tracked] = await Promise.all([
-      readContentAtRev(repoPath, baseRev, oldRel),
-      readWorkingContent(abs),
-      oldPath
-        ? gitOutput(repoPath, ["diff", "-M", baseRev, "--", oldRel, rel])
-        : gitOutput(repoPath, ["diff", baseRev, "--", rel]),
-    ]);
+    const tracked = oldPath
+      ? await gitOutput(repoPath, ["diff", "-M", baseRev, "--", oldRel, rel])
+      : await gitOutput(repoPath, ["diff", baseRev, "--", rel]);
 
     // Branch mode's file list comes from `git diff --name-status`, which
     // only surfaces files already in the diff — so `git diff <base> -- <f>`
@@ -294,15 +248,20 @@ export async function getDiff(
     }
 
     // A pure rename produces a header (similarity index, rename from/to)
-    // but no @@ hunks. @git-diff-view/core rejects diff strings without
-    // hunks, so only include rawDiff when it contains actual hunk markers.
+    // but no @@ hunks. The client (PierreDiffView) renders renames via
+    // the oldFileName/newFileName pair, so only emit hunks when the diff
+    // actually contains hunk markers.
     const hasHunks = rawDiff.includes("\n@@");
 
+    // Existence on each side, derived from the unified-diff headers:
+    // added files emit `--- /dev/null`, deleted files emit `+++ /dev/null`.
+    // Cheaper than a separate `git cat-file -e` round-trip per side.
+    const oldAbsent = /^--- \/dev\/null/m.test(rawDiff);
+    const newAbsent = /^\+\+\+ \/dev\/null/m.test(rawDiff);
+
     return ok({
-      oldFileName: oldContent ? oldRel : null,
-      newFileName: newContent ? rel : null,
-      oldContent,
-      newContent,
+      oldFileName: oldAbsent ? null : oldRel,
+      newFileName: newAbsent ? null : rel,
       hunks: rawDiff && hasHunks ? [rawDiff] : [],
     });
   } catch (e) {
