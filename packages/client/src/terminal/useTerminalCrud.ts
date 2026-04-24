@@ -12,7 +12,7 @@ import { useTips } from "../settings/useTips";
 import { usePreferences } from "../settings/usePreferences";
 import { useColorScheme } from "../settings/useColorScheme";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { effectiveThemeNameForMode } from "../useThemeManager";
+import { effectiveThemeNameForMode, seedThemeSlots } from "../themeSlots";
 import type {
   CanvasLayout,
   InitialTerminalMetadata,
@@ -138,13 +138,7 @@ export function useTerminalCrud(deps: {
     const info = await client.terminal
       .create({
         cwd,
-        themeSlots:
-          initial?.themeSlots || theme
-            ? {
-                light: initial?.themeSlots?.light ?? theme,
-                dark: initial?.themeSlots?.dark ?? theme,
-              }
-            : undefined,
+        themeSlots: seedThemeSlots(initial?.themeSlots, theme),
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
       })

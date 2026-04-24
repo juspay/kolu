@@ -14,20 +14,11 @@ import {
   pickTheme,
   type ITheme,
 } from "terminal-themes";
-import type { TerminalId, ThemeMode, ThemeSlots } from "kolu-common";
+import type { TerminalId, ThemeMode } from "kolu-common";
 import { client } from "./rpc/rpc";
 import { useColorScheme } from "./settings/useColorScheme";
+import { effectiveThemeNameForMode } from "./themeSlots";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-
-export function effectiveThemeNameForMode(
-  themeSlots: ThemeSlots,
-  mode: ThemeMode,
-): string {
-  if (mode === "light") {
-    return themeSlots?.light ?? themeSlots?.dark ?? DEFAULT_THEME_NAME;
-  }
-  return themeSlots?.dark ?? themeSlots?.light ?? DEFAULT_THEME_NAME;
-}
 
 function init() {
   const store = useTerminalStore();
