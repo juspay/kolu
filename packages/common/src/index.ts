@@ -300,10 +300,6 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
-export const TerminalReorderInputSchema = z.object({
-  ids: z.array(TerminalIdSchema),
-});
-
 export const ServerInfoSchema = z.object({
   hostname: z.string(),
   /** Unique ID for this server process — changes on restart. */

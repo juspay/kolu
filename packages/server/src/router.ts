@@ -19,7 +19,6 @@ import {
   setSubPanelState,
   setActiveTerminalId,
   setTerminalParent,
-  reorderTerminals,
   type TerminalProcess,
 } from "./terminals.ts";
 import { saveClipboardImage } from "./clipboard.ts";
@@ -175,11 +174,6 @@ export const appRouter = t.router({
       const info = killTerminal(input.id);
       if (!info) throw new TerminalNotFoundError(input.id);
       return info;
-    }),
-
-    reorder: t.terminal.reorder.handler(async ({ input }) => {
-      log.info({ count: input.ids.length }, "reorder terminals");
-      reorderTerminals(input.ids);
     }),
 
     setParent: t.terminal.setParent.handler(async ({ input }) => {

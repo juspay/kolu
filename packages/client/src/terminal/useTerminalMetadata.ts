@@ -5,7 +5,7 @@
  *  current state matters.
  *
  *  Terminal IDs are derived from the live list subscription data. Order
- *  is the server's Map insertion order, maintained by `reorder` — no
+ *  is the server's Map insertion order (terminal creation order) — no
  *  client-side sort, no per-terminal ordering field.
  *
  *  Per-terminal subscriptions use mapArray for lifecycle — SolidJS creates

@@ -2,7 +2,7 @@
  *
  *  ARCHITECTURE: This file wires together focused modules:
  *    - useTerminalStore.ts    — live subscriptions + client view state
- *    - useTerminalCrud.ts     — create, kill, close-all, theme, reorder, copy
+ *    - useTerminalCrud.ts     — create, kill, close-all, theme, copy
  *    - useSessionRestore.ts   — hydration, session restore
  *    - useWorktreeOps.ts      — worktree create/remove
  *    - useTerminalAlerts.ts   — Claude state detection (watches metadata subscriptions)

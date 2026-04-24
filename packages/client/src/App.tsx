@@ -87,7 +87,7 @@ const App: Component = () => {
   // (left tile → first pill, right tile → last pill). Reorders live as
   // tiles are dragged. Mobile has no canvas, so layouts are absent and
   // the function falls back to the caller's input order — the server's
-  // Map insertion order, maintained by `reorder`.
+  // Map insertion order (terminal creation order).
   const pillGroups = createMemo(() =>
     groupByRepo(
       store.terminalIds(),

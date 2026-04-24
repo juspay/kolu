@@ -43,7 +43,7 @@ type SystemChannels = {
    *  Distinct from `session:changed`: this is the autosave *trigger*
    *  (control flow), not the saved-session content. */
   "terminals:dirty": Record<string, never>;
-  /** Terminal list changed (create/kill/reorder) — drives live list query */
+  /** Terminal list changed (create/kill) — drives live list query */
   "terminal-list": TerminalInfo[];
   /** User preferences changed — drives the preferences live query.
    *  Fired on every `updatePreferences` write. */

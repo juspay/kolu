@@ -36,8 +36,8 @@ const terminals = new Map<TerminalId, TerminalProcess>();
  *  `SavedTerminal` needs — so a snapshot is "strip the live fields,
  *  add id". Adding a future persisted field to
  *  `PersistedTerminalFieldsSchema` flows through here with no change.
- *  Order is `Map` insertion order, which the reorder RPC maintains as
- *  the canonical ordering. */
+ *  Order is `Map` insertion order — terminals appear in the sequence
+ *  they were created. */
 export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
@@ -61,7 +61,7 @@ function emitChanged(): void {
   publishSystem("terminals:dirty", {});
 }
 
-/** Notify that terminal membership changed (create/kill/reorder).
+/** Notify that terminal membership changed (create/kill).
  *  Drives the live terminal.list stream to clients. */
 function emitListChanged(): void {
   publishSystem("terminal-list", listTerminals());
@@ -156,8 +156,7 @@ export function createTerminal(
 
 /** Current terminals in their canonical `Map` insertion order.
  *
- *  Insertion order is the ordering model — `reorderTerminals` rebuilds
- *  the map in the requested sequence, and new terminals append to the
+ *  Insertion order is the ordering model — new terminals append to the
  *  tail. Clients render this order directly; within-group pill ordering
  *  is a separate spatial sort driven by saved canvas layouts. */
 export function listTerminals(): TerminalInfo[] {
@@ -261,27 +260,6 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
       m.themeName = themeName;
     });
   }
-}
-
-/** Reorder terminals by rebuilding the `Map` in the requested id order.
- *  `Map` iteration is insertion-ordered (ES2015), so the new sequence
- *  propagates through `listTerminals()` and the snapshotter verbatim.
- *  Any ids the client didn't mention are kept in their current relative
- *  order, appended after the reordered block. */
-export function reorderTerminals(ids: TerminalId[]): void {
-  const reordered = new Map<TerminalId, TerminalProcess>();
-  for (const id of ids) {
-    const entry = terminals.get(id);
-    if (entry) reordered.set(id, entry);
-  }
-  for (const [id, entry] of terminals) {
-    if (!reordered.has(id)) reordered.set(id, entry);
-  }
-  terminals.clear();
-  for (const [id, entry] of reordered) terminals.set(id, entry);
-  log.debug({ count: ids.length }, "terminals reordered");
-  emitChanged();
-  emitListChanged();
 }
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
