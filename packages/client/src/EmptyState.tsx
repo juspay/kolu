@@ -29,7 +29,7 @@ interface RepoGroup {
 /** Group top-level terminals by repoName (falling back to cwd), sort groups
  *  by most-recent agent `lastSeen`, and preserve saved sortOrder within
  *  each group. */
-function groupByRepo(
+function groupSavedTerminals(
   terminals: readonly SavedTerminal[],
   agentResume: SavedAgentResume,
 ): RepoGroup[] {
@@ -109,7 +109,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             const subCount = () =>
               session().terminals.filter((t) => t.parentId).length;
             const groups = () =>
-              groupByRepo(session().terminals, agentResume());
+              groupSavedTerminals(session().terminals, agentResume());
             return (
               <div
                 data-testid="session-restore"
