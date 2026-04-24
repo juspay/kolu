@@ -126,20 +126,25 @@ export function useTerminalCrud(deps: {
     const mode = resolvedColorScheme();
     const peerBgs = preferences().shuffleTheme
       ? resolveThemeBgs(store.terminalIds(), (id) =>
-          effectiveThemeNameForMode(store.getMetadata(id), mode),
+          effectiveThemeNameForMode(store.getMetadata(id)?.themeSlots, mode),
         )
       : null;
     const theme =
-      initial?.lightThemeName ??
-      initial?.darkThemeName ??
+      initial?.themeSlots?.light ??
+      initial?.themeSlots?.dark ??
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
     const info = await client.terminal
       .create({
         cwd,
-        lightThemeName: initial?.lightThemeName ?? theme,
-        darkThemeName: initial?.darkThemeName ?? theme,
+        themeSlots:
+          initial?.themeSlots || theme
+            ? {
+                light: initial?.themeSlots?.light ?? theme,
+                dark: initial?.themeSlots?.dark ?? theme,
+              }
+            : undefined,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
       })
@@ -162,8 +167,7 @@ export function useTerminalCrud(deps: {
       .create({
         cwd,
         parentId,
-        lightThemeName: initial?.lightThemeName,
-        darkThemeName: initial?.darkThemeName,
+        themeSlots: initial?.themeSlots,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
       })

@@ -66,8 +66,7 @@ export function snapshotSession(): {
       ...(m.parentId && { parentId: m.parentId }),
       ...(m.git && { repoName: m.git.repoName, branch: m.git.branch }),
       sortOrder: m.sortOrder,
-      ...(m.lightThemeName && { lightThemeName: m.lightThemeName }),
-      ...(m.darkThemeName && { darkThemeName: m.darkThemeName }),
+      ...(m.themeSlots && { themeSlots: m.themeSlots }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
       ...(m.subPanel && { subPanel: m.subPanel }),
     };
@@ -198,8 +197,7 @@ export function createTerminal(
   if (parentId) meta.parentId = parentId;
   // Seed client-owned initial metadata BEFORE emitListChanged so the
   // first list snapshot carries these fields (see #642).
-  if (initial?.lightThemeName) meta.lightThemeName = initial.lightThemeName;
-  if (initial?.darkThemeName) meta.darkThemeName = initial.darkThemeName;
+  if (initial?.themeSlots) meta.themeSlots = { ...initial.themeSlots };
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
   const entry: TerminalProcess = {
@@ -333,8 +331,10 @@ export function setTerminalTheme(
   const entry = terminals.get(id);
   if (entry) {
     updateClientMetadata(entry, id, (m) => {
-      if (mode === "light") m.lightThemeName = themeName;
-      else m.darkThemeName = themeName;
+      m.themeSlots = {
+        ...m.themeSlots,
+        [mode]: themeName,
+      };
     });
   }
 }

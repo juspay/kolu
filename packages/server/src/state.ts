@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.18.0";
+const SCHEMA_VERSION = "1.19.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -290,9 +290,9 @@ export const store = new Conf<PersistedState>({
       }
     },
     // Terminal themes moved from a single `themeName` to per-appearance
-    // `lightThemeName`/`darkThemeName` slots. Existing saved-session entries
-    // inherit the old theme into both slots so terminals keep the same look
-    // until the user explicitly customizes one appearance.
+    // flat slots. Existing saved-session entries inherit the old theme into
+    // both sides so terminals keep the same look until the user explicitly
+    // customizes one appearance.
     "1.18.0": (store: Conf<PersistedState>) => {
       const session = store.get("session") as
         | ({ terminals?: Array<Record<string, unknown>> } & Record<
@@ -310,6 +310,41 @@ export const store = new Conf<PersistedState>({
           ...rest,
           lightThemeName: terminal.lightThemeName ?? themeName,
           darkThemeName: terminal.darkThemeName ?? themeName,
+        };
+      });
+      if (changed) {
+        store.set("session", {
+          ...session,
+          terminals,
+        } as PersistedState["session"]);
+      }
+    },
+    // Theme slot fields are grouped under one `themeSlots` object so paired
+    // theme data travels through the wire/persistence layers as a single
+    // concept. Existing saved-session entries with flat slots are rewritten.
+    "1.19.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session") as
+        | ({ terminals?: Array<Record<string, unknown>> } & Record<
+            string,
+            unknown
+          >)
+        | null;
+      if (!session?.terminals) return;
+      let changed = false;
+      const terminals = session.terminals.map((terminal) => {
+        const hasFlatSlots =
+          typeof terminal.lightThemeName === "string" ||
+          typeof terminal.darkThemeName === "string";
+        if (!hasFlatSlots) return terminal;
+        changed = true;
+        const { lightThemeName, darkThemeName, ...rest } = terminal;
+        return {
+          ...rest,
+          themeSlots: {
+            light:
+              typeof lightThemeName === "string" ? lightThemeName : undefined,
+            dark: typeof darkThemeName === "string" ? darkThemeName : undefined,
+          },
         };
       });
       if (changed) {

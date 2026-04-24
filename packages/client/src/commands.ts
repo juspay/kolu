@@ -1,6 +1,6 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import { createMemo, batch } from "solid-js";
+import { createMemo, createSignal, batch } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
@@ -56,13 +56,11 @@ export interface CommandDeps {
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
-  committedThemeName: Accessor<string>;
   committedThemeNameForMode: (mode: ThemeMode) => string;
-  themePickerMode: Accessor<ThemeMode>;
-  setThemePickerMode: (mode: ThemeMode) => void;
-  resetThemePickerMode: () => void;
-  setPreviewThemeName: (name: string | undefined) => void;
-  handleSetTheme: (name: string) => void;
+  resolvedColorScheme: Accessor<ThemeMode>;
+  setPreviewThemeName: (mode: ThemeMode, name: string) => void;
+  clearPreviewTheme: () => void;
+  handleSetTheme: (mode: ThemeMode, name: string) => void;
   handleShuffleTheme: () => void;
   // Dialogs
   setShortcutsHelpOpen: (open: boolean) => void;
@@ -85,6 +83,13 @@ export interface CommandDeps {
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   const { recentRepos, recentAgents } = useActivityFeed();
+  const [themePickerMode, setThemePickerMode] = createSignal<ThemeMode>(
+    deps.resolvedColorScheme(),
+  );
+  const resetThemePickerMode = () => {
+    deps.clearPreviewTheme();
+    setThemePickerMode(deps.resolvedColorScheme());
+  };
 
   return createMemo((): PaletteCommand[] => [
     {
@@ -210,31 +215,34 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     {
       name: "Theme",
-      onEnter: () => deps.resetThemePickerMode(),
-      onCancel: () => deps.setPreviewThemeName(undefined),
+      onEnter: resetThemePickerMode,
+      onCancel: () => deps.clearPreviewTheme(),
       toolbar: () =>
         SegmentedControl({
           options: [
             { value: "light", label: "Light" },
             { value: "dark", label: "Dark" },
           ],
-          value: deps.themePickerMode(),
-          onChange: deps.setThemePickerMode,
+          value: themePickerMode(),
+          onChange: (mode) => {
+            deps.clearPreviewTheme();
+            setThemePickerMode(mode);
+          },
           testIdPrefix: "theme-slot",
         }),
       children: () =>
         availableThemes
           .filter(
-            (t) =>
-              t.name !== deps.committedThemeNameForMode(deps.themePickerMode()),
+            (t) => t.name !== deps.committedThemeNameForMode(themePickerMode()),
           )
           .map((t) => ({
             name: t.name,
-            onHighlight: () => deps.setPreviewThemeName(t.name),
+            onHighlight: () =>
+              deps.setPreviewThemeName(themePickerMode(), t.name),
             onSelect: () =>
               batch(() => {
-                deps.setPreviewThemeName(undefined);
-                deps.handleSetTheme(t.name);
+                deps.clearPreviewTheme();
+                deps.handleSetTheme(themePickerMode(), t.name);
               }),
           })),
     },

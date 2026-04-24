@@ -150,8 +150,7 @@ export function useSessionRestore(deps: {
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
         const newId = await deps.handleCreate(t.cwd, {
-          lightThemeName: t.lightThemeName,
-          darkThemeName: t.darkThemeName,
+          themeSlots: t.themeSlots,
           canvasLayout: t.canvasLayout,
           subPanel: t.subPanel,
         });
@@ -166,8 +165,7 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId!);
         if (newParentId) {
           await deps.handleCreateSubTerminal(newParentId, t.cwd, {
-            lightThemeName: t.lightThemeName,
-            darkThemeName: t.darkThemeName,
+            themeSlots: t.themeSlots,
             subPanel: t.subPanel,
           });
         }

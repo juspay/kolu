@@ -14,39 +14,33 @@ import {
   pickTheme,
   type ITheme,
 } from "terminal-themes";
-import type { TerminalId, TerminalMetadata, ThemeMode } from "kolu-common";
+import type { TerminalId, ThemeMode, ThemeSlots } from "kolu-common";
 import { client } from "./rpc/rpc";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 export function effectiveThemeNameForMode(
-  meta:
-    | Pick<TerminalMetadata, "lightThemeName" | "darkThemeName">
-    | null
-    | undefined,
+  themeSlots: ThemeSlots,
   mode: ThemeMode,
 ): string {
   if (mode === "light") {
-    return meta?.lightThemeName ?? meta?.darkThemeName ?? DEFAULT_THEME_NAME;
+    return themeSlots?.light ?? themeSlots?.dark ?? DEFAULT_THEME_NAME;
   }
-  return meta?.darkThemeName ?? meta?.lightThemeName ?? DEFAULT_THEME_NAME;
+  return themeSlots?.dark ?? themeSlots?.light ?? DEFAULT_THEME_NAME;
 }
 
 function init() {
   const store = useTerminalStore();
   const { resolvedColorScheme } = useColorScheme();
-  const getMeta = (id: TerminalId) => store.getMetadata(id);
+  const getThemeSlots = (id: TerminalId) => store.getMetadata(id)?.themeSlots;
 
   const committedThemeName = createMemo(() => {
     const id = store.activeId();
     return id !== null
-      ? effectiveThemeNameForMode(getMeta(id), resolvedColorScheme())
+      ? effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme())
       : DEFAULT_THEME_NAME;
   });
 
-  const [themePickerMode, setThemePickerModeState] = createSignal<ThemeMode>(
-    resolvedColorScheme(),
-  );
   const [previewTheme, setPreviewTheme] = createSignal<
     { mode: ThemeMode; name: string } | undefined
   >(undefined);
@@ -63,16 +57,15 @@ function init() {
   function committedThemeNameForMode(mode: ThemeMode): string {
     const id = store.activeId();
     return id !== null
-      ? effectiveThemeNameForMode(getMeta(id), mode)
+      ? effectiveThemeNameForMode(getThemeSlots(id), mode)
       : DEFAULT_THEME_NAME;
   }
 
   function getEffectiveThemeName(id: TerminalId): string {
-    const meta = getMeta(id);
     const preview = store.activeId() === id ? previewTheme() : undefined;
     return preview && preview.mode === resolvedColorScheme()
       ? preview.name
-      : effectiveThemeNameForMode(meta, resolvedColorScheme());
+      : effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme());
   }
 
   function getTerminalTheme(id: TerminalId): ITheme {
@@ -87,27 +80,18 @@ function init() {
       );
   }
 
-  function handleSetTheme(themeName: string) {
+  function handleSetTheme(mode: ThemeMode, themeName: string) {
     const id = store.activeId();
     if (id === null) return;
-    setThemeName(id, themePickerMode(), themeName);
+    setThemeName(id, mode, themeName);
   }
 
-  function setPreviewThemeName(name: string | undefined) {
-    if (!name) {
-      setPreviewTheme(undefined);
-      return;
-    }
-    setPreviewTheme({ mode: themePickerMode(), name });
+  function setPreviewThemeName(mode: ThemeMode, name: string) {
+    setPreviewTheme({ mode, name });
   }
 
-  function setThemePickerMode(mode: ThemeMode) {
+  function clearPreviewTheme() {
     setPreviewTheme(undefined);
-    setThemePickerModeState(mode);
-  }
-
-  function resetThemePickerMode() {
-    setThemePickerMode(resolvedColorScheme());
   }
 
   /** Shuffle the active terminal's current appearance slot to a random theme.
@@ -121,22 +105,19 @@ function init() {
     const id = store.activeId();
     if (id === null) return;
     const mode = resolvedColorScheme();
-    const current = effectiveThemeNameForMode(getMeta(id), mode);
+    const current = effectiveThemeNameForMode(getThemeSlots(id), mode);
     const candidates = availableThemes.filter((t) => t.name !== current);
     if (candidates.length === 0) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), (terminalId) =>
-      effectiveThemeNameForMode(getMeta(terminalId), mode),
+      effectiveThemeNameForMode(getThemeSlots(terminalId), mode),
     );
     setThemeName(id, mode, pickTheme(candidates, { excludeBgs }));
   }
 
   return {
-    committedThemeName,
     committedThemeNameForMode,
-    themePickerMode,
-    setThemePickerMode,
-    resetThemePickerMode,
     setPreviewThemeName,
+    clearPreviewTheme,
     activeThemeName,
     activeTheme,
     getEffectiveThemeName,

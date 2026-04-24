@@ -113,8 +113,8 @@ export function updateServerMetadata(
   publishMetadata(entry, terminalId);
 }
 
-/** Atomically mutate client-owned metadata (lightThemeName, darkThemeName,
- *  parentId, sortOrder, canvasLayout, subPanel) and publish. The mutator is narrowed to
+/** Atomically mutate client-owned metadata (themeSlots, parentId,
+ *  sortOrder, canvasLayout, subPanel) and publish. The mutator is narrowed to
  *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
  *  provider-owned state. */
 export function updateClientMetadata(

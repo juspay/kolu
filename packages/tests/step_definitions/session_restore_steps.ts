@@ -179,8 +179,7 @@ Given(
       {
         id: "0",
         cwd: os.homedir(),
-        lightThemeName: themeName,
-        darkThemeName: themeName,
+        themeSlots: { light: themeName, dark: themeName },
       },
     ];
     this.savedSessionTerminals = terminals;

@@ -175,9 +175,17 @@ export const TerminalServerMetadataSchema = z.object({
  */
 export const ThemeModeSchema = z.enum(["light", "dark"]);
 
+/** Theme names keyed by app appearance. When one side is unset, resolution
+ *  falls back to the other before using the global default. */
+export const ThemeSlotsSchema = z
+  .object({
+    light: z.string().optional(),
+    dark: z.string().optional(),
+  })
+  .optional();
+
 export const TerminalClientMetadataSchema = z.object({
-  lightThemeName: z.string().optional(),
-  darkThemeName: z.string().optional(),
+  themeSlots: ThemeSlotsSchema,
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
   /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
@@ -190,8 +198,9 @@ export const TerminalClientMetadataSchema = z.object({
 
 /**
  * Unified wire shape — merge of the server-derived and client-owned halves.
- * Flat for backwards-compat with existing consumers; code that only needs
- * one half should import the sub-schema so the dependency is explicit.
+ * Terminal metadata stays mostly flat so existing consumers can keep reading
+ * fields directly, with `themeSlots` grouped because the paired values are
+ * one logical concern.
  */
 export const TerminalMetadataSchema = TerminalServerMetadataSchema.merge(
   TerminalClientMetadataSchema,
@@ -241,8 +250,7 @@ export const SetActiveTerminalInputSchema = z.object({
  *  terminal's `meta` before the first `terminal.list` yield, so session
  *  restore can't race the canvas default-cascade effect (#642). */
 export const InitialTerminalMetadataSchema = z.object({
-  lightThemeName: z.string().optional(),
-  darkThemeName: z.string().optional(),
+  themeSlots: ThemeSlotsSchema,
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
 });
@@ -324,8 +332,7 @@ export const SavedTerminalSchema = z.object({
   /** Ordering within group at save time. */
   sortOrder: z.number().optional(),
   /** Theme names per app appearance; unset slots symmetrically reuse the other. */
-  lightThemeName: z.string().optional(),
-  darkThemeName: z.string().optional(),
+  themeSlots: ThemeSlotsSchema,
   /** Canvas tile position and size at save time. */
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel state at save time (collapsed, size). */
@@ -429,6 +436,7 @@ export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type ThemeSlots = z.infer<typeof ThemeSlotsSchema>;
 export type ThemeMode = z.infer<typeof ThemeModeSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;

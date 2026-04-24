@@ -81,8 +81,7 @@ export const appRouter = t.router({
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
       createTerminal(input.cwd, input.parentId, {
-        lightThemeName: input.lightThemeName,
-        darkThemeName: input.darkThemeName,
+        themeSlots: input.themeSlots,
         canvasLayout: input.canvasLayout,
         subPanel: input.subPanel,
       }),
