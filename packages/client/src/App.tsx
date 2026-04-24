@@ -235,13 +235,7 @@ const App: Component = () => {
       ? meta.git.worktreePath
       : undefined;
     const worktreeSharedWithOthers = worktreePath
-      ? store
-          .terminalIds()
-          .some(
-            (otherId) =>
-              otherId !== id &&
-              store.getMetadata(otherId)?.git?.worktreePath === worktreePath,
-          )
+      ? store.isWorktreeShared(worktreePath, id)
       : false;
     setCloseConfirmTarget({ id, meta, splitCount, worktreeSharedWithOthers });
   }
