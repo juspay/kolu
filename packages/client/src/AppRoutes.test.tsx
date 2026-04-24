@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
 import { render } from "solid-js/web";
 import { Router } from "@solidjs/router";
 import AppRoutes from "./AppRoutes";
@@ -25,6 +25,14 @@ function renderAt(path: string) {
     },
   };
 }
+
+beforeAll(() => {
+  vi.stubGlobal("scrollTo", vi.fn());
+});
+
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("AppRoutes", () => {
   it("renders the workspace page at /workspace", () => {
