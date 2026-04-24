@@ -3,6 +3,9 @@ import { execFileSync } from "node:child_process";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
 
+const ACTIVE_TITLE_BRANCH_SELECTOR =
+  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';
+
 /** Wait for a data-testid element's text to include the given substring. */
 async function waitForTestIdText(
   world: KoluWorld,
@@ -48,9 +51,9 @@ Then(
 );
 
 When("I click the terminal title branch", async function (this: KoluWorld) {
-  const branch = this.page.locator('[data-testid="terminal-meta-branch"]');
-  await branch.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await branch.first().click();
+  const branch = this.page.locator(ACTIVE_TITLE_BRANCH_SELECTOR);
+  await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await branch.click();
 });
 
 Then(
