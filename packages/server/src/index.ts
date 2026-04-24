@@ -163,9 +163,28 @@ app.get("/manifest.webmanifest", (c) => {
 });
 
 // --- Static files (production) ---
+// Cache policy: Vite hashes files under /assets/ so they're safe to pin
+// forever; the SPA shell and SW scripts must revalidate so deploys roll
+// out on the first reload instead of sticking to stale Workbox precache
+// (or stale browser heuristic cache on HTTP deployments where SW is disabled).
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
   const root = resolve(clientDist);
+  app.use("/*", async (c, next) => {
+    const path = c.req.path;
+    if (path.startsWith("/assets/")) {
+      c.header("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (
+      path === "/" ||
+      path === "/index.html" ||
+      path === "/sw.js" ||
+      path === "/registerSW.js" ||
+      /^\/workbox-[^/]+\.js$/.test(path)
+    ) {
+      c.header("Cache-Control", "no-cache, must-revalidate");
+    }
+    return next();
+  });
   app.use("/*", serveStatic({ root }));
   app.get("/*", serveStatic({ root, path: "index.html" }));
 }
