@@ -1,7 +1,7 @@
 /** Terminal alerts — reactively detect agent state transitions and fire notifications.
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
-import { type Accessor, createEffect, createSignal, on } from "solid-js";
+import { type Accessor, createEffect, on } from "solid-js";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { usePreferences } from "../settings/usePreferences";
@@ -13,27 +13,23 @@ import {
 export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
-  isUnread: (id: TerminalId) => boolean;
+  hasBadgeAttention: (id: TerminalId) => boolean;
+  clearBadgeAttention: () => void;
   markUnread: (id: TerminalId) => void;
+  markBadgeAttention: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
   terminalLabel: (id: TerminalId) => string;
 }) {
   const { preferences } = usePreferences();
   const activityAlerts = () => preferences().activityAlerts;
-  const [hiddenAttentionIds, setHiddenAttentionIds] = createSignal<
-    ReadonlySet<TerminalId>
-  >(new Set<TerminalId>());
 
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Badge the PWA dock icon with the unread agent count (Badging API).
-  // Clears automatically when the user visits all unread terminals.
+  // Badge the PWA dock icon with terminals that need attention.
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
-    const count = deps
-      .terminalIds()
-      .filter((id) => deps.isUnread(id) || hiddenAttentionIds().has(id)).length;
+    const count = deps.terminalIds().filter(deps.hasBadgeAttention).length;
     if (count > 0) {
       void navigator.setAppBadge(count);
     } else {
@@ -42,9 +38,7 @@ export function useTerminalAlerts(deps: {
   });
 
   makeEventListener(document, "visibilitychange", () => {
-    if (!document.hidden && hiddenAttentionIds().size > 0) {
-      setHiddenAttentionIds(new Set<TerminalId>());
-    }
+    if (!document.hidden) deps.clearBadgeAttention();
   });
 
   // Reactively watch agent state for all terminals.
@@ -72,16 +66,12 @@ export function useTerminalAlerts(deps: {
     alertForTerminal(id);
   }
 
-  function markHiddenAttention(id: TerminalId) {
-    setHiddenAttentionIds((prev) => new Set(prev).add(id));
-  }
-
   function alertForTerminal(id: TerminalId) {
     const isBackground = id !== deps.activeId();
     if (isBackground) {
       deps.markUnread(id);
     } else if (document.hidden) {
-      markHiddenAttention(id);
+      deps.markBadgeAttention(id);
     }
     if (isBackground || document.hidden)
       fireActivityAlert(deps.terminalLabel(id));

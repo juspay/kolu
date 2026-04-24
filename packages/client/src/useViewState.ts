@@ -11,6 +11,8 @@ import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
 import { client } from "./rpc/rpc";
 
+type TerminalAttention = "unread" | "badge-only";
+
 export function useViewState() {
   const [activeId, setActiveId] = createSignal<TerminalId | null>(null);
 
@@ -25,15 +27,19 @@ export function useViewState() {
     { name: "kolu-canvas-maximized" },
   );
 
-  /** Terminals with unseen Claude completions (cleared when user visits). */
-  const [unread, setUnread] = createStore<Record<TerminalId, true>>({});
+  /** Terminals needing attention. `unread` drives in-app dots and badges;
+   *  `badge-only` is for OS/PWA attention that should not show an in-app dot. */
+  const [attention, setAttention] = createStore<
+    Record<TerminalId, TerminalAttention>
+  >({});
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
       setMruOrder((prev) => [id, ...prev.filter((x) => x !== id)]);
-      if (unread[id]) setUnread(produce((s) => delete s[id]));
+      if (attention[id] === "unread")
+        setAttention(produce((s) => delete s[id]));
       // Report active terminal to server for session snapshots
       void client.terminal.setActive({ id }).catch(() => {});
     }),
@@ -51,18 +57,36 @@ export function useViewState() {
   }
 
   function markUnread(id: TerminalId) {
-    setUnread(id, true);
+    setAttention(id, "unread");
+  }
+
+  function markBadgeAttention(id: TerminalId) {
+    if (attention[id] !== "unread") setAttention(id, "badge-only");
+  }
+
+  function clearBadgeAttention() {
+    setAttention(
+      produce((s) => {
+        for (const id of Object.keys(s) as TerminalId[]) {
+          if (s[id] === "badge-only") delete s[id];
+        }
+      }),
+    );
   }
 
   function isUnread(id: TerminalId): boolean {
-    return !!unread[id];
+    return attention[id] === "unread";
+  }
+
+  function hasBadgeAttention(id: TerminalId): boolean {
+    return attention[id] !== undefined;
   }
 
   function reset() {
     setActiveId(null);
     setCanvasMaximizedSignal(false);
     setMruOrder([]);
-    setUnread(reconcile({}));
+    setAttention(reconcile({}));
   }
 
   return {
@@ -73,7 +97,10 @@ export function useViewState() {
     mruOrder,
     setMruOrder,
     markUnread,
+    markBadgeAttention,
+    clearBadgeAttention,
     isUnread,
+    hasBadgeAttention,
     reset,
   };
 }
