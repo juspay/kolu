@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-24T18:46:22.011570+00:00'
+generated_at: '2026-04-24T20:49:36.407737+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: anthropics/skills
@@ -106,6 +106,7 @@ local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk
 - .agents/skills/perf-diagnose
+- .agents/skills/pierre
 - .agents/skills/test
 - .claude/commands/whatchanged.md
 - .claude/rules/apm-sources.md
@@ -124,11 +125,13 @@ local_deployed_files:
 - .claude/skills/ci
 - .claude/skills/hk
 - .claude/skills/perf-diagnose
+- .claude/skills/pierre
 - .claude/skills/test
 - .opencode/commands/whatchanged.md
 - .opencode/skills/ci
 - .opencode/skills/hk
 - .opencode/skills/perf-diagnose
+- .opencode/skills/pierre
 - .opencode/skills/test
 local_deployed_file_hashes:
   .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
