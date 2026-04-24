@@ -139,12 +139,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     // Lazy external-change registration. On the first reconcile where the
     // agent is foregrounded in *this* terminal, join the provider's
     // fan-out set and — if we're the first across the whole process —
-    // install the underlying watcher. Kept idempotent via the local
-    // `registeredForExternal` flag so we don't re-add per reconcile.
-    if (
-      !registeredForExternal &&
-      provider.externalChanges?.isPresent(state) === true
-    ) {
+    // install the underlying watcher.
+    if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
       const activation = getActivation(provider.kind);
       activation.reconcilers.add(reconcile);
       registeredForExternal = true;
