@@ -13,7 +13,13 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { FileTree, type GitStatusEntry } from "@pierre/trees";
+import { toast } from "solid-sonner";
+import {
+  FileTree,
+  type ContextMenuItem,
+  type ContextMenuOpenContext,
+  type GitStatusEntry,
+} from "@pierre/trees";
 import type { GitChangeStatus } from "kolu-common";
 import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
 
@@ -47,6 +53,65 @@ export type PierreFileTreeProps = {
   search?: boolean;
 };
 
+/** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
+ *  Solid component) since the menu lives inside the tree's shadow DOM. */
+function renderContextMenu(
+  item: ContextMenuItem,
+  context: ContextMenuOpenContext,
+): HTMLElement {
+  const menu = document.createElement("div");
+  menu.style.cssText = [
+    "background:var(--color-surface-1)",
+    "border:1px solid var(--color-edge)",
+    "border-radius:6px",
+    "padding:4px",
+    "min-width:160px",
+    "box-shadow:0 6px 20px rgba(0,0,0,0.35)",
+    "font-size:11px",
+    "color:var(--color-fg)",
+  ].join(";");
+
+  const addItem = (label: string, onClick: () => void) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.style.cssText = [
+      "display:block",
+      "width:100%",
+      "text-align:left",
+      "padding:4px 8px",
+      "border:0",
+      "background:transparent",
+      "color:inherit",
+      "cursor:pointer",
+      "border-radius:4px",
+      "font:inherit",
+    ].join(";");
+    btn.addEventListener(
+      "mouseenter",
+      () => (btn.style.background = "var(--color-surface-2)"),
+    );
+    btn.addEventListener(
+      "mouseleave",
+      () => (btn.style.background = "transparent"),
+    );
+    btn.addEventListener("click", () => {
+      onClick();
+      context.close();
+    });
+    menu.appendChild(btn);
+  };
+
+  addItem("Copy path", () => {
+    navigator.clipboard
+      .writeText(item.path)
+      .then(() => toast.success(`Copied: ${item.path}`))
+      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+  });
+
+  return menu;
+}
+
 const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTree | undefined;
@@ -61,10 +126,23 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     tree = new FileTree({
       paths: props.paths,
       initialExpansion: "closed",
+      // Collapse single-child directory chains (e.g. `packages/client/src` →
+      // one row) so deep monorepo paths don't eat half the panel width.
+      flattenEmptyDirectories: true,
+      // Pin parent directory headers to the top of the scroll viewport so
+      // context survives long subtrees.
+      stickyFolders: true,
       icons: pierreIconConfig,
       search: props.search ?? true,
       gitStatus: props.gitStatus,
       initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
+      composition: {
+        contextMenu: {
+          enabled: true,
+          triggerMode: "both",
+          render: renderContextMenu,
+        },
+      },
       onSelectionChange: (paths) => {
         // Pierre fires with all selected paths; we model single-select.
         const p = paths[0] ?? null;

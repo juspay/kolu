@@ -274,6 +274,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   <Match when={diff()}>
                     {(d) => (
                       <PierreDiffView
+                        path={selectedPath()!}
                         rawDiff={d().hunks[0] ?? ""}
                         theme={diffTheme()}
                       />
