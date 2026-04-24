@@ -4,6 +4,12 @@ import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import * as assert from "node:assert";
 
+async function clearClipboard(world: KoluWorld) {
+  await world.page
+    .evaluate(() => navigator.clipboard?.writeText?.(""))
+    .catch(() => undefined);
+}
+
 /** Count terminals by reading canvas tile entries from the DOM. */
 async function countTerminals(world: KoluWorld) {
   return world.page
@@ -15,6 +21,7 @@ async function countTerminals(world: KoluWorld) {
 
 Given("the terminal is ready", async function (this: KoluWorld) {
   await this.page.goto("/");
+  await clearClipboard(this);
   await this.waitForReady();
 });
 

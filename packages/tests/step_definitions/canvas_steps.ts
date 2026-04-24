@@ -10,6 +10,19 @@ const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const TILE_SELECTOR = '[data-testid="canvas-tile"]';
 const TILE_TITLEBAR_SELECTOR = '[data-testid="canvas-tile-titlebar"]';
 
+async function waitForCanvas(world: KoluWorld) {
+  await world.page
+    .locator(CANVAS_SELECTOR)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+}
+
+async function waitForXterm(world: KoluWorld) {
+  await world.page
+    .locator("[data-visible] .xterm-screen")
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+}
+
 Then(
   "the canvas grid background should be visible",
   async function (this: KoluWorld) {
@@ -268,6 +281,7 @@ When("I record the canvas transform", async function (this: KoluWorld) {
 When(
   "I scroll the wheel over the terminal tile",
   async function (this: KoluWorld) {
+    await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
         "[data-visible] .xterm-screen",
@@ -292,6 +306,7 @@ When(
 When(
   "I scroll the wheel over the canvas background",
   async function (this: KoluWorld) {
+    await waitForCanvas(this);
     await this.page.evaluate((sel: string) => {
       const container = document.querySelector(sel) as HTMLElement | null;
       if (!container) throw new Error("canvas-container not found");
@@ -315,14 +330,18 @@ When(
 When(
   "I scroll the wheel over the terminal tile within the idle window",
   async function (this: KoluWorld) {
+    await waitForCanvas(this);
+    await waitForXterm(this);
     // Install a one-shot probe on the xterm element before dispatching. Canvas
     // owns the gesture from the previous background scroll; stopPropagation at
     // the canvas's capture-phase listener should prevent this event from ever
     // reaching the xterm probe.
-    await this.page.evaluate(() => {
+    await this.page.evaluate((sel: string) => {
+      const container = document.querySelector(sel) as HTMLElement | null;
       const xterm = document.querySelector(
         "[data-visible] .xterm-screen",
       ) as HTMLElement | null;
+      if (!container) throw new Error("canvas-container not found");
       if (!xterm) throw new Error("xterm-screen not found");
       (
         window as unknown as { __xtermWheelReceived?: boolean }
@@ -336,6 +355,17 @@ When(
         },
         { once: true },
       );
+      const containerRect = container.getBoundingClientRect();
+      container.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaX: 0,
+          deltaY: 120,
+          clientX: containerRect.left + 8,
+          clientY: containerRect.top + 8,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       const rect = xterm.getBoundingClientRect();
       xterm.dispatchEvent(
         new WheelEvent("wheel", {
@@ -347,7 +377,7 @@ When(
           cancelable: true,
         }),
       );
-    });
+    }, CANVAS_SELECTOR);
     await this.waitForFrame();
   },
 );
@@ -357,6 +387,7 @@ When(
 When(
   "I Shift+scroll the wheel over the terminal tile",
   async function (this: KoluWorld) {
+    await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
         "[data-visible] .xterm-screen",
@@ -382,6 +413,7 @@ When(
 When(
   "I Shift+drag from inside the terminal tile",
   async function (this: KoluWorld) {
+    await waitForXterm(this);
     await this.page.evaluate(() => {
       const xterm = document.querySelector(
         "[data-visible] .xterm-screen",

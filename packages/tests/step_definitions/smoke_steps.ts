@@ -4,6 +4,9 @@ import * as assert from "node:assert";
 
 When("I open the app", async function (this: KoluWorld) {
   await this.page.goto("/");
+  await this.page
+    .evaluate(() => navigator.clipboard?.writeText?.(""))
+    .catch(() => undefined);
 });
 
 When("I request {string}", async function (this: KoluWorld, path: string) {

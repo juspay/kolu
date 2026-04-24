@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "KOLU_STATE_DIR=\"$(git rev-parse --show-toplevel)/.kolu-dev\" node --watch --import tsx src/index.ts --allow-nix-shell-with-env-whitelist default",
     "typecheck": "tsc --noEmit",
-    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" vitest run"
+    "test:unit": "KOLU_STATE_DIR=\"${TMPDIR:-/tmp}/kolu-unit-test-$$/state\" vitest run --fileParallelism=false"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.13",
