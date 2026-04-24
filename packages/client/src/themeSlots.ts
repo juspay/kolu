@@ -1,6 +1,22 @@
 import { DEFAULT_THEME_NAME } from "terminal-themes";
 import type { ThemeMode, ThemeSlots } from "kolu-common";
 
+/** Return the exact stored value for a slot without applying fallback. */
+export function storedThemeNameForMode(
+  themeSlots: ThemeSlots,
+  mode: ThemeMode,
+): string | undefined {
+  return mode === "light" ? themeSlots?.light : themeSlots?.dark;
+}
+
+/** Whether a preview for one slot is actually visible under the current mode. */
+export function previewAppliesToMode(
+  previewMode: ThemeMode | undefined,
+  resolvedMode: ThemeMode,
+): boolean {
+  return previewMode !== undefined && previewMode === resolvedMode;
+}
+
 /** Resolve the theme name for the requested appearance, falling back to the
  *  other slot before the global default. */
 export function effectiveThemeNameForMode(

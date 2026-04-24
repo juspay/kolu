@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { effectiveThemeNameForMode, seedThemeSlots } from "./themeSlots";
+import {
+  effectiveThemeNameForMode,
+  previewAppliesToMode,
+  seedThemeSlots,
+  storedThemeNameForMode,
+} from "./themeSlots";
 
 describe("effectiveThemeNameForMode", () => {
   it("prefers the requested slot", () => {
@@ -21,6 +26,23 @@ describe("effectiveThemeNameForMode", () => {
     expect(effectiveThemeNameForMode({ light: "3024 Day" }, "dark")).toBe(
       "3024 Day",
     );
+  });
+});
+
+describe("storedThemeNameForMode", () => {
+  it("returns the exact stored slot without applying fallback", () => {
+    expect(
+      storedThemeNameForMode({ dark: "Dracula" }, "light"),
+    ).toBeUndefined();
+    expect(storedThemeNameForMode({ dark: "Dracula" }, "dark")).toBe("Dracula");
+  });
+});
+
+describe("previewAppliesToMode", () => {
+  it("only applies a preview when it targets the visible mode", () => {
+    expect(previewAppliesToMode("dark", "dark")).toBe(true);
+    expect(previewAppliesToMode("light", "dark")).toBe(false);
+    expect(previewAppliesToMode(undefined, "dark")).toBe(false);
   });
 });
 

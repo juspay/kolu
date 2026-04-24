@@ -17,7 +17,6 @@ import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
-  ThemeMode,
 } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -43,15 +42,6 @@ export function useTerminalCrud(deps: {
   }
 
   // --- Handlers ---
-
-  /** Set one appearance slot's theme name on the server. */
-  function setThemeName(id: TerminalId, mode: ThemeMode, name: string) {
-    void client.terminal
-      .setTheme({ id, mode, themeName: name })
-      .catch((err: Error) =>
-        toast.error(`Failed to set theme: ${err.message}`),
-      );
-  }
 
   /** Reorder terminals on the server. */
   function reorderTerminals(ids: TerminalId[]) {
@@ -227,7 +217,6 @@ export function useTerminalCrud(deps: {
   }
 
   return {
-    setThemeName,
     reorderTerminals,
     setCanvasLayout,
     removeAndAutoSwitch,

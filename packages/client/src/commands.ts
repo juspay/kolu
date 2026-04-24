@@ -13,6 +13,7 @@ import type {
 } from "kolu-common";
 import SegmentedControl from "./ui/SegmentedControl";
 import { useActivityFeed } from "./settings/useActivityFeed";
+import { storedThemeNameForMode } from "./themeSlots";
 import { client } from "./rpc/rpc";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
@@ -56,7 +57,6 @@ export interface CommandDeps {
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
-  committedThemeNameForMode: (mode: ThemeMode) => string;
   resolvedColorScheme: Accessor<ThemeMode>;
   setPreviewThemeName: (mode: ThemeMode, name: string) => void;
   clearPreviewTheme: () => void;
@@ -233,7 +233,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       children: () =>
         availableThemes
           .filter(
-            (t) => t.name !== deps.committedThemeNameForMode(themePickerMode()),
+            (t) =>
+              t.name !==
+              storedThemeNameForMode(
+                deps.activeMeta()?.themeSlots,
+                themePickerMode(),
+              ),
           )
           .map((t) => ({
             name: t.name,

@@ -63,7 +63,6 @@ const App: Component = () => {
   (window as any).__koluSimulateAlert = alerts.simulateAlert;
 
   const {
-    committedThemeNameForMode,
     setPreviewThemeName,
     clearPreviewTheme,
     activeThemeName,
@@ -249,7 +248,6 @@ const App: Component = () => {
     handleExportSessionAsPdf,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
-    committedThemeNameForMode,
     resolvedColorScheme,
     setPreviewThemeName,
     clearPreviewTheme,

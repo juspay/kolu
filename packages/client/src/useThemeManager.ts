@@ -17,7 +17,7 @@ import {
 import type { TerminalId, ThemeMode } from "kolu-common";
 import { client } from "./rpc/rpc";
 import { useColorScheme } from "./settings/useColorScheme";
-import { effectiveThemeNameForMode } from "./themeSlots";
+import { effectiveThemeNameForMode, previewAppliesToMode } from "./themeSlots";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 function init() {
@@ -38,24 +38,17 @@ function init() {
 
   const activeThemeName = createMemo(() => {
     const preview = previewTheme();
-    return preview && preview.mode === resolvedColorScheme()
-      ? preview.name
+    return previewAppliesToMode(preview?.mode, resolvedColorScheme())
+      ? preview!.name
       : committedThemeName();
   });
 
   const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
 
-  function committedThemeNameForMode(mode: ThemeMode): string {
-    const id = store.activeId();
-    return id !== null
-      ? effectiveThemeNameForMode(getThemeSlots(id), mode)
-      : DEFAULT_THEME_NAME;
-  }
-
   function getEffectiveThemeName(id: TerminalId): string {
     const preview = store.activeId() === id ? previewTheme() : undefined;
-    return preview && preview.mode === resolvedColorScheme()
-      ? preview.name
+    return previewAppliesToMode(preview?.mode, resolvedColorScheme())
+      ? preview!.name
       : effectiveThemeNameForMode(getThemeSlots(id), resolvedColorScheme());
   }
 
@@ -106,14 +99,14 @@ function init() {
   }
 
   return {
-    committedThemeNameForMode,
     setPreviewThemeName,
     clearPreviewTheme,
     activeThemeName,
     activeTheme,
     getEffectiveThemeName,
     getTerminalTheme,
-    isPreviewingTheme: () => previewTheme() !== undefined,
+    isPreviewingTheme: () =>
+      previewAppliesToMode(previewTheme()?.mode, resolvedColorScheme()),
     handleSetTheme,
     handleShuffleTheme,
     setThemeName,
