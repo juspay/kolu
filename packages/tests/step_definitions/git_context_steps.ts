@@ -47,6 +47,12 @@ Then(
   },
 );
 
+When("I click the terminal title branch", async function (this: KoluWorld) {
+  const branch = this.page.locator('[data-testid="terminal-meta-branch"]');
+  await branch.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await branch.first().click();
+});
+
 Then(
   "the pill tree should show a branch name",
   async function (this: KoluWorld) {
