@@ -292,8 +292,10 @@ export const store = new Conf<PersistedState>({
     // SavedTerminal unified with TerminalMetadata — the flattened
     // `repoName`/`branch` (now read from `git`) and the `sortOrder`
     // index (replaced by Map insertion order) are gone. Strip the
-    // fields from each persisted terminal so the 1.18.0 shape matches
-    // the schema exactly.
+    // obsolete fields and seed `git: null` for entries that lacked the
+    // key entirely so the 1.18.0 shape matches the schema exactly
+    // (the unified `PersistedTerminalFieldsSchema` makes `git`
+    // required-but-nullable, so `undefined` fails validation).
     "1.18.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
@@ -306,7 +308,7 @@ export const store = new Conf<PersistedState>({
           branch: _branch,
           ...kept
         } = t;
-        return kept;
+        return { git: null, ...kept };
       });
       store.set("session", {
         ...session,
