@@ -12,18 +12,20 @@
 
 import {
   type Component,
+  createEffect,
   createMemo,
   createResource,
   createSignal,
   For,
   Match,
+  on,
   Show,
   Switch,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
-import { usePreferences } from "../settings/usePreferences";
+import { useColorScheme } from "../settings/useColorScheme";
 import { useRightPanel } from "./useRightPanel";
 import {
   DiffLocalIcon,
@@ -76,7 +78,7 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
 );
 
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
-  const { preferences } = usePreferences();
+  const { isDark } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
@@ -112,6 +114,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.git.diff(input),
   );
 
+  // Reset selection when the repo or view changes so a stale path doesn't
+  // bleed across tabs (e.g. a browse-mode pick showing up in diff mode).
+  createEffect(
+    on([repoPath, view], () => setSelectedPath(null), { defer: true }),
+  );
+
   const [browsePaths, { refetch: refetchBrowse }] = createResource(
     () => {
       const p = repoPath();
@@ -120,8 +128,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.fs.listAll(input).then((r) => r.paths),
   );
 
-  const diffTheme = () =>
-    preferences().colorScheme === "light" ? "light" : "dark";
+  const diffTheme = (): "light" | "dark" => (isDark() ? "dark" : "light");
 
   const handleRefresh = () => {
     if (isDiffView()) {
@@ -206,7 +213,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           {/* === Diff modes (local / branch) === */}
           <Match when={isDiffView()}>
             <div
-              class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
+              class="shrink-0 h-[35%] min-h-0 border-b border-edge"
               data-testid="diff-file-list"
             >
               <Switch
@@ -294,7 +301,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           {/* === File browser mode === */}
           <Match when={!isDiffView()}>
             <div
-              class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
+              class="shrink-0 h-[35%] min-h-0 border-b border-edge"
               data-testid="file-browser"
             >
               <Switch

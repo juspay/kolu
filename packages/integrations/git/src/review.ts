@@ -207,7 +207,7 @@ async function gitOutput(cwd: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileP("git", args, {
       cwd,
-      maxBuffer: 16 * 1024 * 1024,
+      maxBuffer: 128 * 1024 * 1024,
     });
     return stdout;
   } catch (e) {

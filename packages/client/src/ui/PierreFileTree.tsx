@@ -8,6 +8,7 @@
 import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import { FileTree, type GitStatusEntry } from "@pierre/trees";
 import type { GitChangeStatus } from "kolu-common";
+import { pierreTreesStyle } from "./pierreTheme";
 
 /** Map Kolu's single-letter porcelain status to Pierre's word form. */
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
@@ -46,7 +47,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   onMount(() => {
     tree = new FileTree({
       paths: props.paths,
-      initialExpansion: "open",
+      initialExpansion: "closed",
       search: props.search ?? true,
       gitStatus: props.gitStatus,
       initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
@@ -79,7 +80,8 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   return (
     <div
       ref={container!}
-      class="h-full w-full pierre-trees-host"
+      class="h-full w-full"
+      style={pierreTreesStyle}
       data-testid="pierre-file-tree"
     />
   );

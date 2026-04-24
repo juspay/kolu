@@ -5,6 +5,7 @@
 
 import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import { File, DEFAULT_THEMES, type FileContents } from "@pierre/diffs";
+import { pierreDiffsStyle } from "./pierreTheme";
 
 export type PierreFileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
@@ -53,6 +54,7 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
     <div
       ref={container!}
       class="h-full w-full overflow-auto"
+      style={pierreDiffsStyle}
       data-testid="pierre-file-view"
     />
   );

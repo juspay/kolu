@@ -11,6 +11,7 @@ import {
   parsePatchFiles,
   type FileDiffMetadata,
 } from "@pierre/diffs";
+import { pierreDiffsStyle } from "./pierreTheme";
 
 export type PierreDiffViewProps = {
   /** Raw per-file unified diff (one element of `GitDiffOutput.hunks`). */
@@ -73,6 +74,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
     <div
       ref={container!}
       class="h-full w-full overflow-auto"
+      style={pierreDiffsStyle}
       data-testid="pierre-diff-view"
     />
   );
