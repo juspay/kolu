@@ -11,13 +11,12 @@
  *  exported below for reuse. */
 
 import { type Component, Show } from "solid-js";
-import { toast } from "solid-sonner";
 import { prValue, prUnavailableSource } from "kolu-common/pr";
 import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
-import { writeTextToClipboard } from "./clipboard";
+import { copyTextWithToast } from "./clipboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
@@ -102,7 +101,10 @@ const TerminalMeta: Component<{
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void copyBranchName(git().branch);
+                      void copyTextWithToast(git().branch, {
+                        success: "Copied branch name to clipboard",
+                        failure: "Failed to copy branch name",
+                      });
                     }}
                     onDblClick={(e) => e.stopPropagation()}
                   >
@@ -149,16 +151,6 @@ const TerminalMeta: Component<{
     </Show>
   );
 };
-
-async function copyBranchName(branch: string): Promise<void> {
-  try {
-    await writeTextToClipboard(branch);
-    toast.success("Copied branch name to clipboard");
-  } catch (err) {
-    console.error("Failed to copy branch name:", err);
-    toast.error(`Failed to copy branch name: ${(err as Error).message}`);
-  }
-}
 
 /** Mobile pull-handle one-row variant — repo + branch + #PR inline.
  *  Mirrors what the pill tree shows for a focused terminal; the full
