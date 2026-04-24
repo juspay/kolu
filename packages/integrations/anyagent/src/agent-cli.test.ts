@@ -113,6 +113,38 @@ describe("parseAgentCommand", () => {
     );
   });
 
+  it("preserves session-defining flags for codex", () => {
+    expect(
+      parseAgentCommand(
+        "codex --profile dev --sandbox workspace-write --ask-for-approval on-failure --full-auto --oss",
+      ),
+    ).toBe(
+      "codex --profile dev --sandbox workspace-write --ask-for-approval on-failure --full-auto --oss",
+    );
+  });
+
+  it("preserves -c short form for codex --config", () => {
+    expect(parseAgentCommand("codex -c model_reasoning_effort=high")).toBe(
+      "codex -c model_reasoning_effort=high",
+    );
+  });
+
+  it("preserves session-defining flags for claude", () => {
+    expect(
+      parseAgentCommand(
+        "claude --permission-mode plan --add-dir /tmp/foo --agent reviewer --mcp-config mcp.json --strict-mcp-config --append-system-prompt terse --settings settings.json --bare --disallowedTools Bash",
+      ),
+    ).toBe(
+      "claude --permission-mode plan --add-dir /tmp/foo --agent reviewer --mcp-config mcp.json --strict-mcp-config --append-system-prompt terse --settings settings.json --bare --disallowedTools Bash",
+    );
+  });
+
+  it("preserves --agent and --pure for opencode", () => {
+    expect(parseAgentCommand("opencode --agent build --pure")).toBe(
+      "opencode --agent build --pure",
+    );
+  });
+
   it("recognizes all known agents", () => {
     for (const agent of [
       "claude",
