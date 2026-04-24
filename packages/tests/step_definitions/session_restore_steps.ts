@@ -17,7 +17,7 @@ async function postSavedSession(
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
   await postSavedSessionPayload(
     page,
-    dirs.map((cwd, i) => ({ id: String(i), cwd })),
+    dirs.map((cwd, i) => ({ id: String(i), cwd, git: null })),
   );
 }
 
@@ -127,30 +127,24 @@ Then(
 
 // --- Ordering scenario ---
 
-/** Directories used for the reversed-sort-order scenario.
- *  Array order is alphabetical; sortOrder is assigned in reverse so that
- *  a correct restore should produce pill tree order /etc, /tmp, /var
- *  (sortOrder 1000, 2000, 3000) even though the array is /etc, /tmp, /var. */
-const ORDERED_DIRS = ["/etc", "/tmp", "/var"];
+/** Directories for the array-order scenario. Posted in this non-alphabetical
+ *  order to prove the client honors the saved session's array order rather
+ *  than silently re-sorting by cwd or anything else derived. */
+const ORDERED_DIRS = ["/var", "/tmp", "/etc"];
 
-Given(
-  "a saved session with reversed sort order",
-  async function (this: KoluWorld) {
-    this.savedSessionTerminalCount = ORDERED_DIRS.length;
-    // Array order: /etc(3000), /tmp(2000), /var(1000)
-    // Expected pill tree order after restore: /var, /tmp, /etc (ascending sortOrder)
-    const terminals = ORDERED_DIRS.map((cwd, i) => ({
-      id: String(i),
-      cwd,
-      sortOrder: (ORDERED_DIRS.length - i) * 1000,
-    }));
-    this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this.page, terminals);
-  },
-);
+Given("a saved session in a specific order", async function (this: KoluWorld) {
+  this.savedSessionTerminalCount = ORDERED_DIRS.length;
+  const terminals = ORDERED_DIRS.map((cwd, i) => ({
+    id: String(i),
+    cwd,
+    git: null,
+  }));
+  this.savedSessionTerminals = terminals;
+  await postSavedSessionPayload(this.page, terminals);
+});
 
 Then(
-  "the pill tree entries should be in sort order",
+  "the pill tree entries should be in the saved order",
   async function (this: KoluWorld) {
     const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
     const count = await entries.count();
@@ -159,12 +153,10 @@ Then(
       const title = await entries.nth(i).getAttribute("title");
       titles.push(title ?? "");
     }
-    // Ascending sortOrder: /var(1000), /tmp(2000), /etc(3000)
-    const expected = [...ORDERED_DIRS].reverse();
     assert.deepStrictEqual(
       titles,
-      expected,
-      `Pill tree order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(expected)}`,
+      ORDERED_DIRS,
+      `Pill tree order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(ORDERED_DIRS)}`,
     );
   },
 );
@@ -175,7 +167,7 @@ Given(
   "a saved session with theme {string}",
   async function (this: KoluWorld, themeName: string) {
     this.savedSessionTerminalCount = 1;
-    const terminals = [{ id: "0", cwd: os.homedir(), themeName }];
+    const terminals = [{ id: "0", cwd: os.homedir(), git: null, themeName }];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this.page, terminals);
   },
@@ -188,7 +180,12 @@ Given(
   async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
     this.savedSessionTerminalCount = 1;
     const terminals = [
-      { id: "0", cwd: os.homedir(), canvasLayout: { x, y, w, h } },
+      {
+        id: "0",
+        cwd: os.homedir(),
+        git: null,
+        canvasLayout: { x, y, w, h },
+      },
     ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this.page, terminals);
@@ -263,6 +260,7 @@ Given(
       [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
         id: String(i),
         cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
+        git: null,
       }));
     const updated: SavedTerminal[] = terminals.map((t) =>
       t.id === id ? { ...t, lastAgentCommand: command } : t,

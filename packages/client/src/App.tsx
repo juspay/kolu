@@ -86,7 +86,8 @@ const App: Component = () => {
   // Desktop: pass `getLayout` so the tree mirrors the canvas spatially
   // (left tile → first pill, right tile → last pill). Reorders live as
   // tiles are dragged. Mobile has no canvas, so layouts are absent and
-  // the function falls back to sortOrder.
+  // the function falls back to the caller's input order — the server's
+  // Map insertion order (terminal creation order).
   const pillGroups = createMemo(() =>
     groupByRepo(
       store.terminalIds(),

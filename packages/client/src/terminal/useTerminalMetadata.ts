@@ -4,8 +4,9 @@
  *  git, PR, agent status). Each event replaces the previous; only
  *  current state matters.
  *
- *  Terminal IDs are derived from the live list subscription data.
- *  Order is derived from metadata sortOrder — no separate ordering state.
+ *  Terminal IDs are derived from the live list subscription data. Order
+ *  is the server's Map insertion order (terminal creation order) — no
+ *  client-side sort, no per-terminal ordering field.
  *
  *  Per-terminal subscriptions use mapArray for lifecycle — SolidJS creates
  *  a reactive owner per item and disposes it when the item leaves the list.
@@ -61,27 +62,22 @@ export function useTerminalMetadata(deps: {
     );
   }
 
-  // --- Order derived from metadata sortOrder ---
+  // --- Order: server Map insertion order, filtered by parent relationship ---
 
-  const bySortOrder = (a: TerminalId, b: TerminalId) =>
-    (getMetadata(a)?.sortOrder ?? 0) - (getMetadata(b)?.sortOrder ?? 0);
-
-  /** Top-level terminal IDs sorted by sortOrder.
+  /** Top-level terminal IDs in server-provided order.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading). */
   const terminalIds = createMemo(() =>
-    terminalIdList()
-      .filter((id) => {
-        const m = getMetadata(id);
-        return m && !m.parentId;
-      })
-      .sort(bySortOrder),
+    terminalIdList().filter((id) => {
+      const m = getMetadata(id);
+      return m && !m.parentId;
+    }),
   );
 
-  /** Sub-terminal IDs for a parent, sorted by sortOrder. */
+  /** Sub-terminal IDs for a parent, in server-provided order. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
-    return terminalIdList()
-      .filter((id) => getMetadata(id)?.parentId === parentId)
-      .sort(bySortOrder);
+    return terminalIdList().filter(
+      (id) => getMetadata(id)?.parentId === parentId,
+    );
   }
 
   // --- Derived accessors ---

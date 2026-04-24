@@ -3,7 +3,7 @@
  *  Client view state (activeId, attention, mruOrder) lives in local signals.
  *
  *  The terminal list is a live subscription — the server pushes updates on
- *  create/kill/reorder. No manual client-side bookkeeping needed.
+ *  create/kill. No manual client-side bookkeeping needed.
  *
  *  Singleton (cached + createRoot): every consumer (PillTree, ChromeBar,
  *  TerminalCanvas, mobile sheet, tile theme) reads the same store, so

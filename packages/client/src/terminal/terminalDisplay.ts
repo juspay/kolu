@@ -1,8 +1,14 @@
 /** Terminal display info — everything needed to render a terminal in any surface.
- *  Combines server metadata with client-derived properties (colors, sub-count). */
+ *  Combines server metadata with client-derived properties (colors, sub-count,
+ *  identity key). */
 
 import { cwdBasename } from "../path";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import {
+  computeTerminalKeys,
+  type TerminalId,
+  type TerminalKey,
+  type TerminalMetadata,
+} from "kolu-common";
 
 export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */
@@ -11,6 +17,9 @@ export type TerminalDisplayInfo = {
   branchColor?: string;
   meta: TerminalMetadata;
   subCount: number;
+  /** Collision-aware identity key. `suffix` is set only when another
+   *  terminal in the same display set shares `(group, label)`. */
+  key: TerminalKey;
 };
 
 /** Assign OKLCH colors via golden-angle hue spacing.
@@ -28,10 +37,11 @@ export function terminalName(meta: TerminalMetadata): string {
 }
 
 /** Build display info for all terminals. Resolves colors from the full
- *  terminal list (global hue uniqueness) and bundles sub-count so
- *  consumers get one complete object. The identity-collision
- *  `displaySuffix` lives on `meta` — server computes it across the live
- *  set so every client renders the same value. */
+ *  terminal list (global hue uniqueness), computes collision-aware
+ *  identity keys in one pass (`computeTerminalKeys`), and bundles
+ *  sub-count so consumers get one complete object. Pure — same inputs
+ *  produce the same outputs on every client, so suffixes stay in sync
+ *  without server broadcast. */
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
@@ -59,6 +69,9 @@ export function buildTerminalDisplayInfos(
   }
 
   const unified = assignColors([...repoKeys, ...branchKeys]);
+  const keys = computeTerminalKeys(
+    entries.map(({ id, meta }) => ({ id, git: meta.git, cwd: meta.cwd })),
+  );
   const result = new Map<TerminalId, TerminalDisplayInfo>();
   for (const { id, name, meta, repoKey, branchKey } of entries) {
     result.set(id, {
@@ -67,6 +80,7 @@ export function buildTerminalDisplayInfos(
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
       subCount: getSubTerminalIds(id).length,
+      key: keys.get(id)!,
     });
   }
   return result;

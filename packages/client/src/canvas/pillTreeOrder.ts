@@ -5,7 +5,6 @@
  *  handler so the two views never diverge. */
 
 import type { TerminalId } from "kolu-common";
-import { cwdBasename } from "../path";
 import {
   terminalName,
   type TerminalDisplayInfo,
@@ -18,7 +17,8 @@ export interface PillBranch {
   label: string;
   /** Short id-prefix suffix ("#a3f2") shown after the label when this
    *  terminal collides on identity with another (same repo+branch, or
-   *  same cwd for non-git). Mirrors `meta.displaySuffix` from the server. */
+   *  same cwd for non-git). Derived client-side from the live terminal
+   *  set via `computeTerminalKeys`. */
   suffix?: string;
 }
 
@@ -34,9 +34,8 @@ export interface PillRepoGroup {
  *  themselves sort by the min-x of their branches — so the pill tree
  *  reads left-to-right exactly as tiles sit on the canvas. Tiles
  *  without a layout (yet) and the no-layout caller (mobile, where
- *  there is no canvas) fall back to `sortOrder` — caller passes ids in
- *  sortOrder, and the original insertion order is preserved as the
- *  fallback. */
+ *  there is no canvas) fall back to the caller's input order, which
+ *  is the server's canonical Map insertion order. */
 export function groupByRepo(
   ids: TerminalId[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
@@ -54,25 +53,30 @@ export function groupByRepo(
     const info = getDisplayInfo(id);
     if (!info) continue;
     const meta = info.meta;
-    const repoName = meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
-    let group = groups.get(repoName);
+    // Group identity comes from the canonical `terminalKey` (via
+    // `info.key.group`) so collision detection and pill grouping
+    // always agree. Display name is the nicer basename fallback —
+    // two separate concerns, one identity per terminal.
+    const groupKey = info.key.group;
+    const displayName = terminalName(meta);
+    let group = groups.get(groupKey);
     if (!group) {
-      group = { repoName, branches: [] };
-      groups.set(repoName, group);
-      order.push(repoName);
+      group = { repoName: displayName, branches: [] };
+      groups.set(groupKey, group);
+      order.push(groupKey);
     }
     group.branches.push({
       id,
       label: meta.git?.branch ?? terminalName(meta),
-      suffix: meta.displaySuffix,
+      suffix: info.key.suffix,
     });
     if (getLayout) {
       const layout = getLayout(id);
       layoutOf.set(id, layout);
       if (layout) {
-        const prev = repoMinX.get(repoName);
+        const prev = repoMinX.get(groupKey);
         if (prev === undefined || layout.x < prev) {
-          repoMinX.set(repoName, layout.x);
+          repoMinX.set(groupKey, layout.x);
         }
       }
     }
@@ -84,8 +88,8 @@ export function groupByRepo(
 
   // Spatial sort. Tiles without a layout sort to the END of their
   // repo group (using +Infinity); repos with no laid-out tiles sort
-  // to the end (using +Infinity). Ties broken by sortOrder via the
-  // pre-existing array order — `sort` is stable in modern engines.
+  // to the end (using +Infinity). Ties broken by input array order via
+  // the pre-existing array order — `sort` is stable in modern engines.
   for (const group of groups.values()) {
     group.branches.sort((a, b) => {
       const ax = layoutOf.get(a.id)?.x ?? Infinity;
