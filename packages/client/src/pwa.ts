@@ -25,7 +25,14 @@
  * chain short-circuits and the reload proceeds as a plain navigation.
  */
 export async function forceUpdateAndReload(): Promise<void> {
-  const reg = await navigator.serviceWorker?.getRegistration();
-  await reg?.update();
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.update();
+  } catch (err) {
+    // Best-effort: the user clicked Reload, honour that intent even if the
+    // SW update couldn't complete (network drop mid-click, script parse
+    // error, etc.). Log so a chronically-failing update doesn't hide.
+    console.warn("SW update before reload failed:", err);
+  }
   location.reload();
 }
