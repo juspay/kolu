@@ -14,6 +14,9 @@ export interface CloseConfirmTarget {
   id: TerminalId;
   meta: TerminalMetadata;
   splitCount: number;
+  /** Another top-level terminal is on the same worktree, so removing it
+   *  here would pull the rug out from under the other terminal. */
+  worktreeSharedWithOthers: boolean;
 }
 
 const CloseConfirm: Component<{
@@ -24,6 +27,9 @@ const CloseConfirm: Component<{
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
   const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
+  const sharedWorktree = () =>
+    isWorktree() && (props.target?.worktreeSharedWithOthers ?? false);
+  const canRemoveWorktree = () => isWorktree() && !sharedWorktree();
   const splitCount = () => props.target?.splitCount ?? 0;
   const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
 
@@ -43,7 +49,7 @@ const CloseConfirm: Component<{
       >
         <Dialog.Label class="font-semibold text-fg">
           <Show
-            when={isWorktree()}
+            when={canRemoveWorktree()}
             fallback={
               splitCount() > 0
                 ? "Close terminal and splits?"
@@ -57,6 +63,12 @@ const CloseConfirm: Component<{
         <div class="space-y-2 text-fg-2">
           <Show when={isWorktree()}>
             <p>This terminal is in a git worktree.</p>
+          </Show>
+
+          <Show when={sharedWorktree()}>
+            <p data-testid="close-confirm-shared-note">
+              Another terminal is using this worktree — it will remain on disk.
+            </p>
           </Show>
 
           <Show when={splitCount() > 0}>
@@ -117,7 +129,7 @@ const CloseConfirm: Component<{
             Cancel
           </button>
           <Show
-            when={isWorktree()}
+            when={canRemoveWorktree()}
             fallback={
               <button
                 class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"

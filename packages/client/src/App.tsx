@@ -231,7 +231,19 @@ const App: Component = () => {
       return;
     }
     const splitCount = store.getSubTerminalIds(id).length;
-    setCloseConfirmTarget({ id, meta, splitCount });
+    const worktreePath = meta.git?.isWorktree
+      ? meta.git.worktreePath
+      : undefined;
+    const worktreeSharedWithOthers = worktreePath
+      ? store
+          .terminalIds()
+          .some(
+            (otherId) =>
+              otherId !== id &&
+              store.getMetadata(otherId)?.git?.worktreePath === worktreePath,
+          )
+      : false;
+    setCloseConfirmTarget({ id, meta, splitCount, worktreeSharedWithOthers });
   }
 
   const commands = createCommands({

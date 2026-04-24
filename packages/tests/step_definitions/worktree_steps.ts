@@ -40,6 +40,27 @@ When(
   },
 );
 
+When(
+  "I add a git worktree at {string} in repo {string} on branch {string}",
+  async function (
+    this: KoluWorld,
+    worktreePath: string,
+    repoPath: string,
+    branch: string,
+  ) {
+    execFileSync("bash", ["-c", `rm -rf "${worktreePath}"`]);
+    execFileSync("git", [
+      "-C",
+      repoPath,
+      "worktree",
+      "add",
+      worktreePath,
+      "-b",
+      branch,
+    ]);
+  },
+);
+
 Then(
   "the close confirmation should be visible",
   async function (this: KoluWorld) {
@@ -73,6 +94,27 @@ When(
 When("I confirm worktree removal", async function (this: KoluWorld) {
   await this.page.locator('[data-testid="close-confirm-remove"]').click();
 });
+
+Then(
+  "the close confirmation should not offer worktree removal",
+  async function (this: KoluWorld) {
+    // The dialog must be visible first — assert the remove button is absent
+    // while the dialog itself is open, so we don't accidentally pass because
+    // the whole dialog hasn't rendered yet.
+    await this.page
+      .locator('[data-testid="close-confirm"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const remove = this.page.locator('[data-testid="close-confirm-remove"]');
+    assert.strictEqual(
+      await remove.count(),
+      0,
+      "Expected 'Remove worktree' button to be absent when another terminal shares the worktree",
+    );
+    await this.page
+      .locator('[data-testid="close-confirm-shared-note"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When(
   "I click close only in the close confirmation",

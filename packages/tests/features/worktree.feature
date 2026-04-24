@@ -67,6 +67,23 @@ Feature: Git worktree management
     Then the pill tree should have 1 fewer terminal entry
     And there should be no page errors
 
+  Scenario: Remove option is hidden when another terminal shares the worktree
+    When I set up a git repo at "/tmp/kolu-wt-shared"
+    And I add a git worktree at "/tmp/kolu-wt-shared/.worktrees/shared-wt" in repo "/tmp/kolu-wt-shared" on branch "shared-wt"
+    And I run "cd /tmp/kolu-wt-shared/.worktrees/shared-wt"
+    Then the header should show a branch name
+    When I create a terminal
+    And I run "cd /tmp/kolu-wt-shared/.worktrees/shared-wt"
+    Then the header should show a branch name
+    Given I note the pill tree entry count
+    When I open the command palette
+    And I select "Close terminal" in the palette
+    Then the close confirmation should be visible
+    And the close confirmation should not offer worktree removal
+    When I confirm close all in the close confirmation
+    Then the pill tree should have 1 fewer terminal entry
+    And there should be no page errors
+
   # Sub-terminal create-via-palette in a worktree-spawned terminal stalls
   # waiting for [data-sub-terminal] to appear. Reproduces only when the
   # right panel is open AND the parent was created through the worktree
