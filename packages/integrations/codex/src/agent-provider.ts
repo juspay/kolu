@@ -8,12 +8,16 @@
  * SQLite until the first exchange completes. A bare title event won't
  * fire at that moment, so we also rewake on every WAL write and let
  * `resolveSession` re-check the DB. When the thread appears, match
- * succeeds. `isPresent` gates `install` on the binary actually being
- * foregrounded in some terminal, so a fresh machine without `~/.codex`
- * pays no watcher cost.
+ * succeeds. `isPresent` gates `install` on either (a) the binary being
+ * foregrounded in some terminal, or (b) `~/.codex` existing on disk
+ * already (user has used Codex on this machine before). Neither holds
+ * on a fresh machine that has never run Codex — no watcher, no logs,
+ * no missing-directory error (issue #698).
  */
 
+import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
+import { CODEX_DIR } from "./config.ts";
 import { findSessionByDirectory } from "./index.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
@@ -37,7 +41,7 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "codex");
+      return matchesAgent(state, "codex") || fs.existsSync(CODEX_DIR);
     },
     install(onChange, onError, log) {
       subscribeCodexDb(onChange, onError, log);

@@ -118,8 +118,11 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *  matching how the underlying singletons (Codex's WAL watcher,
    *  Claude's SESSIONS_DIR watcher) already work. */
   externalChanges?: {
-    /** True if this agent is (or might soon be) running in `state`'s
-     *  terminal. Called on every reconcile; the first `true` across any
+    /** True if this agent is (or might soon be) relevant on this machine
+     *  — either because the foreground process is (or looks like) this
+     *  agent, or because its on-disk state is already present (the user
+     *  has used the agent here before, even if no terminal currently
+     *  hosts it). Called on every reconcile; the first `true` across any
      *  terminal for this provider triggers `install`. Must NOT require
      *  `resolveSession` to have succeeded — for Codex, the foreground
      *  process is `codex` before any DB row exists, and the WAL watcher
