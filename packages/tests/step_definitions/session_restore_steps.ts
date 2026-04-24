@@ -17,7 +17,7 @@ async function postSavedSession(
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
   await postSavedSessionPayload(
     page,
-    dirs.map((cwd, i) => ({ id: String(i), cwd })),
+    dirs.map((cwd, i) => ({ id: String(i), cwd, git: null })),
   );
 }
 
@@ -137,6 +137,7 @@ Given("a saved session in a specific order", async function (this: KoluWorld) {
   const terminals = ORDERED_DIRS.map((cwd, i) => ({
     id: String(i),
     cwd,
+    git: null,
   }));
   this.savedSessionTerminals = terminals;
   await postSavedSessionPayload(this.page, terminals);
@@ -166,7 +167,7 @@ Given(
   "a saved session with theme {string}",
   async function (this: KoluWorld, themeName: string) {
     this.savedSessionTerminalCount = 1;
-    const terminals = [{ id: "0", cwd: os.homedir(), themeName }];
+    const terminals = [{ id: "0", cwd: os.homedir(), git: null, themeName }];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this.page, terminals);
   },
@@ -179,7 +180,12 @@ Given(
   async function (this: KoluWorld, x: number, y: number, w: number, h: number) {
     this.savedSessionTerminalCount = 1;
     const terminals = [
-      { id: "0", cwd: os.homedir(), canvasLayout: { x, y, w, h } },
+      {
+        id: "0",
+        cwd: os.homedir(),
+        git: null,
+        canvasLayout: { x, y, w, h },
+      },
     ];
     this.savedSessionTerminals = terminals;
     await postSavedSessionPayload(this.page, terminals);
@@ -254,6 +260,7 @@ Given(
       [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
         id: String(i),
         cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
+        git: null,
       }));
     const updated: SavedTerminal[] = terminals.map((t) =>
       t.id === id ? { ...t, lastAgentCommand: command } : t,
