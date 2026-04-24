@@ -7,28 +7,19 @@
  *  Line selection is enabled so the user can select a hunk range and
  *  right-click to copy `path:start-end` for pasting into chats / agents. */
 
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import {
   FileDiff,
   DEFAULT_THEMES,
   parsePatchFiles,
   type FileDiffMetadata,
-  type SelectedLineRange,
 } from "@pierre/diffs";
 import { pierreDiffsStyle } from "./pierreTheme";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
-  type CodeContextMenuItem,
 } from "./CodeContextMenu";
-import { formatLineRef } from "./lineRef";
+import { useLineSelection } from "./useLineSelection";
 
 export type PierreDiffViewProps = {
   /** Repo-relative path of the file being diffed. Used by the context
@@ -58,7 +49,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
   let host!: HTMLDivElement;
   let instance: FileDiff | undefined;
   let menuCtrl: CodeContextMenuController | undefined;
-  const [range, setRange] = createSignal<SelectedLineRange | null>(null);
+  const selection = useLineSelection(() => props.path);
 
   onMount(() => {
     const fileDiff = parseFirstFile(props.rawDiff);
@@ -69,7 +60,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
       overflow: "wrap",
       lineHoverHighlight: "both",
       enableLineSelection: true,
-      onLineSelected: (r) => setRange(r),
+      onLineSelected: selection.handleSelect,
     });
     instance.render({ containerWrapper: container, fileDiff });
   });
@@ -78,7 +69,6 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
     on(
       () => props.rawDiff,
       (raw) => {
-        setRange(null);
         const fileDiff = parseFirstFile(raw);
         instance?.render({ containerWrapper: container, fileDiff });
       },
@@ -96,18 +86,6 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
 
   onCleanup(() => instance?.cleanUp());
 
-  const buildItems = (): CodeContextMenuItem[] => {
-    const items: CodeContextMenuItem[] = [
-      { label: "Copy path", textToCopy: props.path },
-    ];
-    const r = range();
-    if (r) {
-      const ref = formatLineRef(props.path, r.start, r.end);
-      items.push({ label: `Copy ${ref}`, textToCopy: ref });
-    }
-    return items;
-  };
-
   return (
     <div
       ref={host!}
@@ -120,7 +98,10 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
         style={pierreDiffsStyle}
         data-testid="pierre-diff-view"
       />
-      <CodeContextMenu getItems={buildItems} ref={(c) => (menuCtrl = c)} />
+      <CodeContextMenu
+        getItems={selection.buildItems}
+        ref={(c) => (menuCtrl = c)}
+      />
     </div>
   );
 };

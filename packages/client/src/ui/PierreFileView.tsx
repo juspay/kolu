@@ -6,27 +6,14 @@
  *  Line selection is enabled so the user can select a range and right-click
  *  to copy `path:start-end` for pasting into chats / agents. */
 
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  on,
-  onCleanup,
-  onMount,
-} from "solid-js";
-import {
-  File,
-  DEFAULT_THEMES,
-  type FileContents,
-  type SelectedLineRange,
-} from "@pierre/diffs";
+import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
+import { File, DEFAULT_THEMES, type FileContents } from "@pierre/diffs";
 import { pierreDiffsStyle } from "./pierreTheme";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
-  type CodeContextMenuItem,
 } from "./CodeContextMenu";
-import { formatLineRef } from "./lineRef";
+import { useLineSelection } from "./useLineSelection";
 
 export type PierreFileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
@@ -40,7 +27,7 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
   let host!: HTMLDivElement;
   let instance: File | undefined;
   let menuCtrl: CodeContextMenuController | undefined;
-  const [range, setRange] = createSignal<SelectedLineRange | null>(null);
+  const selection = useLineSelection(() => props.name);
 
   const fileContents = (): FileContents => ({
     name: props.name,
@@ -52,7 +39,7 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
       theme: DEFAULT_THEMES,
       themeType: props.theme,
       enableLineSelection: true,
-      onLineSelected: (r) => setRange(r),
+      onLineSelected: selection.handleSelect,
     });
     instance.render({ containerWrapper: container, file: fileContents() });
   });
@@ -60,10 +47,8 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
   createEffect(
     on(
       [() => props.name, () => props.contents],
-      () => {
-        setRange(null);
-        instance?.render({ containerWrapper: container, file: fileContents() });
-      },
+      () =>
+        instance?.render({ containerWrapper: container, file: fileContents() }),
       { defer: true },
     ),
   );
@@ -78,18 +63,6 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
 
   onCleanup(() => instance?.cleanUp());
 
-  const buildItems = (): CodeContextMenuItem[] => {
-    const items: CodeContextMenuItem[] = [
-      { label: "Copy path", textToCopy: props.name },
-    ];
-    const r = range();
-    if (r) {
-      const ref = formatLineRef(props.name, r.start, r.end);
-      items.push({ label: `Copy ${ref}`, textToCopy: ref });
-    }
-    return items;
-  };
-
   return (
     <div
       ref={host!}
@@ -102,7 +75,10 @@ const PierreFileView: Component<PierreFileViewProps> = (props) => {
         style={pierreDiffsStyle}
         data-testid="pierre-file-view"
       />
-      <CodeContextMenu getItems={buildItems} ref={(c) => (menuCtrl = c)} />
+      <CodeContextMenu
+        getItems={selection.buildItems}
+        ref={(c) => (menuCtrl = c)}
+      />
     </div>
   );
 };
