@@ -18,6 +18,7 @@ import {
   startProviders,
 } from "./meta/index.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { getLastAgentCommand } from "./meta/agent-command.ts";
 import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
@@ -54,6 +55,7 @@ export function snapshotSession(): {
 } {
   const snappedTerminals = [...terminals.entries()].map(([id, entry]) => {
     const m = entry.info.meta;
+    const lastAgentCommand = getLastAgentCommand(id);
     return {
       id,
       cwd: m.cwd,
@@ -63,6 +65,7 @@ export function snapshotSession(): {
       ...(m.themeName && { themeName: m.themeName }),
       ...(m.canvasLayout && { canvasLayout: m.canvasLayout }),
       ...(m.subPanel && { subPanel: m.subPanel }),
+      ...(lastAgentCommand && { lastAgentCommand }),
     };
   });
   return { terminals: snappedTerminals, activeTerminalId };

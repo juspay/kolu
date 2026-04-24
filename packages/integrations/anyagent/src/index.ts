@@ -3,7 +3,7 @@
  *  kolu-common imports from integration packages for their agent schemas,
  *  so integration packages can't import back from kolu-common. */
 
-export { parseAgentCommand } from "./agent-cli.ts";
+export { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
 
 export {
   type AgentTerminalState,

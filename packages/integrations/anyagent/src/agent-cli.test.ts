@@ -1,7 +1,7 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
 import { describe, it, expect } from "vitest";
-import { parseAgentCommand } from "./agent-cli.ts";
+import { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
 
 describe("parseAgentCommand", () => {
   // Table from juspay/kolu#452
@@ -157,5 +157,42 @@ describe("parseAgentCommand", () => {
     ]) {
       expect(parseAgentCommand(agent)).toBe(agent);
     }
+  });
+});
+
+describe("resumeAgentCommand", () => {
+  it.each([
+    ["claude", "claude -c"],
+    ["claude --model sonnet", "claude -c --model sonnet"],
+    [
+      "claude --permission-mode plan --add-dir /tmp/foo",
+      "claude -c --permission-mode plan --add-dir /tmp/foo",
+    ],
+    ["codex", "codex resume"],
+    ["codex --yolo", "codex resume --yolo"],
+    [
+      `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+      `codex resume --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+    ],
+    ["opencode", "opencode --continue"],
+    [
+      "opencode --agent build --pure",
+      "opencode --continue --agent build --pure",
+    ],
+  ])("resume form of %j → %j", (normalized, expected) => {
+    expect(resumeAgentCommand(normalized)).toBe(expected);
+  });
+
+  it("returns null for detection-only agents", () => {
+    expect(resumeAgentCommand("aider")).toBeNull();
+    expect(resumeAgentCommand("aider --model opus")).toBeNull();
+    expect(resumeAgentCommand("goose")).toBeNull();
+    expect(resumeAgentCommand("gemini")).toBeNull();
+    expect(resumeAgentCommand("cursor-agent")).toBeNull();
+  });
+
+  it("returns null for empty input", () => {
+    expect(resumeAgentCommand("")).toBeNull();
+    expect(resumeAgentCommand("   ")).toBeNull();
   });
 });

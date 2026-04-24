@@ -332,6 +332,11 @@ export const SavedTerminalSchema = z.object({
       panelSize: z.number(),
     })
     .optional(),
+  /** Normalized agent CLI invocation last observed in this terminal (from
+   *  `parseAgentCommand` — prompts/positionals stripped). Absent for plain
+   *  shells and for terminals that only ran detection-only agents. Drives
+   *  the "resume agent on restore" offer in EmptyState. */
+  lastAgentCommand: z.string().optional(),
 });
 
 export const SavedSessionSchema = z.object({

@@ -52,3 +52,29 @@ Feature: Session restore
     And I reload the page and wait for ready
     Then pill tree entry 2 should be active
     And there should be no page errors
+
+  # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)
+  # surface as a "resume M agents" suffix on the restore button, with each
+  # command shown beneath its terminal. A single "Resume agent sessions" toggle
+  # (default on) controls whether the agents are re-run at all — turning it off
+  # hides the CLI lines and drops the suffix.
+  Scenario: Restore card surfaces agent commands behind a global resume toggle
+    Given a saved session with 2 terminals
+    And terminal 0 has captured agent command "claude --model sonnet"
+    And terminal 1 has captured agent command "codex --yolo"
+    When I open the app
+    Then the session restore card should be visible
+    And the restore card should show agent command "claude --model sonnet"
+    And the restore card should show agent command "codex --yolo"
+    And the restore button should mention "resume 2 agents"
+    When I turn off the resume-agents toggle
+    Then the restore button should not mention "resume"
+    And the restore card should not show agent command "claude --model sonnet"
+    And there should be no page errors
+
+  Scenario: Plain shell terminals are grouped but carry no resume offer
+    Given a saved session with 2 terminals
+    When I open the app
+    Then the session restore card should be visible
+    And the restore button should not mention "resume"
+    And there should be no page errors

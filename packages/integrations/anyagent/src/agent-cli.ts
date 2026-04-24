@@ -105,6 +105,35 @@ function basename(s: string): string {
 }
 
 /**
+ * Resume-form transforms for agents that support conversation continuity.
+ * Shape: `Record<AgentName, (argv) => argv>` — the Record key union is the
+ * exact set of resume-capable agents, so adding an agent forces adding a
+ * transform (type error if omitted). This is a narrower table than
+ * `STABLE_FLAGS`: detection-only agents (`aider`, `goose`, `gemini`,
+ * `cursor-agent`) are absent here and `resumeAgentCommand` returns `null`
+ * for them.
+ *
+ * The transforms splice a resume marker into the normalized argv:
+ *   claude `-c`       → continue most-recent conversation in cwd
+ *   codex `resume`    → subcommand form; last session in cwd
+ *   opencode `--continue` → continue most-recent session in cwd
+ *
+ * `parseAgentCommand` strips `-c`/`--continue`/`--resume`/`-r` during
+ * normalization (per juspay/kolu#467), so the input to these transforms is
+ * always resume-free — no idempotency special-case needed.
+ */
+type ResumableAgent = "claude" | "codex" | "opencode";
+
+const AGENT_RESUME: Record<
+  ResumableAgent,
+  (argv: readonly string[]) => string[]
+> = {
+  claude: (argv) => [argv[0]!, "-c", ...argv.slice(1)],
+  codex: (argv) => [argv[0]!, "resume", ...argv.slice(1)],
+  opencode: (argv) => [argv[0]!, "--continue", ...argv.slice(1)],
+};
+
+/**
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.
@@ -144,4 +173,18 @@ export function parseAgentCommand(raw: string): string | null {
     }
   }
   return kept.join(" ");
+}
+
+/**
+ * Given a normalized agent invocation (the output of `parseAgentCommand`),
+ * return the resume-mode invocation for agents that support it, or `null`
+ * if the agent is in the allowlist but not the resume table. Input is
+ * assumed already normalized — callers should not pass raw user input.
+ */
+export function resumeAgentCommand(normalized: string): string | null {
+  const argv = parseArgsStringToArgv(normalized.trim());
+  if (argv.length === 0) return null;
+  const agent = argv[0]!;
+  if (!(agent in AGENT_RESUME)) return null;
+  return AGENT_RESUME[agent as ResumableAgent](argv).join(" ");
 }

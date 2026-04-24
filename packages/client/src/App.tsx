@@ -495,7 +495,7 @@ const App: Component = () => {
                 <CanvasWatermark text={appTitle()} />
                 <EmptyState
                   savedSession={session.savedSession() ?? undefined}
-                  onRestore={() => void session.handleRestoreSession()}
+                  onRestore={(opts) => void session.handleRestoreSession(opts)}
                 />
               </div>
             }

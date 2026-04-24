@@ -247,3 +247,80 @@ Then(
     );
   },
 );
+
+// --- Agent-resume scenarios ---
+
+Given(
+  "terminal {int} has captured agent command {string}",
+  async function (this: KoluWorld, index: number, command: string) {
+    // Idempotent edit to the saved session's `lastAgentCommand` field for
+    // the matching terminal. Relies on an earlier
+    // "a saved session with N terminals" step seeding ids "0", "1", … and
+    // stashing the payload on `this.savedSessionTerminals`.
+    const id = String(index);
+    const terminals =
+      this.savedSessionTerminals ??
+      [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
+        id: String(i),
+        cwd: [os.homedir(), os.tmpdir(), "/"][i] ?? "/",
+      }));
+    const updated: SavedTerminal[] = terminals.map((t) =>
+      t.id === id ? { ...t, lastAgentCommand: command } : t,
+    );
+    this.savedSessionTerminals = updated;
+    await postSavedSessionPayload(this.page, updated);
+  },
+);
+
+Then(
+  "the restore card should show agent command {string}",
+  async function (this: KoluWorld, command: string) {
+    await this.page.waitForFunction(
+      (cmd) => {
+        const nodes = document.querySelectorAll(
+          '[data-testid="resume-command"]',
+        );
+        return Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
+      },
+      command,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the restore button should not mention {string}",
+  async function (this: KoluWorld, text: string) {
+    const btn = this.page.locator('[data-testid="restore-session"]');
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const content = await btn.textContent();
+    assert.ok(
+      !content?.includes(text),
+      `Expected restore button NOT to contain "${text}", got "${content}"`,
+    );
+  },
+);
+
+When("I turn off the resume-agents toggle", async function (this: KoluWorld) {
+  const toggle = this.page.locator('[data-testid="resume-agents-toggle"]');
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
+});
+
+Then(
+  "the restore card should not show agent command {string}",
+  async function (this: KoluWorld, command: string) {
+    // Wait for the command row to disappear. Uses waitForFunction so we poll
+    // the reactive DOM rather than race the toggle's state flush.
+    await this.page.waitForFunction(
+      (cmd) => {
+        const nodes = document.querySelectorAll(
+          '[data-testid="resume-command"]',
+        );
+        return !Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
+      },
+      command,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

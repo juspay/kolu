@@ -121,6 +121,8 @@ export const contract = oc.router({
   session: {
     // Stream the persisted saved-session blob (or null when none). Read-only —
     // server writes via debounced autosave on terminal-list changes.
+    // The per-terminal `lastAgentCommand` field rides inside `SavedTerminal`
+    // and drives the resume offer in EmptyState.
     get: oc.output(eventIterator(SavedSessionSchema.nullable())),
     // Reset saved session (test-only: seed/clear between scenarios)
     test__set: oc.input(SavedSessionSchema.nullable()).output(z.void()),
