@@ -10,17 +10,19 @@
  *   secure-context rule, browser heuristic caching does the same).
  * - Everything else — no opinion, let the upstream default stand.
  */
+const REVALIDATE_PATHS = new Set([
+  "/",
+  "/index.html",
+  "/sw.js",
+  "/registerSW.js",
+]);
+const WORKBOX_CHUNK = /^\/workbox-[^/]+\.js$/;
+
 export function getCacheControlHeader(path: string): string | null {
   if (path.startsWith("/assets/")) {
     return "public, max-age=31536000, immutable";
   }
-  if (
-    path === "/" ||
-    path === "/index.html" ||
-    path === "/sw.js" ||
-    path === "/registerSW.js" ||
-    /^\/workbox-[^/]+\.js$/.test(path)
-  ) {
+  if (REVALIDATE_PATHS.has(path) || WORKBOX_CHUNK.test(path)) {
     return "no-cache, must-revalidate";
   }
   return null;
