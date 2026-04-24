@@ -1,10 +1,12 @@
-/** Copy a terminal's contents to the clipboard as a polished PNG.
+/** Copy the active terminal viewport to the clipboard as a polished PNG.
  *
- *  Reads `xterm.buffer.active` directly (scrollback + viewport), paints each
- *  cell onto an offscreen canvas with the theme's colors, and wraps the whole
- *  thing in a rounded-corner window chrome (border + title bar with traffic-
- *  light dots and the terminal's repo/branch label). Writes the PNG blob to
- *  the clipboard.
+ *  Reads the currently-visible slice of `xterm.buffer.active` — `xterm.rows`
+ *  lines starting at `buffer.viewportY` — and paints each cell onto an
+ *  offscreen canvas with the theme's colors, then wraps the whole thing in a
+ *  rounded-corner window chrome (border + title bar with traffic-light dots
+ *  and the terminal's repo/branch label). Writes the PNG blob to the
+ *  clipboard. Scrollback above the viewport is not captured; if the user has
+ *  scrolled up, the capture is WYSIWYG with what they're looking at.
  *
  *  Renderer-independent by construction — we never touch xterm's live canvas
  *  or DOM. An earlier attempt routed `SerializeAddon.serializeAsHTML` through
@@ -205,6 +207,7 @@ export async function screenshotTerminal(
   }
   const xterm = refs.xterm as unknown as {
     cols: number;
+    rows: number;
     options: {
       fontSize?: number;
       fontFamily?: string;
@@ -212,7 +215,7 @@ export async function screenshotTerminal(
     };
     buffer: {
       active: {
-        length: number;
+        viewportY: number;
         getLine: (
           y: number,
         ) =>
@@ -233,7 +236,8 @@ export async function screenshotTerminal(
   if (document.fonts?.ready) await document.fonts.ready;
   const buffer = xterm.buffer.active;
   const cols = xterm.cols;
-  const rows = buffer.length;
+  const rows = xterm.rows;
+  const yOffset = buffer.viewportY;
 
   // Measure a cell using a probe canvas. A fresh 2d context inherits the
   // browser's default font; we set it explicitly before measuring.
@@ -351,7 +355,7 @@ export async function screenshotTerminal(
 
   const tempCell = buffer.getNullCell();
   for (let y = 0; y < rows; y++) {
-    const line = buffer.getLine(y);
+    const line = buffer.getLine(yOffset + y);
     if (!line) continue;
     for (let x = 0; x < cols; x++) {
       const cell = line.getCell(x, tempCell);
