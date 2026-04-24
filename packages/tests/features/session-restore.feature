@@ -71,7 +71,7 @@ Feature: Session restore
     And there should be no page errors
 
   Scenario: Plain shell terminals are grouped but carry no resume offer
-    Given a saved session with 1 terminal
+    Given a saved session with 2 terminals
     When I open the app
     Then the session restore card should be visible
     And the restore button should not mention "resume"
