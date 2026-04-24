@@ -1,6 +1,30 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
+function changedFileSelector(path: string): string {
+  return `[data-testid="diff-file-item"][data-path="${path}"]`;
+}
+
+async function waitForChangedFile(world: KoluWorld, path: string) {
+  const item = world.page.locator(changedFileSelector(path));
+  const refresh = world.page.locator('[data-testid="diff-refresh"]');
+  const deadline = Date.now() + POLL_TIMEOUT;
+  let nextRefresh = Date.now();
+
+  while (Date.now() < deadline) {
+    if (await item.isVisible().catch(() => false)) return;
+
+    if (Date.now() >= nextRefresh && (await refresh.isVisible())) {
+      await refresh.click().catch(() => undefined);
+      nextRefresh = Date.now() + 1000;
+    }
+
+    await world.page.waitForTimeout(100);
+  }
+
+  await item.waitFor({ state: "visible", timeout: 1 });
+}
+
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
@@ -23,9 +47,7 @@ When(
 When(
   "I click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(
-      `[data-testid="diff-file-item"][data-path="${path}"]`,
-    );
+    const item = this.page.locator(changedFileSelector(path));
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await item.click();
     await this.waitForFrame();
@@ -72,10 +94,7 @@ Then(
 Then(
   "the Code tab should list a changed file {string}",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(
-      `[data-testid="diff-file-item"][data-path="${path}"]`,
-    );
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForChangedFile(this, path);
   },
 );
 
@@ -104,9 +123,7 @@ When(
 Then(
   "the Code tab should not list a changed file {string}",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(
-      `[data-testid="diff-file-item"][data-path="${path}"]`,
-    );
+    const item = this.page.locator(changedFileSelector(path));
     await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );

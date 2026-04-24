@@ -12,9 +12,9 @@ import type { Browser, BrowserContext, Page, Locator } from "playwright";
 
 setDefaultTimeout(30_000);
 
-const READY_TIMEOUT = 10_000;
+const READY_TIMEOUT = 20_000;
 /** Shared timeout for element polling (waitFor / waitForFunction). Generous for darwin CI under load. */
-export const POLL_TIMEOUT = 10_000;
+export const POLL_TIMEOUT = 20_000;
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */

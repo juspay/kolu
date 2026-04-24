@@ -11,7 +11,7 @@
 
 import { Before, After, BeforeAll, AfterAll, Status } from "@cucumber/cucumber";
 import { chromium } from "playwright";
-import type { Browser } from "playwright";
+import type { Browser, BrowserContext, Page } from "playwright";
 import getPort from "get-port";
 import { KoluWorld } from "./world.ts";
 import * as fs from "node:fs";
@@ -107,8 +107,46 @@ let serverProcess: ChildProcess | undefined;
 // accumulation on macOS (see #334).
 const keepAliveAgent = new http.Agent({ keepAlive: true });
 
+const TRANSIENT_SETUP_ERRORS = [
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "socket hang up",
+  "read ECONNRESET",
+];
+
+function isTransientSetupError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return TRANSIENT_SETUP_ERRORS.some((needle) => msg.includes(needle));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryTransient<T>(
+  label: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let last: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      last = err;
+      if (!isTransientSetupError(err) || attempt === 3) break;
+      await sleep(100 * attempt);
+    }
+  }
+  throw last instanceof Error
+    ? new Error(`${label} failed after retries: ${last.message}`, {
+        cause: last,
+      })
+    : new Error(`${label} failed after retries: ${String(last)}`);
+}
+
 /** POST JSON to a local URL, reusing TCP connections via keepAlive. */
-function postJSON(url: string, body: object): Promise<void> {
+function postJSONOnce(url: string, body: object): Promise<void> {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const req = http.request(
@@ -129,6 +167,10 @@ function postJSON(url: string, body: object): Promise<void> {
     req.on("error", reject);
     req.end(JSON.stringify(body));
   });
+}
+
+function postJSON(url: string, body: object): Promise<void> {
+  return retryTransient(`POST ${url}`, () => postJSONOnce(url, body));
 }
 
 /** GET a URL, reusing TCP connections via keepAlive. */
@@ -172,6 +214,34 @@ const ciArgs = [
   "--disable-dev-shm-usage",
   "--headless=new",
 ];
+
+async function newScenarioPage(
+  isMobile: boolean,
+): Promise<{ context: BrowserContext; page: Page }> {
+  let previousContext: BrowserContext | undefined;
+  return retryTransient("create Playwright page", async () => {
+    if (previousContext) {
+      await previousContext.close().catch(() => undefined);
+      previousContext = undefined;
+    }
+    const context = await browser.newContext({
+      viewport: isMobile
+        ? { width: 390, height: 844 }
+        : { width: 1280, height: 720 },
+      ...(isMobile && { hasTouch: true, isMobile: true }),
+      baseURL: baseUrl,
+      ignoreHTTPSErrors: true,
+      // clipboard-write: lets tests place images in the clipboard for paste testing.
+      // clipboard-read: lets tests verify clipboard contents after copy operations.
+      // Production code never calls clipboard.read — these are test-only permissions.
+      permissions: ["clipboard-write", "clipboard-read"],
+    });
+    previousContext = context;
+    const page = await context.newPage();
+    previousContext = undefined;
+    return { context, page };
+  });
+}
 
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
@@ -301,19 +371,9 @@ Before(async function (this: KoluWorld, scenario) {
   const isMobile = scenario.pickle.tags.some((t) => t.name === "@mobile");
 
   this.browser = browser;
-  this.context = await browser.newContext({
-    viewport: isMobile
-      ? { width: 390, height: 844 }
-      : { width: 1280, height: 720 },
-    ...(isMobile && { hasTouch: true, isMobile: true }),
-    baseURL: baseUrl,
-    ignoreHTTPSErrors: true,
-    // clipboard-write: lets tests place images in the clipboard for paste testing.
-    // clipboard-read: lets tests verify clipboard contents after copy operations.
-    // Production code never calls clipboard.read — these are test-only permissions.
-    permissions: ["clipboard-write", "clipboard-read"],
-  });
-  this.page = await this.context.newPage();
+  const created = await newScenarioPage(isMobile);
+  this.context = created.context;
+  this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
   // prefers-reduced-motion tells well-behaved libraries to skip animations.
   // The style override catches anything that doesn't respect the media query.
@@ -348,7 +408,7 @@ Before(async function (this: KoluWorld, scenario) {
 
 After(async function (this: KoluWorld, scenario) {
   // Screenshot on failure
-  if (scenario.result?.status === Status.FAILED) {
+  if (scenario.result?.status === Status.FAILED && this.page) {
     const dir = path.resolve(
       import.meta.dirname,
       "..",
@@ -357,10 +417,17 @@ After(async function (this: KoluWorld, scenario) {
     );
     fs.mkdirSync(dir, { recursive: true });
     const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
-    await this.page.screenshot({
-      path: path.join(dir, `${name}.png`),
-      fullPage: true,
-    });
+    await this.page
+      .screenshot({
+        path: path.join(dir, `${name}.png`),
+        fullPage: true,
+      })
+      .catch((err) => {
+        console.error(
+          `[worker:${workerId}] Failed to capture failure screenshot:`,
+          err,
+        );
+      });
   }
   if (this.context) await this.context.close();
 });
