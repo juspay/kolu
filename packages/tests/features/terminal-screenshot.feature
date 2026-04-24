@@ -34,3 +34,11 @@ Feature: Terminal screenshot
     And I press Enter
     Then a toast should appear with text "Screenshot copied"
     And there should be no page errors
+
+  Scenario: Screenshot captures viewport only, not scrollback
+    When I run "for i in $(seq 1 200); do echo LINE-$i; done"
+    And the screen state should contain "LINE-200"
+    And I press the screenshot terminal shortcut
+    Then a toast should appear with text "Screenshot copied"
+    And the clipboard image should match the terminal viewport size
+    And there should be no page errors

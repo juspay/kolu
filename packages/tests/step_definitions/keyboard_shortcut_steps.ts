@@ -1,5 +1,6 @@
 import { When, Then } from "@cucumber/cucumber";
 import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { ACTIVE_TERMINAL } from "../support/buffer.ts";
 const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
 When("I press the shortcuts help shortcut", async function (this: KoluWorld) {
@@ -113,6 +114,72 @@ Then(
     if (result.uniqueColors < 2) {
       throw new Error(
         `clipboard image appears blank: ${result.width}×${result.height} with ${result.uniqueColors} unique sampled color(s)`,
+      );
+    }
+  },
+);
+
+Then(
+  "the clipboard image should match the terminal viewport size",
+  async function (this: KoluWorld) {
+    // Regression guard: the screenshot must capture only the visible viewport
+    // (xterm.rows), not the entire scrollback buffer. A 200-line scrollback
+    // rendered at cellH ≈ 17 gives ~3400px of terminal body; a 24-row
+    // viewport gives ~408px. The threshold below catches that gap regardless
+    // of font size or dpr variations.
+    const result = await this.page.evaluate(async (sel) => {
+      const container = document.querySelector(sel) as
+        | (HTMLElement & {
+            __xterm?: { rows: number; buffer: { active: { length: number } } };
+          })
+        | null;
+      const xterm = container?.__xterm;
+      if (!xterm) return { error: "no __xterm on active terminal" };
+      const rows = xterm.rows;
+      const bufferLength = xterm.buffer.active.length;
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes("image/png")) continue;
+        const blob = await item.getType("image/png");
+        const dataUrl = await new Promise<string>((resolve) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(fr.result as string);
+          fr.readAsDataURL(blob);
+        });
+        const img = new Image();
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("image decode failed"));
+          img.src = dataUrl;
+        });
+        const dpr = window.devicePixelRatio || 1;
+        return {
+          rows,
+          bufferLength,
+          dpr,
+          height: img.naturalHeight,
+          logicalHeight: img.naturalHeight / dpr,
+        };
+      }
+      return { error: "no image/png in clipboard" };
+    }, ACTIVE_TERMINAL);
+    if ("error" in result) throw new Error(result.error);
+    if (result.bufferLength <= result.rows * 2) {
+      throw new Error(
+        `test setup: buffer length ${result.bufferLength} not large enough ` +
+          `relative to ${result.rows} visible rows to distinguish viewport ` +
+          `capture from scrollback capture`,
+      );
+    }
+    // Per-row upper bound of 30 logical px covers any realistic font size
+    // (default cellH ≈ 17). Chrome is 66px (TITLE_H 34 + PAD*2 32); +100 gives
+    // additional slack.
+    const viewportMax = result.rows * 30 + 100;
+    if (result.logicalHeight > viewportMax) {
+      throw new Error(
+        `screenshot height ${Math.round(result.logicalHeight)}px (logical) ` +
+          `exceeds viewport bound ${viewportMax}px — rows=${result.rows}, ` +
+          `bufferLength=${result.bufferLength} suggests scrollback capture`,
       );
     }
   },
