@@ -103,6 +103,16 @@ describe("parseAgentCommand", () => {
     expect(parseAgentCommand("codex --yolo")).toBe("codex --yolo");
   });
 
+  it("preserves --config for codex", () => {
+    expect(
+      parseAgentCommand(
+        `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+      ),
+    ).toBe(
+      `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+    );
+  });
+
   it("recognizes all known agents", () => {
     for (const agent of [
       "claude",

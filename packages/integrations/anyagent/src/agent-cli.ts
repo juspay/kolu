@@ -57,7 +57,7 @@ const STABLE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     new Set(["--model", "--dangerously-skip-permissions", "--yolo"]),
   ],
   ["aider", new Set(["--model"])],
-  ["codex", new Set(["--model", "--yolo"])],
+  ["codex", new Set(["--model", "--yolo", "--config"])],
   ["goose", new Set([])],
   ["gemini", new Set([])],
   ["cursor-agent", new Set([])],
