@@ -19,16 +19,6 @@ import { client } from "./rpc/rpc";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
-export function themeNameForMode(
-  meta:
-    | Pick<TerminalMetadata, "lightThemeName" | "darkThemeName">
-    | null
-    | undefined,
-  mode: ThemeMode,
-): string | undefined {
-  return mode === "light" ? meta?.lightThemeName : meta?.darkThemeName;
-}
-
 export function effectiveThemeNameForMode(
   meta:
     | Pick<TerminalMetadata, "lightThemeName" | "darkThemeName">
