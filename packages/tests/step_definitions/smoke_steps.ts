@@ -6,11 +6,23 @@ When("I open the app", async function (this: KoluWorld) {
   await this.page.goto("/");
 });
 
+When("I open {string}", async function (this: KoluWorld, path: string) {
+  await this.page.goto(path);
+});
+
 When("I request {string}", async function (this: KoluWorld, path: string) {
   const resp = await this.page.request.get(path);
   this.lastResponseOk = resp.ok();
   this.lastResponseText = await resp.text();
 });
+
+Then(
+  "the current URL path should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForURL(`**${expected}`);
+    assert.strictEqual(new URL(this.page.url()).pathname, expected);
+  },
+);
 
 Then(
   "the canvas watermark should contain {string}",
@@ -22,6 +34,29 @@ Then(
       content?.includes(text),
       `Watermark "${content}" does not contain "${text}"`,
     );
+  },
+);
+
+Then(
+  "the page should contain {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page.waitForFunction(
+      (expected) => document.body.textContent?.includes(expected) ?? false,
+      text,
+    );
+    const content = await this.page.locator("body").textContent();
+    assert.ok(
+      content?.includes(text),
+      `Page content "${content}" does not contain "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the page should have a link to {string}",
+  async function (this: KoluWorld, href: string) {
+    const link = this.page.locator(`a[href="${href}"]`);
+    await link.waitFor({ state: "visible" });
   },
 );
 

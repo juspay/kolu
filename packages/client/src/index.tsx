@@ -3,6 +3,7 @@ import { render } from "solid-js/web";
 import { MetaProvider } from "@solidjs/meta";
 import { Router } from "@solidjs/router";
 import App from "./App";
+import AppRoutes from "./AppRoutes";
 import "./index.css";
 
 // Unregister any stale service worker in dev mode — production SW from a previous
@@ -23,7 +24,7 @@ render(
   () => (
     <MetaProvider>
       <Router>
-        <App />
+        <AppRoutes workspacePage={App} />
       </Router>
     </MetaProvider>
   ),

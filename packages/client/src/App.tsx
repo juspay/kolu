@@ -44,7 +44,6 @@ import { useRecorder } from "./recorder/useRecorder";
 import type { TerminalId } from "kolu-common";
 import { client, wsStatus, serverProcessId } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
-import AppRoutes from "./AppRoutes";
 import { useTerminals } from "./terminal/useTerminals";
 import { useThemeManager } from "./useThemeManager";
 import { useShortcuts } from "./input/useShortcuts";
@@ -556,7 +555,7 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      <AppRoutes workspacePage={WorkspacePage} />
+      <WorkspacePage />
     </div>
   );
 };
