@@ -7,7 +7,7 @@ import { toast } from "solid-sonner";
 import { availableThemes, resolveThemeBgs, pickTheme } from "terminal-themes";
 import { client } from "../rpc/rpc";
 import { useSubPanel } from "./useSubPanel";
-import { writeTextToClipboard } from "./clipboard";
+import { copyTextWithToast } from "./clipboard";
 import { useTips } from "../settings/useTips";
 import { usePreferences } from "../settings/usePreferences";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
@@ -180,8 +180,10 @@ export function useTerminalCrud(deps: {
     if (id === null) return;
     try {
       const text = await client.terminal.screenText({ id });
-      await writeTextToClipboard(text);
-      toast.success("Copied terminal text to clipboard");
+      await copyTextWithToast(text, {
+        success: "Copied terminal text to clipboard",
+        failure: "Failed to copy terminal text",
+      });
     } catch (err) {
       console.error("Failed to copy terminal text:", err);
       toast.error(`Failed to copy terminal text: ${(err as Error).message}`);

@@ -16,6 +16,7 @@ import ChecksIndicator from "./ChecksIndicator";
 import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
+import { copyTextWithToast } from "./clipboard";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
@@ -76,8 +77,7 @@ const TerminalMeta: Component<{
             </Show>
           </div>
 
-          {/* Branch + PR — combined row. Tooltip on branch shows full
-           *  name when truncated. PR (if present) follows inline:
+          {/* Branch + PR — combined row. PR (if present) follows inline:
            *  state icon, checks indicator, linked #N, truncated title. */}
           <Show
             when={info().meta.git}
@@ -89,15 +89,26 @@ const TerminalMeta: Component<{
           >
             {(git) => (
               <div class="flex items-center gap-1.5 min-w-0 text-xs">
-                <Tip label={git().branch}>
-                  <span
+                <Tip label="Copy branch name">
+                  <button
+                    type="button"
                     data-testid="terminal-meta-branch"
-                    class="truncate shrink-0 max-w-[16ch]"
+                    aria-label={`Copy branch ${git().branch} to clipboard`}
+                    class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                     style={{ color: info().branchColor }}
                     classList={{ "text-fg-2": !info().branchColor }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void copyTextWithToast(git().branch, {
+                        success: "Copied branch name to clipboard",
+                        failure: "Failed to copy branch name",
+                      });
+                    }}
+                    onDblClick={(e) => e.stopPropagation()}
                   >
                     {git().branch}
-                  </span>
+                  </button>
                 </Tip>
                 <Show when={prValue(info().meta.pr)}>
                   {(pr) => (
@@ -158,16 +169,14 @@ export const TerminalMetaCompact: Component<{
           </Show>
           <Show when={info().meta.git}>
             {(git) => (
-              <Tip label={git().branch}>
-                <span
-                  data-testid="terminal-meta-branch"
-                  class="text-xs truncate min-w-0"
-                  style={{ color: info().branchColor }}
-                  classList={{ "text-fg-2": !info().branchColor }}
-                >
-                  {git().branch}
-                </span>
-              </Tip>
+              <span
+                data-testid="terminal-meta-branch"
+                class="text-xs truncate min-w-0"
+                style={{ color: info().branchColor }}
+                classList={{ "text-fg-2": !info().branchColor }}
+              >
+                {git().branch}
+              </span>
             )}
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle

@@ -56,6 +56,16 @@ Feature: Git context in header and pill tree
     And the pill tree branch should contain "test-branch"
     And there should be no page errors
 
+  Scenario: Clicking the terminal title branch copies the branch name
+    When I run "rm -rf /tmp/kolu-git-copy && git init /tmp/kolu-git-copy && cd /tmp/kolu-git-copy && git checkout -b copy-branch"
+    Then the pill tree branch should contain "copy-branch"
+    When I click the terminal title branch
+    Then a toast should appear with text "Copied branch name to clipboard"
+    And the clipboard should contain "copy-branch"
+    When I double-click the terminal title branch
+    Then no canvas tile should be maximized
+    And there should be no page errors
+
   Scenario: Pill tree does not show PR info on default branch
     When I run "git init /tmp/kolu-pr-default && cd /tmp/kolu-pr-default"
     Then the header should show a branch name
