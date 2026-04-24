@@ -149,14 +149,11 @@ export const SubPanelStateSchema = z.object({
 });
 
 /**
- * Fields that ride to disk. The exact same shape is what `SavedTerminal`
- * adds `id` to — the live metadata and the persisted snapshot share this
- * block verbatim so adding a persisted field is a one-place change. Order
- * within this object groups the two write authorities (server-derived
- * first, then client-owned) for readability; the compile-time write fence
- * lives on `TerminalServerMetadataSchema` / `TerminalClientMetadataSchema`.
+ * Server-persisted fields — written by server-side metadata providers
+ * (via `updateServerMetadata`) and round-tripped through disk. The
+ * "server-writes + persisted" intersection, declared structurally.
  */
-export const PersistedTerminalFieldsSchema = z.object({
+export const ServerPersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   /** Normalized agent CLI invocation last observed in this terminal (e.g.
@@ -164,6 +161,15 @@ export const PersistedTerminalFieldsSchema = z.object({
    *  input; drives the "resume agent on restore" offer in EmptyState.
    *  Absent for terminals that never ran a known agent. */
   lastAgentCommand: z.string().optional(),
+});
+
+/**
+ * Client-persisted fields — written by client RPCs (via
+ * `updateClientMetadata`, or direct mutation for paths that intentionally
+ * skip the publish like sub-panel state) and round-tripped through disk.
+ * The "client-writes + persisted" intersection, declared structurally.
+ */
+export const ClientPersistedTerminalFieldsSchema = z.object({
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
@@ -176,8 +182,8 @@ export const PersistedTerminalFieldsSchema = z.object({
 /**
  * Fields that only exist on a live terminal — transient status fed by
  * external state and never persisted. If a field is here, a session
- * restore must re-derive it; if a field is on `PersistedTerminalFieldsSchema`,
- * it round-trips through disk as-is.
+ * restore must re-derive it; if a field is on one of the persisted
+ * schemas, it round-trips through disk as-is.
  */
 export const LiveTerminalFieldsSchema = z.object({
   /** GitHub PR resolution — discriminated union (see PrResultSchema). */
@@ -189,28 +195,30 @@ export const LiveTerminalFieldsSchema = z.object({
 });
 
 /**
- * Server-derived fields — write authority: server-side metadata providers,
- * via `updateServerMetadata`. This is the compile-time fence that keeps
- * providers from accidentally writing client-owned fields like themeName.
+ * Every field that rides to disk. Union of the two write-authority
+ * bases — `SavedTerminal` just adds `id` to this shape. Adding a
+ * persisted field is a one-place change on whichever base owns it.
  */
-export const TerminalServerMetadataSchema = PersistedTerminalFieldsSchema.pick({
-  cwd: true,
-  git: true,
-  lastAgentCommand: true,
-}).merge(LiveTerminalFieldsSchema);
+export const PersistedTerminalFieldsSchema =
+  ServerPersistedTerminalFieldsSchema.merge(
+    ClientPersistedTerminalFieldsSchema,
+  );
 
 /**
- * Client-owned fields — write authority: client RPCs, via
- * `updateClientMetadata` (or direct mutation for paths that intentionally
- * skip the metadata publish, like sub-panel state). The complementary
- * compile-time fence to `TerminalServerMetadataSchema`.
+ * Server write fence — the mutator passed to `updateServerMetadata` is
+ * narrowed to this shape, so providers cannot accidentally write
+ * client-owned fields like themeName. Server-persisted base + transient
+ * live state (both server-written).
  */
-export const TerminalClientMetadataSchema = PersistedTerminalFieldsSchema.pick({
-  themeName: true,
-  parentId: true,
-  canvasLayout: true,
-  subPanel: true,
-});
+export const TerminalServerMetadataSchema =
+  ServerPersistedTerminalFieldsSchema.merge(LiveTerminalFieldsSchema);
+
+/**
+ * Client write fence — the mutator passed to `updateClientMetadata` is
+ * narrowed to this shape, so RPC handlers cannot accidentally overwrite
+ * provider-owned state. Exactly the client-persisted base.
+ */
+export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 
 /**
  * Unified wire shape — persisted fields plus transient live status.
