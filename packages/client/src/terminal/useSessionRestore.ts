@@ -207,7 +207,6 @@ export function useSessionRestore(deps: {
   return {
     isLoading: () => store.listSub.pending(),
     savedSession,
-    agentResume: resumeState.agentResume,
     handleRestoreSession,
   };
 }

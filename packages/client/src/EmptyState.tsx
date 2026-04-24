@@ -7,6 +7,7 @@ import type {
   SavedTerminal,
 } from "kolu-common";
 import { SHORTCUTS, formatKeybind } from "./input/keyboard";
+import { useAgentResume } from "./settings/useAgentResume";
 import Kbd from "./ui/Kbd";
 
 const features = [
@@ -58,18 +59,22 @@ function groupByRepo(
 
 interface EmptyStateProps {
   savedSession?: SavedSession;
-  agentResume?: SavedAgentResume;
   onRestore?: (options: { resumeIds: ReadonlySet<string> }) => void;
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
+  // Read per-terminal captured agent commands directly from the singleton —
+  // prop-drilling through App.tsx was the original shape but violated the
+  // no-preference-prop-drilling convention.
+  const { agentResume } = useAgentResume();
+
   // Opt-out set: terminal IDs that have a captured agent but the user
   // doesn't want auto-resumed. Default empty — everything with a capture
   // is in by default (checkbox pre-ticked).
   const [optedOut, setOptedOut] = createSignal<ReadonlySet<string>>(new Set());
 
   const resumableIds = createMemo(() => {
-    const map = props.agentResume ?? {};
+    const map = agentResume();
     const session = props.savedSession;
     if (!session) return [] as string[];
     return session.terminals
@@ -104,7 +109,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
             const subCount = () =>
               session().terminals.filter((t) => t.parentId).length;
             const groups = () =>
-              groupByRepo(session().terminals, props.agentResume ?? {});
+              groupByRepo(session().terminals, agentResume());
             return (
               <div
                 data-testid="session-restore"
@@ -124,7 +129,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                         </div>
                         <For each={group.terminals}>
                           {(t) => {
-                            const entry = () => (props.agentResume ?? {})[t.id];
+                            const entry = () => agentResume()[t.id];
                             const resumable = () => entry() !== undefined;
                             const optIn = () => !optedOut().has(t.id);
                             return (
