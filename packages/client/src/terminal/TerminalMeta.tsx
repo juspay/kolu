@@ -95,7 +95,7 @@ const TerminalMeta: Component<{
                     type="button"
                     data-testid="terminal-meta-branch"
                     aria-label={`Copy branch ${git().branch} to clipboard`}
-                    class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-copy hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                    class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                     style={{ color: info().branchColor }}
                     classList={{ "text-fg-2": !info().branchColor }}
                     onPointerDown={(e) => e.stopPropagation()}
