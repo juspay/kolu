@@ -79,7 +79,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
-    And the close confirmation should not offer worktree removal
+    And the close confirmation should not offer worktree removal because "sharedWithOtherTerminals"
     When I confirm close all in the close confirmation
     Then the pill tree should have 1 fewer terminal entry
     And there should be no page errors

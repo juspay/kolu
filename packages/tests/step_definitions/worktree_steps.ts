@@ -96,8 +96,8 @@ When("I confirm worktree removal", async function (this: KoluWorld) {
 });
 
 Then(
-  "the close confirmation should not offer worktree removal",
-  async function (this: KoluWorld) {
+  "the close confirmation should not offer worktree removal because {string}",
+  async function (this: KoluWorld, blocker: string) {
     // The dialog must be visible first — assert the remove button is absent
     // while the dialog itself is open, so we don't accidentally pass because
     // the whole dialog hasn't rendered yet.
@@ -108,10 +108,12 @@ Then(
     assert.strictEqual(
       await remove.count(),
       0,
-      "Expected 'Remove worktree' button to be absent when another terminal shares the worktree",
+      `Expected 'Remove worktree' button to be absent when blocker=${blocker}`,
     );
     await this.page
-      .locator('[data-testid="close-confirm-shared-note"]')
+      .locator(
+        `[data-testid="close-confirm-removal-blocker"][data-blocker="${blocker}"]`,
+      )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

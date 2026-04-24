@@ -235,10 +235,12 @@ const App: Component = () => {
     const worktreePath = meta.git?.isWorktree
       ? meta.git.worktreePath
       : undefined;
-    const worktreeSharedWithOthers = worktreePath
+    const worktreeRemoval = worktreePath
       ? store.isWorktreeShared(worktreePath, id)
-      : false;
-    setCloseConfirmTarget({ id, meta, splitCount, worktreeSharedWithOthers });
+        ? ({ eligible: false, reason: "sharedWithOtherTerminals" } as const)
+        : ({ eligible: true } as const)
+      : undefined;
+    setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
   const commands = createCommands({

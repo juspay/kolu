@@ -10,17 +10,34 @@ import ChecksIndicator from "./terminal/ChecksIndicator";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { prValue } from "kolu-common/pr";
 
+/** Reasons why the "Remove worktree" action is suppressed.
+ *
+ *  One blocker today (`"sharedWithOtherTerminals"`); the union shape
+ *  is ready for future reasons (unpushed commits, per-user preference,
+ *  running agent) without a breaking change to `CloseConfirmTarget`. */
+export type WorktreeRemovalBlocker = "sharedWithOtherTerminals";
+
+/** Whether the close dialog may offer worktree removal. */
+export type WorktreeRemovalEligibility =
+  | { eligible: true }
+  | { eligible: false; reason: WorktreeRemovalBlocker };
+
+const BLOCKER_MESSAGES: Record<WorktreeRemovalBlocker, string> = {
+  sharedWithOtherTerminals:
+    "Another terminal is using this worktree — it will remain on disk.",
+};
+
 export interface CloseConfirmTarget {
   id: TerminalId;
   meta: TerminalMetadata;
   splitCount: number;
-  /** Another terminal is on the same worktree, so removing it here would
-   *  pull the rug out from under the other terminal.
+  /** Eligibility for the "remove worktree" action. Only set when the
+   *  terminal is on a worktree; `undefined` otherwise.
    *
    *  Snapshot at dialog-open time — intentionally not reactive. The dialog
    *  is an imperative confirmation; its title, body note, and buttons must
    *  not shift under the user's eyes while they decide. */
-  worktreeSharedWithOthers: boolean;
+  worktreeRemoval?: WorktreeRemovalEligibility;
 }
 
 const CloseConfirm: Component<{
@@ -31,8 +48,13 @@ const CloseConfirm: Component<{
 }> = (props) => {
   let cancelRef!: HTMLButtonElement;
   const isWorktree = () => props.target?.meta.git?.isWorktree ?? false;
-  const sharedWorktree = () => props.target?.worktreeSharedWithOthers ?? false;
-  const canRemoveWorktree = () => isWorktree() && !sharedWorktree();
+  const removalEligibility = () => props.target?.worktreeRemoval;
+  const canRemoveWorktree = () =>
+    isWorktree() && removalEligibility()?.eligible === true;
+  const removalBlocker = (): WorktreeRemovalBlocker | undefined => {
+    const e = removalEligibility();
+    return e && !e.eligible ? e.reason : undefined;
+  };
   const splitCount = () => props.target?.splitCount ?? 0;
   const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
 
@@ -68,10 +90,15 @@ const CloseConfirm: Component<{
             <p>This terminal is in a git worktree.</p>
           </Show>
 
-          <Show when={sharedWorktree()}>
-            <p data-testid="close-confirm-shared-note">
-              Another terminal is using this worktree — it will remain on disk.
-            </p>
+          <Show when={removalBlocker()}>
+            {(reason) => (
+              <p
+                data-testid="close-confirm-removal-blocker"
+                data-blocker={reason()}
+              >
+                {BLOCKER_MESSAGES[reason()]}
+              </p>
+            )}
           </Show>
 
           <Show when={splitCount() > 0}>
