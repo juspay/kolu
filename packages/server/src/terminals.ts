@@ -33,9 +33,11 @@ const terminals = new Map<TerminalId, TerminalProcess>();
 /** Build a session snapshot from current terminal state.
  *
  *  The persisted fields live on `TerminalMetadata` in the exact shape
- *  `SavedTerminal` needs — so a snapshot is just "every persisted field
- *  plus id". Order is `Map` insertion order, which the reorder RPC
- *  maintains as the canonical ordering. */
+ *  `SavedTerminal` needs — so a snapshot is "strip the live fields,
+ *  add id". Adding a future persisted field to
+ *  `PersistedTerminalFieldsSchema` flows through here with no change.
+ *  Order is `Map` insertion order, which the reorder RPC maintains as
+ *  the canonical ordering. */
 export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
@@ -43,24 +45,12 @@ export function snapshotSession(): {
   const snappedTerminals = [...terminals.entries()].map(
     ([id, entry]): SavedTerminal => {
       const {
-        cwd,
-        git,
-        parentId,
-        themeName,
-        canvasLayout,
-        subPanel,
-        lastAgentCommand,
+        pr: _pr,
+        agent: _agent,
+        foreground: _foreground,
+        ...persisted
       } = entry.info.meta;
-      return {
-        id,
-        cwd,
-        git,
-        ...(parentId && { parentId }),
-        ...(themeName && { themeName }),
-        ...(canvasLayout && { canvasLayout }),
-        ...(subPanel && { subPanel }),
-        ...(lastAgentCommand && { lastAgentCommand }),
-      };
+      return { id, ...persisted };
     },
   );
   return { terminals: snappedTerminals, activeTerminalId };
