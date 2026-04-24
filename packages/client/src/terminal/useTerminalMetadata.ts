@@ -84,18 +84,25 @@ export function useTerminalMetadata(deps: {
       .sort(bySortOrder);
   }
 
-  /** True if another top-level terminal (not `excludeId`) is also on
+  /** True if any terminal outside of `excludeId`'s tree is also on
    *  `worktreePath`. Callers use this to decide whether removing the
-   *  worktree would yank it out from under a live terminal. */
+   *  worktree would yank it out from under a live terminal.
+   *
+   *  "Tree" = `excludeId` itself plus its sub-terminals — those get
+   *  killed together with `excludeId` and so never count. But a
+   *  sub-terminal of a _different_ top-level can be cd'd into the same
+   *  worktree (its git metadata is derived from its own CWD), and it
+   *  survives when `excludeId` dies, so it must be counted as sharing. */
   function isWorktreeShared(
     worktreePath: string,
     excludeId: TerminalId,
   ): boolean {
-    return terminalIds().some(
-      (otherId) =>
-        otherId !== excludeId &&
-        getMetadata(otherId)?.git?.worktreePath === worktreePath,
-    );
+    const onWorktree = (id: TerminalId) =>
+      getMetadata(id)?.git?.worktreePath === worktreePath;
+    return terminalIds().some((otherId) => {
+      if (otherId === excludeId) return false;
+      return onWorktree(otherId) || getSubTerminalIds(otherId).some(onWorktree);
+    });
   }
 
   // --- Derived accessors ---
