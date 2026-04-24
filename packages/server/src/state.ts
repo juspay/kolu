@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.17.0";
+const SCHEMA_VERSION = "1.18.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -288,6 +288,30 @@ export const store = new Conf<PersistedState>({
           rightPanel: rest as typeof current.rightPanel,
         });
       }
+    },
+    // SavedTerminal unified with TerminalMetadata — the flattened
+    // `repoName`/`branch` (now read from `git`) and the `sortOrder`
+    // index (replaced by Map insertion order) are gone. Strip the
+    // fields from each persisted terminal so the 1.18.0 shape matches
+    // the schema exactly.
+    "1.18.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map((t) => {
+        const {
+          sortOrder: _sortOrder,
+          repoName: _repoName,
+          branch: _branch,
+          ...kept
+        } = t;
+        return kept;
+      });
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
     },
   },
 });

@@ -30,6 +30,7 @@ import {
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
 } from "kolu-git/schemas";
+import type { GitInfo } from "kolu-git/schemas";
 
 // Re-export integration schemas so consumers import from kolu-common only.
 export {
@@ -149,39 +150,24 @@ export const SubPanelStateSchema = z.object({
 });
 
 /**
- * Server-derived metadata — populated by providers from external state
- * (git working tree, PTY foreground process, agent CLI transcripts).
- * Write authority: server-side metadata providers, via `updateServerMetadata`.
+ * Fields that ride to disk. The exact same shape is what `SavedTerminal`
+ * adds `id` to — the live metadata and the persisted snapshot share this
+ * block verbatim so adding a persisted field is a one-place change. Order
+ * within this object groups the two write authorities (server-derived
+ * first, then client-owned) for readability; the compile-time write fence
+ * lives on `TerminalServerMetadataSchema` / `TerminalClientMetadataSchema`.
  */
-export const TerminalServerMetadataSchema = z.object({
+export const PersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
-  /** GitHub PR resolution — discriminated union (see PrResultSchema). */
-  pr: PrResultSchema,
-  /** AI coding agent status (Claude Code, OpenCode, etc.). */
-  agent: AgentInfoSchema.nullable(),
-  /** Foreground process name — detected via OSC 2 title change events. */
-  foreground: ForegroundSchema.nullable(),
-  /** Short id-prefix suffix ("#a3f2") rendered next to the name when ≥2
-   *  terminals would otherwise collide on identity (same git repo+branch
-   *  for git-aware terminals; same cwd for the rest). Computed server-side
-   *  across the live terminal set so clients render a stable, agreed-upon
-   *  suffix without re-deriving collisions per surface. */
-  displaySuffix: z.string().optional(),
-});
-
-/**
- * Client-owned metadata — set by client RPC handlers, persisted server-side
- * for session restore and multi-client sync. Write authority: client RPCs,
- * via `updateClientMetadata` (or direct mutation for paths that intentionally
- * skip the metadata publish, like sub-panel state).
- */
-export const TerminalClientMetadataSchema = z.object({
+  /** Normalized agent CLI invocation last observed in this terminal (e.g.
+   *  `"claude --model sonnet"`). Preserved across intervening non-agent
+   *  input; drives the "resume agent on restore" offer in EmptyState.
+   *  Absent for terminals that never ran a known agent. */
+  lastAgentCommand: z.string().optional(),
   themeName: z.string().optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
-  /** Numeric ordering within the terminal's group (top-level or same parent). Higher = later. */
-  sortOrder: z.number(),
   /** Canvas tile position/size — client-reported, used for session restore. */
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
@@ -189,12 +175,51 @@ export const TerminalClientMetadataSchema = z.object({
 });
 
 /**
- * Unified wire shape — merge of the server-derived and client-owned halves.
- * Flat for backwards-compat with existing consumers; code that only needs
- * one half should import the sub-schema so the dependency is explicit.
+ * Fields that only exist on a live terminal — transient status fed by
+ * external state and never persisted. If a field is here, a session
+ * restore must re-derive it; if a field is on `PersistedTerminalFieldsSchema`,
+ * it round-trips through disk as-is.
  */
-export const TerminalMetadataSchema = TerminalServerMetadataSchema.merge(
-  TerminalClientMetadataSchema,
+export const LiveTerminalFieldsSchema = z.object({
+  /** GitHub PR resolution — discriminated union (see PrResultSchema). */
+  pr: PrResultSchema,
+  /** AI coding agent status (Claude Code, OpenCode, etc.). */
+  agent: AgentInfoSchema.nullable(),
+  /** Foreground process name — detected via OSC 2 title change events. */
+  foreground: ForegroundSchema.nullable(),
+});
+
+/**
+ * Server-derived fields — write authority: server-side metadata providers,
+ * via `updateServerMetadata`. This is the compile-time fence that keeps
+ * providers from accidentally writing client-owned fields like themeName.
+ */
+export const TerminalServerMetadataSchema = PersistedTerminalFieldsSchema.pick({
+  cwd: true,
+  git: true,
+  lastAgentCommand: true,
+}).merge(LiveTerminalFieldsSchema);
+
+/**
+ * Client-owned fields — write authority: client RPCs, via
+ * `updateClientMetadata` (or direct mutation for paths that intentionally
+ * skip the metadata publish, like sub-panel state). The complementary
+ * compile-time fence to `TerminalServerMetadataSchema`.
+ */
+export const TerminalClientMetadataSchema = PersistedTerminalFieldsSchema.pick({
+  themeName: true,
+  parentId: true,
+  canvasLayout: true,
+  subPanel: true,
+});
+
+/**
+ * Unified wire shape — persisted fields plus transient live status.
+ * Flat for convenience; code that only needs one half should import the
+ * sub-schema so the dependency is explicit.
+ */
+export const TerminalMetadataSchema = PersistedTerminalFieldsSchema.merge(
+  LiveTerminalFieldsSchema,
 );
 
 // --- Terminal ---
@@ -309,34 +334,19 @@ export const RecentAgentSchema = z.object({
 
 // --- Session persistence ---
 
-export const SavedTerminalSchema = z.object({
+/**
+ * On-disk snapshot of a terminal. Exactly the persisted fields plus a
+ * stable `id` for cross-referencing parents. Derived mechanically from
+ * `PersistedTerminalFieldsSchema` — adding a persisted field to
+ * `TerminalMetadataSchema` automatically rides through here.
+ *
+ * Within-group ordering is the array index; the server writes terminals
+ * in `Map` insertion order (stable per ES2015) and restore replays that
+ * order verbatim.
+ */
+export const SavedTerminalSchema = PersistedTerminalFieldsSchema.extend({
   /** Stable ID within this session (original terminal UUID at save time). */
   id: z.string(),
-  cwd: z.string(),
-  /** References another saved terminal's `id` (sub-terminal relationship). */
-  parentId: z.string().optional(),
-  /** Snapshot of repo name at save time (for display only). */
-  repoName: z.string().optional(),
-  /** Snapshot of branch at save time (for display only). */
-  branch: z.string().optional(),
-  /** Ordering within group at save time. */
-  sortOrder: z.number().optional(),
-  /** Theme name at save time. */
-  themeName: z.string().optional(),
-  /** Canvas tile position and size at save time. */
-  canvasLayout: CanvasLayoutSchema.optional(),
-  /** Sub-panel state at save time (collapsed, size). */
-  subPanel: z
-    .object({
-      collapsed: z.boolean(),
-      panelSize: z.number(),
-    })
-    .optional(),
-  /** Normalized agent CLI invocation last observed in this terminal (from
-   *  `parseAgentCommand` — prompts/positionals stripped). Absent for plain
-   *  shells and for terminals that only ran detection-only agents. Drives
-   *  the "resume agent on restore" offer in EmptyState. */
-  lastAgentCommand: z.string().optional(),
 });
 
 export const SavedSessionSchema = z.object({
@@ -429,9 +439,71 @@ export type InitialTerminalMetadata = z.infer<
 >;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
+export type PersistedTerminalFields = z.infer<
+  typeof PersistedTerminalFieldsSchema
+>;
+export type LiveTerminalFields = z.infer<typeof LiveTerminalFieldsSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type SavedSession = z.infer<typeof SavedSessionSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;
 export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
+
+// --- Terminal identity keys ---
+
+/** Two projections of the same identity:
+ *  - `group` is the repo-equivalence (git repoName, or cwd for non-git). All
+ *    terminals of a given group collect under one pill/restore heading.
+ *  - `label` is the branch-equivalence (git branch, or cwd for non-git).
+ *    Two terminals share a pill slot when both `group` and `label` match.
+ *  - `suffix` is a stable short id-prefix ("#a3f2") assigned only to ids
+ *    that actually collide on `(group, label)` within the live set —
+ *    unique pills leave it undefined.
+ */
+export type TerminalKey = {
+  group: string;
+  label: string;
+  suffix?: string;
+};
+
+/** Minimum metadata slice needed to compute a terminal's key. */
+export type TerminalIdentity = {
+  id: TerminalId;
+  git: GitInfo | null;
+  cwd: string;
+};
+
+/** Compute keys for every terminal in one pass.
+ *
+ *  Pure: same inputs produce the same outputs on every client, so the
+ *  server never has to broadcast suffixes. Suffixes are assigned only
+ *  when two terminals collide on `(group, label)`; unique pills get
+ *  `suffix: undefined`.
+ */
+export function computeTerminalKeys(
+  terminals: readonly TerminalIdentity[],
+): Map<TerminalId, TerminalKey> {
+  const counts = new Map<string, number>();
+  for (const t of terminals) {
+    counts.set(keyOf(t), (counts.get(keyOf(t)) ?? 0) + 1);
+  }
+  const result = new Map<TerminalId, TerminalKey>();
+  for (const t of terminals) {
+    const { group, label } = projectKey(t);
+    const suffix =
+      (counts.get(keyOf(t)) ?? 0) > 1 ? `#${t.id.slice(0, 4)}` : undefined;
+    result.set(t.id, { group, label, suffix });
+  }
+  return result;
+}
+
+function projectKey(t: TerminalIdentity): { group: string; label: string } {
+  if (t.git) return { group: t.git.repoName, label: t.git.branch };
+  return { group: t.cwd, label: t.cwd };
+}
+
+function keyOf(t: TerminalIdentity): string {
+  const { group, label } = projectKey(t);
+  return `${group} ${label}`;
+}

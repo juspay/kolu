@@ -6,7 +6,9 @@
  *                                                    ↓
  *   title:<id>  →  process provider  ────────→  metadata:<id>
  *   title:<id> + agent external-change signal  →  agent provider (×N)  →  metadata:<id>
- *   commandRun:<id>  →  agent-command tracker  →  lastAgentCommandName stash + activity:changed
+ *   commandRun:<id>  →  agent-command tracker  →  lastAgentCommandName stash
+ *                                                 + metadata:<id> (lastAgentCommand)
+ *                                                 + activity:changed
  *
  * Providers publish server-derived fields via `updateServerMetadata`; client
  * RPC handlers persist client-owned fields via `updateClientMetadata` (or
@@ -30,11 +32,7 @@ import type {
   TerminalClientMetadata,
 } from "kolu-common";
 import { prValue, prUnavailableReason } from "kolu-common";
-import {
-  type TerminalProcess,
-  recomputeDisplaySuffixes,
-  getTerminal,
-} from "../terminals.ts";
+import { type TerminalProcess } from "../terminals.ts";
 import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
@@ -47,29 +45,20 @@ import { startProcessProvider } from "./process.ts";
 import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
-export function createMetadata(
-  cwd: string,
-  sortOrder: number,
-): TerminalMetadata {
+export function createMetadata(cwd: string): TerminalMetadata {
   return {
     cwd,
     git: null,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    sortOrder,
   };
 }
 
 /** Log + publish the current metadata snapshot and trigger debounced
  *  session auto-save. Shared tail for both `updateServerMetadata` and
  *  `updateClientMetadata` so the publish/audit path is identical regardless
- *  of who wrote the fields.
- *
- *  Also recomputes `displaySuffix` across the live set: any cwd/git
- *  change can flip another terminal between "unique" and "collision"
- *  status. Affected terminals get their own metadata republish so each
- *  per-terminal stream stays in sync. */
+ *  of who wrote the fields. */
 function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   const m = entry.info.meta;
   const pr = prValue(m.pr);
@@ -90,13 +79,7 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
     },
     "metadata publish",
   );
-  const suffixChanges = recomputeDisplaySuffixes();
   publishForTerminal("metadata", terminalId, { ...m });
-  for (const id of suffixChanges) {
-    if (id === terminalId) continue; // already published above
-    const other = getTerminal(id);
-    if (other) publishForTerminal("metadata", id, { ...other.info.meta });
-  }
   publishSystem("terminals:dirty", {});
 }
 
@@ -113,7 +96,7 @@ export function updateServerMetadata(
   publishMetadata(entry, terminalId);
 }
 
-/** Atomically mutate client-owned metadata (themeName, parentId, sortOrder,
+/** Atomically mutate client-owned metadata (themeName, parentId,
  *  canvasLayout, subPanel) and publish. The mutator is narrowed to
  *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
  *  provider-owned state. */

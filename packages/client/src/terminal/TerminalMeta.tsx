@@ -38,7 +38,7 @@ const TerminalMeta: Component<{
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             <NameSpan info={info()} />
-            <Show when={info().meta.displaySuffix}>
+            <Show when={info().key.suffix}>
               {(suffix) => (
                 <span
                   data-testid="terminal-meta-suffix"

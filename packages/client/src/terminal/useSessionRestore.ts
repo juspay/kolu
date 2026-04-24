@@ -82,10 +82,9 @@ export function useSessionRestore(deps: {
     // Prefer the server-persisted active terminal; fall back to first in order.
     // `store.activeId()` starts as null after refresh (lost makePersisted in
     // #554), so on refresh the server snapshot is the only source of truth
-    // for "which terminal was active".
-    const topLevel = existing
-      .filter((t) => !t.meta.parentId)
-      .sort((a, b) => a.meta.sortOrder - b.meta.sortOrder);
+    // for "which terminal was active". `existing` arrives in the server's
+    // Map insertion order, which is the canonical ordering.
+    const topLevel = existing.filter((t) => !t.meta.parentId);
     const topIds = topLevel.map((t) => t.id);
     const picked =
       serverActiveId && topIds.includes(serverActiveId as TerminalId)
@@ -137,16 +136,10 @@ export function useSessionRestore(deps: {
     );
     try {
       const oldToNew = new Map<string, TerminalId>();
-      const bySortOrder = (
-        a: { sortOrder?: number },
-        b: { sortOrder?: number },
-      ) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
-      const topLevel = session.terminals
-        .filter((t) => !t.parentId)
-        .sort(bySortOrder);
-      const subTerminals = session.terminals
-        .filter((t) => t.parentId)
-        .sort(bySortOrder);
+      // Array order is the ordering — the server wrote terminals in Map
+      // insertion order, and that order round-trips verbatim through disk.
+      const topLevel = session.terminals.filter((t) => !t.parentId);
+      const subTerminals = session.terminals.filter((t) => t.parentId);
       let resumed = 0;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
