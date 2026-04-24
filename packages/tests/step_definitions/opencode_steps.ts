@@ -47,11 +47,13 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
 }
 
 async function startFakeAgent(world: KoluWorld): Promise<void> {
-  // See codex_steps.ts::startFakeAgent for why we use an absolute path
-  // and why the trailing `:` matters.
+  // See codex_steps.ts::startFakeAgent for rationale, including why we
+  // emit a second OSC 2 title event from inside the fake agent's body.
   const bin = process.env.KOLU_FAKE_OPENCODE_BIN;
   if (!bin) throw new Error("KOLU_FAKE_OPENCODE_BIN must be set");
-  await world.page.keyboard.type(`${bin} -c "sleep 99999 ; :"`);
+  await world.page.keyboard.type(
+    `${bin} -c "printf '\\033]0;opencode\\007'; sleep 99999 ; :"`,
+  );
   await world.page.keyboard.press("Enter");
 }
 

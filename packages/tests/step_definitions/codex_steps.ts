@@ -68,11 +68,21 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // (comm→"sleep"), breaking the foreground-basename check. A compound
   // command forces bash to stay resident so comm stays "codex".
   //
+  // Emitting OSC 2 from inside the body is a stability belt — the
+  // reconcile triggered by bash's preexec OSC 2 fires before the new
+  // process is actually in the foreground (Linux inotify coalescing +
+  // OSC 7 vs title event ordering under parallel-worker load), so we
+  // emit a second title event once the fake agent is definitively the
+  // foreground process. Without this the detection misses in ~5% of
+  // CI runs.
+  //
   // `terminal/killAll` in hooks.ts:Before tears the pty down between
   // scenarios, which SIGKILLs the whole tree.
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
-  await world.page.keyboard.type(`${bin} -c "sleep 99999 ; :"`);
+  await world.page.keyboard.type(
+    `${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
+  );
   await world.page.keyboard.press("Enter");
 }
 
