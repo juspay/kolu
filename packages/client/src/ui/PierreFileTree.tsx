@@ -5,10 +5,17 @@
  *  reactive effects, and call `cleanUp()` on disposal. No re-render loop —
  *  SolidJS reactivity just tickles imperative setters. */
 
-import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  on,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { FileTree, type GitStatusEntry } from "@pierre/trees";
 import type { GitChangeStatus } from "kolu-common";
-import { pierreTreesStyle } from "./pierreTheme";
+import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
 
 /** Map Kolu's single-letter porcelain status to Pierre's word form. */
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
@@ -44,16 +51,25 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTree | undefined;
 
+  // Pierre emits onSelectionChange for directory clicks too — which would
+  // trigger a file read and crash with EISDIR. Directories don't appear in
+  // `paths` (Pierre infers them from path prefixes), so membership in this
+  // set is a reliable file-vs-folder discriminator.
+  const fileSet = createMemo(() => new Set(props.paths));
+
   onMount(() => {
     tree = new FileTree({
       paths: props.paths,
       initialExpansion: "closed",
+      icons: pierreIconConfig,
       search: props.search ?? true,
       gitStatus: props.gitStatus,
       initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
       onSelectionChange: (paths) => {
         // Pierre fires with all selected paths; we model single-select.
-        props.onSelect?.(paths[0] ?? null);
+        const p = paths[0] ?? null;
+        if (p !== null && !fileSet().has(p)) return; // ignore directories
+        props.onSelect?.(p);
       },
     });
     tree.render({ containerWrapper: container });
