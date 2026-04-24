@@ -75,6 +75,10 @@ export function writeOpenCodeFixture(opts: {
   const sessionId = "opencode-mock-session-0001";
   const db = new DatabaseSync(opts.dbPath);
   try {
+    // Enable WAL so (a) the server's reader and our writer don't block
+    // each other, and (b) the WAL sidecar file the opencode watcher
+    // listens on actually exists. Real OpenCode uses WAL too.
+    db.exec("PRAGMA journal_mode = WAL;");
     db.exec(OPENCODE_SCHEMA);
 
     db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(

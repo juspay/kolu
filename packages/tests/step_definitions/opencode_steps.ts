@@ -20,7 +20,7 @@ import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
-import { cleanupMockDatabase } from "../support/mock-fs.ts";
+import { clearMockDatabase } from "../support/mock-fs.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
 
@@ -32,7 +32,7 @@ function cleanup() {
   }
   mockCwd = null;
   const dbPath = getOpenCodeDb();
-  if (dbPath) cleanupMockDatabase(dbPath);
+  if (dbPath) clearMockDatabase(dbPath);
 }
 
 After({ tags: "@opencode-mock" }, function () {
@@ -47,7 +47,21 @@ async function cdTerminalInto(world: KoluWorld, cwd: string): Promise<void> {
 }
 
 async function startFakeAgent(world: KoluWorld): Promise<void> {
-  await world.page.keyboard.type("opencode 99999");
+  // See codex_steps.ts::startFakeAgent for why we use an absolute path
+  // and why the trailing `:` matters.
+  const bin = process.env.KOLU_FAKE_OPENCODE_BIN;
+  if (!bin) throw new Error("KOLU_FAKE_OPENCODE_BIN must be set");
+  await world.page.keyboard.type(`${bin} -c "sleep 99999 ; :"`);
+  await world.page.keyboard.press("Enter");
+}
+
+async function startShimmedAgent(world: KoluWorld): Promise<void> {
+  // See codex_steps.ts::startShimmedAgent for the full rationale.
+  await world.page.keyboard.type(
+    `opencode() { ( printf '\\033]0;opencode\\007'; sleep 99999 ; :); }`,
+  );
+  await world.page.keyboard.press("Enter");
+  await world.page.keyboard.type("opencode");
   await world.page.keyboard.press("Enter");
 }
 
@@ -60,6 +74,7 @@ interface MockOpts {
 async function mockOpenCodeSession(
   world: KoluWorld,
   opts: MockOpts,
+  { shimmed }: { shimmed?: boolean } = {},
 ): Promise<void> {
   const dbPath = getOpenCodeDb();
   if (!dbPath) throw new Error("KOLU_OPENCODE_DB must be set");
@@ -72,13 +87,28 @@ async function mockOpenCodeSession(
   writeOpenCodeFixture({ dbPath, cwd: mockCwd, ...opts });
 
   await cdTerminalInto(world, mockCwd);
-  await startFakeAgent(world);
+  if (shimmed) {
+    await startShimmedAgent(world);
+  } else {
+    await startFakeAgent(world);
+  }
 }
 
 When(
   "an OpenCode session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
     await mockOpenCodeSession(this, { state: state as AgentLifecycleState });
+  },
+);
+
+When(
+  "an OpenCode session is mocked with state {string} via an npm-shimmed CLI",
+  async function (this: KoluWorld, state: string) {
+    await mockOpenCodeSession(
+      this,
+      { state: state as AgentLifecycleState },
+      { shimmed: true },
+    );
   },
 );
 

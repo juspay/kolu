@@ -1,23 +1,30 @@
 /** Cross-agent filesystem helpers for mock step definitions. */
 
 import * as fs from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 
-/** Delete a SQLite DB and its WAL/SHM sidecars if they exist.
+/** Wipe all rows from the given SQLite DB **without deleting the file**.
  *
- *  Narrows the swallowed-error window to genuine transient-lock codes
- *  (`EBUSY`, `EAGAIN`) that can arise when the server's reader
- *  connection is mid-release. Anything else — `EACCES`, `ENOSPC`, or a
- *  stale `ENOENT` after `existsSync` — propagates so the cleanup bug
- *  surfaces instead of hiding inside a cryptic "database locked"
- *  failure in the next scenario's fixture write. */
-export function cleanupMockDatabase(dbPath: string): void {
-  for (const p of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (!fs.existsSync(p)) continue;
-    try {
-      fs.unlinkSync(p);
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "EBUSY" && code !== "EAGAIN") throw err;
+ *  Deleting the DB file between scenarios breaks the server's WAL
+ *  `fs.watch` handle (Linux inotify drops on unlink; the watcher's
+ *  dir-fallback may race the next fixture write). The real Codex /
+ *  OpenCode CLIs keep the DB alive across turns — mirror that shape.
+ *
+ *  Tables not present are skipped (`sqlite_master` lookup keeps the
+ *  helper agent-agnostic). DB file not existing at all is a no-op. */
+export function clearMockDatabase(dbPath: string): void {
+  if (!fs.existsSync(dbPath)) return;
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA journal_mode = WAL;");
+    const rows = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all() as { name: string }[];
+    for (const row of rows) {
+      if (row.name.startsWith("sqlite_")) continue;
+      db.exec(`DELETE FROM "${row.name}"`);
     }
+  } finally {
+    db.close();
   }
 }

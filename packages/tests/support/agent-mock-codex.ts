@@ -116,6 +116,10 @@ export function writeCodexFixture(opts: {
 
   const db = new DatabaseSync(dbPath);
   try {
+    // Enable WAL so (a) the server's reader and our writer don't block
+    // each other, and (b) the WAL sidecar file the codex WAL watcher
+    // listens on actually exists. Real Codex uses WAL too.
+    db.exec("PRAGMA journal_mode = WAL;");
     db.exec(`
       CREATE TABLE IF NOT EXISTS threads (
         id TEXT PRIMARY KEY,
@@ -146,16 +150,42 @@ export function writeCodexFixture(opts: {
   return { dbPath, rolloutPath, threadId };
 }
 
-/** Rewrite the rollout JSONL in place to transition the session state.
- *  Used by scenarios that move thinking → waiting etc. without tearing
- *  down the thread row or the watcher. */
+/** Rewrite the rollout JSONL in place to transition the session state,
+ *  and bump `threads.updated_at_ms` so the WAL watcher fires a reconcile.
+ *
+ *  The rollout-only path works in production because the real Codex CLI
+ *  writes to the DB on every turn too — their WAL event is what wakes
+ *  our watcher, not the JSONL mtime. Mirror that here so state
+ *  transitions propagate without needing a direct JSONL watcher. */
 export function updateCodexRollout(
-  rolloutPath: string,
+  fixture: CodexFixture,
   opts: {
     state: AgentLifecycleState;
     inputTokens?: number;
     cachedInputTokens?: number;
   },
 ): void {
-  fs.writeFileSync(rolloutPath, buildCodexRollout(opts));
+  fs.writeFileSync(fixture.rolloutPath, buildCodexRollout(opts));
+  const db = new DatabaseSync(fixture.dbPath);
+  try {
+    db.exec("PRAGMA journal_mode = WAL;");
+    // Noisy write: a brief INSERT/DELETE forces a new WAL frame big
+    // enough for the server's fs.watch on the WAL file to reliably
+    // fire. A bare UPDATE on the same row is a no-op at the page level
+    // when only `updated_at_ms` changes, and its tiny WAL append can
+    // get coalesced below the inotify granularity.
+    db.exec(`
+      BEGIN;
+      INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms)
+        VALUES ('__kick__', '', '', 'cli', 0, 0);
+      DELETE FROM threads WHERE id = '__kick__';
+      COMMIT;
+    `);
+    db.prepare("UPDATE threads SET updated_at_ms = ? WHERE id = ?").run(
+      Date.now(),
+      fixture.threadId,
+    );
+  } finally {
+    db.close();
+  }
 }

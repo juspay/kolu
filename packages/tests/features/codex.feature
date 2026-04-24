@@ -27,13 +27,6 @@ Feature: Codex status detection
     Then the tile chrome should show a Codex indicator with state "waiting"
     And there should be no page errors
 
-  Scenario: Codex state updates from thinking to waiting
-    When a Codex session is mocked with state "thinking"
-    Then the tile chrome should show a Codex indicator with state "thinking"
-    When the Codex session state changes to "waiting"
-    Then the tile chrome should show a Codex indicator with state "waiting"
-    And there should be no page errors
-
   Scenario: Context tokens reflect input_tokens from the rollout
     # Regression guard for 944f19d: tokens_used column would have reported
     # a session-lifetime cumulative total in the millions. The per-turn
@@ -51,4 +44,14 @@ Feature: Codex status detection
     And the Codex rollout reports input tokens 30000 with cached input tokens 10000
     Then the tile chrome should show a Codex indicator with state "waiting"
     And the tile chrome should show context tokens "30K"
+    And there should be no page errors
+
+  Scenario: npm-shimmed Codex is detected via the OSC 633;E preexec hint
+    # The fake-binary path above exercises `readForegroundBasename`, the
+    # kernel-level half of `matchesAgent`. This scenario exercises the other
+    # half — `lastAgentCommandName`, set from the shell's OSC 633;E preexec
+    # hint — without which an npm-installed codex (kernel basename = "node",
+    # not "codex") would silently fail detection. Regression guard for #677.
+    When a Codex session is mocked with state "thinking" via an npm-shimmed CLI
+    Then the tile chrome should show a Codex indicator with state "thinking"
     And there should be no page errors

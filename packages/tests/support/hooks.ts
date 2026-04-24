@@ -60,23 +60,39 @@ const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 process.env.KOLU_CODEX_DIR = codexDir;
 process.env.KOLU_OPENCODE_DB = opencodeDbPath;
 
-/** Fake agent binaries on PATH so typing `codex` or `opencode` in a
- *  test terminal forks a long-lived foreground process whose basename
- *  matches what `matchesAgent` expects. Copies of the system `sleep`
- *  binary renamed to `codex` and `opencode`: node-pty's `.process`
- *  accessor returns the basename of the execve path, so the kernel
- *  reports the renamed binary and `readForegroundBasename()` satisfies
- *  `matchesAgent(state, "codex"|"opencode")` without requiring the real
- *  CLIs to be installed. `/bin/sleep` isn't stable across distros (NixOS
- *  puts coreutils in /nix/store), so resolve via `command -v`. */
+/** Fake agent binaries the codex/opencode mock scenarios invoke by
+ *  absolute path to bypass PATH resolution — the user's shell rc (e.g.
+ *  ~/.bashrc) may prepend `~/.npm-global/bin` on startup and shadow any
+ *  PATH override we set via the whitelist, so a real codex/opencode
+ *  install on the host silently wins against the fake.
+ *
+ *  Each stub is a copy of `bash`, renamed to `codex` / `opencode`. The
+ *  kernel's `/proc/<pid>/comm` (Linux) and sysctl KERN_PROC_PATHNAME
+ *  (macOS) both reflect the execve basename, so a bash copy launched as
+ *  `.../bin/codex -c "..."` shows up with comm="codex" — satisfying
+ *  `readForegroundBasename() === "codex"` without requiring the real
+ *  CLI to be installed.
+ *
+ *  `/bin/sleep` tempted as a simpler stub but fails on nixpkgs: coreutils
+ *  ships as a multi-call binary that inspects argv[0] and errors with
+ *  "unknown program 'codex'" when renamed. Bash is a single-purpose
+ *  binary and copies cleanly.
+ *
+ *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN and
+ *  KOLU_FAKE_OPENCODE_BIN env vars (on this worker's process env, not
+ *  forwarded to the spawned server — the step defs read them directly
+ *  and type the absolute path into the pty). */
 const fakeBinDir = mkSubDir("bin");
-const sleepPath = execSync("command -v sleep", { encoding: "utf8" }).trim();
+const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
+const fakeBins: Record<string, string> = {};
 for (const name of ["codex", "opencode"]) {
   const target = path.join(fakeBinDir, name);
-  fs.copyFileSync(sleepPath, target);
+  fs.copyFileSync(bashPath, target);
   fs.chmodSync(target, 0o755);
+  fakeBins[name] = target;
 }
-const fakeBinPath = `${fakeBinDir}${path.delimiter}${process.env.PATH ?? ""}`;
+process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
+process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -206,12 +222,19 @@ BeforeAll(async function () {
           KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
           KOLU_CODEX_DIR: codexDir,
           KOLU_OPENCODE_DB: opencodeDbPath,
-          PATH: fakeBinPath,
         },
       },
     );
     serverProcess.stderr?.on("data", (data: Buffer) => {
       process.stderr.write(`[server:${workerId}] ${data}`);
+    });
+    // Drain stdout so the pipe buffer can't fill and block the server's
+    // pino writes (pino targets stdout). Forward to stderr when
+    // KOLU_TEST_VERBOSE is set for local debugging.
+    serverProcess.stdout?.on("data", (data: Buffer) => {
+      if (process.env.KOLU_TEST_VERBOSE) {
+        process.stderr.write(`[server:${workerId}:out] ${data}`);
+      }
     });
     await waitForHealth(`${baseUrl}/api/health`, 10_000);
     console.log(`[worker:${workerId}] Server is healthy.`);
