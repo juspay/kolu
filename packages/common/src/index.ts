@@ -505,22 +505,26 @@ export function terminalKey(t: TerminalIdentity): {
 export function computeTerminalKeys(
   terminals: readonly TerminalIdentity[],
 ): Map<TerminalId, TerminalKey> {
+  const projected = terminals.map((t) => ({
+    id: t.id,
+    ...terminalKey(t),
+  }));
   const counts = new Map<string, number>();
-  for (const t of terminals) {
-    const k = keyOf(t);
+  for (const p of projected) {
+    const k = join(p.group, p.label);
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   const result = new Map<TerminalId, TerminalKey>();
-  for (const t of terminals) {
-    const { group, label } = terminalKey(t);
+  for (const p of projected) {
     const suffix =
-      (counts.get(keyOf(t)) ?? 0) > 1 ? `#${t.id.slice(0, 4)}` : undefined;
-    result.set(t.id, { group, label, suffix });
+      (counts.get(join(p.group, p.label)) ?? 0) > 1
+        ? `#${p.id.slice(0, 4)}`
+        : undefined;
+    result.set(p.id, { group: p.group, label: p.label, suffix });
   }
   return result;
 }
 
-function keyOf(t: TerminalIdentity): string {
-  const { group, label } = terminalKey(t);
+function join(group: string, label: string): string {
   return `${group} ${label}`;
 }
