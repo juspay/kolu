@@ -88,11 +88,9 @@ export function useTerminalMetadata(deps: {
    *  `worktreePath`. Callers use this to decide whether removing the
    *  worktree would yank it out from under a live terminal.
    *
-   *  "Tree" = `excludeId` itself plus its sub-terminals — those get
-   *  killed together with `excludeId` and so never count. But a
-   *  sub-terminal of a _different_ top-level can be cd'd into the same
-   *  worktree (its git metadata is derived from its own CWD), and it
-   *  survives when `excludeId` dies, so it must be counted as sharing. */
+   *  A sub-terminal of a different top-level must also count: its git
+   *  metadata is derived from its own CWD and it survives when
+   *  `excludeId` dies. */
   function isWorktreeShared(
     worktreePath: string,
     excludeId: TerminalId,
