@@ -16,6 +16,49 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When(
+  "I simulate an activity alert for the active terminal",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      (window as any).__koluSimulateAlert?.({ target: "active" });
+    });
+    await this.waitForFrame();
+  },
+);
+
+When("I simulate the Kolu tab being hidden", async function (this: KoluWorld) {
+  await this.page.evaluate(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: true,
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await this.waitForFrame();
+});
+
+When(
+  "I simulate the Kolu tab becoming visible",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(() => {
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: false,
+      });
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await this.waitForFrame();
+  },
+);
+
 Then("a pill tree branch should be notified", async function (this: KoluWorld) {
   const notified = this.page.locator(
     '[data-testid="pill-tree-branch"][data-unread]',

@@ -35,3 +35,13 @@ Feature: Activity Alerts
     And I simulate an activity alert
     Then no pill tree branch should be notified
     And there should be no page errors
+
+  Scenario: Hidden active terminal badges the PWA dock icon
+    When I stub the Badging API
+    And I simulate the Kolu tab being hidden
+    And I simulate an activity alert for the active terminal
+    Then the app badge should show 1
+    When I simulate the Kolu tab becoming visible
+    Then the app badge should be cleared
+    And no pill tree branch should be notified
+    And there should be no page errors
