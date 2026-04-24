@@ -5,9 +5,17 @@
  *
  * The server's generic agent orchestrator consumes this and needs no
  * claude-code-specific knowledge.
+ *
+ * `externalChanges.isPresent` gates `install` on `claude` being
+ * foregrounded in some terminal. Matching is not PID-based here —
+ * `resolveSession` returns null until claude writes its session file,
+ * which is exactly what the SESSIONS_DIR watcher fires on — so we need
+ * a cheaper "might be running here" signal to authorize the watcher
+ * install. `matchesAgent(state, "claude")` covers the OSC 633;E preexec
+ * hint and the kernel foreground basename.
  */
 
-import type { AgentProvider } from "anyagent";
+import { type AgentProvider, matchesAgent } from "anyagent";
 import { readSessionFile, subscribeSessionsDir } from "./index.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 import type { SessionFile, ClaudeCodeInfo } from "./index.ts";
@@ -28,7 +36,12 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
     return createSessionWatcher(session, onChange, log);
   },
 
-  subscribeExternalChanges(onChange, onError) {
-    return subscribeSessionsDir(onChange, onError);
+  externalChanges: {
+    isPresent(state) {
+      return matchesAgent(state, "claude");
+    },
+    install(onChange, onError) {
+      subscribeSessionsDir(onChange, onError);
+    },
   },
 };

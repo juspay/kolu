@@ -3,12 +3,14 @@
  * (`findSessionByDirectory`, `createCodexWatcher`, `subscribeCodexDb`)
  * into the shared `AgentProvider<Session, Info>` contract from anyagent.
  *
- * `subscribeExternalChanges` IS implemented here — unlike OpenCode,
- * Codex can have a running `codex` TUI process whose thread row doesn't
- * exist in SQLite until the first exchange completes. A bare title
- * event won't fire at that moment, so we also rewake on every WAL write
- * and let `resolveSession` re-check the DB. When the thread appears,
- * match succeeds.
+ * `externalChanges` IS implemented here — unlike OpenCode, Codex can
+ * have a running `codex` TUI process whose thread row doesn't exist in
+ * SQLite until the first exchange completes. A bare title event won't
+ * fire at that moment, so we also rewake on every WAL write and let
+ * `resolveSession` re-check the DB. When the thread appears, match
+ * succeeds. `isPresent` gates `install` on the binary actually being
+ * foregrounded in some terminal, so a fresh machine without `~/.codex`
+ * pays no watcher cost.
  */
 
 import { type AgentProvider, matchesAgent } from "anyagent";
@@ -33,7 +35,12 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
     return createCodexWatcher(session, onChange, log);
   },
 
-  subscribeExternalChanges(onChange, onError, log) {
-    return subscribeCodexDb(onChange, onError, log);
+  externalChanges: {
+    isPresent(state) {
+      return matchesAgent(state, "codex");
+    },
+    install(onChange, onError, log) {
+      subscribeCodexDb(onChange, onError, log);
+    },
   },
 };
