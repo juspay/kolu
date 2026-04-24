@@ -18,6 +18,7 @@ import {
   FileTree,
   type ContextMenuItem,
   type ContextMenuOpenContext,
+  type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
 import type { GitChangeStatus } from "kolu-common";
@@ -51,6 +52,10 @@ export type PierreFileTreeProps = {
   onSelect?: (path: string | null) => void;
   /** Enable the search affordance inside the tree header. */
   search?: boolean;
+  /** Initial folder expansion. Defaults to "closed" (full repo can be huge);
+   *  pass "open" for change-set views where the user expects every changed
+   *  file visible without clicking. */
+  initialExpansion?: FileTreeInitialExpansion;
 };
 
 /** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
@@ -134,7 +139,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   onMount(() => {
     tree = new FileTree({
       paths: props.paths,
-      initialExpansion: "closed",
+      initialExpansion: props.initialExpansion ?? "closed",
       // Collapse single-child directory chains (e.g. `packages/client/src` →
       // one row) so deep monorepo paths don't eat half the panel width.
       flattenEmptyDirectories: true,

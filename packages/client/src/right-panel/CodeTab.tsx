@@ -226,6 +226,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   gitStatus={treeGitStatus()}
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
+                  initialExpansion={isDiffView() ? "open" : "closed"}
                 />
               </Show>
             </Match>
