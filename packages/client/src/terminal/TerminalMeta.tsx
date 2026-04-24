@@ -77,8 +77,7 @@ const TerminalMeta: Component<{
             </Show>
           </div>
 
-          {/* Branch + PR — combined row. Tooltip on branch shows full
-           *  name when truncated. PR (if present) follows inline:
+          {/* Branch + PR — combined row. PR (if present) follows inline:
            *  state icon, checks indicator, linked #N, truncated title. */}
           <Show
             when={info().meta.git}
@@ -90,7 +89,7 @@ const TerminalMeta: Component<{
           >
             {(git) => (
               <div class="flex items-center gap-1.5 min-w-0 text-xs">
-                <Tip label={git().branch}>
+                <Tip label="Copy branch name">
                   <button
                     type="button"
                     data-testid="terminal-meta-branch"
@@ -170,16 +169,14 @@ export const TerminalMetaCompact: Component<{
           </Show>
           <Show when={info().meta.git}>
             {(git) => (
-              <Tip label={git().branch}>
-                <span
-                  data-testid="terminal-meta-branch"
-                  class="text-xs truncate min-w-0"
-                  style={{ color: info().branchColor }}
-                  classList={{ "text-fg-2": !info().branchColor }}
-                >
-                  {git().branch}
-                </span>
-              </Tip>
+              <span
+                data-testid="terminal-meta-branch"
+                class="text-xs truncate min-w-0"
+                style={{ color: info().branchColor }}
+                classList={{ "text-fg-2": !info().branchColor }}
+              >
+                {git().branch}
+              </span>
             )}
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
