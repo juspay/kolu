@@ -54,13 +54,22 @@ export type PierreFileTreeProps = {
 };
 
 /** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
- *  Solid component) since the menu lives inside the tree's shadow DOM. */
+ *  Solid component) since the menu lives inside the tree's shadow DOM.
+ *
+ *  Pierre wraps the rendered element in a `display:flex; align-items:center`
+ *  anchor positioned at the cursor — letting our menu lay out normally
+ *  inside that wrapper shifts it off the click point. We pin `position:
+ *  fixed` with `context.anchorRect` coords so the menu lands at the
+ *  cursor regardless of the wrapper's layout. */
 function renderContextMenu(
   item: ContextMenuItem,
   context: ContextMenuOpenContext,
 ): HTMLElement {
   const menu = document.createElement("div");
   menu.style.cssText = [
+    `position:fixed`,
+    `left:${context.anchorRect.left}px`,
+    `top:${context.anchorRect.top}px`,
     "background:var(--color-surface-1)",
     "border:1px solid var(--color-edge)",
     "border-radius:6px",
