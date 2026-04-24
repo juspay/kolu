@@ -56,6 +56,20 @@ When("I click the terminal title branch", async function (this: KoluWorld) {
   await branch.click();
 });
 
+When(
+  "I double-click the terminal title branch",
+  async function (this: KoluWorld) {
+    const branch = this.page.locator(ACTIVE_TITLE_BRANCH_SELECTOR);
+    await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await branch.evaluate((el) => {
+      el.dispatchEvent(
+        new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
+      );
+    });
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the pill tree should show a branch name",
   async function (this: KoluWorld) {

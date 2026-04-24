@@ -62,6 +62,8 @@ Feature: Git context in header and pill tree
     When I click the terminal title branch
     Then a toast should appear with text "Copied branch name to clipboard"
     And the clipboard should contain "copy-branch"
+    When I double-click the terminal title branch
+    Then no canvas tile should be maximized
     And there should be no page errors
 
   Scenario: Pill tree does not show PR info on default branch
