@@ -15,7 +15,13 @@ export interface CloseConfirmTarget {
   meta: TerminalMetadata;
   splitCount: number;
   /** Another top-level terminal is on the same worktree, so removing it
-   *  here would pull the rug out from under the other terminal. */
+   *  here would pull the rug out from under the other terminal.
+   *
+   *  Snapshot at dialog-open time — intentionally not reactive. The dialog
+   *  is an imperative confirmation; its title, body note, and buttons must
+   *  not shift under the user's eyes while they decide. If another terminal
+   *  opens on the same worktree after the dialog appears, that's a
+   *  different (unaddressed) volatility, not a reason to make this live. */
   worktreeSharedWithOthers: boolean;
 }
 
