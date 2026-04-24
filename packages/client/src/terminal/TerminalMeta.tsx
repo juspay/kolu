@@ -92,12 +92,11 @@ const TerminalMeta: Component<{
             {(git) => (
               <div class="flex items-center gap-1.5 min-w-0 text-xs">
                 <Tip label={git().branch}>
-                  <span
+                  <button
+                    type="button"
                     data-testid="terminal-meta-branch"
-                    role="button"
-                    tabIndex={0}
                     aria-label={`Copy branch ${git().branch} to clipboard`}
-                    class="truncate shrink-0 max-w-[16ch] cursor-copy hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                    class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-copy hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                     style={{ color: info().branchColor }}
                     classList={{ "text-fg-2": !info().branchColor }}
                     onPointerDown={(e) => e.stopPropagation()}
@@ -106,15 +105,9 @@ const TerminalMeta: Component<{
                       void copyBranchName(git().branch);
                     }}
                     onDblClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter" && e.key !== " ") return;
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void copyBranchName(git().branch);
-                    }}
                   >
                     {git().branch}
-                  </span>
+                  </button>
                 </Tip>
                 <Show when={prValue(info().meta.pr)}>
                   {(pr) => (
