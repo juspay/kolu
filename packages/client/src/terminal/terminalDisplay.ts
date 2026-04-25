@@ -4,6 +4,7 @@
 
 import {
   computeTerminalKeys,
+  type GitInfo,
   type TerminalId,
   type TerminalKey,
   type TerminalMetadata,
@@ -34,6 +35,22 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
 
 export function terminalName(meta: TerminalMetadata): string {
   return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
+}
+
+/** Two-part presentation projection — what humans should see for a terminal,
+ *  in surfaces that have room for both a primary heading and a secondary line
+ *  (restore card, future tile chrome). Identity vs. presentation are
+ *  intentionally separate axes: `terminalKey()` in `kolu-common` is canonical
+ *  identity (full `cwd` for non-git, load-bearing for collision detection);
+ *  this is canonical presentation (basename for non-git, easier to read).
+ *  Callers must not feed `heading`/`sublabel` back into grouping or dedup —
+ *  that would silently break `computeTerminalKeys`. */
+export function terminalDisplay(t: { cwd: string; git: GitInfo | null }): {
+  heading: string;
+  sublabel: string;
+} {
+  if (t.git) return { heading: t.git.repoName, sublabel: t.git.branch };
+  return { heading: cwdBasename(t.cwd), sublabel: t.cwd };
 }
 
 /** Build display info for all terminals. Resolves colors from the full

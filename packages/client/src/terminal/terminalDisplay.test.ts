@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignColors,
   buildTerminalDisplayInfos,
+  terminalDisplay,
   terminalName,
 } from "./terminalDisplay";
 
@@ -72,6 +73,31 @@ describe("terminalName", () => {
 
   it("falls back to cwd basename ~ for home dir", () => {
     expect(terminalName(makeMeta({ cwd: "/root" }))).toBe("~");
+  });
+});
+
+describe("terminalDisplay", () => {
+  it("uses repoName + branch for git terminals", () => {
+    expect(
+      terminalDisplay({
+        cwd: "/home/alice/projects/app",
+        git: makeGit({ repoName: "app", branch: "feature/x" }),
+      }),
+    ).toEqual({ heading: "app", sublabel: "feature/x" });
+  });
+
+  it("uses cwd basename + full cwd for non-git terminals", () => {
+    expect(
+      terminalDisplay({ cwd: "/home/alice/projects/scratch", git: null }),
+    ).toEqual({ heading: "scratch", sublabel: "/home/alice/projects/scratch" });
+  });
+
+  it("does not leak the full path into the heading (regression for #714)", () => {
+    const { heading } = terminalDisplay({
+      cwd: "/home/alice/projects/scratch",
+      git: null,
+    });
+    expect(heading).not.toContain("/");
   });
 });
 

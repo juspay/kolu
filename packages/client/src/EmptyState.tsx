@@ -7,6 +7,7 @@ import {
 } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import { terminalDisplay } from "./terminal/terminalDisplay";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
 
@@ -18,38 +19,48 @@ const features = [
 ];
 
 interface RepoGroup {
-  /** Display name — the repo name for git worktrees, or the cwd fallback. */
+  /** Identity key — `terminalKey().group`, shared with the live pill tree's
+   *  collision detection. Used for the `data-repo-name` attribute and as the
+   *  React-style key. Not for human display — that's `heading`. */
   key: string;
+  /** Heading rendered to the user — `repoName` for git, `cwdBasename(cwd)`
+   *  for non-git. Diverges from `key` on non-git terminals so paths like
+   *  `/home/alice/projects/foo` show as `foo` while still grouping by
+   *  the canonical full-cwd identity. */
+  heading: string;
   terminals: SavedTerminal[];
 }
 
-/** Group top-level terminals by repoName (falling back to cwd). Groups are
- *  sorted by the minimum `canvasLayout.x` of their members so the restore
- *  card's left-to-right order matches the canvas the user saw. Within-group
- *  order preserves the array order of the saved session, which is the same
- *  Map insertion order the server stamps. */
+/** Group top-level terminals by `terminalKey().group` (canonical identity)
+ *  and tag each group with a `terminalDisplay().heading` for rendering.
+ *  Groups are sorted by the minimum `canvasLayout.x` of their members so the
+ *  restore card's left-to-right order matches the canvas the user saw.
+ *  Within-group order preserves the array order of the saved session, which
+ *  is the same Map insertion order the server stamps. */
 function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const minX = (ts: readonly SavedTerminal[]) =>
     ts.reduce(
       (acc, t) => Math.min(acc, t.canvasLayout?.x ?? Infinity),
       Infinity,
     );
-  const groups = new Map<string, SavedTerminal[]>();
+  const groups = new Map<string, RepoGroup>();
   for (const t of terminals) {
     if (t.parentId) continue;
-    // Share `terminalKey` with the live pill tree so the restore card
-    // groups terminals the same way the running app does.
     const key = terminalKey({ id: t.id, git: t.git, cwd: t.cwd }).group;
-    const list = groups.get(key) ?? [];
-    list.push(t);
-    groups.set(key, list);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.terminals.push(t);
+    } else {
+      groups.set(key, {
+        key,
+        heading: terminalDisplay({ cwd: t.cwd, git: t.git }).heading,
+        terminals: [t],
+      });
+    }
   }
-  const out: RepoGroup[] = [];
-  for (const [key, list] of groups) {
-    out.push({ key, terminals: list });
-  }
-  out.sort((a, b) => minX(a.terminals) - minX(b.terminals));
-  return out;
+  return [...groups.values()].sort(
+    (a, b) => minX(a.terminals) - minX(b.terminals),
+  );
 }
 
 interface EmptyStateProps {
@@ -103,7 +114,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                       <div data-testid="repo-group" data-repo-name={group.key}>
                         <div class="sticky top-0 z-10 bg-surface-1 pb-1.5">
                           <span class="text-sm font-semibold text-fg truncate">
-                            {group.key}
+                            {group.heading}
                           </span>
                         </div>
                         <div class="ml-1 pl-3 border-l border-edge/70 space-y-2.5">
@@ -111,7 +122,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             {(t) => (
                               <div title={t.cwd}>
                                 <div class="text-sm text-fg-2 truncate leading-snug">
-                                  {t.git?.branch ?? t.cwd}
+                                  {
+                                    terminalDisplay({ cwd: t.cwd, git: t.git })
+                                      .sublabel
+                                  }
                                 </div>
                                 <Show
                                   when={

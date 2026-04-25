@@ -78,3 +78,16 @@ Feature: Session restore
     Then the session restore card should be visible
     And the restore button should not mention "resume"
     And there should be no page errors
+
+  # Regression for #714: the restore card heading was showing the full cwd
+  # path (e.g. `/home/alice/projects/foo`) for non-git terminals. The fix
+  # decouples identity (`terminalKey().group`, full cwd, load-bearing for
+  # collision detection) from presentation (`terminalDisplay().heading`,
+  # cwd basename). The header should be the basename, never the full path.
+  Scenario: Restore card heading shows basename, not full cwd path
+    Given a saved session at cwd "/tmp/kolu-714-fixture"
+    When I open the app
+    Then the session restore card should be visible
+    And the restore card heading should be "kolu-714-fixture"
+    And the restore card heading should not contain "/"
+    And there should be no page errors

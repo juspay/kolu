@@ -18,6 +18,7 @@
 
 import Conf from "conf";
 import {
+  type GitInfo,
   type Preferences,
   PreferencesSchema,
   RecentAgentSchema,
@@ -27,6 +28,41 @@ import {
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { z } from "zod";
 import { log } from "./log.ts";
+
+/** Best-effort `GitInfo` from the legacy flat `repoName`/`branch` fields
+ *  shipped before #702. The unknown path fields (`repoRoot`, `worktreePath`,
+ *  `mainRepoRoot`) are stamped with empty strings — the live git provider
+ *  re-resolves the full record on first restore via `subscribeGitInfo`,
+ *  before any consumer reads them for an actual operation. The restore
+ *  card itself only reads `repoName`/`branch`, so the synthesized record
+ *  renders correctly between disk-load and live re-resolution.
+ *
+ *  Exported for unit testing (`state.test.ts`) — the inline migration
+ *  closure below is hard to exercise without spinning up a real `Conf`
+ *  store under controlled `KOLU_STATE_DIR`. */
+export function migrateLegacyTerminal_1_18_0(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    sortOrder: _sortOrder,
+    repoName,
+    branch,
+    git: existingGit,
+    ...kept
+  } = t;
+  const git: GitInfo | null =
+    typeof repoName === "string" && typeof branch === "string"
+      ? {
+          repoName,
+          branch,
+          repoRoot: "",
+          worktreePath: "",
+          isWorktree: false,
+          mainRepoRoot: "",
+        }
+      : ((existingGit as GitInfo | null | undefined) ?? null);
+  return { ...kept, git };
+}
 
 /** What conf stores to disk — survives server restart. Internal: clients see
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
@@ -293,25 +329,17 @@ export const store = new Conf<PersistedState>({
     },
     // SavedTerminal unified with TerminalMetadata — the flattened
     // `repoName`/`branch` (now read from `git`) and the `sortOrder`
-    // index (replaced by Map insertion order) are gone. Strip the
-    // obsolete fields and seed `git: null` for entries that lacked the
-    // key entirely so the 1.18.0 shape matches the schema exactly
-    // (the unified `PersistedTerminalFieldsSchema` makes `git`
-    // required-but-nullable, so `undefined` fails validation).
+    // index (replaced by Map insertion order) are gone. The legacy
+    // `repoName`/`branch` are converted into a synthesized `GitInfo`
+    // (see `migrateLegacyTerminal_1_18_0`) so the restore card keeps
+    // showing repo names instead of full cwd paths — the original
+    // 1.18.0 release stamped `git: null` and lost that context (#714).
     "1.18.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
-      ).map((t) => {
-        const {
-          sortOrder: _sortOrder,
-          repoName: _repoName,
-          branch: _branch,
-          ...kept
-        } = t;
-        return { git: null, ...kept };
-      });
+      ).map(migrateLegacyTerminal_1_18_0);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,

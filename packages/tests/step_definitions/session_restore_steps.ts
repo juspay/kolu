@@ -322,3 +322,42 @@ Then(
     );
   },
 );
+
+// --- #714 regression: heading is basename, not full cwd ---
+
+Given(
+  "a saved session at cwd {string}",
+  async function (this: KoluWorld, cwd: string) {
+    this.savedSessionTerminalCount = 1;
+    const terminals: SavedTerminal[] = [{ id: "0", cwd, git: null }];
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this.page, terminals);
+  },
+);
+
+Then(
+  "the restore card heading should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) => {
+        const group = document.querySelector('[data-testid="repo-group"]');
+        const heading = group?.querySelector("span")?.textContent?.trim();
+        return heading === exp;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the restore card heading should not contain {string}",
+  async function (this: KoluWorld, forbidden: string) {
+    const group = this.page.locator('[data-testid="repo-group"]').first();
+    const heading = await group.locator("span").first().textContent();
+    assert.ok(
+      heading !== null && !heading.includes(forbidden),
+      `Restore card heading "${heading}" must not contain "${forbidden}"`,
+    );
+  },
+);
