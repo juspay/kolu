@@ -322,3 +322,47 @@ Then(
     );
   },
 );
+
+// --- #714 regression: heading is basename, not full cwd ---
+
+Given(
+  "a saved session at cwd {string}",
+  async function (this: KoluWorld, cwd: string) {
+    this.savedSessionTerminalCount = 1;
+    const terminals: SavedTerminal[] = [{ id: "0", cwd, git: null }];
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this.page, terminals);
+  },
+);
+
+Then(
+  "the restore card heading should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) => {
+        const heading = document.querySelector('[data-testid="repo-heading"]');
+        return heading?.textContent?.trim() === exp;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the restore card heading should not contain {string}",
+  async function (this: KoluWorld, forbidden: string) {
+    // Poll instead of reading once: the prior step settled the heading, but a
+    // bare textContent() + assert races SolidJS reactivity flushes on slow
+    // machines (e2e-poll-async-state rule).
+    await this.page.waitForFunction(
+      (f) => {
+        const heading = document.querySelector('[data-testid="repo-heading"]');
+        const text = heading?.textContent?.trim() ?? "";
+        return text.length > 0 && !text.includes(f);
+      },
+      forbidden,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

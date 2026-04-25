@@ -1,10 +1,6 @@
 import type { GitInfo, TerminalMetadata } from "kolu-common";
 import { describe, expect, it } from "vitest";
-import {
-  assignColors,
-  buildTerminalDisplayInfos,
-  terminalName,
-} from "./terminalDisplay";
+import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
@@ -59,22 +55,6 @@ describe("assignColors", () => {
   });
 });
 
-describe("terminalName", () => {
-  it("returns repo name when git info is present", () => {
-    expect(
-      terminalName(makeMeta({ git: makeGit({ repoName: "my-repo" }) })),
-    ).toBe("my-repo");
-  });
-
-  it("falls back to cwd basename when no git", () => {
-    expect(terminalName(makeMeta())).toBe("project");
-  });
-
-  it("falls back to cwd basename ~ for home dir", () => {
-    expect(terminalName(makeMeta({ cwd: "/root" }))).toBe("~");
-  });
-});
-
 describe("buildTerminalDisplayInfos", () => {
   it("returns empty map for empty ids", () => {
     const result = buildTerminalDisplayInfos(
@@ -85,18 +65,29 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.size).toBe(0);
   });
 
-  it("builds display info with colors", () => {
+  it("builds display info with colors and identity key", () => {
     const meta = makeMeta({ git: makeGit() });
     const result = buildTerminalDisplayInfos(
       ["id-1"],
       () => meta,
       () => [],
     );
-    expect(result.size).toBe(1);
-    expect(result.get("id-1")?.name).toBe("repo");
-    expect(result.get("id-1")?.repoColor).toMatch(/^oklch\(/);
-    expect(result.get("id-1")?.branchColor).toMatch(/^oklch\(/);
-    expect(result.get("id-1")?.subCount).toBe(0);
+    const info = result.get("id-1");
+    expect(info?.key.group).toBe("repo");
+    expect(info?.key.label).toBe("main");
+    expect(info?.repoColor).toMatch(/^oklch\(/);
+    expect(info?.branchColor).toMatch(/^oklch\(/);
+    expect(info?.subCount).toBe(0);
+  });
+
+  it("uses cwd basename for group, shortened cwd for label, on non-git terminals", () => {
+    const result = buildTerminalDisplayInfos(
+      ["id-1"],
+      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
+      () => [],
+    );
+    expect(result.get("id-1")?.key.group).toBe("foo");
+    expect(result.get("id-1")?.key.label).toBe("~/projects/foo");
   });
 
   it("counts sub-terminals", () => {
@@ -144,5 +135,38 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
     expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
     expect(result.get("cccc-3")?.key.suffix).toBeUndefined();
+  });
+
+  it("does NOT collide non-git terminals at different paths sharing a basename", () => {
+    // Same basename, different paths → same `group` but different `label`
+    // (the shortened cwd disambiguates). Suffix only fires when the full
+    // (group, label) pair collides — same shape as git.
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2"],
+      (id) =>
+        makeMeta({
+          cwd:
+            id === "aaaa-1"
+              ? "/home/alice/projects/foo"
+              : "/home/alice/work/foo",
+        }),
+      () => [],
+    );
+    expect(result.get("aaaa-1")?.key.group).toBe("foo");
+    expect(result.get("bbbb-2")?.key.group).toBe("foo");
+    expect(result.get("aaaa-1")?.key.label).toBe("~/projects/foo");
+    expect(result.get("bbbb-2")?.key.label).toBe("~/work/foo");
+    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
+  });
+
+  it("collides non-git terminals at the same exact cwd", () => {
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2"],
+      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
+      () => [],
+    );
+    expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
   });
 });

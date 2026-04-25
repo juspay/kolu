@@ -1,24 +1,25 @@
 /** Terminal identity keys — the canonical `(group, label)` projection
- *  used to group and deduplicate terminals across every display surface
- *  (pill tree, restore card, canvas tile chrome).
+ *  used to group, deduplicate, AND display terminals across every
+ *  surface (pill tree, restore card, canvas tile chrome).
  *
- *  Pure helpers: same inputs produce the same outputs on every client,
- *  so the server never has to broadcast suffixes. Any server-side code
- *  that needs to reason about "same terminal location" must import
- *  from here — divergent projections silently break collision detection.
+ *  Pure: same inputs produce the same outputs on every client, so the
+ *  server never has to broadcast suffixes. Single function: identity
+ *  and presentation are deliberately fused — the only way to keep them
+ *  in sync is to make them the same projection.
  */
 
-import type { GitInfo } from "kolu-git/schemas";
-import type { TerminalId } from "./index";
+import { cwdBasename, shortenCwd } from "./path";
+import type { GitInfo, TerminalId } from "./index";
 
-/** Two projections of the same identity:
- *  - `group` is the repo-equivalence (git repoName, or cwd for non-git). All
- *    terminals of a given group collect under one pill/restore heading.
- *  - `label` is the branch-equivalence (git branch, or cwd for non-git).
- *    Two terminals share a pill slot when both `group` and `label` match.
- *  - `suffix` is a stable short id-prefix ("#a3f2") assigned only to ids
- *    that actually collide on `(group, label)` within the live set —
- *    unique pills leave it undefined.
+/** `(group, label)` plus an optional `suffix` for ids that collide on
+ *  `(group, label)` within the live set.
+ *  - `group` is the repo-equivalence (git repoName, or cwd basename for
+ *    non-git). Renders as the pill/restore heading.
+ *  - `label` is the branch-equivalence (git branch, or cwd basename for
+ *    non-git). Renders as the pill/restore secondary line.
+ *  - `suffix` is a stable short id-prefix ("#a3f2") assigned only when
+ *    two terminals collide on `(group, label)` — unique pills leave it
+ *    `undefined`.
  */
 export type TerminalKey = {
   group: string;
@@ -26,29 +27,37 @@ export type TerminalKey = {
   suffix?: string;
 };
 
-/** Minimum metadata slice needed to compute a terminal's key. */
-export type TerminalIdentity = {
-  id: TerminalId;
+/** What `terminalKey` needs from a terminal — just the location. The wider
+ *  `TerminalIdentity` (with `id`) is only required by `computeTerminalKeys`
+ *  because it returns a Map keyed by id. Splitting these lets `terminalKey`
+ *  be called from places (e.g. `buildTerminalDisplayInfos`) that don't yet
+ *  know the id, without forcing them to fabricate one. */
+export type TerminalLocation = {
   git: GitInfo | null;
   cwd: string;
 };
 
-/** Canonical `(group, label)` projection for a terminal. Single source
- *  of truth for every surface that needs to group or deduplicate
- *  terminals (pill tree, restore card, `computeTerminalKeys`).
+export type TerminalIdentity = TerminalLocation & {
+  id: TerminalId;
+};
+
+/** Canonical projection. The mapping is `git → (repoName, branch)` for
+ *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise.
  *
- *  The mapping is `git → (repoName, branch)` for git-aware terminals,
- *  `no git → (cwd, cwd)` otherwise. Keep callers on this helper — a
- *  divergent projection elsewhere (e.g. `cwdBasename(cwd)`) silently
- *  breaks collision detection because `computeTerminalKeys` no longer
- *  sees the same equivalence.
- */
-export function terminalKey(t: TerminalIdentity): {
+ *  Why basename + shortened-cwd for non-git: `group` is the compact
+ *  heading (a basename so paths like `/home/alice/projects/foo` show as
+ *  `foo`); `label` is the disambiguating sub-line (`~/projects/foo`) so
+ *  two terminals at different paths with the same basename are visually
+ *  distinct AND don't collide on identity. Identity, grouping, and
+ *  rendering all read from this single projection — a divergent
+ *  projection elsewhere silently breaks `computeTerminalKeys` collision
+ *  detection or visually contradicts the live pill tree. */
+export function terminalKey(t: TerminalLocation): {
   group: string;
   label: string;
 } {
   if (t.git) return { group: t.git.repoName, label: t.git.branch };
-  return { group: t.cwd, label: t.cwd };
+  return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
 }
 
 /** Compute keys for every terminal in one pass.
@@ -56,10 +65,7 @@ export function terminalKey(t: TerminalIdentity): {
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Suffixes are assigned only
  *  when two terminals collide on `(group, label)`; unique pills get
- *  `suffix: undefined`. Note: `terminalKey` is the single definition
- *  of "same place" — any server-side code making equivalent identity
- *  assumptions must move together with changes here, since there is
- *  no runtime check keeping them in sync.
+ *  `suffix: undefined`.
  */
 export function computeTerminalKeys(
   terminals: readonly TerminalIdentity[],

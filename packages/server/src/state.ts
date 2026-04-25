@@ -18,6 +18,7 @@
 
 import Conf from "conf";
 import {
+  type GitInfo,
   type Preferences,
   PreferencesSchema,
   RecentAgentSchema,
@@ -27,6 +28,59 @@ import {
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { z } from "zod";
 import { log } from "./log.ts";
+
+/** Best-effort `GitInfo` from the legacy flat `repoName`/`branch` fields
+ *  shipped before #702. Path fields are seeded from `cwd` — a defensible
+ *  default for the common case (terminal at the repo root) that the live
+ *  git provider overwrites with the real values on first restore via
+ *  `subscribeGitInfo`. No empty-string sentinels: every `string` field
+ *  carries an honest path, just possibly the wrong one until re-resolution.
+ *
+ *  Exported so `state.test.ts` can exercise the synthesis directly without
+ *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
+export function migrateLegacyTerminal_1_18_0(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    sortOrder: _sortOrder,
+    repoName,
+    branch,
+    git: existingGit,
+    ...kept
+  } = t;
+  // Already-present `git` key wins — idempotent on migrated data, and a
+  // populated record beats a synthesized one if a corrupt entry has both.
+  if ("git" in t) {
+    return {
+      ...kept,
+      git: (existingGit as GitInfo | null | undefined) ?? null,
+    };
+  }
+  // Pre-#702 entry: synthesize from the flat fields, using cwd as the
+  // best-guess for paths. Skip synthesis (and stamp `git: null`) if cwd
+  // is missing — falling back to "" would silently reintroduce the
+  // empty-string sentinel this rewrite is trying to remove. Live git
+  // provider re-resolves on first restore via subscribeGitInfo, so the
+  // worktree case (cwd ≠ mainRepoRoot) self-corrects.
+  if (
+    typeof repoName === "string" &&
+    typeof branch === "string" &&
+    typeof kept.cwd === "string"
+  ) {
+    return {
+      ...kept,
+      git: {
+        repoName,
+        branch,
+        repoRoot: kept.cwd,
+        worktreePath: kept.cwd,
+        isWorktree: false,
+        mainRepoRoot: kept.cwd,
+      },
+    };
+  }
+  return { ...kept, git: null };
+}
 
 /** What conf stores to disk — survives server restart. Internal: clients see
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
@@ -293,25 +347,17 @@ export const store = new Conf<PersistedState>({
     },
     // SavedTerminal unified with TerminalMetadata — the flattened
     // `repoName`/`branch` (now read from `git`) and the `sortOrder`
-    // index (replaced by Map insertion order) are gone. Strip the
-    // obsolete fields and seed `git: null` for entries that lacked the
-    // key entirely so the 1.18.0 shape matches the schema exactly
-    // (the unified `PersistedTerminalFieldsSchema` makes `git`
-    // required-but-nullable, so `undefined` fails validation).
+    // index (replaced by Map insertion order) are gone. The legacy
+    // `repoName`/`branch` are converted into a synthesized `GitInfo`
+    // (see `migrateLegacyTerminal_1_18_0`) so the restore card keeps
+    // showing repo names instead of full cwd paths — the original
+    // 1.18.0 release stamped `git: null` and lost that context (#714).
     "1.18.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;
       const terminals = (
         session.terminals as unknown as Record<string, unknown>[]
-      ).map((t) => {
-        const {
-          sortOrder: _sortOrder,
-          repoName: _repoName,
-          branch: _branch,
-          ...kept
-        } = t;
-        return { git: null, ...kept };
-      });
+      ).map(migrateLegacyTerminal_1_18_0);
       store.set("session", {
         ...session,
         terminals: terminals as typeof session.terminals,

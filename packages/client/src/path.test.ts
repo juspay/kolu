@@ -1,5 +1,5 @@
+import { cwdBasename, shortenCwd } from "kolu-common";
 import { describe, expect, it } from "vitest";
-import { cwdBasename, shortenCwd } from "./path";
 
 describe("shortenCwd", () => {
   it.each([
