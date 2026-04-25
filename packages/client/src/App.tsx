@@ -45,7 +45,6 @@ import { client, serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
-import { pillTreeSwitchTip } from "./settings/tips";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
@@ -75,10 +74,9 @@ const App: Component = () => {
 
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
-  const { colorScheme, setColorScheme } = useColorScheme();
+  const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
   const posture = useViewPosture();
-  const { showTipOnce } = useTips();
 
   // Pill-tree-grouped order — single source for the desktop pill tree AND
   // the mobile swipe handler so the two views never drift.
@@ -134,7 +132,7 @@ const App: Component = () => {
   const [searchOpen, setSearchOpen] = createSignal(false);
   createEffect(on(store.activeId, () => setSearchOpen(false), { defer: true }));
 
-  const { initTipTriggers, startupTips, setStartupTips } = useTips();
+  const { initTipTriggers } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
   /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
@@ -167,12 +165,6 @@ const App: Component = () => {
     if (!id) return;
     const tile = store.getMetadata(id)?.canvasLayout;
     if (tile) canvasViewport.centerOnTile(tile);
-  }
-
-  function selectTerminalFromPill(id: TerminalId) {
-    const idx = orderedIds().indexOf(id);
-    if (idx >= 0 && idx < 9) showTipOnce(pillTreeSwitchTip(idx));
-    store.setActiveId(id);
   }
 
   useShortcuts({
