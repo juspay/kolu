@@ -1,6 +1,7 @@
-// Phase 8 of #710: flip on `useTemplate` — 12 sites of `"foo " + bar`
-// across server + client get rewritten to template literals. Biome
-// applies the fix automatically with safe `--write`.
+// Phase 9 of #710: flip on `noMisusedPromises` — the second of the
+// three type-aware rules from the original ticket. Catches Promises
+// passed where `void` is expected (Solid `onClick={asyncFn}` etc.),
+// used in conditionals, or in `.filter(() => promise)` contexts.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -77,7 +78,10 @@
         "noFloatingPromises": "error",
         // Type-aware exhaustiveness on discriminated unions — adding a
         // new variant forces every `switch` site to handle it.
-        "useExhaustiveSwitchCases": "error"
+        "useExhaustiveSwitchCases": "error",
+        // Promises passed where `void` is expected — e.g. Solid
+        // `<button onClick={asyncFn}>` silently swallows errors.
+        "noMisusedPromises": "error"
       },
       "performance": {
         // Solid domain: prefer `<For each={…}>` over `items.map(…)` so
