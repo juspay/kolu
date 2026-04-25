@@ -24,7 +24,7 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 ### Format command
 
-`just fmt` — runs Prettier over the workspace plus `nixpkgs-fmt` over `.nix` files. Biome v2 is installed (see [#710](https://github.com/juspay/kolu/issues/710)) and used only for linting in this PR; a follow-up flips formatting from Prettier to Biome. Config lives in `biome.jsonc` at the repo root.
+`just fmt` — runs `biome format --write` over the workspace plus `nixpkgs-fmt` over `.nix` files. Biome v2 is now the sole JS/TS/JSON/CSS formatter (Prettier was retired in [#710](https://github.com/juspay/kolu/issues/710)). Config lives in `biome.jsonc` at the repo root.
 
 ### Test command
 

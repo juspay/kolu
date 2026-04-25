@@ -33,21 +33,24 @@ describe("deriveCheckStatus", () => {
     { conclusion: "STARTUP_FAILURE", expected: "fail" },
     { conclusion: "ACTION_REQUIRED", expected: "fail" },
     { conclusion: "STALE", expected: "fail" },
-  ])(
-    "completed CheckRun $conclusion → $expected",
-    ({ conclusion, expected }) => {
-      expect(deriveCheckStatus([{ status: "COMPLETED", conclusion }])).toBe(
-        expected,
-      );
-    },
-  );
+  ])("completed CheckRun $conclusion → $expected", ({
+    conclusion,
+    expected,
+  }) => {
+    expect(deriveCheckStatus([{ status: "COMPLETED", conclusion }])).toBe(
+      expected,
+    );
+  });
 
-  it.each(["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"])(
-    "non-terminal CheckRun %s → pending",
-    (status) => {
-      expect(deriveCheckStatus([{ status }])).toBe("pending");
-    },
-  );
+  it.each([
+    "QUEUED",
+    "IN_PROGRESS",
+    "WAITING",
+    "PENDING",
+    "REQUESTED",
+  ])("non-terminal CheckRun %s → pending", (status) => {
+    expect(deriveCheckStatus([{ status }])).toBe("pending");
+  });
 
   it("failure takes priority over pending", () => {
     expect(

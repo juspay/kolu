@@ -19,20 +19,20 @@ describe("deriveState", () => {
     { stop_reason: "end_turn", expected: "waiting" },
     { stop_reason: "tool_use", expected: "tool_use" },
     { stop_reason: null, expected: "thinking" },
-  ])(
-    "assistant with stop_reason=$stop_reason → $expected",
-    ({ stop_reason, expected }) => {
-      const line = JSON.stringify({
-        type: "assistant",
-        message: { stop_reason, model: "claude-opus-4-6" },
-      });
-      expect(deriveState([line])).toEqual({
-        state: expected,
-        model: "claude-opus-4-6",
-        contextTokens: null,
-      });
-    },
-  );
+  ])("assistant with stop_reason=$stop_reason → $expected", ({
+    stop_reason,
+    expected,
+  }) => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason, model: "claude-opus-4-6" },
+    });
+    expect(deriveState([line])).toEqual({
+      state: expected,
+      model: "claude-opus-4-6",
+      contextTokens: null,
+    });
+  });
 
   it("returns thinking for assistant with missing stop_reason", () => {
     const line = JSON.stringify({
