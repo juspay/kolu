@@ -2,6 +2,7 @@
  *  Reported to server for session snapshots; seeded from server on restore. */
 
 import type { TerminalId } from "kolu-common";
+import { unwrap } from "kolu-common/unwrap";
 import { createStore, produce } from "solid-js/store";
 import { client } from "../rpc/rpc";
 
@@ -19,15 +20,16 @@ const DEFAULT_PANEL_SIZE = 0.3;
 const [state, setState] = createStore<Record<TerminalId, SubPanelState>>({});
 
 function ensureState(parentId: TerminalId): SubPanelState {
-  if (!state[parentId]) {
-    setState(parentId, {
-      collapsed: false,
-      panelSize: DEFAULT_PANEL_SIZE,
-      activeSubTab: null,
-      focusTarget: "sub",
-    });
-  }
-  return state[parentId]!;
+  const existing = state[parentId];
+  if (existing) return existing;
+  const seeded: SubPanelState = {
+    collapsed: false,
+    panelSize: DEFAULT_PANEL_SIZE,
+    activeSubTab: null,
+    focusTarget: "sub",
+  };
+  setState(parentId, seeded);
+  return seeded;
 }
 
 /** Report sub-panel state to server for session persistence. */
@@ -86,7 +88,13 @@ export function useSubPanel() {
       const panel = ensureState(parentId);
       const current = subIds.indexOf(panel.activeSubTab as string);
       const next = (current + direction + subIds.length) % subIds.length;
-      setState(parentId, "activeSubTab", subIds[next]!);
+      // `next` is in `[0, subIds.length)` by the modulus and the early
+      // return above; documenting that at the throw site.
+      setState(
+        parentId,
+        "activeSubTab",
+        unwrap(subIds[next], `cycleSubTab: index ${next} out of bounds`),
+      );
     },
 
     setFocusTarget(parentId: TerminalId, target: "main" | "sub") {

@@ -48,10 +48,10 @@ export function useTerminalAlerts(deps: {
       () => deps.terminalIds().map((id) => deps.getMetadata(id)?.agent?.state),
       (states, prevStates) => {
         const ids = deps.terminalIds();
-        for (let i = 0; i < ids.length; i++) {
-          if (prevStates && prevStates[i] !== undefined) {
-            checkAgentFinished(ids[i]!, prevStates[i], states[i]);
-          }
+        if (!prevStates) return;
+        for (const [i, id] of ids.entries()) {
+          const prev = prevStates[i];
+          if (prev !== undefined) checkAgentFinished(id, prev, states[i]);
         }
       },
     ),
@@ -83,8 +83,9 @@ export function useTerminalAlerts(deps: {
       options?.target === "active"
         ? deps.terminalIds().filter((id) => id === deps.activeId())
         : deps.terminalIds().filter((id) => id !== deps.activeId());
-    if (ids.length === 0) return;
-    alertForTerminal(ids[Math.floor(Math.random() * ids.length)]!);
+    const pick = ids[Math.floor(Math.random() * ids.length)];
+    if (pick === undefined) return;
+    alertForTerminal(pick);
   }
 
   return { simulateAlert };

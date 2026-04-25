@@ -15,7 +15,9 @@ import { usePreferences } from "./usePreferences";
 
 export type { ColorScheme };
 
-let effectInitialized = false;
+// Lazily-initialised on first `useColorScheme()` call. Module-level so the
+// .dark class effect runs once across all consumers (singleton — see
+// solidjs.md "State per domain"). Once non-null it stays non-null.
 let sharedIsDark: (() => boolean) | null = null;
 
 export function useColorScheme() {
@@ -24,25 +26,29 @@ export function useColorScheme() {
   const setColorScheme = (scheme: ColorScheme) =>
     updatePreferences({ colorScheme: scheme });
 
-  // Toggle .dark class — only set up once (first consumer wins)
-  if (!effectInitialized) {
-    effectInitialized = true;
-    const prefersDark = usePrefersDark();
-    sharedIsDark = createMemo(() => {
-      const scheme = colorScheme();
-      return scheme === "dark" || (scheme === "system" && prefersDark());
-    });
-    createEffect(() => {
-      const dark = sharedIsDark!();
-      document.documentElement.classList.toggle("dark", dark);
-      document.documentElement.style.colorScheme = dark ? "dark" : "light";
-    });
-  }
+  // First consumer initialises the shared memo + side-effect; subsequent
+  // consumers reuse them.
+  const isDarkMemo = sharedIsDark ?? initSharedIsDark(colorScheme);
 
-  const isDark = () => sharedIsDark!();
+  const isDark = () => isDarkMemo();
   /** Resolved scheme as a string literal, for libraries that accept
    *  `"dark" | "light"` (e.g. Pierre's `themeType`). */
   const themeTypeLiteral = (): "light" | "dark" =>
-    sharedIsDark!() ? "dark" : "light";
+    isDarkMemo() ? "dark" : "light";
   return { colorScheme, setColorScheme, isDark, themeTypeLiteral } as const;
+}
+
+function initSharedIsDark(colorScheme: () => ColorScheme): () => boolean {
+  const prefersDark = usePrefersDark();
+  const memo = createMemo(() => {
+    const scheme = colorScheme();
+    return scheme === "dark" || (scheme === "system" && prefersDark());
+  });
+  createEffect(() => {
+    const dark = memo();
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  });
+  sharedIsDark = memo;
+  return memo;
 }

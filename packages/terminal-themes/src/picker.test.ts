@@ -1,3 +1,4 @@
+import { unwrap } from "anyagent/unwrap";
 import { describe, expect, it } from "vitest";
 import { hexToOkLab, okLabDistance, pickTheme } from "./picker";
 import type { NamedTheme } from "./theme";
@@ -14,9 +15,8 @@ function seqRand(...values: number[]): () => number {
 
 describe("hexToOkLab", () => {
   it("parses #rrggbb", () => {
-    const lab = hexToOkLab("#000000");
-    expect(lab).toBeDefined();
-    expect(lab!.L).toBeCloseTo(0, 5);
+    const lab = unwrap(hexToOkLab("#000000"), "#000000 should parse");
+    expect(lab.L).toBeCloseTo(0, 5);
   });
 
   it("parses #rgb shorthand same as full form", () => {
@@ -33,8 +33,8 @@ describe("hexToOkLab", () => {
   });
 
   it("white has max L", () => {
-    const white = hexToOkLab("#ffffff")!;
-    const black = hexToOkLab("#000000")!;
+    const white = unwrap(hexToOkLab("#ffffff"), "#ffffff should parse");
+    const black = unwrap(hexToOkLab("#000000"), "#000000 should parse");
     expect(white.L).toBeGreaterThan(black.L);
     expect(white.L).toBeCloseTo(1, 2);
   });
@@ -42,7 +42,7 @@ describe("hexToOkLab", () => {
 
 describe("okLabDistance", () => {
   it("is zero for identical colours", () => {
-    const a = hexToOkLab("#282a36")!;
+    const a = unwrap(hexToOkLab("#282a36"), "#282a36 should parse");
     expect(okLabDistance(a, a)).toBe(0);
   });
 
@@ -167,8 +167,14 @@ describe("pickTheme – shuffle mode", () => {
     const rand = seqRand(0.0, 0.34, 0.67, 0.99, 0.5);
     for (let i = 0; i < 4; i++) {
       const candidates = themes.filter((t) => t.name !== current);
-      const currentBg = themes.find((t) => t.name === current)!.theme
-        .background!;
+      const currentTheme = unwrap(
+        themes.find((t) => t.name === current),
+        `theme ${current} not in fixture`,
+      );
+      const currentBg = unwrap(
+        currentTheme.theme.background,
+        `theme ${current} has no background`,
+      );
       current = pickTheme(candidates, { excludeBgs: [currentBg], rand });
       visited.push(current);
     }

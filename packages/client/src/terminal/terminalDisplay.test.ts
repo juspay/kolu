@@ -93,11 +93,10 @@ describe("buildTerminalDisplayInfos", () => {
       () => [],
     );
     expect(result.size).toBe(1);
-    const info = result.get("id-1")!;
-    expect(info.name).toBe("repo");
-    expect(info.repoColor).toMatch(/^oklch\(/);
-    expect(info.branchColor).toMatch(/^oklch\(/);
-    expect(info.subCount).toBe(0);
+    expect(result.get("id-1")?.name).toBe("repo");
+    expect(result.get("id-1")?.repoColor).toMatch(/^oklch\(/);
+    expect(result.get("id-1")?.branchColor).toMatch(/^oklch\(/);
+    expect(result.get("id-1")?.subCount).toBe(0);
   });
 
   it("counts sub-terminals", () => {
@@ -106,7 +105,7 @@ describe("buildTerminalDisplayInfos", () => {
       () => makeMeta(),
       () => ["sub-1", "sub-2"],
     );
-    expect(result.get("id-1")!.subCount).toBe(2);
+    expect(result.get("id-1")?.subCount).toBe(2);
   });
 
   it("skips terminals with no metadata", () => {
@@ -129,8 +128,8 @@ describe("buildTerminalDisplayInfos", () => {
           : makeMeta({ git: makeGit({ branch: "feature" }) }),
       () => [],
     );
-    expect(result.get("aaaa-1")!.key.suffix).toBeUndefined();
-    expect(result.get("bbbb-2")!.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
   });
 
   it("stamps collision suffixes on terminals sharing (group, label)", () => {
@@ -142,8 +141,8 @@ describe("buildTerminalDisplayInfos", () => {
           : makeMeta({ git: makeGit({ branch: "main" }) }),
       () => [],
     );
-    expect(result.get("aaaa-1")!.key.suffix).toBe("#aaaa");
-    expect(result.get("bbbb-2")!.key.suffix).toBe("#bbbb");
-    expect(result.get("cccc-3")!.key.suffix).toBeUndefined();
+    expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");
+    expect(result.get("bbbb-2")?.key.suffix).toBe("#bbbb");
+    expect(result.get("cccc-3")?.key.suffix).toBeUndefined();
   });
 });

@@ -277,11 +277,9 @@ Then(
   "the font size should be larger than before",
   async function (this: KoluWorld) {
     const current = await this.fontSize();
-    assert.ok(this.savedFontSize !== undefined, "No saved font size");
-    assert.ok(
-      current > this.savedFontSize!,
-      `Font size ${current} not larger than ${this.savedFontSize}`,
-    );
+    const saved = this.savedFontSize;
+    assert.ok(saved !== undefined, "No saved font size");
+    assert.ok(current > saved, `Font size ${current} not larger than ${saved}`);
   },
 );
 
@@ -289,10 +287,11 @@ Then(
   "the font size should be smaller than the original",
   async function (this: KoluWorld) {
     const current = await this.fontSize();
-    assert.ok(this.savedFontSize !== undefined, "No saved font size");
+    const saved = this.savedFontSize;
+    assert.ok(saved !== undefined, "No saved font size");
     assert.ok(
-      current < this.savedFontSize!,
-      `Font size ${current} not smaller than ${this.savedFontSize}`,
+      current < saved,
+      `Font size ${current} not smaller than ${saved}`,
     );
   },
 );

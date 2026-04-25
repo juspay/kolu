@@ -45,9 +45,10 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
       if (markerIdx <= 0) return null;
       // Walk backwards from marker to find the PID (first purely numeric line).
       for (let i = markerIdx - 1; i >= 0; i--) {
-        const num = parseInt(lines[i]!, 10);
-        if (!Number.isNaN(num) && num > 0 && String(num) === lines[i])
-          return num;
+        const line = lines[i];
+        if (line === undefined) continue;
+        const num = parseInt(line, 10);
+        if (!Number.isNaN(num) && num > 0 && String(num) === line) return num;
       }
       return null;
     },

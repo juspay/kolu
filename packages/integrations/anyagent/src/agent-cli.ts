@@ -30,6 +30,7 @@
  */
 
 import { parseArgsStringToArgv } from "string-argv";
+import { unwrap } from "./unwrap.ts";
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
@@ -124,13 +125,30 @@ function basename(s: string): string {
  */
 type ResumableAgent = "claude" | "codex" | "opencode";
 
+/** Insert one or more "resume" tokens after the agent binary in a
+ *  normalized argv. The argv is non-empty by `resumeAgentCommand`'s
+ *  precondition (callers `parseArgsStringToArgv` and check `length`),
+ *  but TypeScript's `noUncheckedIndexedAccess` widens `argv[0]` to
+ *  `string | undefined` regardless — `unwrap` documents the
+ *  precondition at the throw site. */
+function withResumeFlags(
+  argv: readonly string[],
+  ...flags: string[]
+): string[] {
+  return [
+    unwrap(argv[0], "resume transform invoked on empty argv"),
+    ...flags,
+    ...argv.slice(1),
+  ];
+}
+
 const AGENT_RESUME: Record<
   ResumableAgent,
   (argv: readonly string[]) => string[]
 > = {
-  claude: (argv) => [argv[0]!, "-c", ...argv.slice(1)],
-  codex: (argv) => [argv[0]!, "resume", ...argv.slice(1)],
-  opencode: (argv) => [argv[0]!, "--continue", ...argv.slice(1)],
+  claude: (argv) => withResumeFlags(argv, "-c"),
+  codex: (argv) => withResumeFlags(argv, "resume"),
+  opencode: (argv) => withResumeFlags(argv, "--continue"),
 };
 
 /**
@@ -139,37 +157,37 @@ const AGENT_RESUME: Record<
  * to a known agent binary, or `null` otherwise.
  */
 export function parseAgentCommand(raw: string): string | null {
-  const tokens = parseArgsStringToArgv(raw.trim());
-  if (tokens.length === 0) return null;
+  const [head, ...args] = parseArgsStringToArgv(raw.trim());
+  if (head === undefined) return null;
 
-  const agent = basename(tokens[0]!);
-  if (!STABLE_FLAGS.has(agent)) return null;
-
-  const args = tokens.slice(1);
+  const agent = basename(head);
+  const allowed = STABLE_FLAGS.get(agent);
+  if (allowed === undefined) return null;
 
   // Exit-immediately flags → not an agent session.
   if (args.some((t) => EXIT_FLAGS.has(t))) return null;
-
-  const allowed = STABLE_FLAGS.get(agent)!;
 
   // Keep only allowlisted flags + their values.
   // Anything else (unknown flags, positional args) is dropped.
   const kept: string[] = [agent];
   for (let i = 0; i < args.length; i++) {
-    const t = args[i]!;
+    const t = args[i];
+    if (t === undefined) break;
     if (t === "--") break; // stop at explicit end-of-flags
     if (!t.startsWith("-")) continue; // drop positional
+    const next = args[i + 1];
     if (!allowed.has(t)) {
       // Unknown flag — skip it and its value (if present)
-      if (i + 1 < args.length && !args[i + 1]!.startsWith("-")) i++;
+      if (next !== undefined && !next.startsWith("-")) i++;
       continue;
     }
     // Stable flag — keep verbatim
     kept.push(t);
     // If the next token is a non-flag value (e.g. `--model sonnet`),
     // attach it to the flag as-is.
-    if (i + 1 < args.length && !args[i + 1]!.startsWith("-")) {
-      kept.push(args[++i]!);
+    if (next !== undefined && !next.startsWith("-")) {
+      kept.push(next);
+      i++;
     }
   }
   return kept.join(" ");
@@ -183,8 +201,7 @@ export function parseAgentCommand(raw: string): string | null {
  */
 export function resumeAgentCommand(normalized: string): string | null {
   const argv = parseArgsStringToArgv(normalized.trim());
-  if (argv.length === 0) return null;
-  const agent = argv[0]!;
-  if (!(agent in AGENT_RESUME)) return null;
+  const agent = argv[0];
+  if (agent === undefined || !(agent in AGENT_RESUME)) return null;
   return AGENT_RESUME[agent as ResumableAgent](argv).join(" ");
 }

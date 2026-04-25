@@ -187,9 +187,14 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
       },
       (res) => {
         res.resume();
-        res.on("end", () =>
-          resolve({ ok: res.statusCode! >= 200 && res.statusCode! < 300 }),
-        );
+        res.on("end", () => {
+          // `res.statusCode` is typed `number | undefined` because the parser
+          // can technically receive a malformed first line; in practice
+          // node's `http` always supplies it once `end` fires, but treat
+          // an absent code as a non-2xx response rather than asserting.
+          const code = res.statusCode ?? 0;
+          resolve({ ok: code >= 200 && code < 300 });
+        });
         res.on("error", reject);
       },
     );

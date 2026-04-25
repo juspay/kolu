@@ -115,9 +115,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     if (view() === "browse") return allPaths() ?? [];
     return status()?.files.map((f) => f.path) ?? [];
   });
-  const treeGitStatus = createMemo(() =>
-    status() ? toGitStatusEntries(status()!.files) : undefined,
-  );
+  const treeGitStatus = createMemo(() => {
+    const s = status();
+    return s ? toGitStatusEntries(s.files) : undefined;
+  });
 
   const handleSelect = (path: string | null) => {
     // Pierre emits null on deselect; keep our single-select toggle semantics.
@@ -129,6 +130,20 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const treeReady = () => (isDiffView() ? status() : allPaths());
   const branchTooltip = () =>
     `Changes vs ${status()?.base?.ref ?? "branch base"}`;
+
+  /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
+   *  new file names present and different). Returning the full diff so the
+   *  rendering Match can read its names without re-narrowing. */
+  const renamedDiff = createMemo(() => {
+    const d = diff();
+    if (!d) return undefined;
+    if (d.hunks.length !== 0) return undefined;
+    const { oldFileName, newFileName } = d;
+    if (!oldFileName || !newFileName || oldFileName === newFileName) {
+      return undefined;
+    }
+    return { oldFileName, newFileName };
+  });
 
   return (
     <Show
@@ -203,9 +218,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         >
           <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
             <Match when={treeError()}>
-              <div class="px-2 py-1 text-danger" data-testid="diff-error">
-                Error: {treeError()!.message}
-              </div>
+              {(err) => (
+                <div class="px-2 py-1 text-danger" data-testid="diff-error">
+                  Error: {err().message}
+                </div>
+              )}
             </Match>
             <Match when={treeReady()}>
               <Show
@@ -215,9 +232,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     class="px-2 py-4 text-fg-3/50 text-center"
                     data-testid="diff-empty"
                   >
-                    {isDiffView()
-                      ? EMPTY_STATE[diffMode()!]
-                      : "Empty repository"}
+                    {(() => {
+                      const m = diffMode();
+                      return m ? EMPTY_STATE[m] : "Empty repository";
+                    })()}
                   </div>
                 }
               >
@@ -258,37 +276,42 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       Error: {(diff.error as Error).message}
                     </div>
                   </Match>
-                  <Match
-                    when={
-                      diff() &&
-                      diff()!.hunks.length === 0 &&
-                      diff()!.oldFileName &&
-                      diff()!.newFileName &&
-                      diff()!.oldFileName !== diff()!.newFileName
-                    }
-                  >
-                    <div class="flex items-center justify-center h-full text-fg-3/50">
-                      File renamed: {diff()!.oldFileName} →{" "}
-                      {diff()!.newFileName}
-                    </div>
+                  <Match when={renamedDiff()}>
+                    {(rename) => (
+                      <div class="flex items-center justify-center h-full text-fg-3/50">
+                        File renamed: {rename().oldFileName} →{" "}
+                        {rename().newFileName}
+                      </div>
+                    )}
                   </Match>
                   <Match when={diff()}>
-                    {(d) => (
-                      <PierreDiffView
-                        path={selectedPath()!}
-                        rawDiff={d().hunks[0] ?? ""}
-                        theme={diffTheme()}
-                      />
-                    )}
+                    {(d) => {
+                      const path = selectedPath();
+                      if (path === null) return null;
+                      return (
+                        <PierreDiffView
+                          path={path}
+                          rawDiff={d().hunks[0] ?? ""}
+                          theme={diffTheme()}
+                        />
+                      );
+                    }}
                   </Match>
                 </Switch>
               </Match>
               <Match when={!isDiffView()}>
-                <BrowseFileView
-                  repoPath={repoPath()!}
-                  filePath={selectedPath()!}
-                  theme={diffTheme()}
-                />
+                {(() => {
+                  const repo = repoPath();
+                  const path = selectedPath();
+                  if (repo === null || path === null) return null;
+                  return (
+                    <BrowseFileView
+                      repoPath={repo}
+                      filePath={path}
+                      theme={diffTheme()}
+                    />
+                  );
+                })()}
               </Match>
             </Switch>
           </Show>

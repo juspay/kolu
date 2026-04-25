@@ -135,16 +135,19 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           {
             name: "Toggle terminal split",
             keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => deps.toggleSubPanel(deps.activeId()!),
+            onSelect: () => {
+              const id = deps.activeId();
+              if (id !== null) deps.toggleSubPanel(id);
+            },
           },
           {
             name: "Split terminal",
             keybind: SHORTCUTS.createSubTerminal.keybind,
-            onSelect: () =>
-              deps.handleCreateSubTerminal(
-                deps.activeId()!,
-                deps.activeMeta()?.cwd,
-              ),
+            onSelect: () => {
+              const id = deps.activeId();
+              if (id !== null)
+                deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd);
+            },
           },
           {
             name: "Copy terminal text",

@@ -201,6 +201,8 @@ export function deriveState(lines: string[]): {
   let contextTokens: number | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i];
+    if (raw === undefined) continue;
     try {
       const entry: {
         type?: string;
@@ -209,7 +211,7 @@ export function deriveState(lines: string[]): {
           model?: string | null;
           usage?: UsageShape;
         };
-      } = JSON.parse(lines[i]!);
+      } = JSON.parse(raw);
 
       if (contextTokens === null) {
         const tokens = sumUsageTokens(entry.message?.usage);
@@ -319,10 +321,11 @@ export function extractTasks(
     }
 
     // TaskUpdate calls come on "assistant" type messages as tool_use content blocks
-    if (entry.type !== "assistant" || !Array.isArray(entry.message?.content))
-      continue;
+    if (entry.type !== "assistant") continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
 
-    for (const block of entry.message!.content!) {
+    for (const block of content) {
       if (block.type !== "tool_use" || block.name !== "TaskUpdate") continue;
       const input = block.input;
       if (!input || typeof input !== "object") {

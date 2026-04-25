@@ -5,6 +5,7 @@
  */
 
 import type { ITheme } from "@xterm/xterm";
+import { unwrap } from "anyagent/unwrap";
 import availableThemesJson from "../themes.json" with { type: "json" };
 
 export interface NamedTheme {
@@ -21,7 +22,9 @@ export const availableThemes: NamedTheme[] =
 export const DEFAULT_THEME_NAME = "Tomorrow Night";
 export const DEFAULT_THEME: ITheme =
   availableThemes.find((t) => t.name === DEFAULT_THEME_NAME)?.theme ??
-  availableThemes[0]!.theme;
+  // themes.json ships non-empty (built from iTerm2-Color-Schemes); the
+  // empty-fallback throw documents the contract explicitly.
+  unwrap(availableThemes[0], "themes.json is empty").theme;
 
 // O(1) lookup by name, built once at module load
 const themesByName = new Map(availableThemes.map((t) => [t.name, t.theme]));

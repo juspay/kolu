@@ -161,12 +161,14 @@ const MetadataInspector: Component<{
                       </Row>
                     )}
                   </Show>
-                  <Show when={agent().contextTokens != null}>
-                    <Row label="Context">
-                      <span class="font-mono text-fg">
-                        {agent().contextTokens!.toLocaleString()} tokens
-                      </span>
-                    </Row>
+                  <Show when={agent().contextTokens}>
+                    {(tokens) => (
+                      <Row label="Context">
+                        <span class="font-mono text-fg">
+                          {tokens().toLocaleString()} tokens
+                        </span>
+                      </Row>
+                    )}
                   </Show>
                 </div>
               </Section>

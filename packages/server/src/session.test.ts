@@ -1,3 +1,4 @@
+import { unwrap } from "kolu-common/unwrap";
 import type { SavedTerminal } from "kolu-common";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -39,15 +40,17 @@ describe("session persistence", () => {
       terminals: [terminal],
       activeTerminalId: null,
     });
-    const session = getSavedSession();
-    expect(session).not.toBeNull();
-    expect(session!.terminals).toHaveLength(1);
-    expect(session!.terminals[0]).toMatchObject({
+    const session = unwrap(
+      getSavedSession(),
+      "session round-trip lost the saved value",
+    );
+    expect(session.terminals).toHaveLength(1);
+    expect(session.terminals[0]).toMatchObject({
       id: "term-1",
       cwd: "/home/user/project",
       git: { repoName: "project", branch: "main" },
     });
-    expect(session!.savedAt).toBeTypeOf("number");
+    expect(session.savedAt).toBeTypeOf("number");
   });
 
   it("clears session when saving empty terminals", () => {
@@ -76,10 +79,13 @@ describe("session persistence", () => {
       { id: "c", cwd: "/c", git: null, parentId: "a" },
     ];
     saveSession({ terminals, activeTerminalId: null });
-    const session = getSavedSession();
-    expect(session!.terminals).toHaveLength(3);
-    expect(session!.terminals.map((t) => t.id)).toEqual(["a", "b", "c"]);
-    expect(session!.terminals[2]!.parentId).toBe("a");
+    const session = unwrap(
+      getSavedSession(),
+      "session round-trip lost the saved value",
+    );
+    expect(session.terminals).toHaveLength(3);
+    expect(session.terminals.map((t) => t.id)).toEqual(["a", "b", "c"]);
+    expect(session.terminals[2]?.parentId).toBe("a");
   });
 
   it("preserves themeName on round-trip", () => {
@@ -88,9 +94,12 @@ describe("session persistence", () => {
       { id: "b", cwd: "/b", git: null },
     ];
     saveSession({ terminals, activeTerminalId: null });
-    const session = getSavedSession();
-    expect(session!.terminals[0]!.themeName).toBe("Dracula");
-    expect(session!.terminals[1]!.themeName).toBeUndefined();
+    const session = unwrap(
+      getSavedSession(),
+      "session round-trip lost the saved value",
+    );
+    expect(session.terminals[0]?.themeName).toBe("Dracula");
+    expect(session.terminals[1]?.themeName).toBeUndefined();
   });
 
   it("clearSavedSession removes the session", () => {

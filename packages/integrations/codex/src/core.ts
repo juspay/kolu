@@ -366,9 +366,11 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
  */
 export function parseRolloutContextTokens(lines: string[]): number | null {
   for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i];
+    if (raw === undefined) continue;
     let entry: RolloutLine;
     try {
-      entry = JSON.parse(lines[i]!) as RolloutLine;
+      entry = JSON.parse(raw) as RolloutLine;
     } catch {
       continue;
     }

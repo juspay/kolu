@@ -192,8 +192,9 @@ Then(
 Then(
   "the scroll position should be unchanged",
   async function (this: KoluWorld) {
+    const saved = this.savedScrollTop;
     assert.ok(
-      this.savedScrollTop !== undefined,
+      saved !== undefined,
       "No saved scroll position — was 'I note the scroll position' called first?",
     );
     const current = await this.page
@@ -201,8 +202,8 @@ Then(
       .evaluate((el) => el.scrollTop);
     // Allow small tolerance (1px) for rounding
     assert.ok(
-      Math.abs(current - this.savedScrollTop!) <= 1,
-      `Scroll position changed: was ${this.savedScrollTop}, now ${current}`,
+      Math.abs(current - saved) <= 1,
+      `Scroll position changed: was ${saved}, now ${current}`,
     );
   },
 );

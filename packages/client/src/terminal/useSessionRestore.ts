@@ -68,9 +68,13 @@ export function useSessionRestore(deps: {
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
-      if (t.meta.parentId) {
-        subs[t.meta.parentId] ??= [];
-        subs[t.meta.parentId]!.push(t.id);
+      const parentId = t.meta.parentId;
+      if (!parentId) continue;
+      const existingList = subs[parentId];
+      if (existingList) {
+        existingList.push(t.id);
+      } else {
+        subs[parentId] = [t.id];
       }
     }
     for (const [parentId, subIds] of Object.entries(subs)) {
@@ -140,7 +144,11 @@ export function useSessionRestore(deps: {
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
       const topLevel = session.terminals.filter((t) => !t.parentId);
-      const subTerminals = session.terminals.filter((t) => t.parentId);
+      // Type predicate so the body of the loop below sees `parentId`
+      // narrowed to `string` instead of `string | undefined`.
+      const subTerminals = session.terminals.filter(
+        (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
+      );
       let resumed = 0;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
@@ -175,7 +183,7 @@ export function useSessionRestore(deps: {
         }
       }
       for (const t of subTerminals) {
-        const newParentId = oldToNew.get(t.parentId!);
+        const newParentId = oldToNew.get(t.parentId);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
       // Restore active terminal

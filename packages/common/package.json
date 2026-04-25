@@ -13,7 +13,8 @@
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
     "./pr": "./src/pr.ts",
-    "./test-hooks": "./src/test-hooks.ts"
+    "./test-hooks": "./src/test-hooks.ts",
+    "./unwrap": "./src/unwrap.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

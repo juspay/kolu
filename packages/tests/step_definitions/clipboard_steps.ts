@@ -16,7 +16,8 @@ When("I paste an image into the terminal", async function (this: KoluWorld) {
   // Write a 1×1 PNG to the system clipboard
   await this.page.evaluate(async () => {
     const canvas = new OffscreenCanvas(1, 1);
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("OffscreenCanvas getContext('2d') unavailable");
     ctx.fillStyle = "red";
     ctx.fillRect(0, 0, 1, 1);
     const blob = await canvas.convertToBlob({ type: "image/png" });

@@ -58,7 +58,8 @@ export function cleanEnv(): Record<string, string> {
   if (envWhitelist) {
     env = {};
     for (const key of envWhitelist) {
-      if (process.env[key] != null) env[key] = process.env[key]!;
+      const value = process.env[key];
+      if (value != null) env[key] = value;
     }
     // Nix sets SHELL to /nix/store/.../bash which lacks features like progcomp
     // that user bashrc files expect. Use the real login shell from /etc/passwd.

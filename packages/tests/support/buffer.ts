@@ -48,5 +48,9 @@ export async function waitForBufferContains(
     { sel: selector, idx: index, exp: expected },
     { timeout },
   );
-  return (await handle.jsonValue())!;
+  // The handle's predicate above returns either a non-null string (match)
+  // or `null`, and `waitForFunction` only resolves on a truthy value — so
+  // `jsonValue()` is structurally always a string by the time we read it.
+  // The `?? ""` fallback satisfies the type checker without a `!`.
+  return (await handle.jsonValue()) ?? "";
 }

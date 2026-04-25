@@ -329,7 +329,7 @@ const TerminalCanvas: Component<{
               renderTitle={() => props.renderTileTitle(id)}
               renderTitleActions={
                 props.renderTileTitleActions
-                  ? () => props.renderTileTitleActions!(id)
+                  ? () => props.renderTileTitleActions?.(id)
                   : undefined
               }
               renderBody={() =>

@@ -34,11 +34,7 @@ Then(
     // from 2 to 4. Asserting >= N tolerates extra renders.
     await this.page.waitForFunction(
       ([sel, exp, n]) => {
-        const buf: string = (
-          window as Window & {
-            __readXtermBuffer?: (s: string, i: number) => string;
-          }
-        ).__readXtermBuffer!(sel, 0);
+        const buf = window.__readXtermBuffer?.(sel, 0) ?? "";
         let occurrences = 0;
         let idx = 0;
         while ((idx = buf.indexOf(exp, idx)) !== -1) {
