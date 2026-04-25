@@ -57,18 +57,25 @@ export function migrateLegacyTerminal_1_18_0(
     };
   }
   // Pre-#702 entry: synthesize from the flat fields, using cwd as the
-  // best-guess for paths.
-  const cwd = typeof kept.cwd === "string" ? kept.cwd : "";
-  if (typeof repoName === "string" && typeof branch === "string") {
+  // best-guess for paths. Skip synthesis (and stamp `git: null`) if cwd
+  // is missing — falling back to "" would silently reintroduce the
+  // empty-string sentinel this rewrite is trying to remove. Live git
+  // provider re-resolves on first restore via subscribeGitInfo, so the
+  // worktree case (cwd ≠ mainRepoRoot) self-corrects.
+  if (
+    typeof repoName === "string" &&
+    typeof branch === "string" &&
+    typeof kept.cwd === "string"
+  ) {
     return {
       ...kept,
       git: {
         repoName,
         branch,
-        repoRoot: cwd,
-        worktreePath: cwd,
+        repoRoot: kept.cwd,
+        worktreePath: kept.cwd,
         isWorktree: false,
-        mainRepoRoot: cwd,
+        mainRepoRoot: kept.cwd,
       },
     };
   }

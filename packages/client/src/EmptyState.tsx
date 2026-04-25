@@ -111,7 +111,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             {(t) => (
                               <div title={t.cwd}>
                                 <div class="text-sm text-fg-2 truncate leading-snug">
-                                  {t.git?.branch ?? t.cwd}
+                                  {terminalKey(t).label}
                                 </div>
                                 <Show
                                   when={

@@ -80,14 +80,14 @@ describe("buildTerminalDisplayInfos", () => {
     expect(info?.subCount).toBe(0);
   });
 
-  it("uses cwd basename as both group and label for non-git terminals", () => {
+  it("uses cwd basename for group, shortened cwd for label, on non-git terminals", () => {
     const result = buildTerminalDisplayInfos(
       ["id-1"],
-      () => makeMeta(),
+      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
       () => [],
     );
-    expect(result.get("id-1")?.key.group).toBe("project");
-    expect(result.get("id-1")?.key.label).toBe("project");
+    expect(result.get("id-1")?.key.group).toBe("foo");
+    expect(result.get("id-1")?.key.label).toBe("~/projects/foo");
   });
 
   it("counts sub-terminals", () => {
@@ -137,10 +137,10 @@ describe("buildTerminalDisplayInfos", () => {
     expect(result.get("cccc-3")?.key.suffix).toBeUndefined();
   });
 
-  it("collides non-git terminals at different cwds with same basename", () => {
-    // Pre-consolidation: non-git used full cwd as identity, so same-basename
-    // never collided (and shipped full paths into the UI). New rule: basename
-    // is the identity, so collisions get suffixed — same shape as git.
+  it("does NOT collide non-git terminals at different paths sharing a basename", () => {
+    // Same basename, different paths → same `group` but different `label`
+    // (the shortened cwd disambiguates). Suffix only fires when the full
+    // (group, label) pair collides — same shape as git.
     const result = buildTerminalDisplayInfos(
       ["aaaa-1", "bbbb-2"],
       (id) =>
@@ -150,6 +150,20 @@ describe("buildTerminalDisplayInfos", () => {
               ? "/home/alice/projects/foo"
               : "/home/alice/work/foo",
         }),
+      () => [],
+    );
+    expect(result.get("aaaa-1")?.key.group).toBe("foo");
+    expect(result.get("bbbb-2")?.key.group).toBe("foo");
+    expect(result.get("aaaa-1")?.key.label).toBe("~/projects/foo");
+    expect(result.get("bbbb-2")?.key.label).toBe("~/work/foo");
+    expect(result.get("aaaa-1")?.key.suffix).toBeUndefined();
+    expect(result.get("bbbb-2")?.key.suffix).toBeUndefined();
+  });
+
+  it("collides non-git terminals at the same exact cwd", () => {
+    const result = buildTerminalDisplayInfos(
+      ["aaaa-1", "bbbb-2"],
+      () => makeMeta({ cwd: "/home/alice/projects/foo" }),
       () => [],
     );
     expect(result.get("aaaa-1")?.key.suffix).toBe("#aaaa");

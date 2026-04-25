@@ -8,7 +8,7 @@
  *  in sync is to make them the same projection.
  */
 
-import { cwdBasename } from "./path";
+import { cwdBasename, shortenCwd } from "./path";
 import type { GitInfo, TerminalId } from "./index";
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
@@ -42,20 +42,22 @@ export type TerminalIdentity = TerminalLocation & {
 };
 
 /** Canonical projection. The mapping is `git → (repoName, branch)` for
- *  git-aware terminals, `no git → (basename, basename)` otherwise.
+ *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise.
  *
- *  Identity, grouping, and rendering all read from this same projection,
- *  so a future tweak (different fallback for non-git, different suffix
- *  format) lands in one place. Any divergent projection elsewhere
- *  silently breaks `computeTerminalKeys` collision detection AND/OR
- *  visually contradicts the live pill tree. */
+ *  Why basename + shortened-cwd for non-git: `group` is the compact
+ *  heading (a basename so paths like `/home/alice/projects/foo` show as
+ *  `foo`); `label` is the disambiguating sub-line (`~/projects/foo`) so
+ *  two terminals at different paths with the same basename are visually
+ *  distinct AND don't collide on identity. Identity, grouping, and
+ *  rendering all read from this single projection — a divergent
+ *  projection elsewhere silently breaks `computeTerminalKeys` collision
+ *  detection or visually contradicts the live pill tree. */
 export function terminalKey(t: TerminalLocation): {
   group: string;
   label: string;
 } {
   if (t.git) return { group: t.git.repoName, label: t.git.branch };
-  const base = cwdBasename(t.cwd) || "terminal";
-  return { group: base, label: base };
+  return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
 }
 
 /** Compute keys for every terminal in one pass.
