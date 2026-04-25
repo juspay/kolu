@@ -20,7 +20,7 @@ _Rationale_: Conflates "loading" with "no data" and misses error states.
 
 Don't introduce helpers like `unwrap`, `fromJust`, `assertNonEmpty`, or any other "narrow `T | undefined | null` to `T` by throwing" wrapper. The type system doesn't see the throw, callers can't handle it, and `catch (err: unknown)` swallows it the same as a `!`. Push the invariant to the type at its source.
 
-- **Non-empty arrays** → use `NonEmpty<T> = readonly [T, ...T[]]` from `anyagent/nonempty`. The smart constructor `nonEmpty(arr)` returns `NonEmpty<T> | null`, forcing the caller to narrow. For invariant violations at module-load boundaries (checked-in JSON that shipped empty), `nonEmptyOrThrow` is the once-per-process variant.
+- **Non-empty arrays** → use `NonEmpty<T> = readonly [T, ...T[]]` from the `nonempty` package. The smart constructor `nonEmpty(arr)` returns `NonEmpty<T> | null`, forcing the caller to narrow. For checked-in JSON whose regen pipeline guarantees non-emptiness, cast at the import boundary (`as [T, ...T[]]`) and back the cast with a unit test that loads the JSON and asserts `length > 0` — empty becomes a CI failure, not a runtime one.
 - **Regex match groups** that the pattern guarantees but TS types as `string | undefined` → destructure with an explicit tuple cast (`const [, hex] = m as unknown as [string, string]`), localized to the parser. Don't repeat the cast at every consumer.
 - **Genuine fallible boundaries** (parsing, I/O) → return `Result<T, E>` from `neverthrow` so the caller is forced to handle the error in the type.
 - **`Map.get` after construction** → restructure so the lookup goes away (iterate `map.values()` instead of `keys.forEach(k => map.get(k))`, return zipped entries instead of a Map the caller has to look back up).

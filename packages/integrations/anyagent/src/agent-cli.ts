@@ -29,8 +29,8 @@
  * drops real positionals.
  */
 
+import { type NonEmpty, nonEmpty } from "nonempty";
 import { parseArgsStringToArgv } from "string-argv";
-import { type NonEmpty, nonEmpty } from "./nonempty.ts";
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */

@@ -1,5 +1,5 @@
 {
-  "name": "memorable-names",
+  "name": "nonempty",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -11,14 +11,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
-  },
-  "dependencies": {
-    "nonempty": "workspace:*"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "vitest": "^4.1.2"
+    "typescript": "^5.8.0"
   }
 }

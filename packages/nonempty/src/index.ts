@@ -20,16 +20,3 @@ export type NonEmpty<T> = readonly [T, ...T[]];
 export function nonEmpty<T>(arr: readonly T[]): NonEmpty<T> | null {
   return arr.length === 0 ? null : (arr as NonEmpty<T>);
 }
-
-/** Smart constructor that throws on empty input. Use at boundaries
- *  where empty is a system invariant violation (checked-in JSON that
- *  shipped empty, an internal pipeline that should never produce
- *  empty), not at user-visible boundaries (use `nonEmpty` + null check
- *  for those). */
-export function nonEmptyOrThrow<T>(
-  arr: readonly T[],
-  message: string,
-): NonEmpty<T> {
-  if (arr.length === 0) throw new Error(`nonEmptyOrThrow: ${message}`);
-  return arr as NonEmpty<T>;
-}

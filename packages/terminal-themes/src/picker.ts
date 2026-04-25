@@ -6,7 +6,7 @@
  *  look-alikes. Pure random collides; nearest-neighbour maximisation in
  *  OkLab gives a visibly spread palette. */
 
-import { type NonEmpty, nonEmpty } from "anyagent/nonempty";
+import { type NonEmpty, nonEmpty } from "nonempty";
 import type { NamedTheme } from "./theme.ts";
 
 interface OkLab {

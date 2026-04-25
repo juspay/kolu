@@ -105,6 +105,9 @@ importers:
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
+      nonempty:
+        specifier: workspace:*
+        version: link:../nonempty
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -191,6 +194,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      nonempty:
+        specifier: workspace:*
+        version: link:../../nonempty
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
@@ -326,9 +332,9 @@ importers:
 
   packages/memorable-names:
     dependencies:
-      anyagent:
+      nonempty:
         specifier: workspace:*
-        version: link:../integrations/anyagent
+        version: link:../nonempty
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -336,6 +342,12 @@ importers:
       vitest:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/nonempty:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
 
   packages/server:
     dependencies:
@@ -442,12 +454,12 @@ importers:
       '@xterm/xterm':
         specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
         version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
-      anyagent:
-        specifier: workspace:*
-        version: link:../integrations/anyagent
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
+      nonempty:
+        specifier: workspace:*
+        version: link:../nonempty
     devDependencies:
       typescript:
         specifier: ^5.8.0

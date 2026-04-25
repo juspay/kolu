@@ -5,7 +5,6 @@
  */
 
 import type { ITheme } from "@xterm/xterm";
-import { nonEmptyOrThrow } from "anyagent/nonempty";
 import availableThemesJson from "../themes.json" with { type: "json" };
 
 export interface NamedTheme {
@@ -15,13 +14,14 @@ export interface NamedTheme {
 
 export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-/** All available themes from the checked-in JSON. Non-empty by build
- *  (sourced from iTerm2-Color-Schemes); the smart constructor enforces
- *  that invariant at module load. */
-export const availableThemes = nonEmptyOrThrow(
-  availableThemesJson as NamedTheme[],
-  "themes.json shipped empty",
-);
+/** All available themes from the checked-in JSON. The cast asserts
+ *  non-empty at the import boundary — the JSON is regenerated from
+ *  iTerm2-Color-Schemes by a build script, so empty is a build-time
+ *  failure, not a runtime one. */
+export const availableThemes = availableThemesJson as [
+  NamedTheme,
+  ...NamedTheme[],
+];
 
 export const DEFAULT_THEME_NAME = "Tomorrow Night";
 export const DEFAULT_THEME: ITheme =

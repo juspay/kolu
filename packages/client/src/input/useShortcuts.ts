@@ -1,8 +1,8 @@
 /** Global keyboard shortcuts — single capture-phase listener dispatching to handlers. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { nonEmpty } from "anyagent/nonempty";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { nonEmpty } from "nonempty";
 import type { Accessor, Setter } from "solid-js";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
 

@@ -2,7 +2,7 @@
  *  Reported to server for session snapshots; seeded from server on restore. */
 
 import type { TerminalId } from "kolu-common";
-import { nonEmpty } from "anyagent/nonempty";
+import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
 import { client } from "../rpc/rpc";
 
