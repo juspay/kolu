@@ -115,9 +115,10 @@ function basename(s: string): string {
  * for them.
  *
  * The transforms splice a resume marker into the normalized argv:
- *   claude `-c`       → continue most-recent conversation in cwd
- *   codex `resume`    → subcommand form; last session in cwd
- *   opencode `--continue` → continue most-recent session in cwd
+ *   claude `-c`              → continue most-recent conversation in cwd
+ *   codex `resume --last`    → subcommand form; last session in cwd
+ *                              (`--last` skips the interactive picker)
+ *   opencode `--continue`    → continue most-recent session in cwd
  *
  * `parseAgentCommand` strips `-c`/`--continue`/`--resume`/`-r` during
  * normalization (per juspay/kolu#467), so the input to these transforms is
@@ -138,7 +139,7 @@ const AGENT_RESUME: Record<
   (argv: NonEmpty<string>) => string[]
 > = {
   claude: (argv) => withResumeFlags(argv, "-c"),
-  codex: (argv) => withResumeFlags(argv, "resume"),
+  codex: (argv) => withResumeFlags(argv, "resume", "--last"),
   opencode: (argv) => withResumeFlags(argv, "--continue"),
 };
 

@@ -168,11 +168,11 @@ describe("resumeAgentCommand", () => {
       "claude --permission-mode plan --add-dir /tmp/foo",
       "claude -c --permission-mode plan --add-dir /tmp/foo",
     ],
-    ["codex", "codex resume"],
-    ["codex --yolo", "codex resume --yolo"],
+    ["codex", "codex resume --last"],
+    ["codex --yolo", "codex resume --last --yolo"],
     [
       `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
-      `codex resume --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
+      `codex resume --last --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
     ],
     ["opencode", "opencode --continue"],
     [
