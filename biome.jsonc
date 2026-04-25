@@ -1,0 +1,151 @@
+// Phase 1 of #710: install Biome v2, wire `just lint` + `ci::biome` as a
+// correctness gate alongside the existing Prettier formatter. Scope is
+// intentionally the **toolchain only** — no formatting churn, no mass
+// lint-fix rewrites. Follow-up PRs enable each rule class one at a time
+// (per the issue's own "one PR per rule class" guidance) so each
+// correctness bucket is reviewable on its own.
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!pnpm-lock.yaml",
+      "!apm.lock.yaml",
+      "!AGENTS.md",
+      "!CLAUDE.md",
+      "!.claude/agents",
+      "!.claude/commands",
+      "!.claude/rules",
+      "!.claude/skills",
+      "!.claude/hooks",
+      "!.claude/settings.json",
+      "!.agents",
+      "!.codex",
+      "!.opencode",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/.direnv",
+      "!**/.logs",
+      "!patches",
+      // Astro files: frontmatter imports/consts are resolved inside the template
+      // body, which Biome doesn't parse — lint + format would false-positive
+      // and corrupt files. Astro has its own formatter (future: astro fmt).
+      "!**/*.astro",
+      // One-off heap-snapshot analyzers; not part of the product surface.
+      "!docs/perf-investigations/scripts",
+    ],
+  },
+  // Prettier remains the formatter (see justfile `fmt`). Biome's formatter
+  // is explicitly disabled here so `biome lint`/`biome check` runs don't
+  // emit a formatting diff across 200+ files. Follow-up PR: flip formatter
+  // on and land the one-shot format churn.
+  "formatter": {
+    "enabled": false,
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      // Each disable below is a Phase-1 scoping decision. Re-enabling is the
+      // charter of a follow-up PR (one per rule class) — additive, not
+      // structural. The baseline stays `recommended: true` so rules
+      // promoted in future Biome releases surface on the next upgrade.
+      //
+      // Accessibility pass — 88 findings across useButtonType,
+      // noSvgWithoutTitle, noStaticElementInteractions, etc.
+      "a11y": "off",
+      "style": {
+        // 136 sites use `!` non-null assertions idiomatically. Migration
+        // to `?? throw`/narrowing is a dedicated cleanup pass.
+        "noNonNullAssertion": "off",
+        // 12 sites of plain `+` string concat; stylistic.
+        "useTemplate": "off",
+        // 40 sites of `import X` that could be `import type X`; reorders
+        // imports across many files and reads as formatting churn.
+        "useImportType": "off",
+        // 2 sites where `export { FooType }` could be `export type { FooType }`.
+        "useExportType": "off",
+        // 3 sites of `Math.pow(a, b)` that could be `a ** b`.
+        "useExponentiationOperator": "off",
+        // 2 sites of `let` that could be `const`.
+        "useConst": "off",
+      },
+      "suspicious": {
+        // 32 sites of gradual-typing debt on `any`. Dedicated cleanup.
+        "noExplicitAny": "off",
+        // Terminal code legitimately parses ANSI escape sequences —
+        // the rule is a false positive against xterm diagnostics.
+        "noControlCharactersInRegex": "off",
+        // `isNaN(x)` → `Number.isNaN(x)` (3) and `isFinite(x)` →
+        // `Number.isFinite(x)` (2). Real coercion-bug risk; follow-up.
+        "noGlobalIsNan": "off",
+        "noGlobalIsFinite": "off",
+        // 1 production site of `while ((x = next()))`. Addressed in the
+        // same follow-up that flips noAssignInExpressions on globally.
+        "noAssignInExpressions": "off",
+        // 1 unused string escape.
+        "noUselessEscapeInString": "off",
+      },
+      "complexity": {
+        // Tailwind `!important` overrides are intentional in kolu's
+        // rare CSS escape-hatches.
+        "noImportantStyles": "off",
+        // 8 sites where `a && a.b` could be `a?.b`. Small but a rewrite;
+        // a follow-up applies `biome check --write` once for all of them.
+        "useOptionalChain": "off",
+        // 5 sites of `function () {}` callbacks that could be arrows.
+        "useArrowFunction": "off",
+        // 1 site of `let x = undefined;`.
+        "noUselessUndefinedInitialization": "off",
+        // 1 auto-fixable regex escape.
+        "noUselessEscapeInRegex": "off",
+      },
+      "correctness": {
+        // 25 sites of unused locals (8 imports, 17 vars). Mix of real
+        // dead code, Solid signal destructures that drop fields, and a
+        // few that want underscore renames — each category deserves a
+        // focused review rather than a sweeping auto-rename.
+        "noUnusedVariables": "off",
+        "noUnusedImports": "off",
+        // 3 sites of `parseInt(x)` without radix; real bug potential but a
+        // focused follow-up.
+        "useParseIntRadix": "off",
+        // 2 inline <script> var declarations in index.html — `let` rewrite
+        // belongs with other pre-paint-bootstrap cleanup.
+        "noInnerDeclarations": "off",
+      },
+    },
+  },
+  "css": {
+    // Kolu uses Tailwind v4 (`@theme`, `@plugin`, `@apply`) in both the
+    // client and the website — without this flag the CSS parser rejects
+    // those directives even on lint-only runs.
+    "parser": {
+      "tailwindDirectives": true,
+    },
+  },
+  "overrides": [
+    {
+      // Test code uses idioms production code doesn't: async generators
+      // that throw before yielding (error-path tests) and assign-in-expr
+      // patterns (indexOf loops, Cucumber world-scratch fields).
+      "includes": ["**/*.test.ts", "**/*.test.tsx", "packages/tests/**"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useYield": "off",
+          },
+          "suspicious": {
+            "noAssignInExpressions": "off",
+          },
+        },
+      },
+    },
+  ],
+}

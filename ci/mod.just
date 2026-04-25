@@ -26,7 +26,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::unit ci::apm-sync || true
+    just ci::fmt ci::typecheck ci::biome ci::unit ci::apm-sync || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
@@ -82,3 +82,8 @@ apm-sync:
 
 fmt:
     just ci::_run fmt just fmt-check
+
+# Biome lint — recommended preset with each currently-noisy rule explicitly
+# off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
+biome:
+    just ci::_run biome "pnpm exec biome lint ."

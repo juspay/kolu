@@ -40,9 +40,13 @@ _dev: install _dev-parallel
 [parallel]
 _dev-parallel: server client
 
-# Run TypeScript type checking across all packages — fast static-correctness gate
+# Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate
 check: install
-    {{ nix_shell }} pnpm typecheck
+    {{ nix_shell }} sh -c 'pnpm typecheck && pnpm exec biome lint .'
+
+# Biome lint only — mirrors ci::biome. Format stays on Prettier for now (see biome.jsonc).
+lint: install
+    {{ nix_shell }} pnpm exec biome lint .
 
 # Run server with auto-reload
 server:

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-24T20:49:36.407737+00:00'
+generated_at: '2026-04-25T01:17:48.658870+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: anthropics/skills
@@ -147,5 +147,5 @@ local_deployed_file_hashes:
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/rules/workflow.md: sha256:9fd3625ba30f63cd5ec7543fcc71cd3dbd80cf12d6a88da046c7f11b03a83543
+  .claude/rules/workflow.md: sha256:e59ab2618ffbadf208114d751c79cf06971bdd22dee0703ad768e8b3ab46eba2
   .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
