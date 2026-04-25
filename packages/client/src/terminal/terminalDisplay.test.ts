@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
+import type { GitInfo, TerminalMetadata } from "kolu-common";
+import { describe, expect, it } from "vitest";
 import {
   assignColors,
-  terminalName,
   buildTerminalDisplayInfos,
+  terminalName,
 } from "./terminalDisplay";
-import type { TerminalMetadata, GitInfo } from "kolu-common";
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {

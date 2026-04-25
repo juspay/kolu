@@ -15,36 +15,36 @@
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
 
 import {
-  type Component,
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  type JSX,
-} from "solid-js";
-import {
   DragDropProvider,
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
 import type { TerminalId } from "kolu-common";
-import type { TileLayout } from "./TileLayout";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
-import { applyResize, type ResizeDirection } from "./resizeGeometry";
-import CanvasTile from "./CanvasTile";
-import CanvasMinimap from "./CanvasMinimap";
-import CanvasWatermark from "./CanvasWatermark";
-import { useTerminalStore } from "../terminal/useTerminalStore";
-import { useTileTheme } from "./useTileTheme";
-import { useViewPosture } from "./useViewPosture";
 import {
-  DEFAULT_TILE_W,
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  on,
+  Show,
+} from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import CanvasMinimap from "./CanvasMinimap";
+import CanvasTile from "./CanvasTile";
+import CanvasWatermark from "./CanvasWatermark";
+import { applyResize, type ResizeDirection } from "./resizeGeometry";
+import type { TileLayout } from "./TileLayout";
+import {
   DEFAULT_TILE_H,
+  DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
+import { useTileTheme } from "./useTileTheme";
+import { useViewPosture } from "./useViewPosture";
+import { capturePointerGesture } from "./viewport/capturePointerGesture";
+import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 const MIN_W = 300;
 const MIN_H = 200;

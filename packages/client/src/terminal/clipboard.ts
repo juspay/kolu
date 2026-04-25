@@ -11,8 +11,8 @@
  */
 
 import type {
-  IClipboardProvider,
   ClipboardSelectionType,
+  IClipboardProvider,
 } from "@xterm/addon-clipboard";
 import { toast } from "solid-sonner";
 

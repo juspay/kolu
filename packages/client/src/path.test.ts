@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { shortenCwd, cwdBasename } from "./path";
+import { describe, expect, it } from "vitest";
+import { cwdBasename, shortenCwd } from "./path";
 
 describe("shortenCwd", () => {
   it.each([

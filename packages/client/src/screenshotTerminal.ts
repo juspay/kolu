@@ -15,11 +15,11 @@
  *  Chrome, "black image" reports in real Chrome). Painting cells directly
  *  sidesteps that entire surface. */
 
-import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
-import { getTerminalRefs } from "./terminal/terminalRefs";
 import { terminalName } from "./terminal/terminalDisplay";
+import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */

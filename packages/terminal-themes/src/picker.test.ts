@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { hexToOkLab, okLabDistance, pickTheme } from "./picker";
 import type { NamedTheme } from "./theme";
 

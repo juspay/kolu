@@ -1,22 +1,22 @@
 /** Search bar overlay for find-in-terminal. Wraps @xterm/addon-search. */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
+import type {
+  ISearchOptions,
+  ISearchResultChangeEvent,
+  SearchAddon,
+} from "@xterm/addon-search";
 import {
   type Component,
-  type JSX,
-  Show,
-  createSignal,
   createEffect,
+  createSignal,
+  type JSX,
   on,
   onCleanup,
+  Show,
 } from "solid-js";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
-import type {
-  SearchAddon,
-  ISearchResultChangeEvent,
-  ISearchOptions,
-} from "@xterm/addon-search";
 
 const SEARCH_OPTIONS: ISearchOptions = {
   incremental: true,

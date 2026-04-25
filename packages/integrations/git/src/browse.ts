@@ -4,11 +4,11 @@
  *  tracked + untracked-but-not-ignored paths in one shot. This avoids
  *  listing `node_modules/`, `.git/`, build artifacts, etc. */
 
-import { readFile as fsReadFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
+import { readFile as fsReadFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "anyagent";
-import { type GitResult, ok, err } from "./errors.ts";
+import { err, type GitResult, ok } from "./errors.ts";
 import { resolveUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);

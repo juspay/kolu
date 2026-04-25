@@ -1,12 +1,12 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
-import { type Component, For, Show, createSignal, createMemo } from "solid-js";
 import {
-  terminalKey,
   type SavedSession,
   type SavedTerminal,
+  terminalKey,
 } from "kolu-common";
-import { SHORTCUTS, formatKeybind } from "./input/keyboard";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
 

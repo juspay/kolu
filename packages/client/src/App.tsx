@@ -5,56 +5,55 @@
  *  pill, agent indicator, screenshot, split toggle) lives on the tile title
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
+import Dialog from "@corvu/dialog";
+import { Title } from "@solidjs/meta";
+import type { TerminalId } from "kolu-common";
 import {
   type Component,
-  createSignal,
   createEffect,
   createMemo,
+  createSignal,
   on,
   Show,
 } from "solid-js";
-import { Title } from "@solidjs/meta";
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
-import { isMobile } from "./useMobile";
 import ChromeBar from "./ChromeBar";
-import TerminalContent from "./terminal/TerminalContent";
-import TerminalMeta from "./terminal/TerminalMeta";
-import TerminalCanvas from "./canvas/TerminalCanvas";
+import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
+import CommandPalette from "./CommandPalette";
+import { toggleMinimap } from "./canvas/CanvasMinimap";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import PillTree from "./canvas/PillTree";
+import { flatPillOrder, groupByRepo } from "./canvas/pillTreeOrder";
+import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
-import { groupByRepo, flatPillOrder } from "./canvas/pillTreeOrder";
-import MobileTileView from "./MobileTileView";
-import MobileKeyBar from "./MobileKeyBar";
-import CommandPalette from "./CommandPalette";
-import ShortcutsHelp from "./ShortcutsHelp";
-import DiagnosticInfo from "./DiagnosticInfo";
-import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
-import Dialog from "@corvu/dialog";
-import EmptyState from "./EmptyState";
-import RightPanelLayout from "./right-panel/RightPanelLayout";
-import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
-import { createCommands } from "./commands";
-import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
-import { screenshotTerminal } from "./screenshotTerminal";
-import WebcamOverlay from "./recorder/WebcamOverlay";
-import { useRecorder } from "./recorder/useRecorder";
-
-import type { TerminalId } from "kolu-common";
-import { client, wsStatus, serverProcessId } from "./rpc/rpc";
-import TransportOverlay from "./rpc/TransportOverlay";
-import { useTerminals } from "./terminal/useTerminals";
-import { useThemeManager } from "./useThemeManager";
-import { useShortcuts } from "./input/useShortcuts";
-import { useSubPanel } from "./terminal/useSubPanel";
-import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { useViewPosture } from "./canvas/useViewPosture";
+import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
+import { createCommands } from "./commands";
+import DiagnosticInfo from "./DiagnosticInfo";
+import EmptyState from "./EmptyState";
+import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
+import { useShortcuts } from "./input/useShortcuts";
+import MobileKeyBar from "./MobileKeyBar";
+import MobileTileView from "./MobileTileView";
+import { useRecorder } from "./recorder/useRecorder";
+import WebcamOverlay from "./recorder/WebcamOverlay";
+import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
+import { client, serverProcessId, wsStatus } from "./rpc/rpc";
+import TransportOverlay from "./rpc/TransportOverlay";
+import ShortcutsHelp from "./ShortcutsHelp";
+import { screenshotTerminal } from "./screenshotTerminal";
+import { pillTreeSwitchTip } from "./settings/tips";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
-import { pillTreeSwitchTip } from "./settings/tips";
-import { toggleMinimap } from "./canvas/CanvasMinimap";
+import TerminalContent from "./terminal/TerminalContent";
+import TerminalMeta from "./terminal/TerminalMeta";
+import { useSubPanel } from "./terminal/useSubPanel";
+import { useTerminals } from "./terminal/useTerminals";
+import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
+import { isMobile } from "./useMobile";
+import { useThemeManager } from "./useThemeManager";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();

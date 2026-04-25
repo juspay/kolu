@@ -6,15 +6,15 @@
  *  Escape mirror `settings/SettingsPopover.tsx` — no Corvu Popover in the
  *  repo, and the settings panel is the canonical anchored-floating pattern. */
 
-import { type Component, Show, createSignal } from "solid-js";
-import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { match } from "ts-pattern";
-import { toast } from "solid-sonner";
 import type { GhUnavailableCode, PrUnavailableSource } from "kolu-common";
 import { reasonForSource } from "kolu-common/pr";
-import { writeTextToClipboard } from "./clipboard";
+import { type Component, createSignal, Show } from "solid-js";
+import { Portal } from "solid-js/web";
+import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 import { WarningIcon } from "../ui/Icons";
+import { writeTextToClipboard } from "./clipboard";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 

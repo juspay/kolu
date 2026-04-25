@@ -1,6 +1,6 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
 const KEY = (testId: string) => `[data-testid="mobile-key-${testId}"]`;

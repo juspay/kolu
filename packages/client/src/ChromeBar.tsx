@@ -19,16 +19,16 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, type JSX, createSignal } from "solid-js";
-import { SettingsIcon, InspectorToggleIcon } from "./ui/Icons";
+import { type Component, createSignal, type JSX } from "solid-js";
+import { useViewPosture } from "./canvas/useViewPosture";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
-import Kbd from "./ui/Kbd";
-import Tip from "./ui/Tip";
-import SettingsPopover from "./settings/SettingsPopover";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { useViewPosture } from "./canvas/useViewPosture";
 import type { WsStatus } from "./rpc/rpc";
+import SettingsPopover from "./settings/SettingsPopover";
+import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import Kbd from "./ui/Kbd";
+import Tip from "./ui/Tip";
 
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",

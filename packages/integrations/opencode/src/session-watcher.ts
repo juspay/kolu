@@ -12,19 +12,19 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
+import type { Logger } from "anyagent";
 import { agentInfoEqual } from "anyagent";
 import {
-  type OpenCodeInfo,
-  type OpenCodeSession,
   deriveSessionState,
   getLatestAssistantContextTokens,
-  getSessionTitle,
   getSessionTaskProgress,
+  getSessionTitle,
   hasRunningTools,
+  type OpenCodeInfo,
+  type OpenCodeSession,
   openDb,
   subscribeOpenCodeDb,
 } from "./index.ts";
-import type { Logger } from "anyagent";
 
 // --- Tuning constants ---
 

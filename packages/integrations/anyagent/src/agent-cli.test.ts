@@ -1,6 +1,6 @@
 /** Unit tests for agent CLI parsing and normalization. */
 
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
 
 describe("parseAgentCommand", () => {

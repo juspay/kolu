@@ -9,17 +9,17 @@
  * coexist without port collisions.
  */
 
-import { Before, After, BeforeAll, AfterAll, Status } from "@cucumber/cucumber";
-import { chromium } from "playwright";
-import type { Browser, BrowserContext, Page } from "playwright";
-import getPort from "get-port";
-import { KoluWorld } from "./world.ts";
+import type { ChildProcess } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ChildProcess } from "node:child_process";
-import { spawn, execSync } from "node:child_process";
+import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import getPort from "get-port";
+import type { Browser, BrowserContext, Page } from "playwright";
+import { chromium } from "playwright";
+import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
 
@@ -259,7 +259,7 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   );
 }
 
-BeforeAll(async function () {
+BeforeAll(async () => {
   const koluServer = process.env.KOLU_SERVER;
   if (!koluServer) throw new Error("KOLU_SERVER must be a URL or binary path");
 
@@ -317,7 +317,7 @@ BeforeAll(async function () {
   });
 });
 
-AfterAll(async function () {
+AfterAll(async () => {
   if (browser) await browser.close();
   keepAliveAgent.destroy();
   killServer();

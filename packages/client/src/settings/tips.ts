@@ -3,7 +3,7 @@
  * All tip IDs and text builders live here for easy maintenance.
  */
 
-import { SHORTCUTS, formatKeybind } from "../input/keyboard";
+import { formatKeybind, SHORTCUTS } from "../input/keyboard";
 
 export type TipId = string;
 

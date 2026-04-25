@@ -1,17 +1,17 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import { createSignal, createEffect } from "solid-js";
-import { toast } from "solid-sonner";
 import { resumeAgentCommand } from "anyagent/cli";
-import { useSubPanel } from "./useSubPanel";
-import { useSavedSession } from "../settings/useSavedSession";
-import { lifecycle, client } from "../rpc/rpc";
 import type {
   InitialTerminalMetadata,
+  SavedSession,
   TerminalId,
   TerminalInfo,
-  SavedSession,
 } from "kolu-common";
+import { createEffect, createSignal } from "solid-js";
+import { toast } from "solid-sonner";
+import { client, lifecycle } from "../rpc/rpc";
+import { useSavedSession } from "../settings/useSavedSession";
+import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useSessionRestore(deps: {

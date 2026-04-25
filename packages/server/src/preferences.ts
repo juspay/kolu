@@ -9,13 +9,13 @@
  */
 
 import {
-  PreferencesSchema,
   type Preferences,
   type PreferencesPatch,
+  PreferencesSchema,
 } from "kolu-common";
-import { store } from "./state.ts";
-import { publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
+import { publishSystem } from "./publisher.ts";
+import { store } from "./state.ts";
 
 /** Get the current preferences. */
 export function getPreferences(): Preferences {

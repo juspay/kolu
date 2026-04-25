@@ -8,14 +8,14 @@
  * buffered data is flushed in one shot.
  */
 
+import type { Terminal } from "@xterm/xterm";
 import {
   type Accessor,
-  createSignal,
   createEffect,
+  createSignal,
   on,
   onCleanup,
 } from "solid-js";
-import type { Terminal } from "@xterm/xterm";
 
 /**
  * Reactive scroll-lock primitive for an xterm.js terminal.
@@ -27,7 +27,7 @@ export function createScrollLock(enabled: Accessor<boolean | undefined>) {
   const [hasNewOutput, setHasNewOutput] = createSignal(false);
 
   /** Data buffered while scroll-locked — flushed on unlock. */
-  let pendingData: string[] = [];
+  const pendingData: string[] = [];
 
   /** Terminal reference, set on attach. */
   let termRef: Terminal | null = null;

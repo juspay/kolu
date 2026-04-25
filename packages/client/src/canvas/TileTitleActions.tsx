@@ -9,17 +9,17 @@
  *  as props because they are state setters whose ownership belongs at the
  *  orchestration layer. Extracted from App.tsx per kolu#626. */
 
-import { type Component, Show } from "solid-js";
 import type { TerminalId } from "kolu-common";
-import AgentIndicator from "../terminal/AgentIndicator";
-import { useTerminalStore } from "../terminal/useTerminalStore";
+import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
-import { useSubPanel } from "../terminal/useSubPanel";
-import { useThemeManager } from "../useThemeManager";
-import { useTips } from "../settings/useTips";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useTips } from "../settings/useTips";
+import AgentIndicator from "../terminal/AgentIndicator";
+import { useSubPanel } from "../terminal/useSubPanel";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
+import { useThemeManager } from "../useThemeManager";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */

@@ -23,10 +23,11 @@
  * is this terminal running *now*", the second answers "what is this
  * terminal *for*."
  */
-import type { TerminalId } from "kolu-common";
+
 import { parseAgentCommand } from "anyagent";
-import { subscribeForTerminal } from "../publisher.ts";
+import type { TerminalId } from "kolu-common";
 import { trackRecentAgent } from "../activity.ts";
+import { subscribeForTerminal } from "../publisher.ts";
 import { getTerminal } from "../terminals.ts";
 import { updateServerMetadata } from "./index.ts";
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentTerminalState, Logger } from "anyagent";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findSessionMock = vi.fn();
 

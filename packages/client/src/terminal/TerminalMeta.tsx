@@ -10,13 +10,13 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
+import { prUnavailableSource, prValue } from "kolu-common/pr";
 import { type Component, Show } from "solid-js";
-import { prValue, prUnavailableSource } from "kolu-common/pr";
-import ChecksIndicator from "./ChecksIndicator";
-import Tip from "../ui/Tip";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
-import { PrUnavailableButton } from "./PrUnavailablePopover";
+import Tip from "../ui/Tip";
+import ChecksIndicator from "./ChecksIndicator";
 import { copyTextWithToast } from "./clipboard";
+import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{

@@ -52,7 +52,7 @@ export const CodeContextMenu: Component<{
     if (!open()) return;
     const target = e.target as Node | null;
     const menu = document.getElementById("code-context-menu");
-    if (target && menu && menu.contains(target)) return;
+    if (target && menu?.contains(target)) return;
     close();
   };
   const onKeydown = (e: KeyboardEvent) => {

@@ -7,13 +7,13 @@
  *  dot); tapping it opens `MobileChromeSheet`, which mirrors the desktop
  *  ChromeBar for touch — logo, vertical pill list, controls. */
 
-import { type Component, For, Show, createSignal, type JSX } from "solid-js";
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common";
+import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
+import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
-import MobileChromeSheet from "./MobileChromeSheet";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */

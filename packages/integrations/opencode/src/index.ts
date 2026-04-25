@@ -21,8 +21,8 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { type Logger, withDb as sharedWithDb } from "anyagent";
 import { match } from "ts-pattern";
-import { withDb as sharedWithDb, type Logger } from "anyagent";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
 
@@ -31,13 +31,13 @@ export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 // --- OpenCode schemas (browser-safe; re-exported from ./schemas) ---
 
+export type { Logger } from "anyagent";
 export {
-  TaskProgressSchema,
+  type OpenCodeInfo,
   OpenCodeInfoSchema,
   type TaskProgress,
-  type OpenCodeInfo,
+  TaskProgressSchema,
 } from "./schemas.ts";
-export { type Logger } from "anyagent";
 
 // --- Database helpers ---
 

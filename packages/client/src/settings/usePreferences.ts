@@ -21,13 +21,13 @@
  * (activity feed, session) can no longer trigger a stomp at all.
  */
 
+import type { Preferences, PreferencesPatch } from "kolu-common";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { createEffect, createRoot, on } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
-import { DEFAULT_PREFERENCES } from "kolu-common/config";
-import type { Preferences, PreferencesPatch } from "kolu-common";
 
 const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
 let initialized = false;

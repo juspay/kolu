@@ -5,44 +5,44 @@
  * reactively via a fontSize signal.
  */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
+import { createResizeObserver } from "@solid-primitives/resize-observer";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   type Component,
-  Show,
-  onMount,
-  onCleanup,
-  createSignal,
   createEffect,
-  on,
+  createSignal,
   getOwner,
+  on,
+  onCleanup,
+  onMount,
   runWithOwner,
+  Show,
 } from "solid-js";
-import { createResizeObserver } from "@solid-primitives/resize-observer";
 import { match } from "ts-pattern";
-import { makeEventListener } from "@solid-primitives/event-listener";
-import { Terminal as XTerm, type ITheme } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { SearchAddon } from "@xterm/addon-search";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { SafeClipboardProvider } from "./clipboard";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { ImageAddon } from "@xterm/addon-image";
-import { SerializeAddon } from "@xterm/addon-serialize";
 import "@xterm/xterm/css/xterm.css";
+import type { TerminalId } from "kolu-common";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
+import { matchesAnyShortcut } from "../input/keyboard";
+import { createZoom } from "../input/zoom";
+import { refitOnTabVisible } from "../refitOnTabVisible";
 import { client, stream } from "../rpc/rpc";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
-import { matchesAnyShortcut } from "../input/keyboard";
-import type { TerminalId } from "kolu-common";
-import SearchBar from "./SearchBar";
-import ScrollToBottom from "./ScrollToBottom";
-import { createZoom } from "../input/zoom";
 import { createScrollLock } from "../scrollLock";
-import { isTouch } from "../useMobile";
 import { usePreferences } from "../settings/usePreferences";
-import { refitOnTabVisible } from "../refitOnTabVisible";
+import { isTouch } from "../useMobile";
+import ScrollToBottom from "./ScrollToBottom";
+import SearchBar from "./SearchBar";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import {
@@ -582,7 +582,7 @@ const Terminal: Component<{
       // Filter terminal query responses from onData before sending to PTY.
       // The server's headless xterm already answers these; duplicates arriving
       // late over the network get printed as visible garbage.
-      const csiResponse = /\x1b\[[\?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
+      const csiResponse = /\x1b\[[?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
       term.onData((data: string) => {
         if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
         void client.terminal.sendInput({ id: props.terminalId, data });

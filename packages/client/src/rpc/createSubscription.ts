@@ -8,11 +8,11 @@
  */
 
 import {
+  type Accessor,
   createEffect,
   createSignal,
   on,
   onCleanup,
-  type Accessor,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 

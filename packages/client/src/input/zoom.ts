@@ -4,12 +4,13 @@
  * Per-terminal: each terminal gets its own persisted font size.
  * Cmd/Ctrl +/- to zoom in/out, Cmd/Ctrl+0 to reset.
  */
-import { createSignal } from "solid-js";
+
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
-import { DEFAULT_FONT_SIZE } from "kolu-common/config";
-import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 import type { TerminalId } from "kolu-common";
+import { DEFAULT_FONT_SIZE } from "kolu-common/config";
+import { createSignal } from "solid-js";
+import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
 /**
  * Reactive font-size signal driven by Cmd/Ctrl +/- and Cmd/Ctrl+0 (reset).

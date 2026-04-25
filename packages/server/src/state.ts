@@ -17,15 +17,15 @@
  */
 
 import Conf from "conf";
-import { z } from "zod";
-import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import {
-  PreferencesSchema,
-  RecentRepoSchema,
-  RecentAgentSchema,
-  SavedSessionSchema,
   type Preferences,
+  PreferencesSchema,
+  RecentAgentSchema,
+  RecentRepoSchema,
+  SavedSessionSchema,
 } from "kolu-common";
+import { DEFAULT_PREFERENCES } from "kolu-common/config";
+import { z } from "zod";
 import { log } from "./log.ts";
 
 /** What conf stores to disk — survives server restart. Internal: clients see

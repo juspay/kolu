@@ -12,16 +12,16 @@
  *  action (branch select, palette open, inspector toggle) so the
  *  parent can close the drawer. */
 
-import { type Component, For, Show, createSignal } from "solid-js";
-import { SettingsIcon } from "./ui/Icons";
-import { formatKeybind, SHORTCUTS } from "./input/keyboard";
-import Kbd from "./ui/Kbd";
-import SettingsPopover from "./settings/SettingsPopover";
-import { useRightPanel } from "./right-panel/useRightPanel";
-import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
-import { useTerminalStore } from "./terminal/useTerminalStore";
 import type { TerminalId } from "kolu-common";
+import { type Component, createSignal, For, Show } from "solid-js";
+import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
+import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
+import SettingsPopover from "./settings/SettingsPopover";
+import { useTerminalStore } from "./terminal/useTerminalStore";
+import { SettingsIcon } from "./ui/Icons";
+import Kbd from "./ui/Kbd";
 
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",

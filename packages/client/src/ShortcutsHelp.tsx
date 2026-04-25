@@ -1,10 +1,10 @@
 /** Modal overlay showing all keyboard shortcuts. */
 
-import { type Component } from "solid-js";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ui/ModalDialog";
-import { SHORTCUTS, formatKeybind, type Keybind } from "./input/keyboard";
+import type { Component } from "solid-js";
+import { formatKeybind, type Keybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
+import ModalDialog from "./ui/ModalDialog";
 
 interface DisplayEntry {
   label: string;

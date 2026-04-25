@@ -1,5 +1,5 @@
 import { Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 Then(
   "a toast should appear with text {string}",

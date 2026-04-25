@@ -5,7 +5,7 @@
  * paste-as-file-path (codex, Claude Code) auto-attach the image.
  */
 
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { koluClipboardDir } from "./koluRoot.ts";
 

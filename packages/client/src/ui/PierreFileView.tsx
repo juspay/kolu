@@ -6,13 +6,13 @@
  *  Line selection is enabled so the user can select a range and right-click
  *  to copy `path:start-end` for pasting into chats / agents. */
 
+import { DEFAULT_THEMES, File, type FileContents } from "@pierre/diffs";
 import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
-import { File, DEFAULT_THEMES, type FileContents } from "@pierre/diffs";
-import { pierreDiffsStyle } from "./pierreTheme";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
 } from "./CodeContextMenu";
+import { pierreDiffsStyle } from "./pierreTheme";
 import { useLineSelection } from "./useLineSelection";
 
 export type PierreFileViewProps = {

@@ -1,14 +1,14 @@
 /** Shared terminal lifecycle + buffer assertion steps. Surface-agnostic —
  *  work for canvas tiles, mobile pager, and the pill tree. */
 
-import { Given, When, Then } from "@cucumber/cucumber";
+import * as assert from "node:assert";
+import { Given, Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
 import {
-  KoluWorld,
+  type KoluWorld,
   PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
-import * as assert from "node:assert";
 
 When("I create a terminal", async function (this: KoluWorld) {
   const id = await this.createTerminal();

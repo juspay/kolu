@@ -5,10 +5,10 @@
  *  Terminal grid dimensions are per-instance — each xterm measures its
  *  own container via FitAddon. */
 
-import { createSignal, createEffect, on } from "solid-js";
-import { createStore, produce, reconcile } from "solid-js/store";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
+import { createEffect, createSignal, on } from "solid-js";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { client } from "./rpc/rpc";
 
 type TerminalAttention = "unread" | "badge-only";

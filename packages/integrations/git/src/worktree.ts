@@ -3,12 +3,12 @@
  * Worktrees are stored in `.worktrees/<name>` relative to the main repo root.
  */
 
-import path from "node:path";
 import fs from "node:fs";
-import { simpleGit } from "simple-git";
+import path from "node:path";
 import type { Logger } from "anyagent";
-import { type GitResult, ok, err } from "./errors.ts";
 import { randomName } from "memorable-names";
+import { simpleGit } from "simple-git";
+import { err, type GitResult, ok } from "./errors.ts";
 
 /** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {

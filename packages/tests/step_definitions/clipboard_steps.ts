@@ -1,5 +1,5 @@
 import { When } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY } from "../support/world.ts";
+import { type KoluWorld, MOD_KEY } from "../support/world.ts";
 
 /**
  * Simulate the full image paste flow: write a valid PNG to the browser

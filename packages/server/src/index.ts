@@ -1,26 +1,26 @@
-import { cli } from "cleye";
-import { Hono } from "hono";
+import { createServer as createHttpsServer } from "node:https";
+import { resolve } from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
 import { RPCHandler } from "@orpc/server/fetch";
 import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
-import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
+import { cli } from "cleye";
+import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
-import { WebSocketServer } from "ws";
-import { resolve } from "node:path";
-import { createServer as createHttpsServer } from "node:https";
 import { DEFAULT_PORT } from "kolu-common/config";
-import { appRouter } from "./router.ts";
-import { log } from "./log.ts";
-import { initSessionAutoSave } from "./session.ts";
-import { snapshotSession } from "./terminals.ts";
-import { resolveTlsOptions } from "./tls.ts";
-import { configureNixShellEnv } from "./shell.ts";
+import { WebSocketServer } from "ws";
+import pkg from "../package.json" with { type: "json" };
+import { getCacheControlHeader } from "./cacheControl.ts";
+import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
-import { startDiagnostics } from "./diagnostics.ts";
-import { getCacheControlHeader } from "./cacheControl.ts";
-import pkg from "../package.json" with { type: "json" };
+import { log } from "./log.ts";
+import { appRouter } from "./router.ts";
+import { initSessionAutoSave } from "./session.ts";
+import { configureNixShellEnv } from "./shell.ts";
+import { snapshotSession } from "./terminals.ts";
+import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
   name: "kolu",

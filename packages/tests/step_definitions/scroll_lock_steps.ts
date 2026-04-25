@@ -1,8 +1,8 @@
-import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
 import { writeFile } from "node:fs/promises";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Per-scenario FIFO path (avoids collisions when CI runs parallel workers). */
 function scrollFifo(world: KoluWorld): string {

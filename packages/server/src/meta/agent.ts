@@ -12,18 +12,18 @@
 
 import path from "node:path";
 import type {
+  AgentInfoShape,
   AgentProvider,
   AgentTerminalState,
   AgentWatcher,
-  AgentInfoShape,
   Logger,
 } from "anyagent";
 import type { AgentInfo } from "kolu-common";
-import type { TerminalProcess } from "../terminals.ts";
-import { updateServerMetadata } from "./index.ts";
-import { getLastAgentCommandName } from "./agent-command.ts";
-import { subscribeForTerminal } from "../publisher.ts";
 import { log } from "../log.ts";
+import { subscribeForTerminal } from "../publisher.ts";
+import type { TerminalProcess } from "../terminals.ts";
+import { getLastAgentCommandName } from "./agent-command.ts";
+import { updateServerMetadata } from "./index.ts";
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on
  *  NixOS). Normalize to basename so providers can compare against known
@@ -63,7 +63,7 @@ function snapshotTerminalState(
   terminalId: string,
   plog: Logger,
 ): AgentTerminalState {
-  let basename: string | null | undefined = undefined;
+  let basename: string | null | undefined;
   const foregroundPid = entry.handle.foregroundPid;
   const shellIdle =
     foregroundPid === undefined || foregroundPid === entry.handle.pid;

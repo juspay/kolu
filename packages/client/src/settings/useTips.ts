@@ -3,12 +3,12 @@
  * Owns all tip timing: state-driven triggers live here, not in consuming components.
  */
 
+import type { TerminalId } from "kolu-common";
 import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
-import { AMBIENT_TIPS, CONTEXTUAL_TIPS, type Tip, type TipId } from "./tips";
-import type { TerminalId } from "kolu-common";
-import { usePreferences } from "./usePreferences";
 import { isMobile } from "../useMobile";
+import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
+import { usePreferences } from "./usePreferences";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const ambientPool = AMBIENT_TIPS.filter(

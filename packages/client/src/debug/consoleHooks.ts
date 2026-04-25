@@ -15,10 +15,10 @@
  *  the reactive graph. For retainer-chain analysis use a Chrome heap
  *  snapshot + `docs/perf-investigations/scripts/` analyzers. */
 
-import { webglLifecycleSnapshot } from "../terminal/webglTracker";
-import { getTerminalRefs } from "../terminal/terminalRefs";
-import { lifecycleCounters } from "../terminal/Terminal";
 import type { TerminalId } from "kolu-common";
+import { lifecycleCounters } from "../terminal/Terminal";
+import { getTerminalRefs } from "../terminal/terminalRefs";
+import { webglLifecycleSnapshot } from "../terminal/webglTracker";
 
 interface KoluDebugApi {
   webgl: () => ReturnType<typeof webglLifecycleSnapshot>;

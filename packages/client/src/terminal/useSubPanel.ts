@@ -1,8 +1,8 @@
 /** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab per parent terminal.
  *  Reported to server for session snapshots; seeded from server on restore. */
 
-import { createStore, produce } from "solid-js/store";
 import type { TerminalId } from "kolu-common";
+import { createStore, produce } from "solid-js/store";
 import { client } from "../rpc/rpc";
 
 interface SubPanelState {

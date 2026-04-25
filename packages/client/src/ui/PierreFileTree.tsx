@@ -6,6 +6,14 @@
  *  SolidJS reactivity just tickles imperative setters. */
 
 import {
+  type ContextMenuItem,
+  type ContextMenuOpenContext,
+  FileTree,
+  type FileTreeInitialExpansion,
+  type GitStatusEntry,
+} from "@pierre/trees";
+import type { GitChangeStatus } from "kolu-common";
+import {
   type Component,
   createEffect,
   createMemo,
@@ -14,14 +22,6 @@ import {
   onMount,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import {
-  FileTree,
-  type ContextMenuItem,
-  type ContextMenuOpenContext,
-  type FileTreeInitialExpansion,
-  type GitStatusEntry,
-} from "@pierre/trees";
-import type { GitChangeStatus } from "kolu-common";
 import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
 
 /** Map Kolu's single-letter porcelain status to Pierre's word form. */

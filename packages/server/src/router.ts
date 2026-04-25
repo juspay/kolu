@@ -9,38 +9,38 @@ import { implement, ORPCError } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
-  createTerminal,
-  getTerminal,
-  listTerminals,
-  killTerminal,
-  killAllTerminals,
-  setTerminalTheme,
-  setCanvasLayout,
-  setSubPanelState,
-  setActiveTerminalId,
-  setTerminalParent,
-  type TerminalProcess,
-} from "./terminals.ts";
-import { saveClipboardImage } from "./clipboard.ts";
-import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
-import { serverHostname, serverProcessId } from "./hostname.ts";
-import {
-  worktreeCreate,
-  worktreeRemove,
-  getStatus,
+  type GitResult,
   getDiff,
+  getStatus,
   listAll,
   readFile,
-  type GitResult,
+  worktreeCreate,
+  worktreeRemove,
 } from "kolu-git";
+import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { saveClipboardImage } from "./clipboard.ts";
+import { serverHostname, serverProcessId } from "./hostname.ts";
+import { log } from "./log.ts";
 import {
   getPreferences,
-  updatePreferences,
   setPreferencesForTest,
+  updatePreferences,
 } from "./preferences.ts";
-import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
-import { log } from "./log.ts";
+import {
+  createTerminal,
+  getTerminal,
+  killAllTerminals,
+  killTerminal,
+  listTerminals,
+  setActiveTerminalId,
+  setCanvasLayout,
+  setSubPanelState,
+  setTerminalParent,
+  setTerminalTheme,
+  type TerminalProcess,
+} from "./terminals.ts";
 
 const t = implement(contract);
 

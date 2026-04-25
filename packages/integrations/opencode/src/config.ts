@@ -1,8 +1,8 @@
 /** Configuration constants for the OpenCode integration.
  *  Leaf module — no imports from other package files. */
 
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 
 /** Path to OpenCode's SQLite database. Configurable via env for testing. */
 export const OPENCODE_DB_PATH =

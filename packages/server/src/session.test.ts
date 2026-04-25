@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import type { SavedTerminal } from "kolu-common";
+import { afterAll, describe, expect, it } from "vitest";
 import {
-  saveSession,
-  getSavedSession,
   clearSavedSession,
+  getSavedSession,
+  saveSession,
   setSavedSession,
 } from "./session.ts";
-import type { SavedTerminal } from "kolu-common";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at

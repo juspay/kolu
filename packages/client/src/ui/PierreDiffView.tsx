@@ -7,18 +7,18 @@
  *  Line selection is enabled so the user can select a hunk range and
  *  right-click to copy `path:start-end` for pasting into chats / agents. */
 
-import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import {
-  FileDiff,
   DEFAULT_THEMES,
-  parsePatchFiles,
+  FileDiff,
   type FileDiffMetadata,
+  parsePatchFiles,
 } from "@pierre/diffs";
-import { pierreDiffsStyle } from "./pierreTheme";
+import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
 } from "./CodeContextMenu";
+import { pierreDiffsStyle } from "./pierreTheme";
 import { useLineSelection } from "./useLineSelection";
 
 export type PierreDiffViewProps = {

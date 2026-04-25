@@ -8,9 +8,9 @@
  * Defaults to "dark" (the app's original palette).
  */
 
-import { createEffect, createMemo } from "solid-js";
 import { usePrefersDark } from "@solid-primitives/media";
 import type { ColorScheme } from "kolu-common";
+import { createEffect, createMemo } from "solid-js";
 import { usePreferences } from "./usePreferences";
 
 export type { ColorScheme };

@@ -5,14 +5,14 @@
  * and asserting on the escape sequences they emit.
  */
 
-import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { describe, expect, it } from "vitest";
 import {
-  OSC7_FN,
-  OSC2_PREEXEC_FN,
-  OSC2_PREEXEC_BASH_GUARD,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
+  OSC2_PREEXEC_BASH_GUARD,
+  OSC2_PREEXEC_FN,
+  OSC7_FN,
 } from "./shell.ts";
 
 /** Run a script in a clean bash subshell and return stdout. */

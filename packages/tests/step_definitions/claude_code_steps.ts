@@ -10,12 +10,12 @@
  * makes the provider's foreground-pid lookup succeed.
  */
 
-import { When, Then, After } from "@cucumber/cucumber";
+import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as assert from "node:assert";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { readBufferText, ACTIVE_TERMINAL } from "../support/buffer.ts";
+import { After, Then, When } from "@cucumber/cucumber";
+import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
@@ -116,7 +116,7 @@ function cleanup() {
   mockTranscriptPath = null;
 }
 
-After(function () {
+After(() => {
   cleanup();
 });
 

@@ -2,15 +2,15 @@
  *  Routes between Inspector and Code tabs via a discriminated union so
  *  illegal pairings (e.g. Inspector-with-a-code-mode) can't be represented. */
 
+import type { RightPanelTabKind, TerminalMetadata } from "kolu-common";
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";
-import type { TerminalMetadata, RightPanelTabKind } from "kolu-common";
-import MetadataInspector from "./MetadataInspector";
-import CodeTab from "./CodeTab";
-import { useRightPanel } from "./useRightPanel";
-import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
-import { ChevronRightIcon } from "../ui/Icons";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
+import { ChevronRightIcon } from "../ui/Icons";
+import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
+import CodeTab from "./CodeTab";
+import MetadataInspector from "./MetadataInspector";
+import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
  *  discriminated union requires a corresponding entry here AND a branch

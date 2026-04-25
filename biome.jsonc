@@ -1,9 +1,10 @@
-// Phase 2 of #710: Biome v2 is now the sole formatter and the lint gate.
-// Prettier has been retired. Formatter options below mirror the old
-// Prettier defaults so the one-shot churn from the flip stays minimal
-// (3 files at the time of the flip). Follow-up PRs flip each disabled
-// lint rule on, one class at a time, per the issue's "one PR per rule
-// class" guidance.
+// Phase 3 of #710: turn on the lint rules whose fixes are mechanical
+// (Biome's safe `--write` applies them deterministically) so the bulk
+// of cheap correctness wins land in one auditable pass. Heavier rules
+// that require per-site judgment (noNonNullAssertion, noExplicitAny,
+// useTemplate, noUnusedVariables, the a11y group) remain off and get
+// dedicated PRs. Type-aware rules (noFloatingPromises etc.) require
+// Biome's Scanner/project domain — separate setup PR.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -81,22 +82,13 @@
         // to `?? throw`/narrowing is a dedicated cleanup pass.
         "noNonNullAssertion": "off",
         // 12 sites of plain `+` string concat; stylistic.
-        "useTemplate": "off",
-        // 40 sites of `import X` that could be `import type X`; reorders
-        // imports across many files and reads as formatting churn.
-        "useImportType": "off",
-        // 2 sites where `export { FooType }` could be `export type { FooType }`.
-        "useExportType": "off",
-        // 3 sites of `Math.pow(a, b)` that could be `a ** b`.
-        "useExponentiationOperator": "off",
-        // 2 sites of `let` that could be `const`.
-        "useConst": "off"
+        "useTemplate": "off"
       },
       "suspicious": {
         // 32 sites of gradual-typing debt on `any`. Dedicated cleanup.
         "noExplicitAny": "off",
         // Terminal code legitimately parses ANSI escape sequences —
-        // the rule is a false positive against xterm diagnostics.
+        // the rule is a permanent false positive against xterm diagnostics.
         "noControlCharactersInRegex": "off",
         // `isNaN(x)` → `Number.isNaN(x)` (3) and `isFinite(x)` →
         // `Number.isFinite(x)` (2). Real coercion-bug risk; follow-up.
@@ -104,33 +96,20 @@
         "noGlobalIsFinite": "off",
         // 1 production site of `while ((x = next()))`. Addressed in the
         // same follow-up that flips noAssignInExpressions on globally.
-        "noAssignInExpressions": "off",
-        // 1 unused string escape.
-        "noUselessEscapeInString": "off"
+        "noAssignInExpressions": "off"
       },
       "complexity": {
         // Tailwind `!important` overrides are intentional in kolu's
         // rare CSS escape-hatches.
-        "noImportantStyles": "off",
-        // 8 sites where `a && a.b` could be `a?.b`. Small but a rewrite;
-        // a follow-up applies `biome check --write` once for all of them.
-        "useOptionalChain": "off",
-        // 5 sites of `function () {}` callbacks that could be arrows.
-        "useArrowFunction": "off",
-        // 1 site of `let x = undefined;`.
-        "noUselessUndefinedInitialization": "off",
-        // 1 auto-fixable regex escape.
-        "noUselessEscapeInRegex": "off"
+        "noImportantStyles": "off"
       },
       "correctness": {
-        // 25 sites of unused locals (8 imports, 17 vars). Mix of real
-        // dead code, Solid signal destructures that drop fields, and a
-        // few that want underscore renames — each category deserves a
-        // focused review rather than a sweeping auto-rename.
+        // 17 sites of unused locals — Solid signal destructures that drop
+        // fields, a few that want underscore renames. Needs per-site review
+        // rather than a sweeping auto-rename; deferred to its own PR.
         "noUnusedVariables": "off",
-        "noUnusedImports": "off",
-        // 3 sites of `parseInt(x)` without radix; real bug potential but a
-        // focused follow-up.
+        // 3 sites of `parseInt(x)` without radix; real coercion-bug
+        // potential but no autofix — needs human pick of base.
         "useParseIntRadix": "off",
         // 2 inline <script> var declarations in index.html — `let` rewrite
         // belongs with other pre-paint-bootstrap cleanup.

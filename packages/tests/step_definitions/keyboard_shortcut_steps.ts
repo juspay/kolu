@@ -1,6 +1,7 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+
 const SHORTCUTS_HELP_SELECTOR = '[data-testid="shortcuts-help"]';
 
 When("I press the shortcuts help shortcut", async function (this: KoluWorld) {

@@ -4,13 +4,13 @@
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
 
-import { type Component, Show, For } from "solid-js";
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
-import Terminal from "./Terminal";
-import SubPanelTabBar from "./SubPanelTabBar";
-import { useSubPanel } from "./useSubPanel";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { type Component, For, Show } from "solid-js";
+import SubPanelTabBar from "./SubPanelTabBar";
+import Terminal from "./Terminal";
+import { useSubPanel } from "./useSubPanel";
 
 const TerminalContent: Component<{
   terminalId: TerminalId;

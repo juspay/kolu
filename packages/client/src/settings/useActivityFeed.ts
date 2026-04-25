@@ -8,11 +8,11 @@
  * frequency activity tick can't piggyback unrelated state into the client.
  */
 
+import type { RecentAgent, RecentRepo } from "kolu-common";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
-import type { RecentRepo, RecentAgent } from "kolu-common";
 
 const sub = createRoot(() =>
   createSubscription(() => stream.activityFeed(), {

@@ -8,12 +8,12 @@
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type {
-  TerminalInfo,
-  TerminalMetadata,
+  ActivityFeed,
   GitInfo,
   Preferences,
-  ActivityFeed,
   SavedSession,
+  TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common";
 import { log } from "./log.ts";
 

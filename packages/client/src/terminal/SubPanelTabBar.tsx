@@ -1,7 +1,7 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
-import { type Component, For } from "solid-js";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { type Component, For } from "solid-js";
 import { cwdBasename } from "../path";
 
 const SubPanelTabBar: Component<{

@@ -1,13 +1,13 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
 import {
-  matchesKeybind,
   formatKeybind,
-  matchesAnyShortcut,
   type Keybind,
+  matchesAnyShortcut,
+  matchesKeybind,
 } from "./keyboard";
 
 function makeEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {

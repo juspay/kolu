@@ -33,12 +33,12 @@
  *    `--heapsnapshot-signal=SIGUSR2`.
  */
 
-import v8 from "node:v8";
 import path from "node:path";
-import { log } from "./log.ts";
-import { terminalCount, countActiveClaudeSessions } from "./terminals.ts";
-import { publisherSize } from "./publisher.ts";
+import v8 from "node:v8";
 import { getPendingSummaryFetches } from "kolu-claude-code";
+import { log } from "./log.ts";
+import { publisherSize } from "./publisher.ts";
+import { countActiveClaudeSessions, terminalCount } from "./terminals.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
  *  leak rate (the observed floor before the 4 GB OOM) produces ~50 MB

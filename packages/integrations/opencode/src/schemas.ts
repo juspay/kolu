@@ -8,11 +8,11 @@
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — zod and `anyagent`'s schema re-exports only. */
 
-import { z } from "zod";
 import { TaskProgressSchema } from "anyagent";
+import { z } from "zod";
 
-export { TaskProgressSchema };
 export type { TaskProgress } from "anyagent";
+export { TaskProgressSchema };
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),

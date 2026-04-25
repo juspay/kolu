@@ -10,25 +10,25 @@
  *     importing them through this subpath would blur the provider-neutral
  *     boundary. */
 
+export type {
+  GhUnavailableCode,
+  GitHubCheckStatus,
+  GitHubPrInfo,
+  GitHubPrState,
+  PrResult,
+  PrUnavailableSource,
+} from "kolu-github/schemas";
 export {
-  GitHubCheckStatusSchema,
-  GitHubPrStateSchema,
-  GitHubPrInfoSchema,
   GhUnavailableCodeSchema,
   GhUnavailableSchema,
-  PrUnavailableSourceSchema,
+  GitHubCheckStatusSchema,
+  GitHubPrInfoSchema,
+  GitHubPrStateSchema,
   PrResultSchema,
-  reasonForGhCode,
-  reasonForSource,
-  prValue,
+  PrUnavailableSourceSchema,
   prUnavailableReason,
   prUnavailableSource,
-} from "kolu-github/schemas";
-export type {
-  GitHubCheckStatus,
-  GitHubPrState,
-  GitHubPrInfo,
-  GhUnavailableCode,
-  PrUnavailableSource,
-  PrResult,
+  prValue,
+  reasonForGhCode,
+  reasonForSource,
 } from "kolu-github/schemas";

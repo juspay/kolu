@@ -1,8 +1,9 @@
 // @ts-check
-import { defineConfig } from "astro/config";
+
 import mdx from "@astrojs/mdx";
 import sitemap from "@astrojs/sitemap";
 import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "astro/config";
 
 // https://astro.build/config
 // Port pinned to 4321 (Astro default) — kept explicit to make clear it

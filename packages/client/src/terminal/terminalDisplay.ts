@@ -2,13 +2,13 @@
  *  Combines server metadata with client-derived properties (colors, sub-count,
  *  identity key). */
 
-import { cwdBasename } from "../path";
 import {
   computeTerminalKeys,
   type TerminalId,
   type TerminalKey,
   type TerminalMetadata,
 } from "kolu-common";
+import { cwdBasename } from "../path";
 
 export type TerminalDisplayInfo = {
   /** Display name (repo name or CWD basename). */

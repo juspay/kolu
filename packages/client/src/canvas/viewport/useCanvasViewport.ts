@@ -4,23 +4,22 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
-import { createSignal, type Accessor } from "solid-js";
+import { type Accessor, createSignal } from "solid-js";
 import type { TileLayout } from "../TileLayout";
+import { animatePan } from "./animatedPan";
+import {
+  canvasTransformCSS,
+  gridBgPositionCSS,
+  gridBgSizeCSS,
+} from "./coordinates";
 import { installGestures } from "./gestures";
 import {
-  clampZoom,
   computeCenterPan,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   zoomToCenter as zoomToCenterPure,
   zoomTowardPoint,
 } from "./transforms";
-import {
-  canvasTransformCSS,
-  gridBgPositionCSS,
-  gridBgSizeCSS,
-} from "./coordinates";
-import { animatePan } from "./animatedPan";
 
 // ── Singleton state ──
 

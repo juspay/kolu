@@ -1,13 +1,13 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import { createMemo, batch } from "solid-js";
+import type { RecentAgent, TerminalId, TerminalMetadata } from "kolu-common";
 import type { Accessor } from "solid-js";
+import { batch, createMemo } from "solid-js";
+import { availableThemes } from "terminal-themes";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { SHORTCUTS } from "./input/keyboard";
-import { availableThemes } from "terminal-themes";
-import type { TerminalId, TerminalMetadata, RecentAgent } from "kolu-common";
-import { useActivityFeed } from "./settings/useActivityFeed";
 import { client } from "./rpc/rpc";
+import { useActivityFeed } from "./settings/useActivityFeed";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
  *  "Recent agents" entry (phase 1 prefill flow). */

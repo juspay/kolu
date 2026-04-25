@@ -6,7 +6,7 @@
  */
 
 import { Then, When } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 Then(
   "the pill tree process name should contain {string}",

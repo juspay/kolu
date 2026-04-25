@@ -13,6 +13,7 @@
  * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
+import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -24,14 +25,13 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
-import { useRightPanel } from "./useRightPanel";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
-import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
 import PierreDiffView from "../ui/PierreDiffView";
+import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
+import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",

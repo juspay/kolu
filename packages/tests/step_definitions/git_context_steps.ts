@@ -1,7 +1,7 @@
-import { When, Then } from "@cucumber/cucumber";
-import { execFileSync } from "node:child_process";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
+import { execFileSync } from "node:child_process";
+import { Then, When } from "@cucumber/cucumber";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const ACTIVE_TITLE_BRANCH_SELECTOR =
   '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';

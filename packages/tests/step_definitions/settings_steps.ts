@@ -1,6 +1,6 @@
-import { When, Then } from "@cucumber/cucumber";
 import assert from "node:assert";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { Then, When } from "@cucumber/cucumber";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 When("I click the settings button", async function (this: KoluWorld) {
   await this.page.click('[data-testid="settings-trigger"]');
