@@ -14,6 +14,20 @@ describe("families", () => {
     expect(missing).toEqual([]);
   });
 
+  // Duplicate names would silently overwrite in the themeToPair Map and
+  // produce a wrong sibling resolution at runtime — pin it as a CI failure.
+  it("FAMILY_PAIRS has no duplicate theme names", () => {
+    const seen = new Set<string>();
+    const dups: string[] = [];
+    for (const p of FAMILY_PAIRS) {
+      for (const name of [p.light, p.dark]) {
+        if (seen.has(name)) dups.push(name);
+        seen.add(name);
+      }
+    }
+    expect(dups).toEqual([]);
+  });
+
   it("resolveThemeForVariant returns the wanted sibling", () => {
     expect(resolveThemeForVariant("Catppuccin Latte", "dark")).toBe(
       "Catppuccin Mocha",
