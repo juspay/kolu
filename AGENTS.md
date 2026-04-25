@@ -20,11 +20,11 @@ These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
 
 ### Check command
 
-`just check` — fast static-correctness gate (`pnpm typecheck` under the hood). Runs across the workspace. CI's `ci::typecheck` step uses the same recipe.
+`just check` — fast static-correctness gate. Runs `pnpm typecheck` plus `biome lint` across the workspace. CI's `ci::typecheck` runs the typecheck half and `ci::biome` runs the lint half. `just lint` is a standalone recipe that mirrors `ci::biome`.
 
 ### Format command
 
-`just fmt`
+`just fmt` — runs Prettier over the workspace plus `nixpkgs-fmt` over `.nix` files. Biome v2 is installed (see [#710](https://github.com/juspay/kolu/issues/710)) and used only for linting in this PR; a follow-up flips formatting from Prettier to Biome. Config lives in `biome.jsonc` at the repo root.
 
 ### Test command
 

@@ -26,6 +26,7 @@
     }
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.13",
     "prettier": "^3.8.3"
   }
 }
