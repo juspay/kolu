@@ -195,7 +195,6 @@ describe("createSubscription", () => {
 
           stream.push({ a: 1, b: 2 });
           await flush();
-          const first = sub()!;
 
           // Track whether reading `a` re-fires when only `b` changes
           let aFired = false;

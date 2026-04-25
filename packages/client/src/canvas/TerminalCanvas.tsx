@@ -267,7 +267,6 @@ const TerminalCanvas: Component<{
   // is centered (matches what a pill-tree click does). If there's no
   // active tile, fall back to centering the bounding box of all tiles so
   // restored sessions whose tiles live far from (0,0) don't open empty.
-  let containerRef!: HTMLDivElement;
   const isDefaultViewport = () =>
     viewport.panX() === 0 && viewport.panY() === 0 && viewport.zoom() === 1;
 
@@ -302,10 +301,7 @@ const TerminalCanvas: Component<{
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
       <div
-        ref={(el) => {
-          containerRef = el;
-          viewport.setContainerRef(el, isWheelTargetTerminal);
-        }}
+        ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
         data-testid="canvas-container"
         data-zoom={viewport.zoom()}
         class="flex-1 min-h-0 overflow-hidden relative canvas-grid-bg"

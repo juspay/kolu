@@ -8,7 +8,6 @@ const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_TOGGLE_SELECTOR = '[data-testid="minimap-toggle"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const TILE_SELECTOR = '[data-testid="canvas-tile"]';
-const TILE_TITLEBAR_SELECTOR = '[data-testid="canvas-tile-titlebar"]';
 
 async function waitForCanvas(world: KoluWorld) {
   await world.page
@@ -725,15 +724,9 @@ Then(
     await this.page.waitForFunction(
       ({ sel, i }: { sel: string; i: number }) => {
         // The active tile is the one with `data-active="true"` on its
-        // CanvasTile wrapper. The wrapper also carries `data-terminal-id`
-        // via the terminal rendered inside it, but keyed by tile order in
-        // the canvas container.
-        const wrappers = document.querySelectorAll(
-          `${sel} > div > [data-terminal-id][data-visible]`,
-        );
-        // That won't match — the wrapper (CanvasTile) and terminal are
-        // separate elements. Use the tile-rect index instead: find all
-        // CanvasTile wrappers and check the nth one.
+        // CanvasTile wrapper. Match by tile-rect index: find all
+        // `data-terminal-id[data-visible]` descendants under the canvas
+        // container and pick the nth.
         const tiles = document.querySelectorAll(
           `${sel} [data-terminal-id][data-visible]`,
         );

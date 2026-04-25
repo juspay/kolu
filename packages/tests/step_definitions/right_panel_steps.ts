@@ -2,8 +2,6 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
-const PALETTE_SELECTOR = '[data-testid="command-palette"]';
-
 // ── Actions ──
 
 When("I press the toggle inspector shortcut", async function (this: KoluWorld) {

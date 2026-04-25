@@ -113,10 +113,6 @@
         "noImportantStyles": "off"
       },
       "correctness": {
-        // 17 sites of unused locals — Solid signal destructures that drop
-        // fields, a few that want underscore renames. Needs per-site review
-        // rather than a sweeping auto-rename; deferred to its own PR.
-        "noUnusedVariables": "off",
         // Project-domain rule: 293 sites of bare relative imports that
         // would need `.ts`/`.tsx` extensions. Kolu uses TS's
         // `moduleResolution: bundler` which resolves without extensions;
