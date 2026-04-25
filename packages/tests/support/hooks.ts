@@ -356,6 +356,7 @@ Before(async function (this: KoluWorld, scenario) {
         scrollLock: true,
         activityAlerts: true,
         colorScheme: "dark",
+        terminalsFollowOSScheme: false,
         terminalRenderer: "auto",
         rightPanel: {
           collapsed: true,
