@@ -20,9 +20,8 @@ export {
   GitStatusOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
-  FsListDirInputSchema,
-  FsDirEntrySchema,
-  FsListDirOutputSchema,
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
   type GitInfo,
@@ -32,7 +31,7 @@ export {
   type GitBaseRef,
   type GitStatusOutput,
   type GitDiffOutput,
-  type FsListDirOutput,
+  type FsListAllOutput,
 } from "./schemas.ts";
 
 // Repository resolution
@@ -55,7 +54,7 @@ export {
 export { getStatus, getDiff, parseNameStatus } from "./review.ts";
 
 // File tree browsing
-export { listDir, readFile } from "./browse.ts";
+export { listAll, readFile } from "./browse.ts";
 
 // Path security
 export { resolveUnder } from "./safe-path.ts";

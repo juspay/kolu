@@ -1,19 +1,17 @@
 /** CodeTab — code review and browsing for the terminal's current repo.
  *
- * Issue #514:
- *   - Phase 1: lists files changed vs HEAD and renders the unified diff
- *     of the selected file using `@git-diff-view/solid`.
- *   - Phase 2: toggle between "Local" (working tree vs HEAD — what the
- *     agent just touched that isn't committed yet) and "Branch" (working
- *     tree vs merge-base with `origin/<defaultBranch>` — what this
- *     branch will ship, same answer GitHub's "Files changed" tab gives).
- *     Branch mode is forge-agnostic; it runs the same git commands
- *     locally and never calls out to a forge API.
- *   - Phase 4: full file tree browser — 3rd sub-tab showing the repo's
- *     entire file tree (lazy-loaded, git-filtered).
+ * One file tree, three modes:
+ *   - All: full repo (git-filtered) — selecting a file shows its content.
+ *   - Local: working tree vs HEAD (uncommitted) — selecting a file shows the diff.
+ *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
+ *     branch base. Forge-agnostic "what this branch will ship".
  *
- * Stays narrow by design — no inline comments, no agent handoff. Those
- * land in later phases. */
+ * The mode trio is structured as a nested segmented control: All sits
+ * apart from the Local/Branch pair because Local and Branch are siblings
+ * (both filter to changed files; only the diff base differs), while All
+ * is the unfiltered base view. Pierre's `@pierre/trees` owns the tree
+ * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
+ * shiki highlighting. This component is just data flow + chrome. */
 
 import {
   type Component,
@@ -21,86 +19,31 @@ import {
   createMemo,
   createResource,
   createSignal,
-  For,
   Match,
   on,
   Show,
   Switch,
 } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import hljs from "highlight.js";
-import { DiffView, DiffModeEnum } from "@git-diff-view/solid";
-import "@git-diff-view/solid/styles/diff-view-pure.css";
-// Order matters: this overrides the library CSS imported just above.
-import "./code-tab.css";
-import type {
-  CodeTabView,
-  GitChangeStatus,
-  GitDiffMode,
-  FsListDirOutput,
-  TerminalMetadata,
-} from "kolu-common";
+import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
 import { client } from "../rpc/rpc";
-import { usePreferences } from "../settings/usePreferences";
+import { useColorScheme } from "../settings/useColorScheme";
 import { useRightPanel } from "./useRightPanel";
-import {
-  DiffLocalIcon,
-  DiffBranchIcon,
-  FileBrowseIcon,
-  FileDiffIcon,
-  GitBranchIcon,
-} from "../ui/Icons";
-import { buildFileTree } from "../ui/buildFileTree";
-import type { TreeNode } from "../ui/buildFileTree";
-import FileTree from "../ui/FileTree";
-import { COMPACT_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
-
-/** Color class for each git status letter. */
-const STATUS_COLOR: Record<GitChangeStatus, string> = {
-  M: "text-warning",
-  A: "text-ok",
-  D: "text-danger",
-  R: "text-fg-3",
-  C: "text-fg-3",
-  U: "text-danger",
-  T: "text-warning",
-  "?": "text-ok",
-};
+import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
+import PierreDiffView from "../ui/PierreDiffView";
+import BrowseFileView from "./BrowseFileView";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
   branch: "No changes vs base",
 };
 
-/** Sub-tab config. Icons double as the tab's visual affordance;
- *  the tooltip spells out what the mode means. */
-const VIEW_TABS: {
-  view: CodeTabView;
-  icon: Component<{ class?: string }>;
-  tooltip: string;
-  label: string;
-}[] = [
-  {
-    view: "local",
-    icon: DiffLocalIcon,
-    tooltip: "Local changes (vs HEAD)",
-    label: "vs HEAD",
-  },
-  {
-    view: "branch",
-    icon: DiffBranchIcon,
-    tooltip: "Branch diff (vs origin/<default>)",
-    label: "vs branch base",
-  },
-  {
-    view: "browse",
-    icon: FileBrowseIcon,
-    tooltip: "File tree browser",
-    label: "Files",
-  },
-];
+/** Pill button shared by both segment groups. Inherits the same active-state
+ *  chrome the canvas tile chrome uses (lifted surface-0 + soft shadow), so
+ *  the mode picker reads as a continuation of kolu's existing tab language. */
+const PILL_BUTTON_CLASS =
+  "px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors text-fg-3/50 hover:text-fg-2 data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm";
 
-/** Empty-state placeholder shown when no file is selected. */
 const FileSelectHint: Component<{ label: string }> = (props) => (
   <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
     <FileDiffIcon class="w-8 h-8 opacity-40" />
@@ -108,25 +51,11 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
   </div>
 );
 
-/** Convert fs.listDir entries to TreeNode[]. */
-function entriesToNodes(entries: FsListDirOutput["entries"]): TreeNode[] {
-  return entries.map(
-    (e): TreeNode =>
-      e.isDirectory
-        ? { kind: "dir", name: e.name, path: e.path, children: [] }
-        : { kind: "file", name: e.name, path: e.path },
-  );
-}
-
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
-  const { preferences } = usePreferences();
+  const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  // Active sub-view lives inside the `code` variant of rightPanel.tab, so
-  // it survives panel close/reopen, pin/unpin, and page reload. CodeTab
-  // only mounts when the Code tab is active (RightPanel.tsx dispatches on
-  // tab.kind), so the non-"code" branch below is unreachable — the fallback
-  // exists only to satisfy the type narrower.
+
   const view = (): CodeTabView => {
     const tab = rightPanel.activeTab();
     return tab.kind === "code" ? tab.mode : "local";
@@ -134,14 +63,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
-
-  /** Whether the current view is a diff mode (local/branch). */
   const isDiffView = () => view() !== "browse";
-  /** The GitDiffMode for diff views (undefined in browse mode). */
-  const diffMode = () => {
-    const v = view();
-    return v === "browse" ? undefined : v;
-  };
+  const diffMode = (): GitDiffMode | undefined =>
+    view() === "browse" ? undefined : (view() as GitDiffMode);
 
   const [status, { refetch: refetchStatus }] = createResource(
     () => {
@@ -150,6 +74,14 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       return p && m ? { repoPath: p, mode: m } : null;
     },
     (input) => client.git.status(input),
+  );
+
+  const [allPaths, { refetch: refetchAll }] = createResource(
+    () => {
+      const p = repoPath();
+      return p && view() === "browse" ? { repoPath: p } : null;
+    },
+    (input) => client.fs.listAll(input).then((r) => r.paths),
   );
 
   const [diff, { refetch: refetchDiff }] = createResource(
@@ -164,7 +96,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.git.diff(input),
   );
 
-  // Reset selection when the repo or view changes.
+  // Reset selection when the repo or view changes so a stale path doesn't
+  // bleed across modes (e.g. a browse-mode pick showing up in diff mode).
   createEffect(
     on([repoPath, view], () => setSelectedPath(null), { defer: true }),
   );
@@ -174,53 +107,28 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       void refetchStatus();
       if (selectedPath()) void refetchDiff();
     } else {
-      void refetchBrowseRoot();
+      void refetchAll();
     }
   };
 
-  const diffTheme = () =>
-    preferences().colorScheme === "light" ? "light" : "dark";
-
-  /** Context label shown after the icon tabs. */
-  const headerLabel = () => {
-    const tab = VIEW_TABS.find((t) => t.view === view())!;
-    if (view() === "local" || view() === "browse") return tab.label;
-    return status()?.base?.ref ? `vs ${status()!.base!.ref}` : tab.label;
-  };
-
-  // --- File browser state ---
-
-  /** Root entries for the file browser. */
-  const [browseRoot, { refetch: refetchBrowseRoot }] = createResource(
-    () => {
-      const p = repoPath();
-      if (!p || view() !== "browse") return null;
-      return { repoPath: p, dirPath: "" };
-    },
-    async (input) => {
-      const result = await client.fs.listDir(input);
-      return entriesToNodes(result.entries);
-    },
+  const treePaths = createMemo(() => {
+    if (view() === "browse") return allPaths() ?? [];
+    return status()?.files.map((f) => f.path) ?? [];
+  });
+  const treeGitStatus = createMemo(() =>
+    status() ? toGitStatusEntries(status()!.files) : undefined,
   );
 
-  /** Load children for a directory in browse mode. */
-  const loadBrowseChildren = async (dirPath: string): Promise<TreeNode[]> => {
-    const p = repoPath();
-    if (!p) return [];
-    const result = await client.fs.listDir({ repoPath: p, dirPath });
-    return entriesToNodes(result.entries);
+  const handleSelect = (path: string | null) => {
+    // Pierre emits null on deselect; keep our single-select toggle semantics.
+    setSelectedPath((prev) => (prev === path ? null : path));
   };
 
-  /** File content for the selected file in browse mode. */
-  const [fileContent] = createResource(
-    () => {
-      const p = repoPath();
-      const s = selectedPath();
-      if (!p || !s || view() !== "browse") return null;
-      return { repoPath: p, filePath: s };
-    },
-    (input) => client.fs.readFile(input),
-  );
+  const treeError = (): Error | undefined =>
+    (isDiffView() ? status.error : allPaths.error) as Error | undefined;
+  const treeReady = () => (isDiffView() ? status() : allPaths());
+  const branchTooltip = () =>
+    `Changes vs ${status()?.base?.ref ?? "branch base"}`;
 
   return (
     <Show
@@ -239,31 +147,44 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
       >
-        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1">
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
-            <For each={VIEW_TABS}>
-              {(tab) => (
-                <button
-                  type="button"
-                  onClick={() => setView(tab.view)}
-                  title={tab.tooltip}
-                  class={`${COMPACT_ICON_BUTTON_CLASS} text-fg-3/50 hover:text-fg-2 data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm`}
-                  data-testid={`diff-mode-${tab.view}`}
-                  data-active={view() === tab.view}
-                  aria-pressed={view() === tab.view}
-                >
-                  <Dynamic component={tab.icon} class="w-3.5 h-3.5" />
-                </button>
-              )}
-            </For>
+        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1.5">
+          <div class="flex items-center bg-surface-2/40 rounded p-0.5">
+            <button
+              type="button"
+              onClick={() => setView("browse")}
+              title="Browse all files"
+              class={PILL_BUTTON_CLASS}
+              data-testid="diff-mode-browse"
+              data-active={view() === "browse"}
+              aria-pressed={view() === "browse"}
+            >
+              All
+            </button>
           </div>
-          <span
-            class="text-fg-3/50 text-[10px] font-mono truncate min-w-0 ml-1"
-            data-testid="diff-mode-label"
-            data-mode={view()}
-          >
-            {headerLabel()}
-          </span>
+          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
+            <button
+              type="button"
+              onClick={() => setView("local")}
+              title="Changes vs HEAD"
+              class={PILL_BUTTON_CLASS}
+              data-testid="diff-mode-local"
+              data-active={view() === "local"}
+              aria-pressed={view() === "local"}
+            >
+              Local
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("branch")}
+              title={branchTooltip()}
+              class={PILL_BUTTON_CLASS}
+              data-testid="diff-mode-branch"
+              data-active={view() === "branch"}
+              aria-pressed={view() === "branch"}
+            >
+              Branch
+            </button>
+          </div>
           <div class="flex-1" />
           <button
             type="button"
@@ -276,73 +197,57 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           </button>
         </div>
 
-        <Switch>
-          {/* === Diff modes (local / branch) === */}
-          <Match when={isDiffView()}>
-            <div
-              class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
-              data-testid="diff-file-list"
-            >
-              <Switch
-                fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-              >
-                <Match when={status.error}>
-                  <div class="px-2 py-1 text-danger" data-testid="diff-error">
-                    Error: {(status.error as Error).message}
-                  </div>
-                </Match>
-                <Match when={status()}>
-                  {(s) => {
-                    const tree = createMemo(() => buildFileTree(s().files));
-                    return (
-                      <Show
-                        when={s().files.length > 0}
-                        fallback={
-                          <div
-                            class="px-2 py-4 text-fg-3/50 text-center"
-                            data-testid="diff-empty"
-                          >
-                            {EMPTY_STATE[diffMode()!]}
-                          </div>
-                        }
-                      >
-                        <FileTree
-                          nodes={tree()}
-                          selectedPath={selectedPath()}
-                          onSelect={(path) =>
-                            setSelectedPath((p) => (p === path ? null : path))
-                          }
-                          renderBadge={(node) =>
-                            node.kind === "file" && node.status ? (
-                              <span
-                                class={`inline-flex items-center gap-1 ${STATUS_COLOR[node.status]}`}
-                              >
-                                <span class="w-1.5 h-1.5 rounded-full bg-current opacity-70" />
-                                <span class="text-[10px] font-medium">
-                                  {node.status}
-                                </span>
-                              </span>
-                            ) : null
-                          }
-                        />
-                      </Show>
-                    );
-                  }}
-                </Match>
-              </Switch>
-            </div>
-
-            {/* Gutter tightening lives in diff-tab.css — see comment there. */}
-            <div
-              class="flex-1 min-h-0 overflow-auto"
-              data-testid="diff-content"
-            >
+        <div
+          class="shrink-0 h-[35%] min-h-0 border-b border-edge"
+          data-testid="diff-file-list"
+        >
+          <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
+            <Match when={treeError()}>
+              <div class="px-2 py-1 text-danger" data-testid="diff-error">
+                Error: {treeError()!.message}
+              </div>
+            </Match>
+            <Match when={treeReady()}>
               <Show
-                when={selectedPath()}
+                when={treePaths().length > 0}
                 fallback={
-                  <FileSelectHint label="Select a file to view its diff" />
+                  <div
+                    class="px-2 py-4 text-fg-3/50 text-center"
+                    data-testid="diff-empty"
+                  >
+                    {isDiffView()
+                      ? EMPTY_STATE[diffMode()!]
+                      : "Empty repository"}
+                  </div>
                 }
               >
+                <PierreFileTree
+                  paths={treePaths()}
+                  gitStatus={treeGitStatus()}
+                  selectedPath={selectedPath()}
+                  onSelect={handleSelect}
+                  initialExpansion={isDiffView() ? "open" : "closed"}
+                />
+              </Show>
+            </Match>
+          </Switch>
+        </div>
+
+        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
+          <Show
+            when={selectedPath()}
+            fallback={
+              <FileSelectHint
+                label={
+                  isDiffView()
+                    ? "Select a file to view its diff"
+                    : "Select a file to view its content"
+                }
+              />
+            }
+          >
+            <Switch>
+              <Match when={isDiffView()}>
                 <Switch
                   fallback={
                     <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
@@ -369,124 +274,25 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   </Match>
                   <Match when={diff()}>
                     {(d) => (
-                      <DiffView
-                        data={{
-                          oldFile: {
-                            fileName: d().oldFileName,
-                            content: d().oldContent,
-                          },
-                          newFile: {
-                            fileName: d().newFileName,
-                            content: d().newContent,
-                          },
-                          hunks: d().hunks,
-                        }}
-                        diffViewMode={DiffModeEnum.Unified}
-                        diffViewHighlight
-                        diffViewTheme={diffTheme()}
-                        diffViewFontSize={11}
-                        diffViewWrap
+                      <PierreDiffView
+                        path={selectedPath()!}
+                        rawDiff={d().hunks[0] ?? ""}
+                        theme={diffTheme()}
                       />
                     )}
                   </Match>
                 </Switch>
-              </Show>
-            </div>
-          </Match>
-
-          {/* === File browser mode === */}
-          <Match when={!isDiffView()}>
-            <div
-              class="shrink-0 max-h-[35%] overflow-y-auto border-b border-edge"
-              data-testid="file-browser"
-            >
-              <Switch
-                fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-              >
-                <Match when={browseRoot.error}>
-                  <div class="px-2 py-1 text-danger">
-                    Error: {(browseRoot.error as Error).message}
-                  </div>
-                </Match>
-                <Match when={browseRoot()}>
-                  {(nodes) => (
-                    <Show
-                      when={nodes().length > 0}
-                      fallback={
-                        <div class="px-2 py-4 text-fg-3/50 text-center">
-                          Empty directory
-                        </div>
-                      }
-                    >
-                      <FileTree
-                        nodes={nodes()}
-                        selectedPath={selectedPath()}
-                        onSelect={(path) =>
-                          setSelectedPath((p) => (p === path ? null : path))
-                        }
-                        loadChildren={loadBrowseChildren}
-                      />
-                    </Show>
-                  )}
-                </Match>
-              </Switch>
-            </div>
-            <div
-              class="flex-1 min-h-0 overflow-auto"
-              data-testid="file-content"
-            >
-              <Show
-                when={selectedPath()}
-                fallback={
-                  <FileSelectHint label="Select a file to view its content" />
-                }
-              >
-                <Switch
-                  fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
-                >
-                  <Match when={fileContent.error}>
-                    <div class="px-2 py-1 text-danger">
-                      Error: {(fileContent.error as Error).message}
-                    </div>
-                  </Match>
-                  <Match when={fileContent()}>
-                    {(fc) => {
-                      const highlighted = createMemo(() => {
-                        const path = selectedPath() ?? "";
-                        const ext = path.split(".").pop() ?? "";
-                        const lang = hljs.getLanguage(ext) ? ext : undefined;
-                        return lang
-                          ? hljs.highlight(fc().content, { language: lang })
-                          : hljs.highlightAuto(fc().content);
-                      });
-                      return (
-                        <>
-                          <Show when={fc().truncated}>
-                            <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
-                              File truncated (exceeds 1 MB)
-                            </div>
-                          </Show>
-                          <pre
-                            class="px-2 py-1 font-mono text-[11px] text-fg whitespace-pre-wrap break-all leading-relaxed"
-                            style={{ "tab-size": "2" }}
-                          >
-                            {/* Safe: highlight.js escapes HTML entities before
-                                wrapping tokens in <span> tags. The input is file
-                                content read from the user's own repo. */}
-                            <code
-                              class="hljs"
-                              innerHTML={highlighted().value}
-                            />
-                          </pre>
-                        </>
-                      );
-                    }}
-                  </Match>
-                </Switch>
-              </Show>
-            </div>
-          </Match>
-        </Switch>
+              </Match>
+              <Match when={!isDiffView()}>
+                <BrowseFileView
+                  repoPath={repoPath()!}
+                  filePath={selectedPath()!}
+                  theme={diffTheme()}
+                />
+              </Match>
+            </Switch>
+          </Show>
+        </div>
       </div>
     </Show>
   );

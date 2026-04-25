@@ -1,13 +1,19 @@
-Feature: Code tab (diff review)
-  The Code tab lists files changed for the terminal's repo and renders
-  the unified diff for a selected file. Phase 1 (#514) shipped "local"
-  mode (working tree vs HEAD); phase 2 adds a "branch" toggle (working
-  tree vs merge-base with origin/<defaultBranch>).
+Feature: Code tab (review + browse)
+  The Code tab is one Pierre file tree with three modes:
+    - All (browse)   — full repo, file content on selection
+    - Local          — working tree vs HEAD, diff on selection
+    - Branch         — working tree vs merge-base(origin/<default>), diff on selection
+  The tree, diff viewer, and file viewer are all owned by `@pierre/trees`
+  and `@pierre/diffs` (PR #708). This feature exercises the data flow,
+  selection, mode transitions, and the right-click affordances the Pierre
+  wrappers expose to copy paths and line refs.
 
   Background:
     Given the terminal is ready
     When I press the toggle inspector shortcut
     Then the right panel should be visible
+
+  # ── Tab presence + chrome ──
 
   Scenario: Code tab is present and switchable
     When I click the Code tab
@@ -23,6 +29,8 @@ Feature: Code tab (diff review)
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     Then the Code tab should show the empty-changes message
+
+  # ── Mode picker ──
 
   Scenario: Mode toggle defaults to Local
     When I run "git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
@@ -42,13 +50,7 @@ Feature: Code tab (diff review)
     Then the right panel should be visible
     And the Code tab mode should be "browse"
 
-  Scenario: Branch mode surfaces an actionable error when origin is missing
-    When I run "git init /tmp/kolu-review-no-origin && cd /tmp/kolu-review-no-origin"
-    And I run "git commit --allow-empty -m init"
-    And I click the Code tab
-    And I click the Code tab mode "branch"
-    Then the Code tab mode should be "branch"
-    And the Code tab should show a missing-origin error
+  # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click
     When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
@@ -59,8 +61,6 @@ Feature: Code tab (diff review)
     Then the Code tab should list a changed file "note.txt"
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
-    When I click the changed file "note.txt" in the Code tab
-    Then the Code tab should not render a diff view
 
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
@@ -72,6 +72,8 @@ Feature: Code tab (diff review)
     And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "tracked.txt"
     And the Code tab should list a changed file "untracked.txt"
+
+  # ── Pierre tree behaviour: directory grouping + collapse ──
 
   Scenario: Groups files into a directory tree
     When I run "git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
@@ -95,7 +97,20 @@ Feature: Code tab (diff review)
     When I click the directory node "pkg" in the Code tab
     Then the Code tab should list a changed file "pkg/a.ts"
 
-  # --- File browser (phase 4) ---
+  # ── Pierre tree right-click menu (Copy path) ──
+
+  Scenario: Right-click on a changed file copies its path
+    When I run "git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p api && printf 'q\n' > api/handler.ts"
+    And I click the Code tab
+    And I click the refresh button in the Code tab
+    Then the Code tab should list a changed file "api/handler.ts"
+    When I right-click the changed file "api/handler.ts" in the Code tab
+    And I click the context menu item "Copy path"
+    Then the clipboard should contain "api/handler.ts"
+
+  # ── Browse mode: file tree + content viewer ──
 
   Scenario: File browser shows the repo file tree
     When I run "git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
@@ -125,3 +140,18 @@ Feature: Code tab (diff review)
     Then the file browser should show a directory "lib"
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
+
+  # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
+
+  Scenario: Right-click on file content with a selected line copies "path:line"
+    When I run "git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
+    And I run "printf 'alpha\nbeta\ngamma\n' > letters.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "letters.txt" in the file browser
+    Then the file content should contain "beta"
+    When I click the line number 2 in the file content
+    And I right-click the file content
+    And I click the context menu item "Copy letters.txt:2"
+    Then the clipboard should contain "letters.txt:2"

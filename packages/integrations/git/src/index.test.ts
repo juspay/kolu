@@ -71,8 +71,6 @@ describe("getDiff", () => {
 
     expect(result.value.oldFileName).toBe("old-name.ts");
     expect(result.value.newFileName).toBe("new-name.ts");
-    expect(result.value.oldContent).toBe(content);
-    expect(result.value.newContent).toBe(content);
     // No content change — hunks contain the rename header but no +/- lines.
     const diffLines = result.value.hunks
       .join("")
@@ -109,10 +107,6 @@ describe("getDiff", () => {
 
     expect(result.value.oldFileName).toBe("utils.ts");
     expect(result.value.newFileName).toBe("lib/utils.ts");
-    expect(result.value.oldContent).toBe("export const a = 1;\n");
-    expect(result.value.newContent).toBe(
-      "export const a = 1;\nexport const b = 2;\n",
-    );
     // Hunks should show only the added line, not the entire file as an addition.
     // Extract the meaningful diff lines (skip headers, no-newline markers).
     const diffLines = result.value.hunks

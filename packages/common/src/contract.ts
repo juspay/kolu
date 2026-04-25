@@ -33,8 +33,8 @@ import {
   PreferencesPatchSchema,
   ActivityFeedSchema,
   SavedSessionSchema,
-  FsListDirInputSchema,
-  FsListDirOutputSchema,
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
 } from "./index";
@@ -88,15 +88,15 @@ export const contract = oc.router({
      *  (working tree + staged + untracked); `branch` = vs merge-base
      *  with `origin/<defaultBranch>` (what this branch will ship). */
     status: oc.input(GitStatusInputSchema).output(GitStatusOutputSchema),
-    /** Raw unified diff plus old/new file contents for `@git-diff-view`.
-     *  Base depends on mode — HEAD in local mode, merge-base with
+    /** Raw unified diff for `@pierre/diffs`'s `parsePatchFiles`. Base
+     *  depends on mode — HEAD in local mode, merge-base with
      *  `origin/<defaultBranch>` in branch mode. */
     diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
   },
   fs: {
-    /** List entries in a directory, filtered by git (tracked + untracked-but-not-ignored).
-     *  Used by the Code tab's file tree browser. */
-    listDir: oc.input(FsListDirInputSchema).output(FsListDirOutputSchema),
+    /** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
+     *  One-shot snapshot for path-first tree UIs like `@pierre/trees`. */
+    listAll: oc.input(FsListAllInputSchema).output(FsListAllOutputSchema),
     /** Read a file's UTF-8 content, path-traversal guarded. */
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
   },

@@ -29,7 +29,7 @@ import {
   worktreeRemove,
   getStatus,
   getDiff,
-  listDir,
+  listAll,
   readFile,
   type GitResult,
 } from "kolu-git";
@@ -246,8 +246,8 @@ export const appRouter = t.router({
     }),
   },
   fs: {
-    listDir: t.fs.listDir.handler(async ({ input }) => ({
-      entries: unwrapGit(await listDir(input.repoPath, input.dirPath, log)),
+    listAll: t.fs.listAll.handler(async ({ input }) => ({
+      paths: unwrapGit(await listAll(input.repoPath, log)),
     })),
     readFile: t.fs.readFile.handler(async ({ input }) =>
       unwrapGit(await readFile(input.repoPath, input.filePath, log)),

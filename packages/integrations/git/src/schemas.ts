@@ -95,42 +95,37 @@ export const GitDiffInputSchema = z.object({
   oldPath: z.string().optional(),
 });
 
-/** Raw parts needed by `@git-diff-view/solid`'s `DiffView` data prop.
- *  The same shape serves both modes — only the `git diff` base changes
- *  (HEAD in local mode, merge-base with origin/<default> in branch mode). */
+/** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s
+ *  `parsePatchFiles`). The same shape serves both modes — only the `git diff`
+ *  base changes (HEAD in local mode, merge-base with origin/<default> in
+ *  branch mode).
+ *
+ *  `oldFileName` / `newFileName` are null when the file doesn't exist on
+ *  that side of the diff (added file → oldFileName null; deleted file →
+ *  newFileName null). The renderer uses the pair to spot pure renames
+ *  (no hunks but both names set and different). */
 export const GitDiffOutputSchema = z.object({
   oldFileName: z.string().nullable(),
   newFileName: z.string().nullable(),
-  oldContent: z.string(),
-  newContent: z.string(),
-  /** Raw unified-diff strings, shaped for `@git-diff-view/core`'s parser:
-   *  each entry carries its own `--- / +++ / @@` header block (i.e.
-   *  passthrough of `git diff` output), not a bare hunk body. Currently
-   *  always zero or one element — a single per-file patch. */
+  /** Raw unified-diff strings: each entry carries its own `--- / +++ / @@`
+   *  header block (i.e. passthrough of `git diff` output), not a bare hunk
+   *  body. Currently always zero or one element — a single per-file patch. */
   hunks: z.array(z.string()),
 });
 export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 
 // --- File tree browsing ---
 
-export const FsListDirInputSchema = z.object({
+export const FsListAllInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),
-  /** Path relative to repo root (empty string for root). */
-  dirPath: z.string(),
 });
 
-export const FsDirEntrySchema = z.object({
-  name: z.string(),
-  isDirectory: z.boolean(),
-  /** Path relative to repo root. */
-  path: z.string(),
+export const FsListAllOutputSchema = z.object({
+  /** Flat list of all repo-relative file paths (tracked + untracked, respecting .gitignore). */
+  paths: z.array(z.string()),
 });
-
-export const FsListDirOutputSchema = z.object({
-  entries: z.array(FsDirEntrySchema),
-});
-export type FsListDirOutput = z.infer<typeof FsListDirOutputSchema>;
+export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 
 export const FsReadFileInputSchema = z.object({
   /** Absolute path to the repo root. */
