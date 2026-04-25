@@ -126,57 +126,52 @@ When(
 // `enableLineSelection` only fires for clicks on gutter line numbers,
 // not on the line content. Target the `[data-column-number]` element
 // (Pierre's `getSelectionPointerInfo` requires `numberColumn=true`).
+//
+// Pierre's `enableLineSelection` commits on `document` pointerup, not
+// element-level click — drive the gutter via Playwright's mouse API so
+// pointerdown / pointerup bubble through the document listener Pierre
+// attached on pointerdown. Both the file viewer (`FILE_VIEW`) and the
+// diff viewer (`DIFF_VIEW`) wrap the same Pierre primitive, so the
+// gutter selector and mouse dance are identical — only the host
+// element's CSS root changes.
+async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
+  const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
+  await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await lineEl.first().boundingBox();
+  if (!box) throw new Error("line gutter has no bounding box");
+  await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await world.page.mouse.down();
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
+async function rightClickViewRoot(world: KoluWorld, root: string) {
+  const view = world.page.locator(root);
+  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await view.click({ button: "right" });
+  await world.waitForFrame();
+}
+
 When(
   "I click the line number {int} in the file content",
   async function (this: KoluWorld, line: number) {
-    const lineEl = this.page.locator(
-      `${FILE_VIEW} [data-column-number="${line}"]`,
-    );
-    await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Pierre's `enableLineSelection` commits on `document` pointerup —
-    // not the element-level click. Drive the gutter via Playwright's
-    // mouse API so pointerdown / pointerup bubble through the
-    // document listener Pierre attached on pointerdown.
-    const box = await lineEl.first().boundingBox();
-    if (!box) throw new Error("line gutter has no bounding box");
-    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await this.page.mouse.down();
-    await this.page.mouse.up();
-    await this.waitForFrame();
+    await clickLineGutterIn(this, FILE_VIEW, line);
   },
 );
 
 When("I right-click the file content", async function (this: KoluWorld) {
-  const view = this.page.locator(FILE_VIEW);
-  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await view.click({ button: "right" });
-  await this.waitForFrame();
+  await rightClickViewRoot(this, FILE_VIEW);
 });
 
-// Diff-view counterparts. Pierre's `FileDiff` shares `enableLineSelection`
-// with the file viewer, so the gutter selector and pointerdown/up dance
-// are the same — only the host element changes.
 When(
   "I click the line number {int} in the diff view",
   async function (this: KoluWorld, line: number) {
-    const lineEl = this.page.locator(
-      `${DIFF_VIEW} [data-column-number="${line}"]`,
-    );
-    await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const box = await lineEl.first().boundingBox();
-    if (!box) throw new Error("diff line gutter has no bounding box");
-    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await this.page.mouse.down();
-    await this.page.mouse.up();
-    await this.waitForFrame();
+    await clickLineGutterIn(this, DIFF_VIEW, line);
   },
 );
 
 When("I right-click the diff view", async function (this: KoluWorld) {
-  const view = this.page.locator(DIFF_VIEW);
-  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await view.click({ button: "right" });
-  await this.waitForFrame();
+  await rightClickViewRoot(this, DIFF_VIEW);
 });
 
 // ── Assertions ──
