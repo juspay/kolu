@@ -107,10 +107,7 @@
         "noExplicitAny": "off",
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
-        "noControlCharactersInRegex": "off",
-        // Project-domain rule: 31 cycles. Real architecture risk but
-        // each cycle needs judgment; own PR.
-        "noImportCycles": "off"
+        "noControlCharactersInRegex": "off"
       },
       "complexity": {
         // Tailwind `!important` overrides are intentional in kolu's

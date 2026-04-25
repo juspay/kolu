@@ -22,14 +22,14 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Logger } from "anyagent";
 import { agentInfoEqual, readTailLines } from "anyagent";
 import {
-  type CodexInfo,
   type CodexSession,
   getThreadMetadata,
   openDb,
   parseRolloutContextTokens,
   parseRolloutState,
-  subscribeCodexDb,
-} from "./index.ts";
+} from "./core.ts";
+import type { CodexInfo } from "./schemas.ts";
+import { subscribeCodexDb } from "./wal-watcher.ts";
 
 // --- Tuning constants ---
 

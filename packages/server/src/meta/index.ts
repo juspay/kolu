@@ -24,90 +24,35 @@
  * an `AgentProvider` instance from the integration package. Adding a new
  * agent is a new provider instance and one extra line below — not a new
  * server-side adapter file.
+ *
+ * Module layout:
+ *   - `./state.ts`        — `createMetadata` / `updateServerMetadata` /
+ *                           `updateClientMetadata`. Leaf (no imports from
+ *                           peer providers).
+ *   - `./agent-command.ts`, `./agent.ts`, `./git.ts`, `./github.ts`,
+ *     `./process.ts` — per-provider start functions. Each imports from
+ *                      `./state.ts` and `../terminal-registry.ts`.
+ *   - `./index.ts`        — this file. Composes them via `startProviders`
+ *                           and re-exports the metadata mutators so
+ *                           external callers (terminals.ts, router.ts)
+ *                           keep one import path.
  */
 
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
-import type {
-  TerminalClientMetadata,
-  TerminalMetadata,
-  TerminalServerMetadata,
-} from "kolu-common";
-import { prUnavailableReason, prValue } from "kolu-common";
 import { opencodeProvider } from "kolu-opencode";
-import { log } from "../log.ts";
-import { publishForTerminal, publishSystem } from "../publisher.ts";
-import type { TerminalProcess } from "../terminals.ts";
+import type { TerminalProcess } from "../terminal-registry.ts";
 import { startAgentProvider } from "./agent.ts";
 import { startAgentCommandTracker } from "./agent-command.ts";
 import { startGitProvider } from "./git.ts";
 import { startGitHubPrProvider } from "./github.ts";
 import { startProcessProvider } from "./process.ts";
 
-/** Create initial metadata state for a new terminal. */
-export function createMetadata(cwd: string): TerminalMetadata {
-  return {
-    cwd,
-    git: null,
-    pr: { kind: "pending" },
-    agent: null,
-    foreground: null,
-  };
-}
-
-/** Log + publish the current metadata snapshot and trigger debounced
- *  session auto-save. Shared tail for both `updateServerMetadata` and
- *  `updateClientMetadata` so the publish/audit path is identical regardless
- *  of who wrote the fields. */
-function publishMetadata(entry: TerminalProcess, terminalId: string): void {
-  const m = entry.info.meta;
-  const pr = prValue(m.pr);
-  const prUnavailable = prUnavailableReason(m.pr);
-  log.debug(
-    {
-      terminal: terminalId,
-      cwd: m.cwd,
-      repo: m.git?.repoName,
-      branch: m.git?.branch,
-      pr: pr?.number ?? null,
-      checks: pr?.checks ?? null,
-      prStatus: m.pr.kind,
-      ...(prUnavailable && { prUnavailable }),
-      // Only include agent/foreground fields when present to avoid noisy null logs
-      ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
-      ...(m.foreground && { foreground: m.foreground.name }),
-    },
-    "metadata publish",
-  );
-  publishForTerminal("metadata", terminalId, { ...m });
-  publishSystem("terminals:dirty", {});
-}
-
-/** Atomically mutate server-derived metadata (cwd, git, pr, agent,
- *  foreground) and publish. The mutator is narrowed to
- *  `TerminalServerMetadata` so providers cannot accidentally write
- *  client-owned fields. */
-export function updateServerMetadata(
-  entry: TerminalProcess,
-  terminalId: string,
-  mutate: (meta: TerminalServerMetadata) => void,
-): void {
-  mutate(entry.info.meta);
-  publishMetadata(entry, terminalId);
-}
-
-/** Atomically mutate client-owned metadata (themeName, parentId,
- *  canvasLayout, subPanel) and publish. The mutator is narrowed to
- *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
- *  provider-owned state. */
-export function updateClientMetadata(
-  entry: TerminalProcess,
-  terminalId: string,
-  mutate: (meta: TerminalClientMetadata) => void,
-): void {
-  mutate(entry.info.meta);
-  publishMetadata(entry, terminalId);
-}
+export {
+  createMetadata,
+  updateClientMetadata,
+  updateServerMetadata,
+} from "./state.ts";
 
 /**
  * Start all metadata providers for a terminal.

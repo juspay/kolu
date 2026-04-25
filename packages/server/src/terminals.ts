@@ -1,6 +1,14 @@
 /**
- * Terminal state management: PTY lifecycle and per-terminal metadata.
- * Plain Map + exported functions. Each entry owns its PtyHandle.
+ * Terminal lifecycle: spawn PTYs, wire them to metadata providers, and
+ * manage create/kill/update operations. The underlying `Map` and its
+ * simple accessors (`getTerminal`, `listTerminals`, `terminalCount`,
+ * `countActiveClaudeSessions`, the `TerminalProcess` shape) live in
+ * `./terminal-registry.ts` so `./meta/*` can depend on the registry
+ * without closing a cycle back through this file.
+ *
+ * External callers that used to import state-reads + lifecycle from
+ * `./terminals.ts` as a single module keep their import path — this
+ * file re-exports the registry surface they need.
  */
 
 import type {
@@ -17,19 +25,27 @@ import {
   updateClientMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
-import { type PtyHandle, spawnPty } from "./pty.ts";
+import { spawnPty } from "./pty.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
+import {
+  drainTerminals,
+  getTerminal,
+  listTerminals,
+  registerTerminal,
+  terminalEntries,
+  type TerminalProcess,
+  unregisterTerminal,
+} from "./terminal-registry.ts";
 
-/** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
-export interface TerminalProcess {
-  /** The wire-type snapshot — single source of truth for id, pid, meta. */
-  info: TerminalInfo;
-  handle: PtyHandle;
-  /** Cleanup function for all metadata providers. */
-  stopProviders: () => void;
-}
-
-const terminals = new Map<TerminalId, TerminalProcess>();
+// Re-export registry accessors + type so external callers (router.ts,
+// diagnostics.ts, index.ts) keep a single import path.
+export {
+  countActiveClaudeSessions,
+  getTerminal,
+  listTerminals,
+  terminalCount,
+  type TerminalProcess,
+} from "./terminal-registry.ts";
 
 /** Build a session snapshot from current terminal state.
  *
@@ -43,7 +59,7 @@ export function snapshotSession(): {
   terminals: SavedTerminal[];
   activeTerminalId: string | null;
 } {
-  const snappedTerminals = [...terminals.entries()].map(
+  const snappedTerminals = [...terminalEntries()].map(
     ([id, entry]): SavedTerminal => {
       const {
         pr: _pr,
@@ -91,7 +107,7 @@ export function createTerminal(
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
         tlog.info({ exitCode }, "exited");
-        const entry = terminals.get(id);
+        const entry = getTerminal(id);
         if (entry) {
           entry.stopProviders();
           cleanupClipboardDir(id);
@@ -99,7 +115,7 @@ export function createTerminal(
         publishForTerminal("exit", id, exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
-        const wasNaturalExit = terminals.delete(id);
+        const wasNaturalExit = unregisterTerminal(id);
         if (wasNaturalExit) {
           emitChanged();
           emitListChanged();
@@ -117,7 +133,7 @@ export function createTerminal(
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
-        const entry = terminals.get(id);
+        const entry = getTerminal(id);
         if (entry) {
           updateServerMetadata(entry, id, (m) => {
             m.cwd = newCwd;
@@ -146,55 +162,25 @@ export function createTerminal(
     stopProviders: () => {},
   };
   // Start providers after entry is in the map (providers may emit immediately)
-  terminals.set(id, entry);
+  registerTerminal(id, entry);
   entry.stopProviders = startProviders(entry, id);
 
-  tlog.info({ pid: handle.pid, total: terminals.size }, "created");
+  tlog.info({ pid: handle.pid, total: listTerminals().length }, "created");
   emitChanged();
   emitListChanged();
   return entry.info;
 }
 
-/** Current terminals in their canonical `Map` insertion order.
- *
- *  Insertion order is the ordering model — new terminals append to the
- *  tail. Clients render this order directly; within-group pill ordering
- *  is a separate spatial sort driven by saved canvas layouts. */
-export function listTerminals(): TerminalInfo[] {
-  const list = [...terminals.values()].map((entry) => entry.info);
-  log.debug({ count: list.length }, "terminal list");
-  return list;
-}
-
-/** Number of live terminal processes. Cheap counter for diagnostics. */
-export const terminalCount = (): number => terminals.size;
-
-/** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.info.meta.agent` — the generic agent orchestrator
- *  (`meta/agent.ts`, driven by `claudeCodeProvider` from `kolu-claude-code`)
- *  sets it on session match and clears it on teardown. Exported for diagnostics. */
-export function countActiveClaudeSessions(): number {
-  let n = 0;
-  for (const entry of terminals.values()) {
-    if (entry.info.meta.agent?.kind === "claude-code") n++;
-  }
-  return n;
-}
-
-export function getTerminal(id: TerminalId): TerminalProcess | undefined {
-  return terminals.get(id);
-}
-
 /** Kill a terminal's PTY process and remove it from the map. Returns final info, or undefined if not found. */
 export function killTerminal(id: TerminalId): TerminalInfo | undefined {
-  const entry = terminals.get(id);
+  const entry = getTerminal(id);
   if (!entry) return undefined;
 
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(id);
-  terminals.delete(id);
+  unregisterTerminal(id);
   emitChanged();
   emitListChanged();
   return entry.info;
@@ -205,7 +191,7 @@ export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
-  const entry = terminals.get(id);
+  const entry = getTerminal(id);
   if (entry) {
     const newParent = parentId ?? undefined;
     updateClientMetadata(entry, id, (m) => {
@@ -221,7 +207,7 @@ export function setCanvasLayout(
   id: TerminalId,
   layout: { x: number; y: number; w: number; h: number },
 ): void {
-  const entry = terminals.get(id);
+  const entry = getTerminal(id);
   if (!entry) return;
   updateClientMetadata(entry, id, (m) => {
     m.canvasLayout = layout;
@@ -234,7 +220,7 @@ export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
-  const entry = terminals.get(id);
+  const entry = getTerminal(id);
   if (!entry) return;
   entry.info.meta.subPanel = state;
   emitChanged();
@@ -255,7 +241,7 @@ export function setActiveTerminalId(id: TerminalId | null): void {
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */
 export function setTerminalTheme(id: TerminalId, themeName: string): void {
-  const entry = terminals.get(id);
+  const entry = getTerminal(id);
   if (entry) {
     updateClientMetadata(entry, id, (m) => {
       m.themeName = themeName;
@@ -265,11 +251,10 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
-  log.info({ count: terminals.size }, "killing all terminals");
   // Snapshot entries and clear map BEFORE disposing — prevents onExit
   // callbacks from finding terminals and triggering session saves.
-  const entries = [...terminals.values()];
-  terminals.clear();
+  const entries = drainTerminals();
+  log.info({ count: entries.length }, "killing all terminals");
   for (const entry of entries) {
     entry.stopProviders();
     entry.handle.dispose();

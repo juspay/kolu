@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMessageState } from "./index.ts";
+import { parseMessageState } from "./core.ts";
 
 describe("parseMessageState", () => {
   it("returns thinking for a user message", () => {

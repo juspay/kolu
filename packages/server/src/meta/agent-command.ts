@@ -28,8 +28,8 @@ import { parseAgentCommand } from "anyagent";
 import type { TerminalId } from "kolu-common";
 import { trackRecentAgent } from "../activity.ts";
 import { subscribeForTerminal } from "../publisher.ts";
-import { getTerminal } from "../terminals.ts";
-import { updateServerMetadata } from "./index.ts";
+import { getTerminal } from "../terminal-registry.ts";
+import { updateServerMetadata } from "./state.ts";
 
 const currentAgent = new Map<TerminalId, string | null>();
 

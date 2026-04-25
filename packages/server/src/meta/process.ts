@@ -11,8 +11,8 @@
 import path from "node:path";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";
-import type { TerminalProcess } from "../terminals.ts";
-import { updateServerMetadata } from "./index.ts";
+import type { TerminalProcess } from "../terminal-registry.ts";
+import { updateServerMetadata } from "./state.ts";
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on NixOS).
  *  Always normalize to the basename. */

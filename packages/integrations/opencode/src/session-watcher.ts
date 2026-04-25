@@ -20,11 +20,11 @@ import {
   getSessionTaskProgress,
   getSessionTitle,
   hasRunningTools,
-  type OpenCodeInfo,
   type OpenCodeSession,
   openDb,
-  subscribeOpenCodeDb,
-} from "./index.ts";
+} from "./core.ts";
+import type { OpenCodeInfo } from "./schemas.ts";
+import { subscribeOpenCodeDb } from "./wal-watcher.ts";
 
 // --- Tuning constants ---
 

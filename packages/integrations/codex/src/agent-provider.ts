@@ -18,8 +18,8 @@
 import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
 import { CODEX_DIR } from "./config.ts";
-import type { CodexInfo, CodexSession } from "./index.ts";
-import { findSessionByDirectory } from "./index.ts";
+import { type CodexSession, findSessionByDirectory } from "./core.ts";
+import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
 import { subscribeCodexDb } from "./wal-watcher.ts";
 
