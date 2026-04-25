@@ -1,19 +1,17 @@
-/** Terminal display info — everything needed to render a terminal in any surface.
- *  Combines server metadata with client-derived properties (colors, sub-count,
- *  identity key). */
+/** Terminal display info — bundles server metadata with client-derived
+ *  decorations (colors, sub-count) and the canonical identity key.
+ *  Identity-and-presentation come from `terminalKey()` in `kolu-common`;
+ *  this module only adds the decorations. */
 
 import {
   computeTerminalKeys,
-  type GitInfo,
+  terminalKey,
   type TerminalId,
   type TerminalKey,
   type TerminalMetadata,
 } from "kolu-common";
-import { cwdBasename } from "../path";
 
 export type TerminalDisplayInfo = {
-  /** Display name (repo name or CWD basename). */
-  name: string;
   repoColor?: string;
   branchColor?: string;
   meta: TerminalMetadata;
@@ -33,26 +31,6 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
   );
 }
 
-export function terminalName(meta: TerminalMetadata): string {
-  return meta.git?.repoName || cwdBasename(meta.cwd) || "terminal";
-}
-
-/** Two-part presentation projection — what humans should see for a terminal,
- *  in surfaces that have room for both a primary heading and a secondary line
- *  (restore card, future tile chrome). Identity vs. presentation are
- *  intentionally separate axes: `terminalKey()` in `kolu-common` is canonical
- *  identity (full `cwd` for non-git, load-bearing for collision detection);
- *  this is canonical presentation (basename for non-git, easier to read).
- *  Callers must not feed `heading`/`sublabel` back into grouping or dedup —
- *  that would silently break `computeTerminalKeys`. */
-export function terminalDisplay(t: { cwd: string; git: GitInfo | null }): {
-  heading: string;
-  sublabel: string;
-} {
-  if (t.git) return { heading: t.git.repoName, sublabel: t.git.branch };
-  return { heading: cwdBasename(t.cwd), sublabel: t.cwd };
-}
-
 /** Build display info for all terminals. Resolves colors from the full
  *  terminal list (global hue uniqueness), computes collision-aware
  *  identity keys in one pass (`computeTerminalKeys`), and bundles
@@ -64,43 +42,27 @@ export function buildTerminalDisplayInfos(
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   getSubTerminalIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
-  const repoKeys = new Set<string>();
-  const branchKeys = new Set<string>();
-  const entries: Array<{
-    id: TerminalId;
-    name: string;
-    meta: TerminalMetadata;
-    repoKey?: string;
-    branchKey?: string;
-  }> = [];
-
-  for (const id of ids) {
+  const entries = ids.flatMap((id) => {
     const meta = getMeta(id);
-    if (!meta) continue;
-    const name = terminalName(meta);
-    const repoKey = meta.git?.repoName || cwdBasename(meta.cwd) || undefined;
-    const branchKey = meta.git?.branch;
-    if (repoKey) repoKeys.add(repoKey);
-    if (branchKey) branchKeys.add(branchKey);
-    entries.push({ id, name, meta, repoKey, branchKey });
-  }
-
-  const unified = assignColors([...repoKeys, ...branchKeys]);
+    return meta ? [{ id, meta, ...terminalKey(meta) }] : [];
+  });
+  const colors = assignColors(
+    entries.flatMap(({ group, label }) => [group, label]),
+  );
   const keys = computeTerminalKeys(
     entries.map(({ id, meta }) => ({ id, git: meta.git, cwd: meta.cwd })),
   );
   const result = new Map<TerminalId, TerminalDisplayInfo>();
-  for (const { id, name, meta, repoKey, branchKey } of entries) {
+  for (const { id, meta, group, label } of entries) {
     const key = keys.get(id);
     // `computeTerminalKeys` keys its map by the ids we just passed in,
     // so every entry has a matching key. The skip is defence-in-depth
     // for an unreachable case — the consumer simply gets fewer entries.
     if (!key) continue;
     result.set(id, {
-      name,
       meta,
-      repoColor: repoKey ? unified.get(repoKey) : undefined,
-      branchColor: branchKey ? unified.get(branchKey) : undefined,
+      repoColor: colors.get(group),
+      branchColor: colors.get(label),
       subCount: getSubTerminalIds(id).length,
       key,
     });

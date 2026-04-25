@@ -9,10 +9,13 @@
  *  Client-side only — the server's headless xterm has no theme, so
  *  serializing there would produce unstyled HTML. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import {
+  type TerminalId,
+  type TerminalMetadata,
+  terminalKey,
+} from "kolu-common";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
-import { terminalName } from "./terminal/terminalDisplay";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 export function exportScrollbackAsPdf(
@@ -28,11 +31,11 @@ export function exportScrollbackAsPdf(
     includeGlobalBackground: true,
   });
   // Prefer repo + branch from git metadata for the document title; fall back
-  // to repo/cwd name, then to a bare "Terminal" literal.
+  // to the canonical name (basename for non-git), then to "Terminal".
   const label = meta?.git
     ? `${meta.git.repoName} (${meta.git.branch})`
     : meta
-      ? terminalName(meta)
+      ? terminalKey(meta).group
       : "Terminal";
   // Pull the active theme off the live xterm so the popup matches exactly
   // what the user sees — serializeAsHTML only emits a global background,

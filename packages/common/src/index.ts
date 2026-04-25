@@ -459,3 +459,6 @@ export {
   type TerminalKey,
   terminalKey,
 } from "./terminalKey";
+
+// --- Path helpers ---
+export { cwdBasename, shortenCwd } from "./path";

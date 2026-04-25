@@ -30,16 +30,14 @@ import { z } from "zod";
 import { log } from "./log.ts";
 
 /** Best-effort `GitInfo` from the legacy flat `repoName`/`branch` fields
- *  shipped before #702. The unknown path fields (`repoRoot`, `worktreePath`,
- *  `mainRepoRoot`) are stamped with empty strings — the live git provider
- *  re-resolves the full record on first restore via `subscribeGitInfo`,
- *  before any consumer reads them for an actual operation. The restore
- *  card itself only reads `repoName`/`branch`, so the synthesized record
- *  renders correctly between disk-load and live re-resolution.
+ *  shipped before #702. Path fields are seeded from `cwd` — a defensible
+ *  default for the common case (terminal at the repo root) that the live
+ *  git provider overwrites with the real values on first restore via
+ *  `subscribeGitInfo`. No empty-string sentinels: every `string` field
+ *  carries an honest path, just possibly the wrong one until re-resolution.
  *
- *  Exported for unit testing (`state.test.ts`) — the inline migration
- *  closure below is hard to exercise without spinning up a real `Conf`
- *  store under controlled `KOLU_STATE_DIR`. */
+ *  Exported so `state.test.ts` can exercise the synthesis directly without
+ *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
 export function migrateLegacyTerminal_1_18_0(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -51,24 +49,26 @@ export function migrateLegacyTerminal_1_18_0(
     ...kept
   } = t;
   // Already-present `git` key wins — idempotent on migrated data, and a
-  // populated record beats a synthesized one with empty paths if both exist.
+  // populated record beats a synthesized one if a corrupt entry has both.
   if ("git" in t) {
     return {
       ...kept,
       git: (existingGit as GitInfo | null | undefined) ?? null,
     };
   }
-  // Genuine pre-#702 entry: synthesize partial GitInfo from the flat fields.
+  // Pre-#702 entry: synthesize from the flat fields, using cwd as the
+  // best-guess for paths.
+  const cwd = typeof kept.cwd === "string" ? kept.cwd : "";
   if (typeof repoName === "string" && typeof branch === "string") {
     return {
       ...kept,
       git: {
         repoName,
         branch,
-        repoRoot: "",
-        worktreePath: "",
+        repoRoot: cwd,
+        worktreePath: cwd,
         isWorktree: false,
-        mainRepoRoot: "",
+        mainRepoRoot: cwd,
       },
     };
   }

@@ -15,11 +15,14 @@
  *  Chrome, "black image" reports in real Chrome). Painting cells directly
  *  sidesteps that entire surface. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import {
+  type TerminalId,
+  type TerminalMetadata,
+  terminalKey,
+} from "kolu-common";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
-import { terminalName } from "./terminal/terminalDisplay";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
@@ -156,7 +159,7 @@ function cellColors(
  *  a bare "terminal" label when metadata isn't available. */
 function titleLabel(meta: TerminalMetadata | undefined): string {
   if (!meta) return "terminal";
-  const name = terminalName(meta);
+  const name = terminalKey(meta).group;
   return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
 }
 

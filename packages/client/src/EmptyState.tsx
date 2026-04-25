@@ -7,7 +7,6 @@ import {
 } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { formatKeybind, SHORTCUTS } from "./input/keyboard";
-import { terminalDisplay } from "./terminal/terminalDisplay";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
 
@@ -19,21 +18,18 @@ const features = [
 ];
 
 interface RepoGroup {
-  /** Canonical identity from `terminalKey().group` — load-bearing for
-   *  collision detection, never rendered to the user. */
+  /** `terminalKey().group` — both the identity (collision detection) and
+   *  the rendered heading (basename for non-git, repoName for git). One
+   *  projection, one field. */
   key: string;
-  /** Human-display heading. Diverges from `key` on non-git terminals so
-   *  the user sees `foo` while grouping stays by full cwd identity. */
-  heading: string;
   terminals: SavedTerminal[];
 }
 
-/** Group top-level terminals by `terminalKey().group` (canonical identity)
- *  and tag each group with a `terminalDisplay().heading` for rendering.
- *  Groups are sorted by the minimum `canvasLayout.x` of their members so the
- *  restore card's left-to-right order matches the canvas the user saw.
- *  Within-group order preserves the array order of the saved session, which
- *  is the same Map insertion order the server stamps. */
+/** Group top-level terminals by `terminalKey().group`. Groups are sorted
+ *  by the minimum `canvasLayout.x` of their members so the restore card's
+ *  left-to-right order matches the canvas the user saw. Within-group order
+ *  preserves the array order of the saved session — the same Map insertion
+ *  order the server stamps. */
 function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const minX = (ts: readonly SavedTerminal[]) =>
     ts.reduce(
@@ -43,17 +39,10 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const groups = new Map<string, RepoGroup>();
   for (const t of terminals) {
     if (t.parentId) continue;
-    const key = terminalKey({ id: t.id, git: t.git, cwd: t.cwd }).group;
+    const key = terminalKey(t).group;
     const existing = groups.get(key);
-    if (existing) {
-      existing.terminals.push(t);
-    } else {
-      groups.set(key, {
-        key,
-        heading: terminalDisplay({ cwd: t.cwd, git: t.git }).heading,
-        terminals: [t],
-      });
-    }
+    if (existing) existing.terminals.push(t);
+    else groups.set(key, { key, terminals: [t] });
   }
   return [...groups.values()].sort(
     (a, b) => minX(a.terminals) - minX(b.terminals),
@@ -114,7 +103,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             data-testid="repo-heading"
                             class="text-sm font-semibold text-fg truncate"
                           >
-                            {group.heading}
+                            {group.key}
                           </span>
                         </div>
                         <div class="ml-1 pl-3 border-l border-edge/70 space-y-2.5">
@@ -122,10 +111,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                             {(t) => (
                               <div title={t.cwd}>
                                 <div class="text-sm text-fg-2 truncate leading-snug">
-                                  {
-                                    terminalDisplay({ cwd: t.cwd, git: t.git })
-                                      .sublabel
-                                  }
+                                  {t.git?.branch ?? t.cwd}
                                 </div>
                                 <Show
                                   when={

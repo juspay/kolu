@@ -19,10 +19,12 @@ describe("migrateLegacyTerminal_1_18_0", () => {
       git: {
         repoName: "app",
         branch: "main",
-        repoRoot: "",
-        worktreePath: "",
+        // Path fields seed from cwd (best-guess; live git provider overwrites
+        // on first restore). No empty-string sentinels.
+        repoRoot: "/home/alice/projects/app",
+        worktreePath: "/home/alice/projects/app",
         isWorktree: false,
-        mainRepoRoot: "",
+        mainRepoRoot: "/home/alice/projects/app",
       },
     });
     expect(migrated).not.toHaveProperty("repoName");
@@ -59,10 +61,9 @@ describe("migrateLegacyTerminal_1_18_0", () => {
     });
   });
 
-  it("prefers existing populated git over legacy fields when both present", () => {
+  it("prefers existing git over legacy fields when both present", () => {
     // Edge case: a corrupt entry carries BOTH new-shape `git` AND legacy
-    // flat `repoName`/`branch`. The fully-populated `git` (with real path
-    // fields) must win over a synthesized partial record with empty paths.
+    // flat `repoName`/`branch`. The existing `git` wins.
     const populatedGit = {
       repoRoot: "/home/alice/projects/real",
       repoName: "real",

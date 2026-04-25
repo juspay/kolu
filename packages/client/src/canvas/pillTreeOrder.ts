@@ -5,10 +5,7 @@
  *  handler so the two views never diverge. */
 
 import type { TerminalId } from "kolu-common";
-import {
-  type TerminalDisplayInfo,
-  terminalName,
-} from "../terminal/terminalDisplay";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
 export interface PillBranch {
@@ -53,21 +50,15 @@ export function groupByRepo(
   for (const id of ids) {
     const info = getDisplayInfo(id);
     if (!info) continue;
-    const meta = info.meta;
-    // Group identity comes from the canonical `terminalKey` (via
-    // `info.key.group`) so collision detection and pill grouping
-    // always agree. Display name is the nicer basename fallback —
-    // two separate concerns, one identity per terminal.
     const groupKey = info.key.group;
-    const displayName = terminalName(meta);
     let group = groups.get(groupKey);
     if (!group) {
-      group = { repoName: displayName, branches: [] };
+      group = { repoName: groupKey, branches: [] };
       groups.set(groupKey, group);
     }
     group.branches.push({
       id,
-      label: meta.git?.branch ?? terminalName(meta),
+      label: info.key.label,
       suffix: info.key.suffix,
     });
     if (getLayout) {
