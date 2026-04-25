@@ -1,8 +1,8 @@
-// Phase 6 of #710: turn on the Solid-specific rules from the original
-// ticket — noReactSpecificProps (catch React-only prop names leaking
-// into Solid components) and useSolidForComponent (prefer `<For />`
-// over `.map()` for reactive lists). Both live in Biome's `solid`
-// domain which auto-activates from the solid dependency.
+// Phase 7 of #710: tiny sweep — flip on two small rules to clear them
+// off the follow-up list. `useExhaustiveSwitchCases` closes out the
+// type-aware trifecta from the original ticket (alongside
+// noFloatingPromises and noMisusedPromises). `noUndeclaredDependencies`
+// had a single finding when the project domain was wired in #719.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -76,7 +76,10 @@
       "nursery": {
         // Unawaited promises that silently swallow errors — the
         // flagship motivation for adopting Biome (#710).
-        "noFloatingPromises": "error"
+        "noFloatingPromises": "error",
+        // Type-aware exhaustiveness on discriminated unions — adding a
+        // new variant forces every `switch` site to handle it.
+        "useExhaustiveSwitchCases": "error"
       },
       "performance": {
         // Solid domain: prefer `<For each={…}>` over `items.map(…)` so
@@ -127,9 +130,7 @@
         // Project-domain rule: 39 findings. Triggers on path-aliased
         // imports Biome's resolver doesn't understand the same way tsc
         // does; dedicated follow-up needed to align them.
-        "noUnresolvedImports": "off",
-        // Project-domain rule: 1 finding. Own PR to audit.
-        "noUndeclaredDependencies": "off"
+        "noUnresolvedImports": "off"
       }
     }
   },
