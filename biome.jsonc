@@ -1,15 +1,15 @@
-// Phase 1 of #710: install Biome v2, wire `just lint` + `ci::biome` as a
-// correctness gate alongside the existing Prettier formatter. Scope is
-// intentionally the **toolchain only** — no formatting churn, no mass
-// lint-fix rewrites. Follow-up PRs enable each rule class one at a time
-// (per the issue's own "one PR per rule class" guidance) so each
-// correctness bucket is reviewable on its own.
+// Phase 2 of #710: Biome v2 is now the sole formatter and the lint gate.
+// Prettier has been retired. Formatter options below mirror the old
+// Prettier defaults so the one-shot churn from the flip stays minimal
+// (3 files at the time of the flip). Follow-up PRs flip each disabled
+// lint rule on, one class at a time, per the issue's "one PR per rule
+// class" guidance.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": true,
+    "useIgnoreFile": true
   },
   "files": {
     "ignoreUnknown": true,
@@ -38,15 +38,31 @@
       // and corrupt files. Astro has its own formatter (future: astro fmt).
       "!**/*.astro",
       // One-off heap-snapshot analyzers; not part of the product surface.
-      "!docs/perf-investigations/scripts",
-    ],
+      "!docs/perf-investigations/scripts"
+    ]
   },
-  // Prettier remains the formatter (see justfile `fmt`). Biome's formatter
-  // is explicitly disabled here so `biome lint`/`biome check` runs don't
-  // emit a formatting diff across 200+ files. Follow-up PR: flip formatter
-  // on and land the one-shot format churn.
+  // Biome is now the sole formatter — Prettier has been retired (#710).
+  // Defaults mirror the old Prettier defaults (2-space indent, 80-column,
+  // double quotes, semicolons, trailing commas) so the one-shot churn
+  // from the flip is whitespace-minimal.
   "formatter": {
-    "enabled": false,
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 80
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "json": {
+    "formatter": {
+      "enabled": true
+    }
   },
   "linter": {
     "enabled": true,
@@ -74,7 +90,7 @@
         // 3 sites of `Math.pow(a, b)` that could be `a ** b`.
         "useExponentiationOperator": "off",
         // 2 sites of `let` that could be `const`.
-        "useConst": "off",
+        "useConst": "off"
       },
       "suspicious": {
         // 32 sites of gradual-typing debt on `any`. Dedicated cleanup.
@@ -90,7 +106,7 @@
         // same follow-up that flips noAssignInExpressions on globally.
         "noAssignInExpressions": "off",
         // 1 unused string escape.
-        "noUselessEscapeInString": "off",
+        "noUselessEscapeInString": "off"
       },
       "complexity": {
         // Tailwind `!important` overrides are intentional in kolu's
@@ -104,7 +120,7 @@
         // 1 site of `let x = undefined;`.
         "noUselessUndefinedInitialization": "off",
         // 1 auto-fixable regex escape.
-        "noUselessEscapeInRegex": "off",
+        "noUselessEscapeInRegex": "off"
       },
       "correctness": {
         // 25 sites of unused locals (8 imports, 17 vars). Mix of real
@@ -118,17 +134,17 @@
         "useParseIntRadix": "off",
         // 2 inline <script> var declarations in index.html — `let` rewrite
         // belongs with other pre-paint-bootstrap cleanup.
-        "noInnerDeclarations": "off",
-      },
-    },
+        "noInnerDeclarations": "off"
+      }
+    }
   },
   "css": {
     // Kolu uses Tailwind v4 (`@theme`, `@plugin`, `@apply`) in both the
     // client and the website — without this flag the CSS parser rejects
     // those directives even on lint-only runs.
     "parser": {
-      "tailwindDirectives": true,
-    },
+      "tailwindDirectives": true
+    }
   },
   "overrides": [
     {
@@ -139,13 +155,13 @@
       "linter": {
         "rules": {
           "correctness": {
-            "useYield": "off",
+            "useYield": "off"
           },
           "suspicious": {
-            "noAssignInExpressions": "off",
-          },
-        },
-      },
-    },
-  ],
+            "noAssignInExpressions": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -102,11 +102,11 @@ clean:
 
 # Format all files in-place
 fmt: install
-    {{ nix_shell }} sh -c 'pnpm exec prettier --write --cache --ignore-unknown . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} sh -c 'pnpm exec biome format --write . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix'
 
 # Check formatting without modifying files (used by CI)
 fmt-check: install
-    {{ nix_shell }} sh -c 'pnpm exec prettier --check --cache --ignore-unknown . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} sh -c 'pnpm exec biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
 # Nix build (server + client)
 build:
