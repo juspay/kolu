@@ -292,7 +292,7 @@ const TerminalCanvas: Component<{
       maxX = Math.max(maxX, l.x + l.w);
       maxY = Math.max(maxY, l.y + l.h);
     }
-    if (!isFinite(minX)) return;
+    if (!Number.isFinite(minX)) return;
     requestAnimationFrame(() => {
       viewport.panTo((minX + maxX) / 2, (minY + maxY) / 2);
     });

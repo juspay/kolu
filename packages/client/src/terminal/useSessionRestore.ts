@@ -69,7 +69,8 @@ export function useSessionRestore(deps: {
     const subs: Record<TerminalId, TerminalId[]> = {};
     for (const t of existing) {
       if (t.meta.parentId) {
-        (subs[t.meta.parentId] ??= []).push(t.id);
+        subs[t.meta.parentId] ??= [];
+        subs[t.meta.parentId]!.push(t.id);
       }
     }
     for (const [parentId, subIds] of Object.entries(subs)) {

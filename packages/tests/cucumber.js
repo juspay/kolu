@@ -1,4 +1,4 @@
-const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1");
+const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1", 10);
 
 // Only set default paths if no feature files were passed as CLI args.
 // CLI positional args (e.g. features/worktree.feature) are ignored when
