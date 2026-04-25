@@ -5,7 +5,7 @@ import {
   parseRolloutContextTokens,
   parseRolloutState,
   REQUIRED_THREAD_COLUMNS,
-} from "./index.ts";
+} from "./core.ts";
 
 /** Build a token_count event_msg with the given `last_token_usage`
  *  fields. `cached` is written to the event (real Codex rollouts

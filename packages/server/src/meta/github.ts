@@ -22,8 +22,8 @@
 import { subscribeGitHubPr } from "kolu-github";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";
-import type { TerminalProcess } from "../terminals.ts";
-import { updateServerMetadata } from "./index.ts";
+import type { TerminalProcess } from "../terminal-registry.ts";
+import { updateServerMetadata } from "./state.ts";
 
 export function startGitHubPrProvider(
   entry: TerminalProcess,

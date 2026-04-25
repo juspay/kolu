@@ -13,7 +13,6 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
-  type ClaudeCodeInfo,
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
@@ -25,7 +24,8 @@ import {
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
-} from "./index.ts";
+} from "./core.ts";
+import type { ClaudeCodeInfo } from "./schemas.ts";
 
 // --- Tuning constants ---
 

@@ -23,12 +23,13 @@
 
 import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
-import type { ClaudeCodeInfo, SessionFile } from "./index.ts";
 import {
   readSessionFile,
+  type SessionFile,
   SESSIONS_DIR,
   subscribeSessionsDir,
-} from "./index.ts";
+} from "./core.ts";
+import type { ClaudeCodeInfo } from "./schemas.ts";
 import { createSessionWatcher } from "./session-watcher.ts";
 
 export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {

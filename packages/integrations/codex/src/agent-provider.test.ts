@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findSessionMock = vi.fn();
 
-vi.mock("./index.ts", () => ({
+vi.mock("./core.ts", () => ({
   findSessionByDirectory: (dir: string, log?: Logger) =>
     findSessionMock(dir, log),
 }));

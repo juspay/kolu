@@ -8,7 +8,7 @@ import {
   encodeProjectPath,
   extractTasks,
   tailJsonlLines,
-} from "./index.ts";
+} from "./core.ts";
 
 describe("deriveState", () => {
   it("returns null for empty lines", () => {

@@ -14,8 +14,8 @@ import { subscribeGitInfo } from "kolu-git";
 import { trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { publishForTerminal, subscribeForTerminal } from "../publisher.ts";
-import type { TerminalProcess } from "../terminals.ts";
-import { updateServerMetadata } from "./index.ts";
+import type { TerminalProcess } from "../terminal-registry.ts";
+import { updateServerMetadata } from "./state.ts";
 
 export function startGitProvider(
   entry: TerminalProcess,
