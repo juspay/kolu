@@ -261,11 +261,11 @@ Then(
           return NaN;
         }
       },
-      (n) => !isNaN(n) && n > min,
+      (n) => !Number.isNaN(n) && n > min,
       { attempts: 30 },
     );
     assert.ok(
-      !isNaN(cols) && cols > min,
+      !Number.isNaN(cols) && cols > min,
       `Expected ${filePath} to contain a number > ${min}, got: "${cols}"`,
     );
   },

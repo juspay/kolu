@@ -87,7 +87,7 @@ function dispatch(
   advanceCycle: (direction: 1 | -1) => void,
 ): boolean {
   // Mod+1-9: switch to terminal by position
-  const digit = parseInt(e.key);
+  const digit = parseInt(e.key, 10);
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
     if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);

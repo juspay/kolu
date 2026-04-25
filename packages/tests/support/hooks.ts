@@ -21,7 +21,7 @@ import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import type { KoluWorld } from "./world.ts";
 
-const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0");
+const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
 
 /** One base $TMPDIR per worker holds everything this test run creates:
  *  the kolu server's state dir and the Claude Code mock harness's

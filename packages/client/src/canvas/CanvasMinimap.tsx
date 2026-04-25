@@ -63,7 +63,7 @@ const CanvasMinimap: Component<{
       maxX = Math.max(maxX, l.x + l.w);
       maxY = Math.max(maxY, l.y + l.h);
     }
-    if (!isFinite(minX))
+    if (!Number.isFinite(minX))
       return { minX: 0, minY: 0, maxX: 1, maxY: 1, w: 1, h: 1 };
     const padMinX = minX - MAP_PAD;
     const padMinY = minY - MAP_PAD;

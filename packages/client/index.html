@@ -13,15 +13,17 @@
     <!-- Sync .dark class before first paint to prevent FOUC -->
     <script>
       try {
-        var s = JSON.parse(
+        const s = JSON.parse(
           localStorage.getItem("kolu-color-scheme") || '"dark"',
         );
-        var dark =
+        const dark =
           s === "dark" ||
           (s === "system" &&
             matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.classList.toggle("dark", dark);
-      } catch (e) {}
+      } catch {
+        // FOUC-sync must never throw — pre-paint runs before any error handler.
+      }
     </script>
   </head>
   <body>

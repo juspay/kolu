@@ -1,10 +1,11 @@
-// Phase 3 of #710: turn on the lint rules whose fixes are mechanical
-// (Biome's safe `--write` applies them deterministically) so the bulk
-// of cheap correctness wins land in one auditable pass. Heavier rules
-// that require per-site judgment (noNonNullAssertion, noExplicitAny,
-// useTemplate, noUnusedVariables, the a11y group) remain off and get
-// dedicated PRs. Type-aware rules (noFloatingPromises etc.) require
-// Biome's Scanner/project domain — separate setup PR.
+// Phase 4 of #710: turn on the small "real-bug" rule class — coercion
+// hazards (noGlobalIsNan, noGlobalIsFinite, useParseIntRadix), inner
+// `var` declarations, and assign-in-expression — and fix every site by
+// hand, since these don't have safe auto-fixes. Heavier judgment-needed
+// rules (noNonNullAssertion, noExplicitAny, useTemplate, noUnused-
+// Variables, a11y) remain off and get dedicated PRs. Type-aware rules
+// (noFloatingPromises etc.) require Biome's Scanner/project domain —
+// separate setup PR.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -89,14 +90,7 @@
         "noExplicitAny": "off",
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
-        "noControlCharactersInRegex": "off",
-        // `isNaN(x)` → `Number.isNaN(x)` (3) and `isFinite(x)` →
-        // `Number.isFinite(x)` (2). Real coercion-bug risk; follow-up.
-        "noGlobalIsNan": "off",
-        "noGlobalIsFinite": "off",
-        // 1 production site of `while ((x = next()))`. Addressed in the
-        // same follow-up that flips noAssignInExpressions on globally.
-        "noAssignInExpressions": "off"
+        "noControlCharactersInRegex": "off"
       },
       "complexity": {
         // Tailwind `!important` overrides are intentional in kolu's
@@ -107,13 +101,7 @@
         // 17 sites of unused locals — Solid signal destructures that drop
         // fields, a few that want underscore renames. Needs per-site review
         // rather than a sweeping auto-rename; deferred to its own PR.
-        "noUnusedVariables": "off",
-        // 3 sites of `parseInt(x)` without radix; real coercion-bug
-        // potential but no autofix — needs human pick of base.
-        "useParseIntRadix": "off",
-        // 2 inline <script> var declarations in index.html — `let` rewrite
-        // belongs with other pre-paint-bootstrap cleanup.
-        "noInnerDeclarations": "off"
+        "noUnusedVariables": "off"
       }
     }
   },
