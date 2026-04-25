@@ -41,7 +41,10 @@ export function useTerminals() {
    *  itself is still removed via the list subscription in useTerminalStore,
    *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
-    (async () => {
+    // Fire-and-forget: the IIFE owns its try/catch so the floating
+    // promise never rejects out into the caller. `void` makes the
+    // discard explicit for noFloatingPromises.
+    void (async () => {
       try {
         const iter = await stream.exit(id);
         for await (const code of iter) {
