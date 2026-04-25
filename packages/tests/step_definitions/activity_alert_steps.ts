@@ -113,7 +113,9 @@ Then(
     const lastSet = await this.page.evaluate(() => {
       const calls = window.__badgeCalls ?? [];
       return calls
-        .filter((c): c is { method: "set"; count?: number } => c.method === "set")
+        .filter(
+          (c): c is { method: "set"; count?: number } => c.method === "set",
+        )
         .pop();
     });
     assert.ok(lastSet, "Expected setAppBadge to have been called");
