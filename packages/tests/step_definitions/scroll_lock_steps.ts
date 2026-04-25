@@ -95,10 +95,10 @@ When(
 /** Read the first visible row from the xterm buffer at the current viewport position. */
 function readFirstVisibleLine(world: KoluWorld) {
   return world.page.evaluate(() => {
-    const container = document.querySelector(
+    const container = document.querySelector<HTMLDivElement>(
       "[data-visible][data-terminal-id]",
     );
-    const term = (container as any)?.__xterm;
+    const term = container?.__xterm;
     if (!term) return "";
     const buf = term.buffer.active;
     return buf.getLine(buf.viewportY)?.translateToString(true) ?? "";
@@ -176,10 +176,10 @@ Then(
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
       () => {
-        const container = document.querySelector(
+        const container = document.querySelector<HTMLDivElement>(
           "[data-visible][data-terminal-id]",
         );
-        const term = (container as any)?.__xterm;
+        const term = container?.__xterm;
         if (!term) return false;
         const buf = term.buffer.active;
         return buf.baseY <= buf.viewportY;

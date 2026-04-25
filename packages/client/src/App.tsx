@@ -21,6 +21,7 @@ import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
+import "kolu-common/test-hooks";
 import { toggleMinimap } from "./canvas/CanvasMinimap";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import PillTree from "./canvas/PillTree";
@@ -58,8 +59,8 @@ import { useThemeManager } from "./useThemeManager";
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
 
-  // Expose for e2e test access
-  (window as any).__koluSimulateAlert = alerts.simulateAlert;
+  // Expose for e2e test access — type comes from "kolu-common/test-hooks"
+  window.__koluSimulateAlert = alerts.simulateAlert;
 
   const {
     committedThemeName,

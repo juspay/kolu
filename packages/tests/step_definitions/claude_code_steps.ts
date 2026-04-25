@@ -35,7 +35,7 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
   // Uses the shared __readXtermBuffer helper (injected by hooks.ts).
   const handle = await world.page.waitForFunction(
     ({ marker, sel }) => {
-      const text = (window as any).__readXtermBuffer(sel, 0) as string;
+      const text = window.__readXtermBuffer?.(sel, 0) ?? "";
       if (!text) return null;
       const lines = text.split("\n").map((l: string) => l.trim());
       // Find the marker on a line that's NOT the typed echo command.

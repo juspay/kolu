@@ -268,9 +268,11 @@ describe("createSubscription", () => {
     it("throws if reduce is provided without initial", () => {
       expect(() => {
         createRoot((dispose) => {
+          // @ts-expect-error testing the runtime guard fires when
+          // `initial` is omitted (the type system would normally require it).
           createSubscription(() => Promise.resolve(fromArray([1])), {
             reduce: (acc: number, item: number) => acc + item,
-          } as any);
+          });
           dispose();
         });
       }).toThrow("'initial' is required when using 'reduce'");

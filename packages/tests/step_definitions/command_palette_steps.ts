@@ -240,7 +240,7 @@ Then(
   "no sendInput call should contain {string}",
   async function (this: KoluWorld, key: string) {
     const messages: string[] = await this.page.evaluate(
-      () => (window as any).__wsSent ?? [],
+      () => window.__wsSent ?? [],
     );
     for (const msg of messages) {
       if (!msg.includes("sendInput")) continue;

@@ -216,10 +216,10 @@ Given("I intercept oRPC sendInput calls", async function (this: KoluWorld) {
   // oRPC sends JSON-encoded messages over WS.
   await this.page.evaluate(() => {
     const origSend = WebSocket.prototype.send;
-    (window as any).__wsSent = [];
-    WebSocket.prototype.send = function (data: any) {
+    window.__wsSent = [];
+    WebSocket.prototype.send = function (data) {
       if (typeof data === "string") {
-        (window as any).__wsSent.push(data);
+        window.__wsSent?.push(data);
       }
       return origSend.call(this, data);
     };
@@ -230,7 +230,7 @@ Then(
   "no sendInput call should contain {string} {string} {string}",
   async function (this: KoluWorld, k1: string, k2: string, k3: string) {
     const messages: string[] = await this.page.evaluate(
-      () => (window as any).__wsSent ?? [],
+      () => window.__wsSent ?? [],
     );
     // Look for sendInput calls whose data field contains zoom key chars
     for (const msg of messages) {

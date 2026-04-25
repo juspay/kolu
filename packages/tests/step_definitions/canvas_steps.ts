@@ -150,7 +150,7 @@ When("I zoom the canvas in", async function (this: KoluWorld) {
     const el = document.querySelector(sel);
     return parseFloat(el?.getAttribute("data-zoom") ?? "1");
   }, CANVAS_SELECTOR);
-  (this as any).__zoomBefore = before;
+  this.zoomBefore = before;
   const container = this.page.locator(CANVAS_SELECTOR);
   await container.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   // Dispatch a ctrl+wheel event to trigger zoom (negative deltaY = zoom in).
@@ -179,7 +179,7 @@ When("I zoom the canvas in", async function (this: KoluWorld) {
 Then(
   "the canvas zoom level should have changed",
   async function (this: KoluWorld) {
-    const before = (this as any).__zoomBefore as number | undefined;
+    const before = this.zoomBefore;
     await this.page.waitForFunction(
       ({ sel, prev }: { sel: string; prev: number }) => {
         const el = document.querySelector(sel);
@@ -569,7 +569,7 @@ When("I save the canvas viewport state", async function (this: KoluWorld) {
       transform: inner?.style.transform,
     };
   }, CANVAS_SELECTOR);
-  (this as any).__savedViewportState = state;
+  this.savedViewportState = state;
 });
 
 When("I drag the minimap viewport rect", async function (this: KoluWorld) {
@@ -627,10 +627,7 @@ When("I drag the minimap viewport rect", async function (this: KoluWorld) {
 Then(
   "the canvas viewport state should have changed",
   async function (this: KoluWorld) {
-    const saved = (this as any).__savedViewportState as {
-      zoom: string | null;
-      transform: string | null;
-    } | null;
+    const saved = this.savedViewportState;
     await this.page.waitForFunction(
       (prev: { transform: string | null }) => {
         const inner = document.querySelector(
@@ -796,20 +793,18 @@ async function readCanvasTilePosition(
 When(
   "I save canvas tile {int} position",
   async function (this: KoluWorld, index: number) {
-    const saved = ((this as any).__savedCanvasTilePositions ??= {}) as Record<
-      number,
-      { id: string; left: number; top: number }
-    >;
-    saved[index] = await readCanvasTilePosition(this, index);
+    this.savedCanvasTilePositions ??= {};
+    this.savedCanvasTilePositions[index] = await readCanvasTilePosition(
+      this,
+      index,
+    );
   },
 );
 
 When(
   "I drag minimap tile rect {int} by x={int} y={int}",
   async function (this: KoluWorld, index: number, dx: number, dy: number) {
-    const saved = (this as any).__savedCanvasTilePositions?.[index] as
-      | { id: string; left: number; top: number }
-      | undefined;
+    const saved = this.savedCanvasTilePositions?.[index];
     if (!saved) throw new Error(`No saved canvas tile ${index} position`);
     await this.page.evaluate(
       ({ tileId, dx, dy }: { tileId: string; dx: number; dy: number }) => {
@@ -859,9 +854,7 @@ When(
 Then(
   "canvas tile {int} position should have changed",
   async function (this: KoluWorld, index: number) {
-    const saved = (this as any).__savedCanvasTilePositions?.[index] as
-      | { id: string; left: number; top: number }
-      | undefined;
+    const saved = this.savedCanvasTilePositions?.[index];
     if (!saved) throw new Error(`No saved canvas tile ${index} position`);
     await this.page.waitForFunction(
       ({
