@@ -451,6 +451,9 @@ importers:
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
       playwright:
         specifier: 1.57.0
         version: 1.57.0
