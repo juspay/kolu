@@ -153,6 +153,32 @@ When("I right-click the file content", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+// Diff-view counterparts. Pierre's `FileDiff` shares `enableLineSelection`
+// with the file viewer, so the gutter selector and pointerdown/up dance
+// are the same — only the host element changes.
+When(
+  "I click the line number {int} in the diff view",
+  async function (this: KoluWorld, line: number) {
+    const lineEl = this.page.locator(
+      `${DIFF_VIEW} [data-column-number="${line}"]`,
+    );
+    await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const box = await lineEl.first().boundingBox();
+    if (!box) throw new Error("diff line gutter has no bounding box");
+    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await this.page.mouse.down();
+    await this.page.mouse.up();
+    await this.waitForFrame();
+  },
+);
+
+When("I right-click the diff view", async function (this: KoluWorld) {
+  const view = this.page.locator(DIFF_VIEW);
+  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await view.click({ button: "right" });
+  await this.waitForFrame();
+});
+
 // ── Assertions ──
 
 Then("the Code tab should be active", async function (this: KoluWorld) {

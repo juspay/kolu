@@ -285,17 +285,21 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     )}
                   </Match>
                   <Match when={diff()}>
-                    {(d) => {
-                      const path = selectedPath();
-                      if (path === null) return null;
-                      return (
-                        <PierreDiffView
-                          path={path}
-                          rawDiff={d().hunks[0] ?? ""}
-                          theme={diffTheme()}
-                        />
-                      );
-                    }}
+                    {(d) => (
+                      // `selectedPath()` must be read reactively so the
+                      // "Copy path:line" menu entry tracks the live file —
+                      // capturing it to a `const` here would freeze the
+                      // path at the moment this Match callback first ran.
+                      <Show when={selectedPath()}>
+                        {(path) => (
+                          <PierreDiffView
+                            path={path()}
+                            rawDiff={d().hunks[0] ?? ""}
+                            theme={diffTheme()}
+                          />
+                        )}
+                      </Show>
+                    )}
                   </Match>
                 </Switch>
               </Match>
