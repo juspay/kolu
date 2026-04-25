@@ -210,7 +210,10 @@ export function createSessionWatcher(
       onUpdate(info);
     }
 
-    refreshSummary();
+    // Fire-and-forget: refreshSummary owns its try/catch/finally and
+    // the pendingSummaryFetches counter. Not awaited so the caller
+    // (transcript-change handler) doesn't block on the network fetch.
+    void refreshSummary();
   }
 
   /** Incrementally scan the transcript for TaskCreate/TaskUpdate entries.
