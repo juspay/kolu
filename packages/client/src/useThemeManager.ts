@@ -64,15 +64,20 @@ function init() {
     getThemeByName(toRenderName(activeThemeName())),
   );
 
-  function getTerminalTheme(id: TerminalId): ITheme {
+  /** Per-terminal stored name with the preview overlay applied (only on
+   *  the active terminal). The shared lookup that both identity and
+   *  render accessors compose over. */
+  function resolveStoredName(id: TerminalId): string {
     const preview = store.activeId() === id ? previewThemeName() : undefined;
-    const name = preview ?? getThemeName(id) ?? DEFAULT_THEME_NAME;
-    return getThemeByName(toRenderName(name));
+    return preview ?? getThemeName(id) ?? DEFAULT_THEME_NAME;
+  }
+
+  function getTerminalTheme(id: TerminalId): ITheme {
+    return getThemeByName(toRenderName(resolveStoredName(id)));
   }
 
   function getTerminalIdentityTheme(id: TerminalId): ITheme {
-    const preview = store.activeId() === id ? previewThemeName() : undefined;
-    return getThemeByName(preview ?? getThemeName(id));
+    return getThemeByName(resolveStoredName(id));
   }
 
   function setThemeName(id: TerminalId, name: string) {
