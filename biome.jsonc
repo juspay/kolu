@@ -1,7 +1,8 @@
-// Phase 9 of #710: flip on `noMisusedPromises` — the second of the
-// three type-aware rules from the original ticket. Catches Promises
-// passed where `void` is expected (Solid `onClick={asyncFn}` etc.),
-// used in conditionals, or in `.filter(() => promise)` contexts.
+// Phase 12 of #710: flip on the `a11y` rule group. 88 findings split
+// across mechanical (useButtonType, noSvgWithoutTitle) and judgment
+// (noStaticElementInteractions on canvas widgets). The 4 spatial-mouse
+// sites in `canvas/CanvasMinimap.tsx` and `canvas/CanvasTile.tsx` keep
+// the rules off via overrides — see the bottom of this file for why.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -93,10 +94,6 @@
       // charter of a follow-up PR (one per rule class) — additive, not
       // structural. The baseline stays `recommended: true` so rules
       // promoted in future Biome releases surface on the next upgrade.
-      //
-      // Accessibility pass — 88 findings across useButtonType,
-      // noSvgWithoutTitle, noStaticElementInteractions, etc.
-      "a11y": "off",
       "suspicious": {
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
@@ -141,6 +138,33 @@
           },
           "suspicious": {
             "noAssignInExpressions": "off"
+          }
+        }
+      }
+    },
+    {
+      // Spatial-mouse canvas widgets: the minimap (drag-to-pan, click
+      // empty space to recenter, drag tile rectangles to rearrange) and
+      // the canvas tile wrapper (mousedown to focus, drag-to-rearrange)
+      // are inherently pointer-driven. Synthetic `role="button"` +
+      // `tabIndex={0}` + a fake `onKeyDown` would *claim* keyboard
+      // accessibility without delivering it — worse than no claim.
+      //
+      // Real keyboard navigation across terminals is provided by the
+      // command palette (⌘K, fuzzy search), the pill tree (sidebar,
+      // arrow-key tree nav), and the ⌘1..9 / ⌘J shortcuts. Those are
+      // the canonical a11y entry points for tile selection; the canvas
+      // is the visual layer they drive.
+      "includes": [
+        "packages/client/src/canvas/CanvasMinimap.tsx",
+        "packages/client/src/canvas/CanvasTile.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noStaticElementInteractions": "off",
+            "useKeyWithClickEvents": "off",
+            "noNoninteractiveElementInteractions": "off"
           }
         }
       }

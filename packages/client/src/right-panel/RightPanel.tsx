@@ -45,6 +45,7 @@ const RightPanel: Component<{
             const isActive = () => rightPanel.activeTab().kind === kind;
             return (
               <button
+                type="button"
                 data-testid={`right-panel-tab-${kind}`}
                 data-active={isActive()}
                 class={`h-full px-3 text-xs cursor-pointer transition-colors ${
@@ -67,6 +68,7 @@ const RightPanel: Component<{
         <div class="flex-1" />
         <div class="flex items-center gap-0.5 pr-1">
           <button
+            type="button"
             class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
             onClick={props.onToggle}
             aria-label="Collapse panel"

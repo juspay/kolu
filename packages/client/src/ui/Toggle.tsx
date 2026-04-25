@@ -8,6 +8,7 @@ const Toggle: Component<{
   testId: string;
 }> = (props) => (
   <button
+    type="button"
     data-testid={props.testId}
     data-enabled={props.enabled ? "" : undefined}
     class="relative w-8 h-4 rounded-full transition-colors cursor-pointer"

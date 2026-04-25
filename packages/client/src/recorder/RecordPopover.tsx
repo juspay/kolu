@@ -149,7 +149,7 @@ const RecordPopover: Component<{
 
           {/* Webcam */}
           <div class="space-y-1.5 pt-1 border-t border-edge">
-            <label class="flex items-center justify-between gap-3 cursor-pointer text-xs text-fg-2 pt-2">
+            <div class="flex items-center justify-between gap-3 text-xs text-fg-2 pt-2">
               <span>Webcam overlay</span>
               <Toggle
                 testId="record-webcam-toggle"
@@ -158,7 +158,7 @@ const RecordPopover: Component<{
                   void recorder.toggleWebcam();
                 }}
               />
-            </label>
+            </div>
             <Show when={recorder.webcamError()}>
               <div
                 class="text-xs text-danger"
@@ -193,6 +193,7 @@ const RecordPopover: Component<{
 
           <div class="flex items-center justify-end gap-2 pt-1">
             <button
+              type="button"
               data-testid="record-cancel"
               class="h-7 px-3 text-sm text-fg-2 hover:text-fg rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => recorder.cancelSetup()}
@@ -200,6 +201,7 @@ const RecordPopover: Component<{
               Cancel
             </button>
             <button
+              type="button"
               data-testid="record-start"
               class="h-7 px-3 text-sm text-white bg-danger hover:bg-danger/90 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {

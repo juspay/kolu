@@ -308,6 +308,7 @@ const CommandPalette: Component<{
         <Show when={path().length > 0}>
           <nav class="flex items-center gap-1 px-4 pt-2 text-xs text-fg-3">
             <button
+              type="button"
               class="hover:text-fg transition-colors"
               onClick={() => navigateTo(0)}
             >
@@ -318,6 +319,7 @@ const CommandPalette: Component<{
                 <>
                   <span class="text-fg-3">›</span>
                   <button
+                    type="button"
                     class="hover:text-fg transition-colors"
                     onClick={() => navigateTo(i() + 1)}
                   >
@@ -337,8 +339,19 @@ const CommandPalette: Component<{
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
         <div
+          ref={(el) => {
+            // Mouse activity tracker is incidental UI state, not a real
+            // interactive event on this scroll container — attach via
+            // addEventListener so the div stays a plain layout element.
+            el.addEventListener(
+              "mousemove",
+              () => {
+                mouseActive = true;
+              },
+              { passive: true },
+            );
+          }}
           class="flex-1 min-h-0 overflow-y-auto"
-          onMouseMove={() => (mouseActive = true)}
         >
           <Show
             when={filtered().length > 0}
@@ -348,10 +361,10 @@ const CommandPalette: Component<{
               </div>
             }
           >
-            <ul class="py-1">
+            <div class="py-1" role="listbox">
               <For each={filtered()}>
                 {(cmd, i) => (
-                  <li
+                  <div
                     ref={(el) => {
                       // Auto-scroll selected item into view during keyboard navigation
                       createEffect(() => {
@@ -359,6 +372,9 @@ const CommandPalette: Component<{
                           el.scrollIntoView({ block: "nearest" });
                       });
                     }}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={selectedIndex() === i()}
                     class="flex items-center px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
                     classList={{
                       "bg-surface-3 text-fg border-accent":
@@ -369,6 +385,12 @@ const CommandPalette: Component<{
                     data-selected={selectedIndex() === i() || undefined}
                     onMouseEnter={() => mouseActive && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        execute(cmd);
+                      }
+                    }}
                   >
                     <span class="truncate">
                       {cmd.name}
@@ -395,10 +417,10 @@ const CommandPalette: Component<{
                         );
                       }}
                     </Show>
-                  </li>
+                  </div>
                 )}
               </For>
-            </ul>
+            </div>
           </Show>
           <Show when={hintsAtLevel().length > 0}>
             <ul class="py-1">

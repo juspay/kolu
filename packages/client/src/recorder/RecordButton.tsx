@@ -85,6 +85,7 @@ const RecordButton: Component = () => {
           <div class="pointer-events-auto">
             <Tip label={idleLabel()}>
               <button
+                type="button"
                 ref={setTriggerEl}
                 data-testid="record-toggle"
                 data-phase={recorder.phase()}
@@ -115,6 +116,7 @@ const RecordButton: Component = () => {
           {/* Pause / resume */}
           <Tip label={pauseLabel()} class="flex">
             <button
+              type="button"
               data-testid="record-pause"
               class="w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               classList={{
@@ -137,6 +139,7 @@ const RecordButton: Component = () => {
 
           <Tip label="Stop recording" class="flex">
             <button
+              type="button"
               data-testid="record-stop"
               class="flex items-center gap-1.5 px-2.5 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               classList={{
@@ -167,6 +170,7 @@ const RecordButton: Component = () => {
           {/* Webcam toggle — end cap. */}
           <Tip label={webcamLabel()} class="flex">
             <button
+              type="button"
               data-testid="record-webcam"
               class={`w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${webcamBtnAccent()}`}
               onClick={() => void recorder.toggleWebcam()}

@@ -295,6 +295,7 @@ const CanvasMinimap: Component<{
       >
         {/* Minimap toggle */}
         <button
+          type="button"
           data-testid="minimap-toggle"
           class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
           classList={{ "text-accent": expanded() }}
@@ -305,6 +306,7 @@ const CanvasMinimap: Component<{
         </button>
         <div class="w-px h-5 bg-edge/30" />
         <button
+          type="button"
           class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer text-sm font-medium"
           title="Zoom out"
           onClick={() => viewport.zoomOut()}
@@ -312,6 +314,7 @@ const CanvasMinimap: Component<{
           −
         </button>
         <button
+          type="button"
           class="flex items-center justify-center min-w-[3rem] h-8 px-1 text-fg-2 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer text-xs tabular-nums"
           title="Reset to 100%"
           onClick={() => viewport.resetZoom()}
@@ -319,6 +322,7 @@ const CanvasMinimap: Component<{
           {Math.round(viewport.zoom() * 100)}%
         </button>
         <button
+          type="button"
           class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer text-sm font-medium"
           title="Zoom in"
           onClick={() => viewport.zoomIn()}

@@ -15,6 +15,7 @@ const SplitStrip: Component<SplitStripProps> = (props) => {
 
   return (
     <button
+      type="button"
       data-testid={isCollapsed() ? "collapsed-indicator" : "split-prompt"}
       class="flex items-center justify-center gap-3 w-full h-6 shrink-0
              text-[11px] font-mono transition-all cursor-pointer"

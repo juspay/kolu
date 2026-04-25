@@ -56,6 +56,7 @@ const TileTitleActions: Component<{
       <Show when={meta()?.agent}>
         {(agent) => (
           <button
+            type="button"
             class={`${TILE_BUTTON_CLASS} px-2`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -73,6 +74,7 @@ const TileTitleActions: Component<{
         {(name) => (
           <Tip label={`Theme: ${name()}`}>
             <button
+              type="button"
               data-testid="tile-theme-pill"
               class={`${TILE_BUTTON_CLASS} px-2 max-w-[14ch] truncate text-xs`}
               style={{ color: "var(--color-fg-3, currentColor)" }}
@@ -94,6 +96,7 @@ const TileTitleActions: Component<{
       </Show>
       <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
         <button
+          type="button"
           data-testid="tile-split-toggle"
           class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
           classList={{ "bg-black/20": splitExpanded() }}
@@ -119,6 +122,7 @@ const TileTitleActions: Component<{
       </Tip>
       <Tip label="Find in terminal">
         <button
+          type="button"
           data-testid="tile-find"
           class={`${TILE_BUTTON_CLASS} w-7`}
           style={{ color: "var(--color-fg-3, currentColor)" }}
@@ -134,6 +138,7 @@ const TileTitleActions: Component<{
         </button>
       </Tip>
       <button
+        type="button"
         class={`${TILE_BUTTON_CLASS} w-7`}
         style={{ color: "var(--color-fg-3, currentColor)" }}
         onPointerDown={(e) => e.stopPropagation()}
