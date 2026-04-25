@@ -1,7 +1,7 @@
 /** Modal overlay showing all keyboard shortcuts. */
 
 import Dialog from "@corvu/dialog";
-import type { Component } from "solid-js";
+import { type Component, For } from "solid-js";
 import { formatKeybind, type Keybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -49,15 +49,17 @@ const ShortcutsHelp: Component<{
         Keyboard Shortcuts
       </Dialog.Label>
       <div class="px-4 py-2">
-        {DISPLAY_SHORTCUTS.map((s) => (
-          <div class="flex items-center justify-between py-1.5">
-            <span class="text-sm text-fg-2">{s.label}</span>
-            <span class="flex items-center gap-1.5">
-              <Kbd>{formatKeybind(s.keybind)}</Kbd>
-              {s.altKeybind && <Kbd>{formatKeybind(s.altKeybind)}</Kbd>}
-            </span>
-          </div>
-        ))}
+        <For each={DISPLAY_SHORTCUTS}>
+          {(s) => (
+            <div class="flex items-center justify-between py-1.5">
+              <span class="text-sm text-fg-2">{s.label}</span>
+              <span class="flex items-center gap-1.5">
+                <Kbd>{formatKeybind(s.keybind)}</Kbd>
+                {s.altKeybind && <Kbd>{formatKeybind(s.altKeybind)}</Kbd>}
+              </span>
+            </div>
+          )}
+        </For>
       </div>
     </Dialog.Content>
   </ModalDialog>
