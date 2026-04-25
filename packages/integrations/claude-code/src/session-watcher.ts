@@ -10,21 +10,21 @@
  */
 
 import fs from "node:fs";
-import { match } from "ts-pattern";
 import { agentInfoEqual } from "anyagent";
+import { match } from "ts-pattern";
 import {
-  type SessionFile,
   type ClaudeCodeInfo,
-  PROJECTS_DIR,
-  TAIL_BYTES,
-  encodeProjectPath,
-  findTranscriptPath,
-  tailJsonlLines,
   deriveState,
-  extractTasks,
   deriveTaskProgress,
-  watchOrWaitForDir,
+  encodeProjectPath,
+  extractTasks,
   fetchSessionSummary,
+  findTranscriptPath,
+  PROJECTS_DIR,
+  type SessionFile,
+  TAIL_BYTES,
+  tailJsonlLines,
+  watchOrWaitForDir,
 } from "./index.ts";
 
 // --- Tuning constants ---
@@ -55,6 +55,7 @@ type TranscriptWatching =
 // --- Logger interface ---
 
 import type { Logger } from "anyagent";
+
 export type { Logger as WatcherLog } from "anyagent";
 
 // --- Diagnostics counter ---
@@ -97,7 +98,7 @@ export function createSessionWatcher(
   let transcriptWatching: TranscriptWatching = { kind: "none" };
   let lastInfo: ClaudeCodeInfo | null = null;
   let lastSummary: string | null = null;
-  let taskMap = new Map<string, "pending" | "in_progress" | "completed">();
+  const taskMap = new Map<string, "pending" | "in_progress" | "completed">();
   let taskScanOffset = 0;
   // Partial final line from the previous chunked scan. Carried across
   // calls so a line straddling a chunk or EOF boundary resolves to a

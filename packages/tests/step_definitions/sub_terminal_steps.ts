@@ -1,7 +1,7 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PALETTE = '[data-testid="command-palette"]';
 
@@ -38,7 +38,7 @@ async function paletteCommand(world: KoluWorld, query: string) {
   await world.page.waitForFunction(
     (sel) => {
       const item = document.querySelector(`${sel} li`) as HTMLElement | null;
-      if (!item || !item.offsetHeight) return false;
+      if (!item?.offsetHeight) return false;
       item.click();
       return true;
     },

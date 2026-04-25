@@ -1,11 +1,11 @@
-import { When, Then } from "@cucumber/cucumber";
+import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
 import {
-  KoluWorld,
-  PILL_TREE_ENTRY_SELECTOR,
+  type KoluWorld,
   MOD_KEY,
+  PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import * as assert from "node:assert";
 
 /** Synthesize a click directly on the close-button DOM node. Real-mouse
  *  clicks on a stacked canvas tile lose to the active tile (z-10) on top —

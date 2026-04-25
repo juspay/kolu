@@ -26,10 +26,10 @@
  *  elapsed-time clock, and re-exports a flat facade via `useRecorder()`.
  *  Mic and webcam domains live in their own modules. */
 
+import fixWebmDuration from "fix-webm-duration";
 import { batch, createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { P, match } from "ts-pattern";
-import fixWebmDuration from "fix-webm-duration";
+import { match, P } from "ts-pattern";
 import {
   closeMicPreview,
   mic,

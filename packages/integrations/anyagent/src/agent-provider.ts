@@ -17,8 +17,7 @@
  * suffices for every provider.
  */
 
-import type { Logger } from "./index.ts";
-import type { TaskProgress } from "./index.ts";
+import type { Logger, TaskProgress } from "./index.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.
  *  Fields are the inputs every agent's session-matching logic can draw from;

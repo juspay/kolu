@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { createRoot, createEffect } from "solid-js";
+import { createEffect, createRoot } from "solid-js";
+import { describe, expect, it } from "vitest";
 import { createSubscription } from "./createSubscription";
 
 /** Create an async iterable from an array, yielding items with optional delay. */

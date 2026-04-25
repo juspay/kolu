@@ -1,17 +1,17 @@
 /** Settings popover — reads and writes preferences via usePreferences directly.
  *  Only needs open/close state and trigger ref from the parent. */
 
-import { type Component, Show, createSignal } from "solid-js";
-import { Portal } from "solid-js/web";
 import { makeEventListener } from "@solid-primitives/event-listener";
-import Toggle from "../ui/Toggle";
+import type { Preferences } from "kolu-common";
+import { type Component, createSignal, Show } from "solid-js";
+import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
+import Toggle from "../ui/Toggle";
 import SettingRow, { type Hint } from "./SettingRow";
+import { type ColorScheme, useColorScheme } from "./useColorScheme";
 import { usePreferences } from "./usePreferences";
-import { useColorScheme, type ColorScheme } from "./useColorScheme";
-import type { Preferences } from "kolu-common";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },

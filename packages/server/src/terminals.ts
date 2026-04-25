@@ -2,22 +2,23 @@
  * Terminal state management: PTY lifecycle and per-terminal metadata.
  * Plain Map + exported functions. Each entry owns its PtyHandle.
  */
-import { spawnPty, type PtyHandle } from "./pty.ts";
+
 import type {
   InitialTerminalMetadata,
+  SavedTerminal,
   TerminalId,
   TerminalInfo,
 } from "kolu-common";
-import { log } from "./log.ts";
 import { cleanupClipboardDir } from "./clipboard.ts";
+import { log } from "./log.ts";
 import {
   createMetadata,
-  updateServerMetadata,
-  updateClientMetadata,
   startProviders,
+  updateClientMetadata,
+  updateServerMetadata,
 } from "./meta/index.ts";
+import { type PtyHandle, spawnPty } from "./pty.ts";
 import { publishForTerminal, publishSystem } from "./publisher.ts";
-import type { SavedTerminal } from "kolu-common";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
 export interface TerminalProcess {

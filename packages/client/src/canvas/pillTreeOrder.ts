@@ -6,8 +6,8 @@
 
 import type { TerminalId } from "kolu-common";
 import {
-  terminalName,
   type TerminalDisplayInfo,
+  terminalName,
 } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 

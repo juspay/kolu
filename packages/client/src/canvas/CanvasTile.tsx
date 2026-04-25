@@ -10,20 +10,20 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
-import { type Component, For, type JSX, Show } from "solid-js";
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import type { TileLayout } from "./TileLayout";
-import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import { type Component, For, type JSX, Show } from "solid-js";
+import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
-import { DEFAULT_TILE_W, DEFAULT_TILE_H } from "./tilePlacement";
+import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
+import type { TileLayout } from "./TileLayout";
 import {
   type TileTheme,
+  tileChromeButton,
+  tileFgTier,
   tileTitleBarBg,
   tileTitleBarBorder,
-  tileFgTier,
-  tileChromeButton,
 } from "./tileChrome";
-import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 
 export type { TileTheme };
 

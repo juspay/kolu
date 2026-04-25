@@ -12,8 +12,8 @@
  */
 import { type Component, Show } from "solid-js";
 import { match } from "ts-pattern";
-import { lifecycle } from "./rpc";
 import { forceUpdateAndReload } from "../pwa";
+import { lifecycle } from "./rpc";
 
 const TransportOverlay: Component = () => {
   const visible = () => {

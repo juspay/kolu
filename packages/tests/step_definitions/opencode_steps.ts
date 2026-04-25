@@ -12,15 +12,15 @@
  * binary fires a title event, which triggers the resolve cycle.
  */
 
-import { When, Then, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
-import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
+import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
+import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
 
@@ -35,7 +35,7 @@ function cleanup() {
   if (dbPath) clearMockDatabase(dbPath);
 }
 
-After({ tags: "@opencode-mock" }, function () {
+After({ tags: "@opencode-mock" }, () => {
   cleanup();
 });
 

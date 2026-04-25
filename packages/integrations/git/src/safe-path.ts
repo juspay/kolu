@@ -7,7 +7,7 @@
 
 import path from "node:path";
 import type { Logger } from "anyagent";
-import { type GitResult, ok, err } from "./errors.ts";
+import { err, type GitResult, ok } from "./errors.ts";
 
 /**
  * Normalize a caller-supplied `child` path against a trusted `root` and

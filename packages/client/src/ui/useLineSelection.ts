@@ -11,8 +11,8 @@
  *    // wire `sel.buildItems` into `<CodeContextMenu getItems=...>`
  */
 
-import { createEffect, createSignal, on, type Accessor } from "solid-js";
 import type { SelectedLineRange } from "@pierre/diffs";
+import { type Accessor, createEffect, createSignal, on } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { formatLineRef } from "./lineRef";
 

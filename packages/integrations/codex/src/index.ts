@@ -32,22 +32,22 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { withDb as sharedWithDb, type Logger } from "anyagent";
+import { type Logger, withDb as sharedWithDb } from "anyagent";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
 // Re-export config so consumers can reference it (e.g. for env override docs).
-export { CODEX_DIR, CODEX_DB_PATH, CODEX_DB_WAL_PATH } from "./config.ts";
+export { CODEX_DB_PATH, CODEX_DB_WAL_PATH, CODEX_DIR } from "./config.ts";
 
 // --- Codex schemas (browser-safe; re-exported from ./schemas) ---
 
+export type { Logger } from "anyagent";
 export {
-  TaskProgressSchema,
+  type CodexInfo,
   CodexInfoSchema,
   type TaskProgress,
-  type CodexInfo,
+  TaskProgressSchema,
 } from "./schemas.ts";
-export { type Logger } from "anyagent";
 
 // --- Database helpers ---
 
@@ -395,7 +395,7 @@ export function parseRolloutContextTokens(lines: string[]): number | null {
 
 // --- Session watcher (encapsulates per-session lifecycle) ---
 
-export { createCodexWatcher, type CodexWatcher } from "./session-watcher.ts";
+export { type CodexWatcher, createCodexWatcher } from "./session-watcher.ts";
 
 // --- Shared WAL watcher ---
 

@@ -18,7 +18,7 @@ const DEFAULT_DURATION_MS = 150;
 
 /** Symmetric ease-in-out quadratic. */
 function easeInOutQuad(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  return t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 }
 
 function prefersReducedMotion(): boolean {

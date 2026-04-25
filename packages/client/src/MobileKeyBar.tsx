@@ -7,10 +7,10 @@
  *  sequences straight to the PTY via client.terminal.sendInput, with
  *  a 10ms haptic tick on devices that support navigator.vibrate. */
 
-import { type Component, For, Show } from "solid-js";
-import { isTouch } from "./useMobile";
-import { client } from "./rpc/rpc";
 import type { TerminalId } from "kolu-common";
+import { type Component, For, Show } from "solid-js";
+import { client } from "./rpc/rpc";
+import { isTouch } from "./useMobile";
 
 interface Key {
   label: string;

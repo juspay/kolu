@@ -20,20 +20,20 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { simpleGit } from "simple-git";
 import type { Logger } from "anyagent";
+import { simpleGit } from "simple-git";
+import { err, type GitResult, ok } from "./errors.ts";
+import { resolveUnder } from "./safe-path.ts";
 import {
-  GitChangeStatusSchema,
   type GitBaseRef,
   type GitChangedFile,
   type GitChangeStatus,
+  GitChangeStatusSchema,
   type GitDiffMode,
   type GitDiffOutput,
   type GitStatusOutput,
 } from "./schemas.ts";
 import { detectDefaultBranch } from "./worktree.ts";
-import { resolveUnder } from "./safe-path.ts";
-import { type GitResult, ok, err } from "./errors.ts";
 
 const execFileP = promisify(execFile);
 

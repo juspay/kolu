@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { deriveCheckStatus, prResultEqual, classifyGhError } from "./github.ts";
+import { describe, expect, it } from "vitest";
+import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
 import type { GitHubPrInfo, PrResult } from "./schemas.ts";
 
 describe("deriveCheckStatus", () => {

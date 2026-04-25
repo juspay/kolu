@@ -1,8 +1,8 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
+import type { TerminalId } from "kolu-common";
 import { toast } from "solid-sonner";
 import { client } from "../rpc/rpc";
-import type { TerminalId } from "kolu-common";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {

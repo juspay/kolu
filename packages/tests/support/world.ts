@@ -4,11 +4,11 @@
  */
 
 import {
-  World,
-  setWorldConstructor,
   setDefaultTimeout,
+  setWorldConstructor,
+  World,
 } from "@cucumber/cucumber";
-import type { Browser, BrowserContext, Page, Locator } from "playwright";
+import type { Browser, BrowserContext, Locator, Page } from "playwright";
 
 setDefaultTimeout(30_000);
 

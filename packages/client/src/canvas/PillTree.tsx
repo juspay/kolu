@@ -10,18 +10,18 @@
  *  one row per group of 3. Each grid row carries a leading ├─/└─ glyph
  *  so the parent→child relationship reads as a tree, not a soup. */
 
-import { type Component, For, Show, createMemo } from "solid-js";
-import { match, P } from "ts-pattern";
 import type { TerminalId } from "kolu-common";
+import { type Component, createMemo, For, Show } from "solid-js";
+import { match, P } from "ts-pattern";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { MinimapIcon, PlusIcon } from "../ui/Icons";
 import {
-  type PillRepoGroup,
   type PillBranch,
+  type PillRepoGroup,
   repoColor,
 } from "./pillTreeOrder";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
-import { MinimapIcon, PlusIcon } from "../ui/Icons";
 
 const BRANCHES_PER_ROW = 3;
 

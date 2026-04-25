@@ -6,26 +6,22 @@
 export { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
 
 export {
-  type AgentTerminalState,
-  type AgentWatcher,
   type AgentInfoShape,
   type AgentProvider,
+  type AgentTerminalState,
+  type AgentWatcher,
   agentInfoEqual,
   matchesAgent,
 } from "./agent-provider.ts";
-
-export { withDb, type Closable } from "./with-db.ts";
-
+export {
+  type Logger,
+  type TaskProgress,
+  TaskProgressSchema,
+} from "./schemas.ts";
+export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
 export {
   createWalSubscription,
   type WalSubscription,
   type WalSubscriptionConfig,
 } from "./wal-subscription.ts";
-
-export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
-
-export {
-  TaskProgressSchema,
-  type TaskProgress,
-  type Logger,
-} from "./schemas.ts";
+export { type Closable, withDb } from "./with-db.ts";

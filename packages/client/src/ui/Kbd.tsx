@@ -1,6 +1,6 @@
 /** Keyboard shortcut badge — consistent keycap styling across the app. */
 
-import { type Component, type JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
 
 const Kbd: Component<{
   children: JSX.Element;

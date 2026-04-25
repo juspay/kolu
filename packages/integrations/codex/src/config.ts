@@ -2,8 +2,8 @@
  *  Leaf module — no imports from other package files. */
 
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 
 /** Root of Codex's per-user state directory. Contains the threads
  *  SQLite DB, session JSONL rollouts, auth, and config. */

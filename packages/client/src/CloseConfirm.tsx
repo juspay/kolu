@@ -2,13 +2,13 @@
  *  Adapts its content for plain terminals, terminals with splits,
  *  and terminals that live in a git worktree. */
 
-import { type Component, Show } from "solid-js";
 import Dialog from "@corvu/dialog";
-import ModalDialog from "./ui/ModalDialog";
-import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
-import ChecksIndicator from "./terminal/ChecksIndicator";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
 import { prValue } from "kolu-common/pr";
+import { type Component, Show } from "solid-js";
+import ChecksIndicator from "./terminal/ChecksIndicator";
+import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
+import ModalDialog from "./ui/ModalDialog";
 
 /** Reasons why the "Remove worktree" action is suppressed.
  *

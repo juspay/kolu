@@ -9,11 +9,11 @@
  *  Client-side only — the server's headless xterm has no theme, so
  *  serializing there would produce unstyled HTML. */
 
-import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
-import { getTerminalRefs } from "./terminal/terminalRefs";
 import { terminalName } from "./terminal/terminalDisplay";
+import { getTerminalRefs } from "./terminal/terminalRefs";
 
 export function exportScrollbackAsPdf(
   id: TerminalId,

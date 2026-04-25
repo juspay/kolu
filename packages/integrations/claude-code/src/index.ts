@@ -14,20 +14,20 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { match } from "ts-pattern";
-import { readTailLines } from "anyagent";
+import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import { readTailLines } from "anyagent";
+import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
 // --- Claude Code schemas (browser-safe; re-exported from ./schemas) ---
 
 export {
-  TaskProgressSchema,
+  type ClaudeCodeInfo,
   ClaudeCodeInfoSchema,
   type TaskProgress,
-  type ClaudeCodeInfo,
+  TaskProgressSchema,
 } from "./schemas.ts";
 
 // --- Configuration ---

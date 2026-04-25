@@ -1,8 +1,8 @@
-import { Given, When, Then } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import * as assert from "node:assert";
+import { Given, Then, When } from "@cucumber/cucumber";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
-import * as assert from "node:assert";
+import type { KoluWorld } from "../support/world.ts";
 
 async function clearClipboard(world: KoluWorld) {
   await world.page

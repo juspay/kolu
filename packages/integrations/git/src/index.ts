@@ -3,61 +3,55 @@
  *  All fallible functions return GitResult<T> instead of throwing.
  *  Functions accept an optional Logger for instrumentation. */
 
+// Name generation
+export { randomName } from "memorable-names";
+// File tree browsing
+export { listAll, readFile } from "./browse.ts";
 // Error types
-export { type GitError, type GitResult, ok, err } from "./errors.ts";
+export { err, type GitError, type GitResult, ok } from "./errors.ts";
+// Repository resolution
+export {
+  gitInfoEqual,
+  hasGitDir,
+  resolveGitInfo,
+  subscribeGitInfo,
+  watchGitHead,
+} from "./resolve.ts";
 
+// Diff review
+export { getDiff, getStatus, parseNameStatus } from "./review.ts";
+// Path security
+export { resolveUnder } from "./safe-path.ts";
 // Schemas
 export {
-  GitInfoSchema,
-  WorktreeCreateInputSchema,
-  WorktreeCreateOutputSchema,
-  WorktreeRemoveInputSchema,
-  GitChangeStatusSchema,
-  GitChangedFileSchema,
-  GitDiffModeSchema,
-  GitBaseRefSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
   FsListAllInputSchema,
+  type FsListAllOutput,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
-  type GitInfo,
-  type GitChangeStatus,
-  type GitChangedFile,
-  type GitDiffMode,
   type GitBaseRef,
-  type GitStatusOutput,
+  GitBaseRefSchema,
+  type GitChangedFile,
+  GitChangedFileSchema,
+  type GitChangeStatus,
+  GitChangeStatusSchema,
+  GitDiffInputSchema,
+  type GitDiffMode,
+  GitDiffModeSchema,
   type GitDiffOutput,
-  type FsListAllOutput,
+  GitDiffOutputSchema,
+  type GitInfo,
+  GitInfoSchema,
+  GitStatusInputSchema,
+  type GitStatusOutput,
+  GitStatusOutputSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
 } from "./schemas.ts";
-
-// Repository resolution
-export {
-  resolveGitInfo,
-  watchGitHead,
-  gitInfoEqual,
-  hasGitDir,
-  subscribeGitInfo,
-} from "./resolve.ts";
-
 // Worktree operations
 export {
+  detectDefaultBranch,
   worktreeCreate,
   worktreeRemove,
-  detectDefaultBranch,
 } from "./worktree.ts";
-
-// Diff review
-export { getStatus, getDiff, parseNameStatus } from "./review.ts";
-
-// File tree browsing
-export { listAll, readFile } from "./browse.ts";
-
-// Path security
-export { resolveUnder } from "./safe-path.ts";
-
-// Name generation
-export { randomName } from "memorable-names";

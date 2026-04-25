@@ -19,8 +19,8 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import { agentInfoEqual, readTailLines } from "anyagent";
 import type { Logger } from "anyagent";
+import { agentInfoEqual, readTailLines } from "anyagent";
 import {
   type CodexInfo,
   type CodexSession,

@@ -10,9 +10,9 @@
  */
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
-import { store } from "./state.ts";
-import { publisher, publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
+import { publisher, publishSystem } from "./publisher.ts";
+import { store } from "./state.ts";
 
 /** Write the session blob (or clear it) and publish to subscribers. */
 function writeSession(next: SavedSession | null): void {

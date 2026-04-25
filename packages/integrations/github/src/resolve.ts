@@ -7,8 +7,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "anyagent";
-import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
+import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
 

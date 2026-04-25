@@ -3,19 +3,19 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import { toast } from "solid-sonner";
-import { availableThemes, resolveThemeBgs, pickTheme } from "terminal-themes";
-import { client } from "../rpc/rpc";
-import { useSubPanel } from "./useSubPanel";
-import { copyTextWithToast } from "./clipboard";
-import { useTips } from "../settings/useTips";
-import { usePreferences } from "../settings/usePreferences";
-import { CONTEXTUAL_TIPS } from "../settings/tips";
 import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
 } from "kolu-common";
+import { toast } from "solid-sonner";
+import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
+import { client } from "../rpc/rpc";
+import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { usePreferences } from "../settings/usePreferences";
+import { useTips } from "../settings/useTips";
+import { copyTextWithToast } from "./clipboard";
+import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useTerminalCrud(deps: {

@@ -4,17 +4,17 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
-import { createSignal, createMemo, createRoot } from "solid-js";
+import type { TerminalId } from "kolu-common";
+import { createMemo, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import {
-  DEFAULT_THEME_NAME,
   availableThemes,
+  DEFAULT_THEME_NAME,
   getThemeByName,
-  resolveThemeBgs,
-  pickTheme,
   type ITheme,
+  pickTheme,
+  resolveThemeBgs,
 } from "terminal-themes";
-import type { TerminalId } from "kolu-common";
 import { client } from "./rpc/rpc";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 

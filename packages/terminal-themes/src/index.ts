@@ -8,17 +8,15 @@
  */
 
 export type { ITheme } from "@xterm/xterm";
-
-// Theme catalog
-export {
-  type NamedTheme,
-  FONT_FAMILY,
-  availableThemes,
-  DEFAULT_THEME_NAME,
-  DEFAULT_THEME,
-  getThemeByName,
-  resolveThemeBgs,
-} from "./theme.ts";
-
 // Theme picker
 export { hexToOkLab, okLabDistance, pickTheme } from "./picker.ts";
+// Theme catalog
+export {
+  availableThemes,
+  DEFAULT_THEME,
+  DEFAULT_THEME_NAME,
+  FONT_FAMILY,
+  getThemeByName,
+  type NamedTheme,
+  resolveThemeBgs,
+} from "./theme.ts";

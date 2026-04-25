@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
 import { createRequire } from "node:module";
+import { describe, expect, it } from "vitest";
 import { getScreenText } from "./pty.ts";
 
 // @xterm packages ship CJS only — same interop as pty.ts

@@ -8,9 +8,9 @@
  * "closed" and the test couldn't even reach the reconnect step.
  */
 
-import { When, Then } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import type { Page } from "playwright";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Poll until the header's data-ws-status attribute equals the expected value. */
 function waitForWsStatus(page: Page, expected: string): Promise<unknown> {

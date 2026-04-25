@@ -1,9 +1,9 @@
-import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
 import tailwindcss from "@tailwindcss/vite";
-import { VitePWA } from "vite-plugin-pwa";
-import { DEFAULT_PORT } from "kolu-common/config";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
+import { DEFAULT_PORT } from "kolu-common/config";
+import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
+import solid from "vite-plugin-solid";
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 const xtermVersion = xtermPackage.version;

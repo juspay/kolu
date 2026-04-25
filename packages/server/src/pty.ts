@@ -5,15 +5,16 @@
  * Maintains a headless xterm instance for screen state serialization
  * on late-joining clients (~4KB vs raw scrollback replay).
  */
-import * as pty from "node-pty";
+
 import { createRequire } from "node:module";
 import {
   DEFAULT_COLS,
   DEFAULT_ROWS,
   DEFAULT_SCROLLBACK,
 } from "kolu-common/config";
-import { cleanEnv, osc7Init } from "./shell.ts";
+import * as pty from "node-pty";
 import type { Logger } from "./log.ts";
+import { cleanEnv, osc7Init } from "./shell.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);

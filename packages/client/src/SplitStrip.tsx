@@ -2,7 +2,7 @@
  *  "prompt" when no splits exist yet, "collapsed" when splits are hidden. */
 
 import type { Component } from "solid-js";
-import { SHORTCUTS, formatKeybind } from "./input/keyboard";
+import { formatKeybind, SHORTCUTS } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 
 type SplitStripProps =

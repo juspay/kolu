@@ -8,8 +8,8 @@
  * based on the open prop — forceMount only affects DOM presence.
  */
 
-import { type Component, type JSX } from "solid-js";
 import Dialog from "@corvu/dialog";
+import type { Component, JSX } from "solid-js";
 
 /** Click the visible terminal to restore focus after a dialog closes.
  *  If a terminal already has focus (e.g. sub-panel managed its own focus),

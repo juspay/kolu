@@ -3,12 +3,12 @@
  *  floating-overlay mode. Mobile hides the panel entirely — the screen is
  *  too narrow for a useful side panel. */
 
-import { type Component, type JSX, Show } from "solid-js";
 import Resizable from "@corvu/resizable";
+import type { TerminalMetadata } from "kolu-common";
+import { type Component, type JSX, Show } from "solid-js";
+import { isMobile } from "../useMobile";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
-import { isMobile } from "../useMobile";
-import type { TerminalMetadata } from "kolu-common";
 
 const RightPanelLayout: Component<{
   children: JSX.Element;

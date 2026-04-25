@@ -8,8 +8,8 @@
  *  container stays as an e2e-only affordance; production code looks up refs
  *  by id through this module. */
 
-import type { Terminal as XTerm } from "@xterm/xterm";
 import type { SerializeAddon } from "@xterm/addon-serialize";
+import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`

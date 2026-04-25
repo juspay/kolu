@@ -4,18 +4,19 @@
  * Uses partysocket for auto-reconnect. All terminal procedures
  * (create, attach, sendInput, resize) go through this link.
  */
-import { createMemo, createSignal } from "solid-js";
-import { match } from "ts-pattern";
+
 import { createORPCClient, ORPCError } from "@orpc/client";
-import { RPCLink } from "@orpc/client/websocket";
 import {
   ClientRetryPlugin,
   type ClientRetryPluginContext,
 } from "@orpc/client/plugins";
-import { WebSocket as PartySocket } from "partysocket";
+import { RPCLink } from "@orpc/client/websocket";
 import type { ContractRouterClient } from "@orpc/contract";
-import type { contract } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common";
+import type { contract } from "kolu-common/contract";
+import { WebSocket as PartySocket } from "partysocket";
+import { createMemo, createSignal } from "solid-js";
+import { match } from "ts-pattern";
 
 export type WsStatus = "connecting" | "open" | "closed";
 
@@ -110,6 +111,7 @@ export type ServerLifecycleEvent =
 const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
   kind: "connecting",
 });
+
 export { lifecycle };
 
 /** Transport status for the header dot. */
@@ -130,7 +132,7 @@ const serverProcessId = createMemo(() => {
     : ev.processId;
 });
 
-export { wsStatus, serverProcessId };
+export { serverProcessId, wsStatus };
 
 // IIFE scopes `connectCount` and `knownProcessId` — no module-level
 // mutables leak; external observers read `lifecycle()` instead.

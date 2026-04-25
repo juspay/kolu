@@ -189,7 +189,7 @@ export function webglLifecycleSnapshot(): WebglLifecycleSnapshot {
     // Second `getContext("webgl2")` on an established canvas returns the
     // existing context object without creating a new one — safe to probe.
     const gl = canvas.getContext("webgl2");
-    const lost = !!(gl && gl.isContextLost());
+    const lost = !!gl?.isContextLost();
     if (lost) contextsLost++;
     aliveCanvases.push({
       canvasId: e.id,

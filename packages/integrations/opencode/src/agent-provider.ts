@@ -12,9 +12,9 @@
  */
 
 import { type AgentProvider, matchesAgent } from "anyagent";
+import type { OpenCodeInfo, OpenCodeSession } from "./index.ts";
 import { findSessionByDirectory } from "./index.ts";
 import { createOpenCodeWatcher } from "./session-watcher.ts";
-import type { OpenCodeSession, OpenCodeInfo } from "./index.ts";
 
 export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",

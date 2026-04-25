@@ -1,6 +1,6 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const PULL_HANDLE = '[data-testid="mobile-pull-handle"]';
 const SHEET = '[data-testid="mobile-chrome-sheet"]';

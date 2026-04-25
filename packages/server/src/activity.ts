@@ -10,14 +10,14 @@
 
 import fs from "node:fs";
 import {
-  ActivityFeedSchema,
   type ActivityFeed,
-  type RecentRepo,
+  ActivityFeedSchema,
   type RecentAgent,
+  type RecentRepo,
 } from "kolu-common";
-import { store } from "./state.ts";
-import { publishSystem } from "./publisher.ts";
 import { log } from "./log.ts";
+import { publishSystem } from "./publisher.ts";
+import { store } from "./state.ts";
 
 const MAX_RECENT_REPOS = 20;
 const MAX_RECENT_AGENTS = 10;

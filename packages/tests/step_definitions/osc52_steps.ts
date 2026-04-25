@@ -1,5 +1,5 @@
 import { When } from "@cucumber/cucumber";
-import { KoluWorld } from "../support/world.ts";
+import type { KoluWorld } from "../support/world.ts";
 
 /** Force navigator.clipboard.writeText to reject so the ClipboardAddon provider
  *  exercises the execCommand fallback path. Leaves readText intact so the

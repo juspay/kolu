@@ -1,16 +1,16 @@
 /** MetadataInspector — live view of the active terminal's full context.
  *  Pure rendering: receives metadata, renders sections. */
 
+import type { TerminalMetadata } from "kolu-common";
+import { prUnavailableSource, prValue } from "kolu-common/pr";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { TerminalMetadata } from "kolu-common";
-import { prValue, prUnavailableSource } from "kolu-common/pr";
-import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
-import Section from "../ui/Section";
+import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
+import Section from "../ui/Section";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;

@@ -9,7 +9,7 @@
  *  paused. The recorder closes the stream on stop or when the user
  *  toggles webcam off, which unmounts the overlay. */
 
-import { type Component, Show, createEffect } from "solid-js";
+import { type Component, createEffect, Show } from "solid-js";
 import { useRecorder } from "./useRecorder";
 
 const WebcamOverlay: Component = () => {

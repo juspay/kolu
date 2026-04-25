@@ -2,18 +2,18 @@
  *  meter, webcam preview, "Start recording" commit button. Appears when
  *  the chrome-bar record button is clicked from idle. */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
 import {
   type Component,
-  Show,
-  For,
-  createSignal,
   createEffect,
+  createSignal,
+  For,
+  Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { makeEventListener } from "@solid-primitives/event-listener";
-import { useRecorder } from "./useRecorder";
-import LevelMeter from "./LevelMeter";
 import Toggle from "../ui/Toggle";
+import LevelMeter from "./LevelMeter";
+import { useRecorder } from "./useRecorder";
 
 const DeviceSelect: Component<{
   testId: string;

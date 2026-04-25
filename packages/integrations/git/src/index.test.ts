@@ -1,25 +1,25 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeAll,
-  afterAll,
-  afterEach,
-} from "vitest";
-import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { simpleGit } from "simple-git";
 import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import {
+  type GitInfo,
   getDiff,
   getStatus,
   gitInfoEqual,
-  resolveGitInfo,
   parseNameStatus,
+  resolveGitInfo,
   resolveUnder,
   worktreeCreate,
-  type GitInfo,
 } from "./index.ts";
 
 // Mock randomName to return a predictable value

@@ -5,13 +5,13 @@
  * provider calls these functions and bridges results into its event system.
  */
 
-import path from "node:path";
-import fs from "node:fs";
 import { execSync } from "node:child_process";
-import { simpleGit } from "simple-git";
+import fs from "node:fs";
+import path from "node:path";
 import type { Logger } from "anyagent";
+import { simpleGit } from "simple-git";
+import { err, type GitResult, ok } from "./errors.ts";
 import type { GitInfo } from "./schemas.ts";
-import { type GitResult, ok, err } from "./errors.ts";
 
 const DEBOUNCE_MS = 150;
 

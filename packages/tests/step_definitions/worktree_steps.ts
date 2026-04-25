@@ -1,11 +1,11 @@
-import { When, Then } from "@cucumber/cucumber";
+import * as assert from "node:assert";
 import { execFileSync } from "node:child_process";
+import { Then, When } from "@cucumber/cucumber";
 import {
-  KoluWorld,
+  type KoluWorld,
   PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import * as assert from "node:assert";
 
 When(
   "I set up a git repo at {string}",

@@ -8,8 +8,8 @@
  * `just test`).
  */
 
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
-import { writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { koluShellDir } from "./koluRoot.ts";
 
@@ -194,7 +194,7 @@ export function osc7Init(opts: {
         //      "on" between the end of prompt setup and the next user command.
         //      Any DEBUG firing before arm (hooks, aliases, etc.) sees flag=""
         //      and skips emitting OSC 2.
-        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;\$PROMPT_COMMAND};__kolu_preexec_arm"`,
+        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;$PROMPT_COMMAND};__kolu_preexec_arm"`,
         // Install the DEBUG trap at source time — reinstalling inside
         // PROMPT_COMMAND is unnecessary since the trap persists across
         // commands. If a user's .bashrc clears it, bash-preexec-compatible

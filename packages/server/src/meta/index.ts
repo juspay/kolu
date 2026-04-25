@@ -26,23 +26,23 @@
  * server-side adapter file.
  */
 
-import type {
-  TerminalMetadata,
-  TerminalServerMetadata,
-  TerminalClientMetadata,
-} from "kolu-common";
-import { prValue, prUnavailableReason } from "kolu-common";
-import { type TerminalProcess } from "../terminals.ts";
-import { publishForTerminal, publishSystem } from "../publisher.ts";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
+import type {
+  TerminalClientMetadata,
+  TerminalMetadata,
+  TerminalServerMetadata,
+} from "kolu-common";
+import { prUnavailableReason, prValue } from "kolu-common";
 import { opencodeProvider } from "kolu-opencode";
-import { startGitProvider } from "./git.ts";
-import { startGitHubPrProvider } from "./github.ts";
+import { log } from "../log.ts";
+import { publishForTerminal, publishSystem } from "../publisher.ts";
+import type { TerminalProcess } from "../terminals.ts";
 import { startAgentProvider } from "./agent.ts";
 import { startAgentCommandTracker } from "./agent-command.ts";
+import { startGitProvider } from "./git.ts";
+import { startGitHubPrProvider } from "./github.ts";
 import { startProcessProvider } from "./process.ts";
-import { log } from "../log.ts";
 
 /** Create initial metadata state for a new terminal. */
 export function createMetadata(cwd: string): TerminalMetadata {

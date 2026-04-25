@@ -13,10 +13,10 @@
  *  store for UI subscription. Same lifecycle, different volatility axes
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
-import { type Accessor, createEffect, createRoot } from "solid-js";
-import { createStore, produce } from "solid-js/store";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common";
+import { type Accessor, createEffect, createRoot } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 
 export type Renderer = "webgl" | "dom";
 

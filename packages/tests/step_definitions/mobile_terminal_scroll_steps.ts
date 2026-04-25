@@ -1,7 +1,7 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
 import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
+import { waitForBufferContains } from "../support/buffer.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Read xterm's current viewportY (top row of the visible window). When the
  *  user is scrolled to the bottom, viewportY === baseY. Scrolling up

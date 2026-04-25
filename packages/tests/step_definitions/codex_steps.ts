@@ -13,19 +13,19 @@
  * required, unlike the claude-code mock.
  */
 
-import { When, Then, After } from "@cucumber/cucumber";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { waitForBufferContains } from "../support/buffer.ts";
-import {
-  writeCodexFixture,
-  updateCodexRollout,
-  type CodexFixture,
-} from "../support/agent-mock-codex.ts";
+import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
+import {
+  type CodexFixture,
+  updateCodexRollout,
+  writeCodexFixture,
+} from "../support/agent-mock-codex.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getCodexDir = () => process.env.KOLU_CODEX_DIR;
 
@@ -45,7 +45,7 @@ function cleanup() {
   if (codexDir) clearMockDatabase(path.join(codexDir, "state_5.sqlite"));
 }
 
-After({ tags: "@codex-mock" }, function () {
+After({ tags: "@codex-mock" }, () => {
   cleanup();
 });
 

@@ -1,12 +1,12 @@
-import { Given, When, Then } from "@cucumber/cucumber";
+import * as assert from "node:assert";
+import * as os from "node:os";
+import { Given, Then, When } from "@cucumber/cucumber";
+import type { SavedTerminal } from "kolu-common";
 import {
-  KoluWorld,
+  type KoluWorld,
   PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
-import * as assert from "node:assert";
-import * as os from "node:os";
-import type { SavedTerminal } from "kolu-common";
 
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */

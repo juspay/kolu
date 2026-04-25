@@ -1,6 +1,6 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Read cols from every terminal's live xterm via the __xterm ref we
  *  attach in Terminal.tsx's onMount. Keyed by the element's
@@ -48,7 +48,7 @@ When("I wait for all terminals to settle", async function (this: KoluWorld) {
       if (nodes.length === 0) return false;
       for (const n of nodes) {
         const term = (n as unknown as { __xterm?: { cols: number } }).__xterm;
-        if (!term || !term.cols) return false;
+        if (!term?.cols) return false;
       }
       return true;
     },
@@ -76,7 +76,7 @@ When(
         if (!el) return false;
         const id = el.getAttribute("data-terminal-id");
         const term = (el as unknown as { __xterm?: { cols: number } }).__xterm;
-        if (!id || !term || !term.cols) return false;
+        if (!id || !term?.cols) return false;
         const before = snap[id];
         return typeof before === "number" && term.cols !== before;
       },

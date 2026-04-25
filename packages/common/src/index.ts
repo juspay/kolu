@@ -3,70 +3,67 @@
 // Integration packages define their own schemas (e.g. kolu-claude-code,
 // kolu-git); this module re-exports them and composes aggregate types.
 
-import { z } from "zod";
 // Import from `/schemas` subpaths, not package roots — keeps the
 // client bundle free of `@anthropic-ai/claude-agent-sdk`, `node:sqlite`,
 // `node:child_process`, etc. (see juspay/kolu#682).
 import { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
-import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import {
-  GitInfoSchema,
-  WorktreeCreateInputSchema,
-  WorktreeCreateOutputSchema,
-  WorktreeRemoveInputSchema,
-  GitChangeStatusSchema,
-  GitChangedFileSchema,
-  GitDiffModeSchema,
-  GitBaseRefSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  GitBaseRefSchema,
+  GitChangedFileSchema,
+  GitChangeStatusSchema,
+  GitDiffInputSchema,
+  GitDiffModeSchema,
+  GitDiffOutputSchema,
+  GitInfoSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
 } from "kolu-git/schemas";
+import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
+import { z } from "zod";
 
+export type {
+  FsListAllOutput,
+  GitBaseRef,
+  GitChangedFile,
+  GitChangeStatus,
+  GitDiffMode,
+  GitDiffOutput,
+  GitInfo,
+  GitStatusOutput,
+} from "kolu-git/schemas";
 // Re-export integration schemas so consumers import from kolu-common only.
-export {
-  TaskProgressSchema,
-  ClaudeCodeInfoSchema,
-  CodexInfoSchema,
-  OpenCodeInfoSchema,
-};
-
 // Re-export git schemas from kolu-git.
 export {
-  GitInfoSchema,
-  WorktreeCreateInputSchema,
-  WorktreeCreateOutputSchema,
-  WorktreeRemoveInputSchema,
-  GitChangeStatusSchema,
-  GitChangedFileSchema,
-  GitDiffModeSchema,
-  GitBaseRefSchema,
-  GitStatusInputSchema,
-  GitStatusOutputSchema,
-  GitDiffInputSchema,
-  GitDiffOutputSchema,
+  ClaudeCodeInfoSchema,
+  CodexInfoSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  GitBaseRefSchema,
+  GitChangedFileSchema,
+  GitChangeStatusSchema,
+  GitDiffInputSchema,
+  GitDiffModeSchema,
+  GitDiffOutputSchema,
+  GitInfoSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  OpenCodeInfoSchema,
+  TaskProgressSchema,
+  WorktreeCreateInputSchema,
+  WorktreeCreateOutputSchema,
+  WorktreeRemoveInputSchema,
 };
-export type {
-  GitInfo,
-  GitChangeStatus,
-  GitChangedFile,
-  GitDiffMode,
-  GitBaseRef,
-  GitStatusOutput,
-  GitDiffOutput,
-  FsListAllOutput,
-} from "kolu-git/schemas";
 
 // --- Zod schemas ---
 
@@ -77,39 +74,40 @@ const TerminalIdSchema = z.string().uuid();
 // `kolu-common/pr` subpath re-exports the same zod schemas directly for
 // callers that only need the PR types without any other common imports.
 import {
-  GitHubCheckStatusSchema,
-  GitHubPrStateSchema,
-  GitHubPrInfoSchema,
-  PrResultSchema,
   GhUnavailableCodeSchema,
   GhUnavailableSchema,
+  GitHubCheckStatusSchema,
+  GitHubPrInfoSchema,
+  GitHubPrStateSchema,
+  PrResultSchema,
   PrUnavailableSourceSchema,
-  prValue,
   prUnavailableReason,
   prUnavailableSource,
+  prValue,
   reasonForGhCode,
   reasonForSource,
 } from "kolu-github/schemas";
+
+export type {
+  GhUnavailableCode,
+  GitHubPrInfo,
+  PrResult,
+  PrUnavailableSource,
+} from "kolu-github/schemas";
 export {
-  GitHubCheckStatusSchema,
-  GitHubPrStateSchema,
-  GitHubPrInfoSchema,
-  PrResultSchema,
   GhUnavailableCodeSchema,
   GhUnavailableSchema,
+  GitHubCheckStatusSchema,
+  GitHubPrInfoSchema,
+  GitHubPrStateSchema,
+  PrResultSchema,
   PrUnavailableSourceSchema,
-  prValue,
   prUnavailableReason,
   prUnavailableSource,
+  prValue,
   reasonForGhCode,
   reasonForSource,
 };
-export type {
-  GitHubPrInfo,
-  PrResult,
-  GhUnavailableCode,
-  PrUnavailableSource,
-} from "kolu-github/schemas";
 
 // --- AI coding agent context ---
 
@@ -456,8 +454,8 @@ export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
 // Extracted into its own module so the schema grab-bag here stays scoped
 // to types; re-exported for caller convenience.
 export {
-  terminalKey,
   computeTerminalKeys,
-  type TerminalKey,
   type TerminalIdentity,
+  type TerminalKey,
+  terminalKey,
 } from "./terminalKey";

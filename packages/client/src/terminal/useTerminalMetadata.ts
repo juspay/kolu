@@ -12,6 +12,7 @@
  *  a reactive owner per item and disposes it when the item leaves the list.
  *  No manual Map, AbortController, or version signals needed. */
 
+import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { type Accessor, createMemo, mapArray } from "solid-js";
 import { toast } from "solid-sonner";
 import {
@@ -19,7 +20,6 @@ import {
   type Subscription,
 } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,

@@ -2,19 +2,19 @@
  *  Two states: expanded (minimap visualization + zoom bar) and minimized
  *  (zoom bar only). Auto-hides the map when ≤2 tiles. */
 
-import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { makePersisted } from "@solid-primitives/storage";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import { MinimapIcon } from "../ui/Icons";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
 import {
-  startViewportDrag,
   handleMinimapClick,
   startTileDrag,
+  startViewportDrag,
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
 import { tileMinimapBorder } from "./tileChrome";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileTheme } from "./useTileTheme";
+import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;

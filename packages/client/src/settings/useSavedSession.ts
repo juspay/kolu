@@ -9,11 +9,11 @@
  * `useSessionRestore` reactive recovery path stays fresh.
  */
 
+import type { SavedSession } from "kolu-common";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
-import type { SavedSession } from "kolu-common";
 
 const sub = createRoot(() =>
   createSubscription(() => stream.session(), {

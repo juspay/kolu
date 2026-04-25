@@ -3,18 +3,18 @@
  *  info. Content split into `<DiagnosticInfoContent/>` so a future
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
-import { type Component, For, Show, createMemo } from "solid-js";
 import Dialog from "@corvu/dialog";
-import { toast } from "solid-sonner";
-import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
-import Section from "./ui/Section";
-import Row from "./ui/Row";
-import { wsStatus, serverProcessId } from "./rpc/rpc";
-import { isMobile } from "./useMobile";
-import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
-import { getTerminalRefs } from "./terminal/terminalRefs";
-import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import type { TerminalId } from "kolu-common";
+import { type Component, createMemo, For, Show } from "solid-js";
+import { toast } from "solid-sonner";
+import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { getTerminalRefs } from "./terminal/terminalRefs";
+import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
+import { webglLifecycleSnapshot } from "./terminal/webglTracker";
+import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
+import Row from "./ui/Row";
+import Section from "./ui/Section";
+import { isMobile } from "./useMobile";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
  *  that lingers on a detached node until GC. Compute once at module load

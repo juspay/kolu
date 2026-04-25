@@ -16,17 +16,17 @@
  *
  *  Hidden when the File System Access API isn't available. */
 
-import { type Component, Match, Switch, Show, createSignal } from "solid-js";
+import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
+import { formatKeybind, SHORTCUTS } from "../input/keyboard";
+import { PauseIcon, RecordIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
+import Tip from "../ui/Tip";
+import RecordPopover from "./RecordPopover";
 import {
   formatElapsed,
   isRecordingSupported,
   useRecorder,
 } from "./useRecorder";
-import RecordPopover from "./RecordPopover";
-import { RecordIcon, PauseIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
-import Tip from "../ui/Tip";
-import { formatKeybind, SHORTCUTS } from "../input/keyboard";
 
 const RecordButton: Component = () => {
   if (!isRecordingSupported()) return null;

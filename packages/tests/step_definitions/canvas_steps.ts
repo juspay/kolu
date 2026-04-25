@@ -1,6 +1,6 @@
-import { When, Then } from "@cucumber/cucumber";
-import { KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 import * as assert from "node:assert";
+import { Then, When } from "@cucumber/cucumber";
+import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
@@ -807,7 +807,7 @@ When(
 When(
   "I drag minimap tile rect {int} by x={int} y={int}",
   async function (this: KoluWorld, index: number, dx: number, dy: number) {
-    const saved = ((this as any).__savedCanvasTilePositions ?? {})[index] as
+    const saved = (this as any).__savedCanvasTilePositions?.[index] as
       | { id: string; left: number; top: number }
       | undefined;
     if (!saved) throw new Error(`No saved canvas tile ${index} position`);
@@ -859,7 +859,7 @@ When(
 Then(
   "canvas tile {int} position should have changed",
   async function (this: KoluWorld, index: number) {
-    const saved = ((this as any).__savedCanvasTilePositions ?? {})[index] as
+    const saved = (this as any).__savedCanvasTilePositions?.[index] as
       | { id: string; left: number; top: number }
       | undefined;
     if (!saved) throw new Error(`No saved canvas tile ${index} position`);
