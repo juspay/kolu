@@ -50,24 +50,29 @@ export function migrateLegacyTerminal_1_18_0(
     git: existingGit,
     ...kept
   } = t;
-  // Prefer an already-present `git` key (idempotent on already-migrated data,
-  // and preserves the more-complete record if a corrupt entry carries both).
-  // Fall back to synthesizing from legacy flat fields only when no `git` key
-  // exists at all — i.e. genuinely pre-#702 data on disk.
-  const git: GitInfo | null =
-    "git" in t
-      ? ((existingGit as GitInfo | null | undefined) ?? null)
-      : typeof repoName === "string" && typeof branch === "string"
-        ? {
-            repoName,
-            branch,
-            repoRoot: "",
-            worktreePath: "",
-            isWorktree: false,
-            mainRepoRoot: "",
-          }
-        : null;
-  return { ...kept, git };
+  // Already-present `git` key wins — idempotent on migrated data, and a
+  // populated record beats a synthesized one with empty paths if both exist.
+  if ("git" in t) {
+    return {
+      ...kept,
+      git: (existingGit as GitInfo | null | undefined) ?? null,
+    };
+  }
+  // Genuine pre-#702 entry: synthesize partial GitInfo from the flat fields.
+  if (typeof repoName === "string" && typeof branch === "string") {
+    return {
+      ...kept,
+      git: {
+        repoName,
+        branch,
+        repoRoot: "",
+        worktreePath: "",
+        isWorktree: false,
+        mainRepoRoot: "",
+      },
+    };
+  }
+  return { ...kept, git: null };
 }
 
 /** What conf stores to disk — survives server restart. Internal: clients see
