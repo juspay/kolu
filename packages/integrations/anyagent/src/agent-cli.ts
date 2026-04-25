@@ -29,8 +29,8 @@
  * drops real positionals.
  */
 
+import { type NonEmpty, nonEmpty } from "nonempty";
 import { parseArgsStringToArgv } from "string-argv";
-import { unwrap } from "./unwrap.ts";
 
 /** Flags that cause the CLI to print info and exit immediately.
  *  Commands containing any of these are not agent sessions. */
@@ -126,25 +126,16 @@ function basename(s: string): string {
 type ResumableAgent = "claude" | "codex" | "opencode";
 
 /** Insert one or more "resume" tokens after the agent binary in a
- *  normalized argv. The argv is non-empty by `resumeAgentCommand`'s
- *  precondition (callers `parseArgsStringToArgv` and check `length`),
- *  but TypeScript's `noUncheckedIndexedAccess` widens `argv[0]` to
- *  `string | undefined` regardless — `unwrap` documents the
- *  precondition at the throw site. */
-function withResumeFlags(
-  argv: readonly string[],
-  ...flags: string[]
-): string[] {
-  return [
-    unwrap(argv[0], "resume transform invoked on empty argv"),
-    ...flags,
-    ...argv.slice(1),
-  ];
+ *  normalized argv. Non-emptiness is in the parameter type — the
+ *  positional read `argv[0]` is total. */
+function withResumeFlags(argv: NonEmpty<string>, ...flags: string[]): string[] {
+  const [head, ...rest] = argv;
+  return [head, ...flags, ...rest];
 }
 
 const AGENT_RESUME: Record<
   ResumableAgent,
-  (argv: readonly string[]) => string[]
+  (argv: NonEmpty<string>) => string[]
 > = {
   claude: (argv) => withResumeFlags(argv, "-c"),
   codex: (argv) => withResumeFlags(argv, "resume"),
@@ -200,8 +191,9 @@ export function parseAgentCommand(raw: string): string | null {
  * assumed already normalized — callers should not pass raw user input.
  */
 export function resumeAgentCommand(normalized: string): string | null {
-  const argv = parseArgsStringToArgv(normalized.trim());
+  const argv = nonEmpty(parseArgsStringToArgv(normalized.trim()));
+  if (!argv) return null;
   const agent = argv[0];
-  if (agent === undefined || !(agent in AGENT_RESUME)) return null;
+  if (!(agent in AGENT_RESUME)) return null;
   return AGENT_RESUME[agent as ResumableAgent](argv).join(" ");
 }

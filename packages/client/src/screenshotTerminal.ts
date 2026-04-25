@@ -16,15 +16,17 @@
  *  sidesteps that entire surface. */
 
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { unwrap } from "kolu-common/unwrap";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
+import { parseColor, type RGB } from "terminal-themes/color";
 import { terminalName } from "./terminal/terminalDisplay";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */
-const CUBE_STEPS: readonly number[] = [0, 95, 135, 175, 215, 255];
+const CUBE_STEPS: readonly [number, number, number, number, number, number] = [
+  0, 95, 135, 175, 215, 255,
+];
 
 /** Window chrome geometry (logical pixels). */
 const PAD = 16;
@@ -49,20 +51,18 @@ const BRAND_STEPS: ReadonlyArray<
   [16, 2, 10, 5, "#3b82f6"],
 ] as const;
 
-/** Indexed read into the 6-step palette. The math at the call sites
- *  (`% 6`) is statically in-range, but TypeScript's
- *  `noUncheckedIndexedAccess` widens the access to `number | undefined`
- *  regardless — `unwrap` documents the static-bounds invariant at the
- *  throw site. */
+/** Indexed read into the 6-step palette. The `as 0|1|2|3|4|5` cast is
+ *  the assertion that `% 6` produced a valid tuple index — same blast
+ *  radius as a runtime check, visible to TS at the read site. */
 function cubeStep(idx: number): number {
-  return unwrap(CUBE_STEPS[idx], `cubeStep idx ${idx} out of [0, 6)`);
+  return CUBE_STEPS[(idx % 6) as 0 | 1 | 2 | 3 | 4 | 5];
 }
 
 function cubeColor(i: number): string {
   const n = i - 16;
-  const r = cubeStep(Math.floor(n / 36) % 6);
-  const g = cubeStep(Math.floor(n / 6) % 6);
-  const b = cubeStep(n % 6);
+  const r = cubeStep(Math.floor(n / 36));
+  const g = cubeStep(Math.floor(n / 6));
+  const b = cubeStep(n);
   return `rgb(${r},${g},${b})`;
 }
 
@@ -160,33 +160,18 @@ function titleLabel(meta: TerminalMetadata | undefined): string {
   return meta.git?.branch ? `${name} (${meta.git.branch})` : name;
 }
 
+const BLACK: RGB = { r: 0, g: 0, b: 0 };
+
 /** Mix two hex colors in sRGB. Used for subtle chrome tints derived from
- *  the theme — the title-bar background and the window border. */
+ *  the theme — the title-bar background and the window border. Unknown
+ *  color strings fall back to black, so the mix result is just `b`. */
 function mix(a: string, b: string, ratio: number): string {
-  const pa = parseHex(a);
-  const pb = parseHex(b);
+  const pa = parseColor(a).unwrapOr(BLACK);
+  const pb = parseColor(b).unwrapOr(BLACK);
   const r = Math.round(pa.r * (1 - ratio) + pb.r * ratio);
   const g = Math.round(pa.g * (1 - ratio) + pb.g * ratio);
   const bl = Math.round(pa.b * (1 - ratio) + pb.b * ratio);
   return `rgb(${r},${g},${bl})`;
-}
-
-function parseHex(c: string): { r: number; g: number; b: number } {
-  const m = /^#([0-9a-f]{6})$/i.exec(c);
-  if (m) {
-    const n = parseInt(unwrap(m[1], "hex regex shape changed"), 16);
-    return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
-  }
-  const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(c);
-  if (rgb) {
-    return {
-      r: +unwrap(rgb[1], "rgb regex shape changed"),
-      g: +unwrap(rgb[2], "rgb regex shape changed"),
-      b: +unwrap(rgb[3], "rgb regex shape changed"),
-    };
-  }
-  // Unknown color string — return black; the mix result will just be `b`.
-  return { r: 0, g: 0, b: 0 };
 }
 
 function roundedRectPath(

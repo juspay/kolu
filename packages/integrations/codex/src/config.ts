@@ -4,7 +4,6 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { unwrap } from "anyagent/unwrap";
 
 /** Root of Codex's per-user state directory. Contains the threads
  *  SQLite DB, session JSONL rollouts, auth, and config. */
@@ -35,12 +34,10 @@ export function findCodexStateDbPath(dir: string = CODEX_DIR): string | null {
   for (const name of entries) {
     const match = /^state_(\d+)\.sqlite$/.exec(name);
     if (!match) continue;
-    // Group 1 is required by the pattern itself — `unwrap` documents that
-    // invariant at the throw site rather than papering over it with `!`.
-    const version = Number.parseInt(
-      unwrap(match[1], `state_(\\d+).sqlite regex shape changed for ${name}`),
-      10,
-    );
+    // Group 1 is required by the pattern; the destructure with explicit
+    // tuple type is the localized cast.
+    const [, versionStr] = match as unknown as [string, string];
+    const version = Number.parseInt(versionStr, 10);
     if (version > bestVersion) {
       bestVersion = version;
       bestFile = name;

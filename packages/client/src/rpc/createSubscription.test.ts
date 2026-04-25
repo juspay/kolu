@@ -1,4 +1,4 @@
-import { unwrap } from "kolu-common/unwrap";
+import * as assert from "node:assert";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createSubscription, type Subscription } from "./createSubscription";
@@ -15,6 +15,15 @@ function readSub<T>(sub: Subscription<T>): T {
     throw new Error("subscription has not yielded a value yet");
   }
   return value;
+}
+
+/** Test-local: assert that a subscription is in error state and return
+ *  the error. `assert.ok` narrows `err` from `Error | undefined` to
+ *  `Error` for the read on the next line. */
+function readSubError<T>(sub: Subscription<T>): Error {
+  const err = sub.error();
+  assert.ok(err !== undefined, "expected sub.error() to be set");
+  return err;
 }
 
 /** Create an async iterable from an array, yielding items with optional delay. */
@@ -328,7 +337,7 @@ describe("createSubscription", () => {
             await flush();
 
             resolve({
-              error: unwrap(sub.error(), "expected sub.error()").message,
+              error: readSubError(sub).message,
               pending: sub.pending(),
             });
             dispose();
@@ -352,7 +361,7 @@ describe("createSubscription", () => {
           );
 
           await flush();
-          resolve(unwrap(sub.error(), "expected sub.error()").message);
+          resolve(readSubError(sub).message);
           dispose();
         });
       });
@@ -540,7 +549,7 @@ describe("createSubscription", () => {
 
             await flush();
             resolve({
-              error: unwrap(sub.error(), "expected sub.error()").message,
+              error: readSubError(sub).message,
               pending: sub.pending(),
             });
             dispose();

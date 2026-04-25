@@ -2,7 +2,7 @@
  *  Reported to server for session snapshots; seeded from server on restore. */
 
 import type { TerminalId } from "kolu-common";
-import { unwrap } from "kolu-common/unwrap";
+import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
 import { client } from "../rpc/rpc";
 
@@ -84,17 +84,12 @@ export function useSubPanel() {
 
     /** Cycle to the next/previous sub-tab within a parent's sub-panel. */
     cycleSubTab(parentId: TerminalId, subIds: TerminalId[], direction: 1 | -1) {
-      if (subIds.length === 0) return;
+      const ne = nonEmpty(subIds);
+      if (!ne) return;
       const panel = ensureState(parentId);
-      const current = subIds.indexOf(panel.activeSubTab as string);
-      const next = (current + direction + subIds.length) % subIds.length;
-      // `next` is in `[0, subIds.length)` by the modulus and the early
-      // return above; documenting that at the throw site.
-      setState(
-        parentId,
-        "activeSubTab",
-        unwrap(subIds[next], `cycleSubTab: index ${next} out of bounds`),
-      );
+      const current = ne.indexOf(panel.activeSubTab as string);
+      const next = (current + direction + ne.length) % ne.length;
+      setState(parentId, "activeSubTab", ne[next] ?? ne[0]);
     },
 
     setFocusTarget(parentId: TerminalId, target: "main" | "sub") {

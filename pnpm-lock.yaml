@@ -102,6 +102,12 @@ importers:
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+      nonempty:
+        specifier: workspace:*
+        version: link:../nonempty
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -188,6 +194,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      nonempty:
+        specifier: workspace:*
+        version: link:../../nonempty
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
@@ -323,9 +332,9 @@ importers:
 
   packages/memorable-names:
     dependencies:
-      anyagent:
+      nonempty:
         specifier: workspace:*
-        version: link:../integrations/anyagent
+        version: link:../nonempty
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -333,6 +342,12 @@ importers:
       vitest:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/nonempty:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
 
   packages/server:
     dependencies:
@@ -439,9 +454,12 @@ importers:
       '@xterm/xterm':
         specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
         version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
-      anyagent:
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+      nonempty:
         specifier: workspace:*
-        version: link:../integrations/anyagent
+        version: link:../nonempty
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -3332,6 +3350,10 @@ packages:
   negotiator@1.0.0:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
+
+  neverthrow@8.2.0:
+    resolution: {integrity: sha512-kOCT/1MCPAxY5iUV3wytNFUMUolzuwd/VF/1KCx7kf6CutrOsTie+84zTGTpgQycjvfLdBBdvBvFLqFD2c0wkQ==}
+    engines: {node: '>=18'}
 
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
@@ -7331,6 +7353,10 @@ snapshots:
   nanoid@3.3.11: {}
 
   negotiator@1.0.0: {}
+
+  neverthrow@8.2.0:
+    optionalDependencies:
+      '@rollup/rollup-linux-x64-gnu': 4.60.1
 
   no-case@3.0.4:
     dependencies:

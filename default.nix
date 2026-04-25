@@ -21,6 +21,7 @@ let
       ./tsconfig.base.json
       ./packages/common
       ./packages/integrations
+      ./packages/nonempty
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/server
@@ -46,7 +47,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-v2vyjUO0drhNt7F+r+r4FrT1uo6+AApCTfG35ycaR2w=";
+    hash = "sha256-Klgo7A+q0VluW1gTtCZw0UhTf7HkZ0heVjj3Cpwb5kE=";
     fetcherVersion = 3;
   };
 

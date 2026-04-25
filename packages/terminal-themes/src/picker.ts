@@ -6,6 +6,7 @@
  *  look-alikes. Pure random collides; nearest-neighbour maximisation in
  *  OkLab gives a visibly spread palette. */
 
+import { type NonEmpty, nonEmpty } from "nonempty";
 import type { NamedTheme } from "./theme.ts";
 
 interface OkLab {
@@ -13,8 +14,6 @@ interface OkLab {
   a: number;
   b: number;
 }
-
-import { unwrap } from "anyagent/unwrap";
 
 /** sRGB gamma → linear light. */
 function srgbToLinear(c: number): number {
@@ -27,9 +26,9 @@ function srgbToLinear(c: number): number {
 export function hexToOkLab(hex: string): OkLab | undefined {
   const m = hex.trim().match(/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
   if (!m) return undefined;
-  // Group 1 is required by the alternation; the throw documents that
-  // contract instead of papering over it with `!`.
-  const s = unwrap(m[1], "hex regex shape changed");
+  // Group 1 is required by the alternation; the destructure with explicit
+  // tuple type localizes the cast to one place per parser.
+  const [, s] = m as unknown as [string, string];
   // Expand `#rgb` → `#rrggbb` by doubling each character. `Array.from`
   // ensures TS sees `c` as `string` (not `string | undefined`) without
   // any per-index nullability dance.
@@ -97,19 +96,22 @@ export function okLabDistance(x: OkLab, y: OkLab): number {
 }
 
 /** Filter candidates to those with parseable, in-gamut backgrounds.
- *  Falls back to the full list when filtering leaves nothing. */
+ *  Falls back to the full list when filtering leaves nothing — preserves
+ *  non-emptiness in the type. */
 function filterEligible(
-  candidates: NamedTheme[],
+  candidates: NonEmpty<NamedTheme>,
   excludeBgs?: Set<string>,
-): NamedTheme[] {
-  const eligible = candidates.filter((t) => {
-    const bg = t.theme.background;
-    if (!bg) return false;
-    if (excludeBgs?.has(bg)) return false;
-    const lab = getLab(bg);
-    return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
-  });
-  return eligible.length > 0 ? eligible : candidates;
+): NonEmpty<NamedTheme> {
+  const eligible = nonEmpty(
+    candidates.filter((t) => {
+      const bg = t.theme.background;
+      if (!bg) return false;
+      if (excludeBgs?.has(bg)) return false;
+      const lab = getLab(bg);
+      return lab !== undefined && chroma(lab) <= MAX_CANDIDATE_CHROMA;
+    }),
+  );
+  return eligible ?? candidates;
 }
 
 /** Candidates within this OkLab distance of the best score are all eligible
@@ -122,7 +124,7 @@ const SCORE_TOLERANCE = 0.02;
 /** Pick the candidate whose background is farthest from `peerBgs`, with a
  *  tolerance band so near-best candidates also compete. */
 function pickSpread(
-  candidates: NamedTheme[],
+  candidates: NonEmpty<NamedTheme>,
   peerBgs: string[],
   rand: () => number,
 ): string {
@@ -133,10 +135,8 @@ function pickSpread(
     if (lab) peerLabs.push(lab);
   }
   if (peerLabs.length === 0) {
-    return unwrap(
-      pool[Math.floor(rand() * pool.length)],
-      "filterEligible falls back to candidates, which the public entry asserts non-empty",
-    ).name;
+    const idx = Math.floor(rand() * pool.length);
+    return (pool[idx] ?? pool[0]).name;
   }
   const scores: number[] = [];
   let bestScore = Number.NEGATIVE_INFINITY;
@@ -163,21 +163,18 @@ function pickSpread(
     if (score >= threshold) band.push(i);
   }
   const pickIdx = band[Math.floor(rand() * band.length)] ?? 0;
-  return unwrap(pool[pickIdx], "pickIdx came from band-of-valid-pool-indices")
-    .name;
+  return (pool[pickIdx] ?? pool[0]).name;
 }
 
 /** Pick uniformly at random, excluding `excludeBgs`. */
 function pickShuffle(
-  candidates: NamedTheme[],
+  candidates: NonEmpty<NamedTheme>,
   excludeBgs: string[],
   rand: () => number,
 ): string {
   const pool = filterEligible(candidates, new Set(excludeBgs));
-  return unwrap(
-    pool[Math.floor(rand() * pool.length)],
-    "filterEligible falls back to candidates, which the public entry asserts non-empty",
-  ).name;
+  const idx = Math.floor(rand() * pool.length);
+  return (pool[idx] ?? pool[0]).name;
 }
 
 /**
@@ -192,16 +189,15 @@ function pickShuffle(
  * Both modes reject candidates with unparseable backgrounds or chroma
  * above {@link MAX_CANDIDATE_CHROMA}, falling back to the full list when
  * filtering leaves nothing.
+ *
+ * Caller must pass a non-empty candidates list — empty is a compile error.
  */
 export function pickTheme(
-  candidates: NamedTheme[],
+  candidates: NonEmpty<NamedTheme>,
   config:
     | { spread: true; peerBgs: string[]; rand?: () => number }
     | { spread?: false; excludeBgs: string[]; rand?: () => number },
 ): string {
-  if (candidates.length === 0) {
-    throw new Error("pickTheme: no candidates");
-  }
   const rand = config.rand ?? Math.random;
   if (config.spread) {
     return pickSpread(candidates, config.peerBgs, rand);

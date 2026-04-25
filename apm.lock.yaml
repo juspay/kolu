@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-25T01:30:05.672781+00:00'
+generated_at: '2026-04-25T14:51:36.858194+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: anthropics/skills
@@ -138,7 +138,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:7174a90e3480de8f7413fb64a44f6a3fc54ab847d83f49b0d56b454d80c687ab
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-  .claude/rules/code-police-rules.md: sha256:26bdd1b7aad795ab64c7fa939b2e854dc7ace5c562396e87a90ffce1ee760329
+  .claude/rules/code-police-rules.md: sha256:6a6ed87c8c4bb99af84a87c77b7dc09f657aeef39d8ed58508b051f88a04d3ba
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/hickey-catalog.md: sha256:11144a19e7037941b34921fc9326245e4702e51b258fb3890b2984561e06af60
   .claude/rules/lowy-volatilities.md: sha256:82aeded3cd5a0e2016027b796abc3058544663f3e7bf636c54fb65704f1af0fd

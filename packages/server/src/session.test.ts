@@ -1,4 +1,4 @@
-import { unwrap } from "kolu-common/unwrap";
+import * as assert from "node:assert";
 import type { SavedTerminal } from "kolu-common";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -40,10 +40,8 @@ describe("session persistence", () => {
       terminals: [terminal],
       activeTerminalId: null,
     });
-    const session = unwrap(
-      getSavedSession(),
-      "session round-trip lost the saved value",
-    );
+    const session = getSavedSession();
+    assert.ok(session !== null, "session round-trip lost the saved value");
     expect(session.terminals).toHaveLength(1);
     expect(session.terminals[0]).toMatchObject({
       id: "term-1",
@@ -79,10 +77,8 @@ describe("session persistence", () => {
       { id: "c", cwd: "/c", git: null, parentId: "a" },
     ];
     saveSession({ terminals, activeTerminalId: null });
-    const session = unwrap(
-      getSavedSession(),
-      "session round-trip lost the saved value",
-    );
+    const session = getSavedSession();
+    assert.ok(session !== null, "session round-trip lost the saved value");
     expect(session.terminals).toHaveLength(3);
     expect(session.terminals.map((t) => t.id)).toEqual(["a", "b", "c"]);
     expect(session.terminals[2]?.parentId).toBe("a");
@@ -94,10 +90,8 @@ describe("session persistence", () => {
       { id: "b", cwd: "/b", git: null },
     ];
     saveSession({ terminals, activeTerminalId: null });
-    const session = unwrap(
-      getSavedSession(),
-      "session round-trip lost the saved value",
-    );
+    const session = getSavedSession();
+    assert.ok(session !== null, "session round-trip lost the saved value");
     expect(session.terminals[0]?.themeName).toBe("Dracula");
     expect(session.terminals[1]?.themeName).toBeUndefined();
   });
