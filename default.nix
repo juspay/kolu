@@ -21,6 +21,7 @@ let
       ./tsconfig.base.json
       ./packages/common
       ./packages/integrations
+      ./packages/nonempty
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/server
