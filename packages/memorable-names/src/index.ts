@@ -6,20 +6,24 @@
  *   just regenerate  (from packages/memorable-names/)
  */
 
-import { unwrap } from "anyagent/unwrap";
-import words from "../words.json" with { type: "json" };
+import { type NonEmpty, nonEmptyOrThrow } from "anyagent/nonempty";
+import wordsJson from "../words.json" with { type: "json" };
 
-function pick(list: string[]): string {
-  // The math (uniform random × length, floored) is in-range for any
-  // non-empty list — `unwrap` documents the precondition at the throw
-  // site instead of the bare `!`.
-  return unwrap(
-    list[Math.floor(Math.random() * list.length)],
-    "memorable-names pick: word list is empty",
-  );
+const adjectives = nonEmptyOrThrow(
+  wordsJson.adjectives,
+  "words.json: adjectives is empty",
+);
+const nouns = nonEmptyOrThrow(wordsJson.nouns, "words.json: nouns is empty");
+
+function pick(list: NonEmpty<string>): string {
+  // Math.floor(rand * length) ∈ [0, length); positional `list[0]` is
+  // statically `string`, so `?? list[0]` is a typed fallback the math
+  // never actually triggers.
+  const idx = Math.floor(Math.random() * list.length);
+  return list[idx] ?? list[0];
 }
 
 /** Generate a random ADJ-NOUN name (e.g. "bright-falcon"). */
 export function randomName(): string {
-  return `${pick(words.adjectives)}-${pick(words.nouns)}`;
+  return `${pick(adjectives)}-${pick(nouns)}`;
 }

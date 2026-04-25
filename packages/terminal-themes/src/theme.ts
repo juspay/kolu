@@ -5,7 +5,7 @@
  */
 
 import type { ITheme } from "@xterm/xterm";
-import { unwrap } from "anyagent/unwrap";
+import { nonEmptyOrThrow } from "anyagent/nonempty";
 import availableThemesJson from "../themes.json" with { type: "json" };
 
 export interface NamedTheme {
@@ -15,16 +15,18 @@ export interface NamedTheme {
 
 export const FONT_FAMILY = '"FiraCode Nerd Font", monospace';
 
-/** All available themes from the checked-in JSON. */
-export const availableThemes: NamedTheme[] =
-  availableThemesJson as NamedTheme[];
+/** All available themes from the checked-in JSON. Non-empty by build
+ *  (sourced from iTerm2-Color-Schemes); the smart constructor enforces
+ *  that invariant at module load. */
+export const availableThemes = nonEmptyOrThrow(
+  availableThemesJson as NamedTheme[],
+  "themes.json shipped empty",
+);
 
 export const DEFAULT_THEME_NAME = "Tomorrow Night";
 export const DEFAULT_THEME: ITheme =
   availableThemes.find((t) => t.name === DEFAULT_THEME_NAME)?.theme ??
-  // themes.json ships non-empty (built from iTerm2-Color-Schemes); the
-  // empty-fallback throw documents the contract explicitly.
-  unwrap(availableThemes[0], "themes.json is empty").theme;
+  availableThemes[0].theme;
 
 // O(1) lookup by name, built once at module load
 const themesByName = new Map(availableThemes.map((t) => [t.name, t.theme]));

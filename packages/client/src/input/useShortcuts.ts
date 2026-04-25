@@ -1,8 +1,8 @@
 /** Global keyboard shortcuts — single capture-phase listener dispatching to handlers. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { nonEmpty } from "anyagent/nonempty";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { unwrap } from "kolu-common/unwrap";
 import type { Accessor, Setter } from "solid-js";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
 
@@ -195,13 +195,11 @@ function dispatch(
 }
 
 function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
-  const ids = deps.terminalIds();
-  if (ids.length === 0) return;
+  const ids = nonEmpty(deps.terminalIds());
+  if (!ids) return;
   const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;
-  // `next` is in `[0, ids.length)` by the modulus and the early return
-  // above; documenting that at the throw site.
-  deps.setActiveId(
-    unwrap(ids[next], `cycleTerminal: index ${next} out of bounds`),
-  );
+  // Tuple positional `ids[0]` is statically `TerminalId`; `?? ids[0]` is
+  // a typed fallback the math never actually triggers.
+  deps.setActiveId(ids[next] ?? ids[0]);
 }

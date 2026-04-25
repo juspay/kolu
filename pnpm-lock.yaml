@@ -102,6 +102,9 @@ importers:
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -442,6 +445,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -3332,6 +3338,10 @@ packages:
   negotiator@1.0.0:
     resolution: {integrity: sha512-8Ofs/AUQh8MaEcrlq5xOX0CQ9ypTF5dl78mjlMNfOK08fzpgTHQRQPBxcPlEtIw0yRpws+Zo/3r+5WRby7u3Gg==}
     engines: {node: '>= 0.6'}
+
+  neverthrow@8.2.0:
+    resolution: {integrity: sha512-kOCT/1MCPAxY5iUV3wytNFUMUolzuwd/VF/1KCx7kf6CutrOsTie+84zTGTpgQycjvfLdBBdvBvFLqFD2c0wkQ==}
+    engines: {node: '>=18'}
 
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
@@ -7331,6 +7341,10 @@ snapshots:
   nanoid@3.3.11: {}
 
   negotiator@1.0.0: {}
+
+  neverthrow@8.2.0:
+    optionalDependencies:
+      '@rollup/rollup-linux-x64-gnu': 4.60.1
 
   no-case@3.0.4:
     dependencies:

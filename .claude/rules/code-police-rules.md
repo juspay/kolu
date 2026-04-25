@@ -12,6 +12,21 @@ These rules extend the base code-police skill with Kolu-specific patterns. They 
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.
 _Rationale_: Conflates "loading" with "no data" and misses error states.
 
+### no-untyped-escape-hatches
+
+Don't introduce helpers like `unwrap`, `fromJust`, `assertNonEmpty`, or any other "narrow `T | undefined | null` to `T` by throwing" wrapper. The type system doesn't see the throw, callers can't handle it, and `catch (err: unknown)` swallows it the same as a `!`. Push the invariant to the type at its source.
+
+- **Non-empty arrays** → use `NonEmpty<T> = readonly [T, ...T[]]` from `anyagent/nonempty`. The smart constructor `nonEmpty(arr)` returns `NonEmpty<T> | null`, forcing the caller to narrow. For invariant violations at module-load boundaries (checked-in JSON that shipped empty), `nonEmptyOrThrow` is the once-per-process variant.
+- **Regex match groups** that the pattern guarantees but TS types as `string | undefined` → destructure with an explicit tuple cast (`const [, hex] = m as unknown as [string, string]`), localized to the parser. Don't repeat the cast at every consumer.
+- **Genuine fallible boundaries** (parsing, I/O) → return `Result<T, E>` from `neverthrow` so the caller is forced to handle the error in the type.
+- **`Map.get` after construction** → restructure so the lookup goes away (iterate `map.values()` instead of `keys.forEach(k => map.get(k))`, return zipped entries instead of a Map the caller has to look back up).
+- **Solid signal reads in JSX** → `<Show when={…}>{(box) => …}` callback form narrows automatically.
+- **TS-narrowing-but-not-quite** in tests → plain `if (x === undefined) throw new Error(...)`.
+
+Bad: `unwrap(arr[i], "out of bounds")` — type system can't see the throw
+Good: `arr[i] ?? arr[0]` on `NonEmpty<T>` — positional `arr[0]` is statically `T`, fallback is typed
+_Rationale_: Every "untyped throw" wrapper is an escape hatch the compiler can't reason about. The fix is structural — make the data model carry the invariant — not packaging the same assertion behind a nicer name.
+
 ### catch-must-surface-error
 
 When catching an error to show a toast, always include `err.message` in the toast text.

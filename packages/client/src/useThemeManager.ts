@@ -4,6 +4,7 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
+import { nonEmpty } from "anyagent/nonempty";
 import type { TerminalId } from "kolu-common";
 import { createMemo, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -67,8 +68,10 @@ function init() {
     const id = store.activeId();
     if (id === null) return;
     const current = getThemeName(id);
-    const candidates = availableThemes.filter((t) => t.name !== current);
-    if (candidates.length === 0) return;
+    const candidates = nonEmpty(
+      availableThemes.filter((t) => t.name !== current),
+    );
+    if (!candidates) return;
     const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
     handleSetTheme(pickTheme(candidates, { excludeBgs }));
   }

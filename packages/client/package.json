@@ -35,6 +35,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "fix-webm-duration": "^1.0.6",
+    "neverthrow": "^8.2.0",
     "partysocket": "^1.1.16",
     "solid-js": "^1.9.0",
     "solid-sonner": "^0.2.0",

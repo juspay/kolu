@@ -5,7 +5,6 @@
  *  handler so the two views never diverge. */
 
 import type { TerminalId } from "kolu-common";
-import { unwrap } from "kolu-common/unwrap";
 import {
   type TerminalDisplayInfo,
   terminalName,
@@ -42,7 +41,8 @@ export function groupByRepo(
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
   getLayout?: (id: TerminalId) => TileLayout | undefined,
 ): PillRepoGroup[] {
-  const order: string[] = [];
+  // `Map` preserves insertion order, so this single structure is the
+  // sole source of truth for both grouping and traversal order.
   const groups = new Map<string, PillRepoGroup>();
   // Per-id layout cached for sort comparisons — undefined when no
   // layout yet OR when the caller didn't provide `getLayout`.
@@ -64,7 +64,6 @@ export function groupByRepo(
     if (!group) {
       group = { repoName: displayName, branches: [] };
       groups.set(groupKey, group);
-      order.push(groupKey);
     }
     group.branches.push({
       id,
@@ -83,14 +82,7 @@ export function groupByRepo(
     }
   }
 
-  if (!getLayout) {
-    return order.map((name) =>
-      unwrap(
-        groups.get(name),
-        `pill-tree group ${name} missing from groups map`,
-      ),
-    );
-  }
+  if (!getLayout) return [...groups.values()];
 
   // Spatial sort. Tiles without a layout sort to the END of their
   // repo group (using +Infinity); repos with no laid-out tiles sort
@@ -106,17 +98,12 @@ export function groupByRepo(
       return ay - by;
     });
   }
-  return order
-    .slice()
+  return [...groups.entries()]
     .sort(
-      (a, b) => (repoMinX.get(a) ?? Infinity) - (repoMinX.get(b) ?? Infinity),
+      ([a], [b]) =>
+        (repoMinX.get(a) ?? Infinity) - (repoMinX.get(b) ?? Infinity),
     )
-    .map((name) =>
-      unwrap(
-        groups.get(name),
-        `pill-tree group ${name} missing from groups map`,
-      ),
-    );
+    .map(([, group]) => group);
 }
 
 /** Flat traversal of the grouped order — used by mobile swipe to cycle
