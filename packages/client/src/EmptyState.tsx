@@ -19,14 +19,11 @@ const features = [
 ];
 
 interface RepoGroup {
-  /** Identity key — `terminalKey().group`, shared with the live pill tree's
-   *  collision detection. Used for the `data-repo-name` attribute and as the
-   *  React-style key. Not for human display — that's `heading`. */
+  /** Canonical identity from `terminalKey().group` — load-bearing for
+   *  collision detection, never rendered to the user. */
   key: string;
-  /** Heading rendered to the user — `repoName` for git, `cwdBasename(cwd)`
-   *  for non-git. Diverges from `key` on non-git terminals so paths like
-   *  `/home/alice/projects/foo` show as `foo` while still grouping by
-   *  the canonical full-cwd identity. */
+  /** Human-display heading. Diverges from `key` on non-git terminals so
+   *  the user sees `foo` while grouping stays by full cwd identity. */
   heading: string;
   terminals: SavedTerminal[];
 }
