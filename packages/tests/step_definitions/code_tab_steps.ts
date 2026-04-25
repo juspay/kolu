@@ -174,6 +174,29 @@ When("I right-click the diff view", async function (this: KoluWorld) {
   await rightClickViewRoot(this, DIFF_VIEW);
 });
 
+// Asserts the exact set of items in the Pierre diff/file context menu,
+// in order, joined with " | ". Stronger than `I click the context menu
+// item {string}` because it catches "wrong items present" regressions
+// (e.g. a stale path:line entry persisting across file switches) that a
+// targeted click would only surface as an opaque locator timeout.
+Then(
+  "the context menu items should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) => {
+        const menu = document.querySelector("#code-context-menu");
+        if (!menu) return false;
+        const got = Array.from(menu.querySelectorAll('[role="menuitem"]'))
+          .map((b) => b.textContent || "")
+          .join(" | ");
+        return got === exp;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Assertions ──
 
 Then("the Code tab should be active", async function (this: KoluWorld) {
@@ -295,32 +318,47 @@ Then(
   },
 );
 
+// Pierre's File / FileDiff renderers mount highlighted code inside a
+// shadow root. `Element.textContent` does NOT cross shadow boundaries,
+// so we walk the tree (including each `shadowRoot`) and stitch the text.
+// Inlined as a string-evaluate to dodge tsx's `__name` injection, which
+// crashes inside `page.evaluate` arg functions.
+async function waitForViewText(
+  world: KoluWorld,
+  testid: string,
+  expected: string,
+) {
+  await world.page.waitForFunction(
+    `(() => {
+      const root = document.querySelector('[data-testid="${testid}"]');
+      if (!root) return false;
+      const stack = [root];
+      let text = '';
+      while (stack.length) {
+        const node = stack.pop();
+        if (node.nodeType === 3) text += node.nodeValue || '';
+        if (node.nodeType === 1) {
+          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+          for (const ch of node.childNodes) stack.push(ch);
+        }
+      }
+      return text.includes(${JSON.stringify(expected)});
+    })()`,
+    undefined,
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
 Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Pierre's File renderer mounts highlighted code inside its shadow
-    // root. `Element.textContent` does NOT cross shadow boundaries, so
-    // we walk the tree (including each `shadowRoot`) and stitch the text.
-    // Inlined as a string-evaluate to dodge tsx's `__name` injection,
-    // which crashes inside `page.evaluate` arg functions.
-    await this.page.waitForFunction(
-      `(() => {
-        const root = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!root) return false;
-        const stack = [root];
-        let text = '';
-        while (stack.length) {
-          const node = stack.pop();
-          if (node.nodeType === 3) text += node.nodeValue || '';
-          if (node.nodeType === 1) {
-            if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-            for (const ch of node.childNodes) stack.push(ch);
-          }
-        }
-        return text.includes(${JSON.stringify(expected)});
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "the diff view should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForViewText(this, "pierre-diff-view", expected);
   },
 );

@@ -254,6 +254,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
           <Show
             when={selectedPath()}
+            keyed
             fallback={
               <FileSelectHint
                 label={
@@ -265,12 +266,15 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             }
           >
             {(path) => (
-              // Keyed callback hands a reactive `Accessor<string>` down so
-              // the path tracks the live selection. A previous version
-              // captured `selectedPath()` to a `const` inside the diff
-              // <Match>, which Solid invokes once via `untrack` — leaving
-              // the "Copy path:line" menu pinned to the first file the
-              // user opened.
+              // `keyed` remounts this subtree whenever the selected file
+              // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
+              // the same instance — its line-selection handlers don't
+              // re-bind to the new gutter elements, so right-clicking on
+              // a line in the second file would yield a "Copy path" menu
+              // with no "Copy path:line" entry. Per-file remount gives
+              // each file a fresh `FileDiff` and a clean
+              // `useLineSelection` range, which is also the right
+              // semantic — line refs don't survive across files.
               <Switch>
                 <Match when={isDiffView()}>
                   <Switch
@@ -294,7 +298,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     <Match when={diff()}>
                       {(d) => (
                         <PierreDiffView
-                          path={path()}
+                          path={path}
                           rawDiff={d().hunks[0] ?? ""}
                           theme={diffTheme()}
                         />
@@ -309,7 +313,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     return (
                       <BrowseFileView
                         repoPath={repo}
-                        filePath={path()}
+                        filePath={path}
                         theme={diffTheme()}
                       />
                     );
