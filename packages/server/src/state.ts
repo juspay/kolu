@@ -50,17 +50,23 @@ export function migrateLegacyTerminal_1_18_0(
     git: existingGit,
     ...kept
   } = t;
+  // Prefer an already-present `git` key (idempotent on already-migrated data,
+  // and preserves the more-complete record if a corrupt entry carries both).
+  // Fall back to synthesizing from legacy flat fields only when no `git` key
+  // exists at all — i.e. genuinely pre-#702 data on disk.
   const git: GitInfo | null =
-    typeof repoName === "string" && typeof branch === "string"
-      ? {
-          repoName,
-          branch,
-          repoRoot: "",
-          worktreePath: "",
-          isWorktree: false,
-          mainRepoRoot: "",
-        }
-      : ((existingGit as GitInfo | null | undefined) ?? null);
+    "git" in t
+      ? ((existingGit as GitInfo | null | undefined) ?? null)
+      : typeof repoName === "string" && typeof branch === "string"
+        ? {
+            repoName,
+            branch,
+            repoRoot: "",
+            worktreePath: "",
+            isWorktree: false,
+            mainRepoRoot: "",
+          }
+        : null;
   return { ...kept, git };
 }
 

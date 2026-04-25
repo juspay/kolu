@@ -59,6 +59,32 @@ describe("migrateLegacyTerminal_1_18_0", () => {
     });
   });
 
+  it("prefers existing populated git over legacy fields when both present", () => {
+    // Edge case: a corrupt entry carries BOTH new-shape `git` AND legacy
+    // flat `repoName`/`branch`. The fully-populated `git` (with real path
+    // fields) must win over a synthesized partial record with empty paths.
+    const populatedGit = {
+      repoRoot: "/home/alice/projects/real",
+      repoName: "real",
+      worktreePath: "/home/alice/projects/real",
+      branch: "real-branch",
+      isWorktree: false,
+      mainRepoRoot: "/home/alice/projects/real",
+    };
+    const migrated = migrateLegacyTerminal_1_18_0({
+      id: "term-x",
+      cwd: "/home/alice/projects/real",
+      git: populatedGit,
+      repoName: "stale",
+      branch: "stale-branch",
+    });
+    expect(migrated).toEqual({
+      id: "term-x",
+      cwd: "/home/alice/projects/real",
+      git: populatedGit,
+    });
+  });
+
   it("preserves themeName, parentId, canvasLayout, lastAgentCommand", () => {
     const migrated = migrateLegacyTerminal_1_18_0({
       id: "term-4",
