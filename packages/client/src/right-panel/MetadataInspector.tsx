@@ -200,6 +200,7 @@ const MetadataInspector: Component<{
             {(name) => (
               <Section title="Theme">
                 <button
+                  type="button"
                   data-testid="inspector-theme-button"
                   class="text-[11px] text-accent hover:underline cursor-pointer"
                   onClick={props.onThemeClick}

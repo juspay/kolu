@@ -86,6 +86,7 @@ const PillTree: Component<{
       >
         <Show when={posture.maximized()}>
           <button
+            type="button"
             data-testid="pill-tree-exit-maximize"
             class="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
             onClick={posture.toggle}
@@ -100,6 +101,7 @@ const PillTree: Component<{
          *  repos are open. Same h-6 as a branch pill so the row
          *  baselines align. */}
         <button
+          type="button"
           data-testid="pill-tree-new"
           class="pointer-events-auto flex items-center justify-center w-6 h-6 mt-3 rounded-full shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           onClick={props.onCreate}
@@ -194,6 +196,7 @@ const PillTree: Component<{
                                     .exhaustive();
                                 return (
                                   <button
+                                    type="button"
                                     data-testid="pill-tree-branch"
                                     data-terminal-id={b.id}
                                     data-active={active() ? "" : undefined}

@@ -57,9 +57,11 @@ When(
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await palette.locator("input").fill("Close terminal");
     await palette
-      .locator("li", { hasText: "Close terminal" })
+      .locator('[role="option"]', { hasText: "Close terminal" })
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await palette.locator("li", { hasText: "Close terminal" }).click();
+    await palette
+      .locator('[role="option"]', { hasText: "Close terminal" })
+      .click();
     // Confirm in the dialog — every close goes through CloseConfirm.
     const confirm = this.page.locator('[data-testid="close-confirm"]');
     await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });

@@ -63,6 +63,10 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
       onLineSelected: selection.handleSelect,
     });
     instance.render({ containerWrapper: container, fileDiff });
+    // Attach contextmenu via addEventListener so the host div doesn't
+    // carry interactive JSX props — the inner pierre canvas is the
+    // actual interactive surface; the host is layout only.
+    host.addEventListener("contextmenu", (e) => menuCtrl?.open(e));
   });
 
   createEffect(
@@ -87,11 +91,7 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
   onCleanup(() => instance?.cleanUp());
 
   return (
-    <div
-      ref={host}
-      class="h-full w-full"
-      onContextMenu={(e) => menuCtrl?.open(e)}
-    >
+    <div ref={host} class="h-full w-full">
       <div
         ref={container}
         class="h-full w-full overflow-auto"

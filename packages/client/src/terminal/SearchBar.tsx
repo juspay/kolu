@@ -39,6 +39,7 @@ function IconButton(props: {
   return (
     <Tip label={props.label}>
       <button
+        type="button"
         class="p-1 text-fg-3 hover:text-fg rounded hover:bg-surface-2 transition-colors"
         onClick={props.onClick}
       >

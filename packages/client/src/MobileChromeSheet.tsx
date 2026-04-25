@@ -66,6 +66,7 @@ const MobileChromeSheet: Component<{
         <span
           data-ws-status={props.status}
           class={`inline-block w-2 h-2 rounded-full ${statusStyles[props.status]}`}
+          role="status"
           aria-label="Connection status"
         />
       </div>
@@ -88,6 +89,7 @@ const MobileChromeSheet: Component<{
                   const unread = () => store.isUnread(b.id);
                   return (
                     <button
+                      type="button"
                       data-testid="mobile-pill-branch"
                       data-terminal-id={b.id}
                       data-active={active() ? "" : undefined}
@@ -129,6 +131,7 @@ const MobileChromeSheet: Component<{
        *  (which would suppress the click). */}
       <div class="flex items-center gap-2 px-3 py-2 border-t border-edge/50">
         <button
+          type="button"
           data-testid="palette-trigger"
           class="flex-1 h-9 flex items-center justify-center gap-2 text-sm text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
           onPointerDown={(e) => e.stopPropagation()}
@@ -142,6 +145,7 @@ const MobileChromeSheet: Component<{
         </button>
         <div>
           <button
+            type="button"
             ref={settingsTriggerRef}
             data-testid="settings-trigger"
             class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
@@ -158,6 +162,7 @@ const MobileChromeSheet: Component<{
           />
         </div>
         <button
+          type="button"
           data-testid="inspector-toggle"
           class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
           classList={{

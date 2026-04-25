@@ -155,6 +155,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                   </div>
                 </Show>
                 <button
+                  type="button"
                   data-testid="restore-session"
                   class="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
                   onClick={handleRestore}

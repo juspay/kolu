@@ -43,7 +43,9 @@ async function paletteCommand(world: KoluWorld, query: string) {
   );
   await world.page.waitForFunction(
     (sel) => {
-      const item = document.querySelector(`${sel} li`) as HTMLElement | null;
+      const item = document.querySelector(
+        `${sel} [role="option"]`,
+      ) as HTMLElement | null;
       if (!item?.offsetHeight) return false;
       item.click();
       return true;

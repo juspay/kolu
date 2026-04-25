@@ -151,6 +151,7 @@ const CloseConfirm: Component<{
 
         <div class="flex flex-wrap justify-end gap-2 pt-1">
           <button
+            type="button"
             ref={cancelRef}
             class="px-3 py-1.5 text-xs rounded-lg text-fg-3 hover:text-fg-2 transition-colors cursor-pointer"
             data-testid="close-confirm-cancel"
@@ -162,6 +163,7 @@ const CloseConfirm: Component<{
             when={canRemoveWorktree()}
             fallback={
               <button
+                type="button"
                 class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
                 data-testid="close-confirm-close-all"
                 onClick={() => props.onClose()}
@@ -171,6 +173,7 @@ const CloseConfirm: Component<{
             }
           >
             <button
+              type="button"
               class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 text-fg-2 hover:bg-surface-3 transition-colors cursor-pointer"
               data-testid="close-confirm-close-only"
               onClick={() => props.onClose()}
@@ -178,6 +181,7 @@ const CloseConfirm: Component<{
               {closeLabel()}
             </button>
             <button
+              type="button"
               data-testid="close-confirm-remove"
               class="px-3 py-1.5 text-xs rounded-lg bg-danger text-white hover:brightness-110 transition-colors cursor-pointer"
               onClick={() => props.onCloseAndRemove()}

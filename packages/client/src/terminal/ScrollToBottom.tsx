@@ -13,6 +13,7 @@ const ScrollToBottom: Component<{
   <Show when={props.visible}>
     <Tip label="Scroll to bottom">
       <button
+        type="button"
         data-testid="scroll-to-bottom"
         data-active={props.active ? "" : undefined}
         class="absolute bottom-6 right-6 z-10 rounded-full shadow-lg p-3 transition-colors cursor-pointer"

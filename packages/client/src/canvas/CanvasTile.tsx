@@ -156,6 +156,7 @@ const CanvasTile: Component<{
         <div class="flex items-center gap-1 shrink-0">
           {props.renderTitleActions?.()}
           <button
+            type="button"
             data-testid="canvas-tile-maximize"
             class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
             style={{
@@ -173,6 +174,7 @@ const CanvasTile: Component<{
             </Show>
           </button>
           <button
+            type="button"
             data-testid="canvas-tile-close"
             class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto text-sm`}
             style={{

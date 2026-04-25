@@ -120,6 +120,7 @@ const ChromeBar: Component<{
           label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
         >
           <button
+            type="button"
             data-testid="inspector-toggle"
             class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             classList={{
@@ -137,6 +138,7 @@ const ChromeBar: Component<{
         <div class="pointer-events-auto">
           <Tip label="Settings">
             <button
+              type="button"
               ref={settingsTriggerRef}
               data-testid="settings-trigger"
               class="h-7 w-7 flex items-center justify-center text-fg-2 hover:text-fg hover:bg-surface-2 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
@@ -153,6 +155,7 @@ const ChromeBar: Component<{
         </div>
         <Tip label="Command palette">
           <button
+            type="button"
             data-testid="palette-trigger"
             class="pointer-events-auto h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette()}
