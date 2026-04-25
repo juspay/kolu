@@ -103,8 +103,6 @@
         "noNonNullAssertion": "off"
       },
       "suspicious": {
-        // 32 sites of gradual-typing debt on `any`. Dedicated cleanup.
-        "noExplicitAny": "off",
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
         "noControlCharactersInRegex": "off"

@@ -11,7 +11,7 @@ When("I simulate an activity alert", async function (this: KoluWorld) {
   // Use page.evaluate to call the simulate function directly,
   // avoiding command palette navigation complexity.
   await this.page.evaluate(() => {
-    (window as any).__koluSimulateAlert?.();
+    window.__koluSimulateAlert?.();
   });
   await this.waitForFrame();
 });
@@ -20,7 +20,7 @@ When(
   "I simulate an activity alert for the active terminal",
   async function (this: KoluWorld) {
     await this.page.evaluate(() => {
-      (window as any).__koluSimulateAlert?.({ target: "active" });
+      window.__koluSimulateAlert?.({ target: "active" });
     });
     await this.waitForFrame();
   },
@@ -94,15 +94,13 @@ When("I click the notified pill tree branch", async function (this: KoluWorld) {
 
 When("I stub the Badging API", async function (this: KoluWorld) {
   await this.page.evaluate(() => {
-    (window as any).__badgeCalls = [] as Array<
-      { method: "set"; count?: number } | { method: "clear" }
-    >;
-    (navigator as any).setAppBadge = (count?: number) => {
-      (window as any).__badgeCalls.push({ method: "set", count });
+    window.__badgeCalls = [];
+    navigator.setAppBadge = (count?: number) => {
+      window.__badgeCalls?.push({ method: "set", count });
       return Promise.resolve();
     };
-    (navigator as any).clearAppBadge = () => {
-      (window as any).__badgeCalls.push({ method: "clear" });
+    navigator.clearAppBadge = () => {
+      window.__badgeCalls?.push({ method: "clear" });
       return Promise.resolve();
     };
   });
@@ -113,8 +111,12 @@ Then(
   async function (this: KoluWorld, expected: number) {
     await this.waitForFrame();
     const lastSet = await this.page.evaluate(() => {
-      const calls: any[] = (window as any).__badgeCalls ?? [];
-      return calls.filter((c: any) => c.method === "set").pop();
+      const calls = window.__badgeCalls ?? [];
+      return calls
+        .filter(
+          (c): c is { method: "set"; count?: number } => c.method === "set",
+        )
+        .pop();
     });
     assert.ok(lastSet, "Expected setAppBadge to have been called");
     assert.strictEqual(lastSet.count, expected);
@@ -124,7 +126,7 @@ Then(
 Then("the app badge should be cleared", async function (this: KoluWorld) {
   await this.waitForFrame();
   const lastCall = await this.page.evaluate(() => {
-    const calls: any[] = (window as any).__badgeCalls ?? [];
+    const calls = window.__badgeCalls ?? [];
     return calls[calls.length - 1];
   });
   assert.ok(lastCall, "Expected a badge API call");

@@ -58,7 +58,17 @@ type SystemChannels = {
 
 // The publisher accepts any string channel at runtime.
 // Terminal channels are namespaced as "channel:terminalId"; system channels are used as-is.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+//
+// `MemoryPublisher` constrains its generic to `Record<string, object>`,
+// which excludes the primitive payloads kolu actually publishes (strings
+// like terminal data + cwd + title, numbers like exit codes). The
+// generic itself is dead weight here: type safety on actual publish/
+// subscribe calls is enforced by the typed wrappers below
+// (`publishForTerminal` / `publishSystem` / `subscribeForTerminal` /
+// `subscribeSystem`) using Kolu's own `TerminalChannels` and
+// `SystemChannels`. So this `any` widens *only* the unused library
+// generic; every real call site is still strictly typed.
+// biome-ignore lint/suspicious/noExplicitAny: library's Record<string, object> generic is too strict for our primitive payloads (data: string, exit: number, …); call-site types come from the typed wrappers below, not from this generic.
 export const publisher = new MemoryPublisher<Record<string, any>>();
 
 /** Total pending events + active listeners across all channels. Exposed for
