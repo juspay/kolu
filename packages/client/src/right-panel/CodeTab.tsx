@@ -264,60 +264,59 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               />
             }
           >
-            <Switch>
-              <Match when={isDiffView()}>
-                <Switch
-                  fallback={
-                    <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
-                  }
-                >
-                  <Match when={diff.error}>
-                    <div class="px-2 py-1 text-danger">
-                      Error: {(diff.error as Error).message}
-                    </div>
-                  </Match>
-                  <Match when={renamedDiff()}>
-                    {(rename) => (
-                      <div class="flex items-center justify-center h-full text-fg-3/50">
-                        File renamed: {rename().oldFileName} →{" "}
-                        {rename().newFileName}
+            {(path) => (
+              // Keyed callback hands a reactive `Accessor<string>` down so
+              // the path tracks the live selection. A previous version
+              // captured `selectedPath()` to a `const` inside the diff
+              // <Match>, which Solid invokes once via `untrack` — leaving
+              // the "Copy path:line" menu pinned to the first file the
+              // user opened.
+              <Switch>
+                <Match when={isDiffView()}>
+                  <Switch
+                    fallback={
+                      <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
+                    }
+                  >
+                    <Match when={diff.error}>
+                      <div class="px-2 py-1 text-danger">
+                        Error: {(diff.error as Error).message}
                       </div>
-                    )}
-                  </Match>
-                  <Match when={diff()}>
-                    {(d) => (
-                      // `selectedPath()` must be read reactively so the
-                      // "Copy path:line" menu entry tracks the live file —
-                      // capturing it to a `const` here would freeze the
-                      // path at the moment this Match callback first ran.
-                      <Show when={selectedPath()}>
-                        {(path) => (
-                          <PierreDiffView
-                            path={path()}
-                            rawDiff={d().hunks[0] ?? ""}
-                            theme={diffTheme()}
-                          />
-                        )}
-                      </Show>
-                    )}
-                  </Match>
-                </Switch>
-              </Match>
-              <Match when={!isDiffView()}>
-                {(() => {
-                  const repo = repoPath();
-                  const path = selectedPath();
-                  if (repo === null || path === null) return null;
-                  return (
-                    <BrowseFileView
-                      repoPath={repo}
-                      filePath={path}
-                      theme={diffTheme()}
-                    />
-                  );
-                })()}
-              </Match>
-            </Switch>
+                    </Match>
+                    <Match when={renamedDiff()}>
+                      {(rename) => (
+                        <div class="flex items-center justify-center h-full text-fg-3/50">
+                          File renamed: {rename().oldFileName} →{" "}
+                          {rename().newFileName}
+                        </div>
+                      )}
+                    </Match>
+                    <Match when={diff()}>
+                      {(d) => (
+                        <PierreDiffView
+                          path={path()}
+                          rawDiff={d().hunks[0] ?? ""}
+                          theme={diffTheme()}
+                        />
+                      )}
+                    </Match>
+                  </Switch>
+                </Match>
+                <Match when={!isDiffView()}>
+                  {(() => {
+                    const repo = repoPath();
+                    if (repo === null) return null;
+                    return (
+                      <BrowseFileView
+                        repoPath={repo}
+                        filePath={path()}
+                        theme={diffTheme()}
+                      />
+                    );
+                  })()}
+                </Match>
+              </Switch>
+            )}
           </Show>
         </div>
       </div>
