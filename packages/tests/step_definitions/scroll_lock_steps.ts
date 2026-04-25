@@ -73,7 +73,7 @@ When("I fire the output trigger", async function (this: KoluWorld) {
   // Write to the FIFO from the test process — bypasses xterm keyboard input
   // entirely, so scrollOnUserInput doesn't interfere with scroll lock state.
   const lines = Array.from({ length: 10 }, (_, i) => `triggered-${i + 1}`);
-  await writeFile(scrollFifo(this), lines.join("\n") + "\n");
+  await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
   // When scroll-locked, data is buffered — wait for the activity indicator
   await this.page
     .locator('[data-testid="scroll-to-bottom"][data-active]')
@@ -84,7 +84,7 @@ When(
   "I fire the output trigger with {int} lines",
   async function (this: KoluWorld, count: number) {
     const lines = Array.from({ length: count }, (_, i) => `triggered-${i + 1}`);
-    await writeFile(scrollFifo(this), lines.join("\n") + "\n");
+    await writeFile(scrollFifo(this), `${lines.join("\n")}\n`);
     // When scroll-locked, data is buffered — wait for the activity indicator
     await this.page
       .locator('[data-testid="scroll-to-bottom"][data-active]')

@@ -79,7 +79,7 @@ export function buildCodexRollout(opts: {
     );
   }
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 export interface CodexFixture {
