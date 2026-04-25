@@ -51,7 +51,8 @@ function randomAmbientTip(): string {
   if (isMobile()) return "";
   const unseen = ambientPool.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
-  const pick = pool[Math.floor(Math.random() * pool.length)]!;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  if (!pick) return "";
   if (!seen().has(pick.id)) markSeen(pick.id);
   return pick.text;
 }

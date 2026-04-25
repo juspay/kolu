@@ -191,7 +191,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
 
   return (
     <div
-      ref={container!}
+      ref={container}
       class="h-full w-full"
       style={pierreTreesStyle}
       data-testid="pierre-file-tree"

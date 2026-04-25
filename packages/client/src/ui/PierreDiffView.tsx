@@ -88,12 +88,12 @@ const PierreDiffView: Component<PierreDiffViewProps> = (props) => {
 
   return (
     <div
-      ref={host!}
+      ref={host}
       class="h-full w-full"
       onContextMenu={(e) => menuCtrl?.open(e)}
     >
       <div
-        ref={container!}
+        ref={container}
         class="h-full w-full overflow-auto"
         style={pierreDiffsStyle}
         data-testid="pierre-diff-view"

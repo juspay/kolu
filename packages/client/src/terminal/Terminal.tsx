@@ -637,8 +637,9 @@ const Terminal: Component<{
           let touchAnchorY: number | null = null;
           makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
             // Multi-touch (pinch-zoom) passes through to the browser
-            if (e.touches.length !== 1) return;
-            touchAnchorY = e.touches[0]!.clientY;
+            const first = e.touches[0];
+            if (e.touches.length !== 1 || first === undefined) return;
+            touchAnchorY = first.clientY;
           });
           makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
             // Multi-touch interrupts a swipe — drop the anchor so the next
@@ -657,8 +658,11 @@ const Terminal: Component<{
             // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
             // a bare `<= 0` check would miss — NaN poisons the anchor.
             if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
-            const currentY = e.touches[0]!.clientY;
-            const lines = Math.trunc((currentY - touchAnchorY) / cellHeight);
+            const first = e.touches[0];
+            if (first === undefined) return;
+            const lines = Math.trunc(
+              (first.clientY - touchAnchorY) / cellHeight,
+            );
             if (lines === 0) return;
             // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
             terminal.scrollLines(-lines);

@@ -8,6 +8,7 @@ import {
   type TerminalKey,
   type TerminalMetadata,
 } from "kolu-common";
+import { unwrap } from "kolu-common/unwrap";
 import { cwdBasename } from "../path";
 
 export type TerminalDisplayInfo = {
@@ -80,7 +81,10 @@ export function buildTerminalDisplayInfos(
       repoColor: repoKey ? unified.get(repoKey) : undefined,
       branchColor: branchKey ? unified.get(branchKey) : undefined,
       subCount: getSubTerminalIds(id).length,
-      key: keys.get(id)!,
+      // `computeTerminalKeys` keys its map by the ids we just passed in,
+      // so every id in `entries` has an entry. Documented at the throw
+      // site instead of hidden behind `!`.
+      key: unwrap(keys.get(id), `computeTerminalKeys missed id ${id}`),
     });
   }
   return result;

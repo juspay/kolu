@@ -322,6 +322,10 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/memorable-names:
+    dependencies:
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -435,6 +439,9 @@ importers:
       '@xterm/xterm':
         specifier: github:juspay/xterm.js#fix/kolu-xterm-fixes-built
         version: https://codeload.github.com/juspay/xterm.js/tar.gz/0adc8d2bfe99192df74ff2ab15666d5529c3330c
+      anyagent:
+        specifier: workspace:*
+        version: link:../integrations/anyagent
     devDependencies:
       typescript:
         specifier: ^5.8.0

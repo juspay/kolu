@@ -112,7 +112,8 @@ const CommandPalette: Component<{
    *  palette doesn't render an empty level mid-navigation. */
   const currentItems = createMemo((): PaletteItem[] => {
     const p = path();
-    if (p.length === 0) return props.commands();
+    const last = p.at(-1);
+    if (last === undefined) return props.commands();
     let level: PaletteItem[] = props.commands();
     for (const segment of p) {
       const match = level.find(
@@ -124,7 +125,7 @@ const CommandPalette: Component<{
         // the stale reference to keep the level rendered. Happens e.g.
         // when a visibility guard hides a parent group while the user
         // is still drilled into it.
-        return resolveChildren(p[p.length - 1]!);
+        return resolveChildren(last);
       }
       level = resolveChildren(match);
     }
@@ -383,17 +384,16 @@ const CommandPalette: Component<{
                       </span>
                     </Show>
                     <Show when={!isGroup(cmd) && cmd.keybind}>
-                      <span class="ml-auto shrink-0 pl-4 flex items-center gap-1.5">
-                        <For
-                          each={
-                            Array.isArray(cmd.keybind)
-                              ? cmd.keybind
-                              : [cmd.keybind!]
-                          }
-                        >
-                          {(kb) => <Kbd>{formatKeybind(kb)}</Kbd>}
-                        </For>
-                      </span>
+                      {(keybind) => {
+                        const kb = keybind();
+                        return (
+                          <span class="ml-auto shrink-0 pl-4 flex items-center gap-1.5">
+                            <For each={Array.isArray(kb) ? kb : [kb]}>
+                              {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
+                            </For>
+                          </span>
+                        );
+                      }}
                     </Show>
                   </li>
                 )}

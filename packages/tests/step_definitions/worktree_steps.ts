@@ -159,11 +159,9 @@ Then(
 Then(
   "the pill tree should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {
-    assert.ok(
-      this.savedPillTreeCount !== undefined,
-      "Must note pill tree count first",
-    );
-    const expected = this.savedPillTreeCount! - fewer;
+    const saved = this.savedPillTreeCount;
+    assert.ok(saved !== undefined, "Must note pill tree count first");
+    const expected = saved - fewer;
     const sel = PILL_TREE_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,

@@ -49,8 +49,8 @@ describe("OSC7_FN", () => {
     // First emission ends with /, second ends with /tmp
     const matches = [...out.matchAll(/file:\/\/[^/]+([^\x1b]*)/g)];
     expect(matches).toHaveLength(2);
-    expect(matches[0]![1]).toBe("/");
-    expect(matches[1]![1]).toBe("/tmp");
+    expect(matches[0]?.[1]).toBe("/");
+    expect(matches[1]?.[1]).toBe("/tmp");
   });
 });
 

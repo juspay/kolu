@@ -26,10 +26,16 @@ async function paletteCommand(world: KoluWorld, query: string) {
     ({ sel, q }) => {
       const input = document.querySelector(`${sel} input`) as HTMLInputElement;
       if (!input) throw new Error("Palette input not found");
-      const nativeSet = Object.getOwnPropertyDescriptor(
+      // Bypass Solid's reactivity by calling the native HTMLInputElement.value
+      // setter directly. Both lookups should always succeed in a real browser
+      // — the explicit guards turn an environmental misconfiguration into a
+      // descriptive throw rather than `Cannot read properties of undefined`.
+      const descriptor = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )!.set!;
+      );
+      const nativeSet = descriptor?.set;
+      if (!nativeSet) throw new Error("HTMLInputElement.value setter missing");
       nativeSet.call(input, q);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     },

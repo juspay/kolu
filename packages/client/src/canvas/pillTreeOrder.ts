@@ -5,6 +5,7 @@
  *  handler so the two views never diverge. */
 
 import type { TerminalId } from "kolu-common";
+import { unwrap } from "kolu-common/unwrap";
 import {
   type TerminalDisplayInfo,
   terminalName,
@@ -83,7 +84,12 @@ export function groupByRepo(
   }
 
   if (!getLayout) {
-    return order.map((name) => groups.get(name)!);
+    return order.map((name) =>
+      unwrap(
+        groups.get(name),
+        `pill-tree group ${name} missing from groups map`,
+      ),
+    );
   }
 
   // Spatial sort. Tiles without a layout sort to the END of their
@@ -105,7 +111,12 @@ export function groupByRepo(
     .sort(
       (a, b) => (repoMinX.get(a) ?? Infinity) - (repoMinX.get(b) ?? Infinity),
     )
-    .map((name) => groups.get(name)!);
+    .map((name) =>
+      unwrap(
+        groups.get(name),
+        `pill-tree group ${name} missing from groups map`,
+      ),
+    );
 }
 
 /** Flat traversal of the grouped order — used by mobile swipe to cycle

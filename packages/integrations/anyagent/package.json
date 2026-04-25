@@ -10,7 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schemas": "./src/schemas.ts",
-    "./cli": "./src/agent-cli.ts"
+    "./cli": "./src/agent-cli.ts",
+    "./unwrap": "./src/unwrap.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

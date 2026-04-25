@@ -16,6 +16,7 @@
  *  sidesteps that entire surface. */
 
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { unwrap } from "kolu-common/unwrap";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { terminalName } from "./terminal/terminalDisplay";
@@ -23,7 +24,7 @@ import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */
-const CUBE_STEPS = [0, 95, 135, 175, 215, 255];
+const CUBE_STEPS: readonly number[] = [0, 95, 135, 175, 215, 255];
 
 /** Window chrome geometry (logical pixels). */
 const PAD = 16;
@@ -48,11 +49,20 @@ const BRAND_STEPS: ReadonlyArray<
   [16, 2, 10, 5, "#3b82f6"],
 ] as const;
 
+/** Indexed read into the 6-step palette. The math at the call sites
+ *  (`% 6`) is statically in-range, but TypeScript's
+ *  `noUncheckedIndexedAccess` widens the access to `number | undefined`
+ *  regardless — `unwrap` documents the static-bounds invariant at the
+ *  throw site. */
+function cubeStep(idx: number): number {
+  return unwrap(CUBE_STEPS[idx], `cubeStep idx ${idx} out of [0, 6)`);
+}
+
 function cubeColor(i: number): string {
   const n = i - 16;
-  const r = CUBE_STEPS[Math.floor(n / 36) % 6]!;
-  const g = CUBE_STEPS[Math.floor(n / 6) % 6]!;
-  const b = CUBE_STEPS[n % 6]!;
+  const r = cubeStep(Math.floor(n / 36) % 6);
+  const g = cubeStep(Math.floor(n / 6) % 6);
+  const b = cubeStep(n % 6);
   return `rgb(${r},${g},${b})`;
 }
 
@@ -164,12 +174,16 @@ function mix(a: string, b: string, ratio: number): string {
 function parseHex(c: string): { r: number; g: number; b: number } {
   const m = /^#([0-9a-f]{6})$/i.exec(c);
   if (m) {
-    const n = parseInt(m[1]!, 16);
+    const n = parseInt(unwrap(m[1], "hex regex shape changed"), 16);
     return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
   }
   const rgb = /^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/.exec(c);
   if (rgb) {
-    return { r: +rgb[1]!, g: +rgb[2]!, b: +rgb[3]! };
+    return {
+      r: +unwrap(rgb[1], "rgb regex shape changed"),
+      g: +unwrap(rgb[2], "rgb regex shape changed"),
+      b: +unwrap(rgb[3], "rgb regex shape changed"),
+    };
   }
   // Unknown color string — return black; the mix result will just be `b`.
   return { r: 0, g: 0, b: 0 };
@@ -295,7 +309,7 @@ export async function screenshotTerminal(
 
   // Traffic-light dots.
   const dotY = TITLE_H / 2;
-  for (let i = 0; i < DOT_MACOS.length; i++) {
+  for (const [i, color] of DOT_MACOS.entries()) {
     ctx.beginPath();
     ctx.arc(
       DOT_MARGIN_LEFT + i * (DOT_R * 2 + DOT_GAP),
@@ -304,7 +318,7 @@ export async function screenshotTerminal(
       0,
       Math.PI * 2,
     );
-    ctx.fillStyle = DOT_MACOS[i]!;
+    ctx.fillStyle = color;
     ctx.fill();
   }
 

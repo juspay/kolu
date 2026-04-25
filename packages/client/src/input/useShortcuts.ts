@@ -2,6 +2,7 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common";
+import { unwrap } from "kolu-common/unwrap";
 import type { Accessor, Setter } from "solid-js";
 import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
 
@@ -90,7 +91,8 @@ function dispatch(
   const digit = parseInt(e.key, 10);
   if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
     const ids = deps.terminalIds();
-    if (digit <= ids.length) deps.setActiveId(ids[digit - 1]!);
+    const target = ids[digit - 1];
+    if (target !== undefined) deps.setActiveId(target);
     return true;
   }
 
@@ -197,5 +199,9 @@ function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
   if (ids.length === 0) return;
   const current = ids.indexOf(deps.activeId() as TerminalId);
   const next = (current + direction + ids.length) % ids.length;
-  deps.setActiveId(ids[next]!);
+  // `next` is in `[0, ids.length)` by the modulus and the early return
+  // above; documenting that at the throw site.
+  deps.setActiveId(
+    unwrap(ids[next], `cycleTerminal: index ${next} out of bounds`),
+  );
 }

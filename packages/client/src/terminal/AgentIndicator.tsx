@@ -57,22 +57,27 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
         <Dynamic component={Icon()} class="w-3 h-3" />
       </span>
       <span class="hidden sm:inline">{label()}</span>
-      {/* `!= null` (not truthy) so a legitimate `0` — e.g. a synthetic
-       *  assistant entry with a zeroed usage block — still renders. We
-       *  only want to hide when telemetry is *absent*, not when it's
-       *  zero. The `!` is safe inside the Show body (SolidJS re-runs
-       *  this subtree when contextTokens flips to null). */}
-      <Show when={props.agent.contextTokens != null}>
-        <span
-          data-testid="agent-context-tokens"
-          class="tabular-nums text-fg-3"
-          title={contextTokensTooltip(
-            props.agent.contextTokens!,
-            props.agent.model,
-          )}
-        >
-          {tokenFormat.format(props.agent.contextTokens!)}
-        </span>
+      {/* Wrap the value in an object so `<Show>`'s truthy check fires
+       *  even when `contextTokens` is `0` — a legitimate value for a
+       *  synthetic assistant entry with a zeroed usage block. Show's
+       *  callback then sees `box()` typed as `{ value: number }`,
+       *  dropping the `null | undefined` widening. */}
+      <Show
+        when={
+          props.agent.contextTokens != null
+            ? { value: props.agent.contextTokens }
+            : null
+        }
+      >
+        {(box) => (
+          <span
+            data-testid="agent-context-tokens"
+            class="tabular-nums text-fg-3"
+            title={contextTokensTooltip(box().value, props.agent.model)}
+          >
+            {tokenFormat.format(box().value)}
+          </span>
+        )}
       </Show>
     </span>
   );

@@ -97,11 +97,6 @@
       // Accessibility pass — 88 findings across useButtonType,
       // noSvgWithoutTitle, noStaticElementInteractions, etc.
       "a11y": "off",
-      "style": {
-        // 136 sites use `!` non-null assertions idiomatically. Migration
-        // to `?? throw`/narrowing is a dedicated cleanup pass.
-        "noNonNullAssertion": "off"
-      },
       "suspicious": {
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
