@@ -1,8 +1,6 @@
-// Phase 7 of #710: tiny sweep — flip on two small rules to clear them
-// off the follow-up list. `useExhaustiveSwitchCases` closes out the
-// type-aware trifecta from the original ticket (alongside
-// noFloatingPromises and noMisusedPromises). `noUndeclaredDependencies`
-// had a single finding when the project domain was wired in #719.
+// Phase 8 of #710: flip on `useTemplate` — 12 sites of `"foo " + bar`
+// across server + client get rewritten to template literals. Biome
+// applies the fix automatically with safe `--write`.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -98,9 +96,7 @@
       "style": {
         // 136 sites use `!` non-null assertions idiomatically. Migration
         // to `?? throw`/narrowing is a dedicated cleanup pass.
-        "noNonNullAssertion": "off",
-        // 12 sites of plain `+` string concat; stylistic.
-        "useTemplate": "off"
+        "noNonNullAssertion": "off"
       },
       "suspicious": {
         // 32 sites of gradual-typing debt on `any`. Dedicated cleanup.

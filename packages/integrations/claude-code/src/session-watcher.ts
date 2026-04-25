@@ -157,7 +157,7 @@ export function createSessionWatcher(
       { session: session.sessionId, cwd: session.cwd },
       "transcript not found yet (JSONL created after first message)",
     );
-    const projectDir = PROJECTS_DIR + "/" + encodeProjectPath(session.cwd);
+    const projectDir = `${PROJECTS_DIR}/${encodeProjectPath(session.cwd)}`;
     const dirWatcher = watchOrWaitForDir(projectDir, () =>
       onProjectDirChanged(),
     );

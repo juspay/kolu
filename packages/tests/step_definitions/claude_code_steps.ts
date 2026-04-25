@@ -91,7 +91,7 @@ function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
   // "thinking" = user message only (no assistant response yet)
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 /** Unique CWD per scenario to avoid collisions in parallel workers. */
@@ -209,14 +209,14 @@ When(
     const stalePath = path.join(projectDir, "stale-previous-session.jsonl");
     fs.writeFileSync(
       stalePath,
-      JSON.stringify({
+      `${JSON.stringify({
         type: "assistant",
         message: {
           model: "claude-opus-4-6",
           stop_reason: "end_turn",
           content: [{ type: "text", text: "previous" }],
         },
-      }) + "\n",
+      })}\n`,
     );
     // Future mtime so an MRU fallback would always pick this over the
     // current-session JSONL.
@@ -359,7 +359,7 @@ function buildTaskLines(
       );
     }
   }
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 When(

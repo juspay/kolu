@@ -219,7 +219,7 @@ describe("tailJsonlLines", () => {
         message: { stop_reason: "end_turn" },
       }),
     ];
-    fs.writeFileSync(filePath, lines.join("\n") + "\n");
+    fs.writeFileSync(filePath, `${lines.join("\n")}\n`);
     const result = tailJsonlLines(filePath, 16_384);
     expect(result).toEqual(lines);
   });
@@ -228,7 +228,7 @@ describe("tailJsonlLines", () => {
     const filePath = path.join(tmpDir, "large.jsonl");
     const longLine = JSON.stringify({ type: "system", data: "x".repeat(200) });
     const lastLine = JSON.stringify({ type: "user" });
-    fs.writeFileSync(filePath, longLine + "\n" + lastLine + "\n");
+    fs.writeFileSync(filePath, `${longLine}\n${lastLine}\n`);
     const result = tailJsonlLines(filePath, 50);
     expect(result).toEqual([lastLine]);
   });
@@ -275,7 +275,7 @@ describe("findTranscriptPath", () => {
     const projectDir = path.join(tmpDir, encodeProjectPath(cwd));
     fs.mkdirSync(projectDir, { recursive: true });
     const transcriptPath = path.join(projectDir, `${sessionId}.jsonl`);
-    fs.writeFileSync(transcriptPath, JSON.stringify({ type: "user" }) + "\n");
+    fs.writeFileSync(transcriptPath, `${JSON.stringify({ type: "user" })}\n`);
 
     const result = findTranscriptPathFn({ pid: 1, sessionId, cwd });
     expect(result).toBe(transcriptPath);
@@ -287,7 +287,7 @@ describe("findTranscriptPath", () => {
     fs.mkdirSync(projectDir, { recursive: true });
 
     const otherPath = path.join(projectDir, "other-session.jsonl");
-    fs.writeFileSync(otherPath, JSON.stringify({ type: "user" }) + "\n");
+    fs.writeFileSync(otherPath, `${JSON.stringify({ type: "user" })}\n`);
 
     const result = findTranscriptPathFn({
       pid: 1,

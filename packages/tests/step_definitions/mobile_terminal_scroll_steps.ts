@@ -68,7 +68,7 @@ When(
     await this.page.evaluate(
       ({ sel, x, startY, endY, ys }) => {
         const target = document.querySelector(sel) as HTMLElement | null;
-        if (!target) throw new Error("No element matches " + sel);
+        if (!target) throw new Error(`No element matches ${sel}`);
         const startTouch = new Touch({
           identifier: 0,
           target,
