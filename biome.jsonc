@@ -1,10 +1,8 @@
-// Phase 5 of #710: wire Biome's Scanner (project domain) and turn on
-// noFloatingPromises — the flagship rule from the original ticket.
-// Catches unawaited promises that silently swallow errors, which is
-// the kind of bug tsc's strict mode can't see. Future PRs enable the
-// other type-aware rules (noMisusedPromises, useExhaustiveSwitchCases)
-// one at a time. Still-off rules (noNonNullAssertion, noExplicitAny,
-// useTemplate, noUnusedVariables, a11y) keep their dedicated PR slots.
+// Phase 6 of #710: turn on the Solid-specific rules from the original
+// ticket — noReactSpecificProps (catch React-only prop names leaking
+// into Solid components) and useSolidForComponent (prefer `<For />`
+// over `.map()` for reactive lists). Both live in Biome's `solid`
+// domain which auto-activates from the solid dependency.
 {
   "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
   "vcs": {
@@ -79,6 +77,12 @@
         // Unawaited promises that silently swallow errors — the
         // flagship motivation for adopting Biome (#710).
         "noFloatingPromises": "error"
+      },
+      "performance": {
+        // Solid domain: prefer `<For each={…}>` over `items.map(…)` so
+        // list reactivity is keyed properly instead of re-rendering on
+        // every signal change.
+        "useSolidForComponent": "error"
       },
       // Each disable below is a Phase-1 scoping decision. Re-enabling is the
       // charter of a follow-up PR (one per rule class) — additive, not
