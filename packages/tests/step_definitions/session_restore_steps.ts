@@ -340,9 +340,8 @@ Then(
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       (exp) => {
-        const group = document.querySelector('[data-testid="repo-group"]');
-        const heading = group?.querySelector("span")?.textContent?.trim();
-        return heading === exp;
+        const heading = document.querySelector('[data-testid="repo-heading"]');
+        return heading?.textContent?.trim() === exp;
       },
       expected,
       { timeout: POLL_TIMEOUT },
@@ -353,11 +352,17 @@ Then(
 Then(
   "the restore card heading should not contain {string}",
   async function (this: KoluWorld, forbidden: string) {
-    const group = this.page.locator('[data-testid="repo-group"]').first();
-    const heading = await group.locator("span").first().textContent();
-    assert.ok(
-      heading !== null && !heading.includes(forbidden),
-      `Restore card heading "${heading}" must not contain "${forbidden}"`,
+    // Poll instead of reading once: the prior step settled the heading, but a
+    // bare textContent() + assert races SolidJS reactivity flushes on slow
+    // machines (e2e-poll-async-state rule).
+    await this.page.waitForFunction(
+      (f) => {
+        const heading = document.querySelector('[data-testid="repo-heading"]');
+        const text = heading?.textContent?.trim() ?? "";
+        return text.length > 0 && !text.includes(f);
+      },
+      forbidden,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

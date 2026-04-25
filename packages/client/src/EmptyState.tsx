@@ -113,7 +113,10 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                     {(group) => (
                       <div data-testid="repo-group" data-repo-name={group.key}>
                         <div class="sticky top-0 z-10 bg-surface-1 pb-1.5">
-                          <span class="text-sm font-semibold text-fg truncate">
+                          <span
+                            data-testid="repo-heading"
+                            class="text-sm font-semibold text-fg truncate"
+                          >
                             {group.heading}
                           </span>
                         </div>
