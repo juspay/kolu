@@ -20,7 +20,7 @@ import {
   type PillRepoGroup,
   repoColor,
 } from "./pillTreeOrder";
-import { useTileTheme } from "./useTileTheme";
+import { useTileIdentityTheme } from "./useTileIdentityTheme";
 import { useViewPosture } from "./useViewPosture";
 
 const BRANCHES_PER_ROW = 3;
@@ -49,7 +49,7 @@ const PillTree: Component<{
   onCreate: () => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileTheme = useTileTheme();
+  const tileTheme = useTileIdentityTheme();
   const posture = useViewPosture();
 
   return (
@@ -224,12 +224,14 @@ const PillTree: Component<{
                                         !active() && !agentState(),
                                     }}
                                     style={{
-                                      // Pill bg = terminal's BG color,
-                                      // text = its FG color. Each pill
-                                      // is a literal swatch of its
-                                      // terminal — clearest visual
-                                      // pill ↔ tile link without the
-                                      // brightness of full inversion.
+                                      // Pill bg = terminal's identity
+                                      // theme bg, text = its fg. Identity
+                                      // theme = stored pick (preview-
+                                      // aware), independent of OS-scheme
+                                      // resolution — so a terminal you've
+                                      // learned by color stays that color
+                                      // when the OS scheme flips and the
+                                      // rendered variant follows.
                                       "background-color": theme().bg,
                                       color: theme().fg,
                                       // --card-color drives the pseudo

@@ -31,6 +31,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   scrollLock: true,
   activityAlerts: true,
   colorScheme: "dark",
+  terminalsFollowOSScheme: false,
   terminalRenderer: "auto",
   rightPanel: {
     collapsed: true,

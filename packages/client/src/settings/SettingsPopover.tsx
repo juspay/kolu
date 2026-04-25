@@ -121,6 +121,20 @@ const SettingsPopover: Component<{
             />
           </SettingRow>
           <SettingRow
+            label="Match OS appearance"
+            hint={{
+              text: "Terminals on supported themes (Catppuccin, Gruvbox, Tokyo Night, …) flip to their light/dark sibling with your OS scheme. Pill colors stay stable.",
+            }}
+          >
+            <Toggle
+              testId="terminals-follow-os-toggle"
+              enabled={preferences().terminalsFollowOSScheme}
+              onChange={(on) =>
+                updatePreferences({ terminalsFollowOSScheme: on })
+              }
+            />
+          </SettingRow>
+          <SettingRow
             label="Scroll lock"
             hint={{
               text: "Hold new output while scrolled up; release at bottom.",

@@ -13,7 +13,7 @@ import {
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
 import { tileMinimapBorder } from "./tileChrome";
-import { useTileTheme } from "./useTileTheme";
+import { useTileIdentityTheme } from "./useTileIdentityTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 /** Minimap target dimensions in pixels. */
@@ -45,7 +45,7 @@ const CanvasMinimap: Component<{
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
-  const tileTheme = useTileTheme();
+  const tileTheme = useTileIdentityTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
 

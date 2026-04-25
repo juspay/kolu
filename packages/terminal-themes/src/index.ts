@@ -8,6 +8,12 @@
  */
 
 export type { ITheme } from "@xterm/xterm";
+// Family pairs (light/dark siblings for OS-driven variant swap)
+export {
+  FAMILY_PAIRS,
+  type FamilyPair,
+  resolveThemeForVariant,
+} from "./families.ts";
 // Theme picker
 export { hexToOkLab, okLabDistance, pickTheme } from "./picker.ts";
 // Theme catalog

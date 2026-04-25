@@ -45,6 +45,42 @@ Then(
 );
 
 When(
+  "I click the match OS appearance toggle",
+  async function (this: KoluWorld) {
+    await this.page.click('[data-testid="terminals-follow-os-toggle"]');
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the match-OS-appearance toggle state should change",
+  async function (this: KoluWorld) {
+    const toggle = this.page.locator(
+      '[data-testid="terminals-follow-os-toggle"]',
+    );
+    const before = await toggle.getAttribute("data-enabled");
+    await this.page.click('[data-testid="terminals-follow-os-toggle"]');
+    await this.waitForFrame();
+    const after = await toggle.getAttribute("data-enabled");
+    assert.notStrictEqual(
+      before,
+      after,
+      "Expected match-OS-appearance toggle to change state on click",
+    );
+  },
+);
+
+When(
+  "the OS color scheme is {string}",
+  async function (this: KoluWorld, scheme: string) {
+    if (scheme !== "light" && scheme !== "dark") {
+      throw new Error(`Unsupported OS color scheme literal: ${scheme}`);
+    }
+    await this.page.emulateMedia({ colorScheme: scheme });
+  },
+);
+
+When(
   "I click the {string} color scheme button",
   async function (this: KoluWorld, scheme: string) {
     await this.page.click(`[data-testid="color-scheme-${scheme}"]`);

@@ -87,6 +87,26 @@ Feature: Theme switching
     And the palette search input should be focused
     And there should be no page errors
 
+  # When "Match OS appearance" is on, a terminal whose stored theme has
+  # a known light/dark family sibling renders the variant matching the
+  # OS prefers-color-scheme. Identity (the pill swatch) stays anchored
+  # to the stored pick so a terminal you've learned by color doesn't
+  # flip when the OS scheme changes.
+  Scenario: Terminal flips to family sibling when OS scheme changes
+    When I open the command palette
+    And I select "Theme" in the palette
+    And I type "Catppuccin Mocha" in the palette
+    And I press Enter
+    Then the header should show theme "Catppuccin Mocha"
+    And the terminal background should be "#1e1e2e"
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the match OS appearance toggle
+    And the OS color scheme is "light"
+    Then the terminal background should be "#eff1f5"
+    And the header should show theme "Catppuccin Mocha"
+    And there should be no page errors
+
   Scenario: Each terminal has independent theme
     When I open the command palette
     And I select "Theme" in the palette

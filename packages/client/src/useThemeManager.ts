@@ -2,8 +2,21 @@
  *
  *  Singleton: pulls live state from `useTerminalStore`, mutates server
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
- *  pill swatches) just call `useThemeManager()` — no deps to wire. */
+ *  pill swatches) just call `useThemeManager()` — no deps to wire.
+ *
+ *  Two theme lenses live here so the OS-scheme auto-flip doesn't break
+ *  terminal identity:
+ *
+ *    - **Identity** (`getTerminalIdentityTheme`): always the stored
+ *      theme (preview-aware). Used by pill swatches and the minimap
+ *      tile color so a terminal you've learned by color stays that
+ *      color across OS scheme changes.
+ *    - **Render** (`getTerminalTheme` / `activeTheme`): identity, then
+ *      passed through `resolveThemeForVariant` when the user has
+ *      "Match OS appearance for terminals" on. Used by the terminal
+ *      contents and any chrome that wraps them. */
 
+import { usePrefersDark } from "@solid-primitives/media";
 import type { TerminalId } from "kolu-common";
 import { nonEmpty } from "nonempty";
 import { createMemo, createRoot, createSignal } from "solid-js";
@@ -15,12 +28,16 @@ import {
   type ITheme,
   pickTheme,
   resolveThemeBgs,
+  resolveThemeForVariant,
 } from "terminal-themes";
 import { client } from "./rpc/rpc";
+import { usePreferences } from "./settings/usePreferences";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 function init() {
   const store = useTerminalStore();
+  const { preferences } = usePreferences();
+  const prefersDark = usePrefersDark();
   const getThemeName = (id: TerminalId) => store.getMetadata(id)?.themeName;
 
   const committedThemeName = createMemo(() => {
@@ -36,9 +53,24 @@ function init() {
     () => previewThemeName() ?? committedThemeName(),
   );
 
-  const activeTheme = createMemo(() => getThemeByName(activeThemeName()));
+  /** Apply OS-scheme variant resolution when the preference is on.
+   *  Themes outside any family pair pass through unchanged. */
+  function toRenderName(name: string): string {
+    if (!preferences().terminalsFollowOSScheme) return name;
+    return resolveThemeForVariant(name, prefersDark() ? "dark" : "light");
+  }
+
+  const activeTheme = createMemo(() =>
+    getThemeByName(toRenderName(activeThemeName())),
+  );
 
   function getTerminalTheme(id: TerminalId): ITheme {
+    const preview = store.activeId() === id ? previewThemeName() : undefined;
+    const name = preview ?? getThemeName(id) ?? DEFAULT_THEME_NAME;
+    return getThemeByName(toRenderName(name));
+  }
+
+  function getTerminalIdentityTheme(id: TerminalId): ITheme {
     const preview = store.activeId() === id ? previewThemeName() : undefined;
     return getThemeByName(preview ?? getThemeName(id));
   }
@@ -82,6 +114,7 @@ function init() {
     activeThemeName,
     activeTheme,
     getTerminalTheme,
+    getTerminalIdentityTheme,
     isPreviewingTheme: () => previewThemeName() !== undefined,
     handleSetTheme,
     handleShuffleTheme,

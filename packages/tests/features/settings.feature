@@ -18,6 +18,12 @@ Feature: Settings Popover
     Then the shuffle theme toggle state should change
     And there should be no page errors
 
+  Scenario: Toggle match-OS-appearance setting
+    When I click the settings button
+    Then the settings popover should be visible
+    Then the match-OS-appearance toggle state should change
+    And there should be no page errors
+
   Scenario: Switch UI color scheme to light
     When I click the settings button
     Then the settings popover should be visible

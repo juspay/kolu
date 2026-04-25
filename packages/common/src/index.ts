@@ -388,6 +388,12 @@ export const PreferencesSchema = z.object({
   scrollLock: z.boolean(),
   activityAlerts: z.boolean(),
   colorScheme: ColorSchemeSchema,
+  /** When on, terminals whose stored theme has a known light/dark family
+   *  sibling (see `FAMILY_PAIRS` in `terminal-themes`) render the variant
+   *  matching the OS `prefers-color-scheme`. Identity (pill swatch,
+   *  minimap tile color) stays anchored to the stored pick so a terminal
+   *  you've learned by color doesn't flip when the OS scheme changes. */
+  terminalsFollowOSScheme: z.boolean(),
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
    *  WebGL-everywhere unsafe at scale). `webgl` forces WebGL on every tile

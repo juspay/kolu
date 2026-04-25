@@ -45,7 +45,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.18.0";
+const SCHEMA_VERSION = "1.19.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -316,6 +316,17 @@ export const store = new Conf<PersistedState>({
         ...session,
         terminals: terminals as typeof session.terminals,
       });
+    },
+    // terminalsFollowOSScheme added — default off so existing users keep
+    // their stored theme on OS scheme changes until they opt in.
+    "1.19.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      if (current.terminalsFollowOSScheme === undefined) {
+        store.set("preferences", {
+          ...current,
+          terminalsFollowOSScheme: DEFAULT_PREFERENCES.terminalsFollowOSScheme,
+        } as unknown as Preferences);
+      }
     },
   },
 });
