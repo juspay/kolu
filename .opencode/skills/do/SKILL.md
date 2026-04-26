@@ -62,10 +62,10 @@ Each step is bookended by two calls to the `scripts/do-results` script (in this 
 
 ## Progress tracking
 
-Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 14 step names in order:
+Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a live checklist of the workflow. At the start of **sync** (or the chosen `--from` entry point), seed a task list with all 15 step names in order:
 
 ```
-sync, research, branch, implement, check, docs, fmt, commit, hickey+lowy, police, test, create-pr, ci, done
+sync, research, branch, implement, check, docs, fmt, commit, hickey+lowy, police, test, create-pr, ci, evidence, done
 ```
 
 At each step boundary, update task state **alongside** the `scripts/do-results` script call — they are not redundant. The JSON file is machine state for the stop hook; the task list is the human-facing UI. Miss either and the workflow is inconsistent.
@@ -74,7 +74,7 @@ Rules:
 
 - **Flip to `in_progress` when a step starts, `completed` when it verifies.** One step `in_progress` at a time.
 - **Retries stay `in_progress`.** If `check`, `test`, or `ci` loop through their retry budget, do **not** bounce the task state back to `pending` or flicker it — leave it `in_progress` until the step finally verifies (or the retries exhaust and the workflow fails).
-- **`--from <step>` entry points**: still seed all 14 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 14-item view regardless of entry point.
+- **`--from <step>` entry points**: still seed all 15 steps. Mark steps earlier than the entry point as `completed` immediately after seeding, so the checklist shows a consistent 15-item view regardless of entry point.
 - **Skipped steps** (e.g. `branch`/`commit`/`create-pr` under `--no-git`, or PR steps on non-GitHub forges) go straight to `completed`. Record the skip with a back-to-back `scripts/do-results step-start <name>` / `scripts/do-results step-end skipped ... "<reason>"`; the task list just shows the step as done.
 - **Failure**: if retries exhaust and the workflow halts, leave the failing step `in_progress`, mark `done` `completed` after the failure summary is written, and run `scripts/do-results set status failed`.
 
@@ -370,14 +370,46 @@ CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) a
 
 ---
 
+### evidence
+
+**Opt-in step.** Most projects skip this. The step exists so projects with empirical "did the feature actually work" needs — UI screenshots, performance benchmarks, demo recordings, output transcripts — can attach that evidence to the PR without baking the mechanism into agency.
+
+**If `--no-git`**: Skip with status `skipped` and reason `"--no-git"`. There is no PR to attach evidence to.
+
+**If `forge != github`**: Skip with status `skipped` and reason `"non-<forge> forge: <forge>"`. (Bitbucket comment wiring is tracked in #10.)
+
+**If `.apm/instructions/pr-evidence.instructions.md` does not exist**: Skip with status `skipped` and reason `"no .apm/instructions/pr-evidence.instructions.md"`. This is the default for projects that haven't opted in.
+
+**If the file exists**:
+
+Read it. The file is project-specific and describes how this project demonstrates a finished feature — what tools to use (e.g. `chrome-devtools` MCP for screenshots, `hyperfine` for benchmarks, `asciinema` for terminal demos), what to capture (which routes, which scenarios), and how to host any binary artifacts (screenshots typically need to be uploaded somewhere referenceable since `gh pr comment` does not attach files — the instruction file specifies the upload path). Agency does **not** prescribe any of this; follow whatever the file says.
+
+After gathering the evidence, post it as a single PR comment under a `## Evidence` heading using `gh pr comment`. Use the **single-quoted heredoc** pattern (see `forge-pr` → "Passing the body to `gh` safely") so backticks and `$` survive unescaped:
+
+```sh
+gh pr comment --body "$(cat <<'EOF'
+## Evidence
+
+<markdown produced per pr-evidence.instructions.md>
+EOF
+)"
+```
+
+Embed image/asset URLs inline in the markdown — `gh pr comment` itself cannot attach files.
+
+**Verify**: Either the step was skipped per the rules above, or a `## Evidence` PR comment exists (`gh pr view --comments` or equivalent) with the markdown produced from the instruction file.
+
+---
+
 ### done
 
 Present a summary of all steps with their verification status. If any step has a non-success status, retry it (max 3 attempts from done). If still failing after retries, set `status: "failed"`.
 
-`"completed"` requires **all steps `passed`**, with two exceptions that count toward completion:
+`"completed"` requires **all steps `passed`**, with three exceptions that count toward completion:
 
 1. A step `skipped` with `reason` beginning `"non-<forge> forge:"` (detected forge isn't GitHub).
 2. A step `skipped` with `reason` `"--no-git"` (user opted out of git operations).
+3. A step `skipped` with `reason` `"no .apm/instructions/pr-evidence.instructions.md"` (project hasn't opted into the evidence step — this is the default).
 
 A `failed` step always blocks `"completed"`. No redefining "passed," no footnote caveats. Update via `scripts/do-results set status completed` or `scripts/do-results set status failed` accordingly.
 
@@ -446,7 +478,7 @@ COMMENT
 
 ## Rules
 
-- **Never skip steps** (unless skipped by `--no-git` or forge detection). Run them in order from entry point to **done**.
+- **Never skip steps** (unless skipped by `--no-git`, forge detection, or — for **evidence** — the project hasn't opted in via `.apm/instructions/pr-evidence.instructions.md`). Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
 - **Background for CI.** Run CI with `run_in_background: true`.
