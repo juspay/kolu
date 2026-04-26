@@ -38,7 +38,7 @@ import v8 from "node:v8";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import type { ServerDiagnostics } from "kolu-common";
 import { log } from "./log.ts";
-import { activationSnapshot } from "./meta/agent.ts";
+import { installedActivations } from "./meta/agent.ts";
 import { publisherSize } from "./publisher.ts";
 import { type TerminalProcess, terminalEntries } from "./terminal-registry.ts";
 
@@ -98,7 +98,6 @@ function captureMetrics(): MetricsCapture {
  *  expect?") is what diagnostics actually answers. */
 export function getServerDiagnostics(): ServerDiagnostics {
   const m = captureMetrics();
-  const activations = activationSnapshot();
 
   const watches: ServerDiagnostics["watches"] = [];
   if (m.terminalsWithGit > 0) {
@@ -115,13 +114,12 @@ export function getServerDiagnostics(): ServerDiagnostics {
       count: m.claudeSessions,
     });
   }
-  for (const a of activations) {
-    if (!a.installed) continue;
+  for (const a of installedActivations()) {
     watches.push({
       kind: `agent-external:${a.kind}`,
       description: "Agent external-change watcher (shared singleton)",
       count: 1,
-      sharedReconcilers: a.reconcilers,
+      sharedReconcilers: a.sharedReconcilers,
     });
   }
 
