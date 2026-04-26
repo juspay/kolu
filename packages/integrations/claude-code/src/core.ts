@@ -25,6 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { readTailLines } from "anyagent";
+import { trackResource } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
@@ -388,7 +389,15 @@ export function tryWatchDir(
 ): (() => void) | null {
   try {
     const w = fs.watch(dir, () => onChange());
-    return () => w.close();
+    return trackResource(
+      {
+        kind: "fs-watch",
+        label: "claude projects dir",
+        owner: "kolu-claude-code",
+        target: dir,
+      },
+      () => w.close(),
+    );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, dir }, "fs.watch failed");
@@ -415,24 +424,34 @@ export function watchOrWaitForDir(
   if (direct) return direct;
 
   let child: (() => void) | null = null;
-  let parentWatcher: fs.FSWatcher | null = null;
+  let parentCleanup: (() => void) | null = null;
   try {
-    parentWatcher = fs.watch(path.dirname(dir), () => {
+    const parentDir = path.dirname(dir);
+    const parentWatcher = fs.watch(parentDir, () => {
       if (child) return;
       const attached = tryWatchDir(dir, onChange, log);
       if (!attached) return;
       child = attached;
-      parentWatcher?.close();
-      parentWatcher = null;
+      parentCleanup?.();
+      parentCleanup = null;
       // Kick — dir may already contain files (race: created between our
       // first attempt and the parent event).
       onChange();
     });
+    parentCleanup = trackResource(
+      {
+        kind: "fs-watch",
+        label: "claude projects parent (awaiting dir)",
+        owner: "kolu-claude-code",
+        target: parentDir,
+      },
+      () => parentWatcher.close(),
+    );
   } catch (err) {
     log?.debug({ err, dir }, "fs.watch parent fallback failed");
   }
   return () => {
-    parentWatcher?.close();
+    parentCleanup?.();
     child?.();
   };
 }

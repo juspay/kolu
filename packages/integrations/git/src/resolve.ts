@@ -9,6 +9,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "anyagent";
+import { trackResource } from "kolu-runtime-diagnostics";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
 import type { GitInfo } from "./schemas.ts";
@@ -152,10 +153,19 @@ export function watchGitHead(
     return () => {};
   }
 
-  return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
-  };
+  return trackResource(
+    {
+      kind: "fs-watch",
+      label: ".git/HEAD",
+      owner: "kolu-git",
+      target: gitDir,
+      context: { cwd },
+    },
+    () => {
+      if (timer) clearTimeout(timer);
+      watcher?.close();
+    },
+  );
 }
 
 /** Compare two GitInfo values for equality. */

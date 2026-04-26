@@ -30,6 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { trackResource } from "kolu-runtime-diagnostics";
 import type { Logger } from "./index.ts";
 
 /** Per-listener record tracked in the singleton's Set. */
@@ -125,7 +126,10 @@ export function createWalSubscription(
 }
 
 /** Try to attach an fs.watch directly to the WAL file. Returns the
- *  watcher's cleanup function, or null if the file doesn't exist yet. */
+ *  watcher's registry-tied cleanup, or null if the file doesn't exist
+ *  yet. The diagnostic registry sees the handle so the dialog can
+ *  enumerate every WAL watcher (one per agent integration with active
+ *  state). */
 function tryWatchWal(
   onChange: () => void,
   config: WalSubscriptionConfig,
@@ -133,7 +137,15 @@ function tryWatchWal(
 ): (() => void) | null {
   try {
     const w = fs.watch(config.walPath, () => onChange());
-    return () => w.close();
+    return trackResource(
+      {
+        kind: "fs-watch",
+        label: "agent WAL",
+        owner: `kolu-${config.label}`,
+        target: config.walPath,
+      },
+      () => w.close(),
+    );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       // Non-ENOENT (EACCES, EMFILE, etc.) means state detection for
@@ -151,7 +163,10 @@ function tryWatchWal(
 /** Install a single fs.watch on the WAL file, falling back to the
  *  parent directory if the WAL doesn't exist yet. When the directory
  *  watcher fires and the WAL file has appeared, promotes itself to a
- *  direct WAL watcher and tears down the directory watcher. */
+ *  direct WAL watcher and tears down the directory watcher. The
+ *  fallback's lifetime is tracked separately from the promoted WAL
+ *  watcher's, so the diagnostic snapshot reflects whichever stage is
+ *  currently active. */
 function installWalWatcher(
   onChange: () => void,
   config: WalSubscriptionConfig,
@@ -163,20 +178,29 @@ function installWalWatcher(
   // WAL doesn't exist yet — watch the parent directory and promote
   // to the WAL file once it appears.
   let promoted: (() => void) | null = null;
-  let dirWatcher: fs.FSWatcher | null = null;
+  let dirCleanup: (() => void) | null = null;
   const dir = path.dirname(config.dbPath);
   try {
-    dirWatcher = fs.watch(dir, () => {
+    const dirWatcher = fs.watch(dir, () => {
       if (promoted) return;
       const walCleanup = tryWatchWal(onChange, config, log);
       if (!walCleanup) return;
       promoted = walCleanup;
-      dirWatcher?.close();
-      dirWatcher = null;
+      dirCleanup?.();
+      dirCleanup = null;
       // Kick — WAL may already have data written between our first
       // attempt and the directory event.
       onChange();
     });
+    dirCleanup = trackResource(
+      {
+        kind: "fs-watch",
+        label: "agent WAL parent (awaiting WAL)",
+        owner: `kolu-${config.label}`,
+        target: dir,
+      },
+      () => dirWatcher.close(),
+    );
   } catch (err) {
     // Same rationale as tryWatchWal's non-ENOENT branch: a watch
     // failure on the parent directory means we can never promote,
@@ -184,7 +208,7 @@ function installWalWatcher(
     log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
   }
   return () => {
-    dirWatcher?.close();
+    dirCleanup?.();
     promoted?.();
   };
 }

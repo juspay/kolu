@@ -11,6 +11,7 @@
 
 import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
+import { trackResource } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import {
   deriveState,
@@ -46,11 +47,13 @@ const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 
 // --- Transcript watching lifecycle ---
 
-/** Transcript-watching state machine — mutually exclusive states. */
+/** Transcript-watching state machine — mutually exclusive states.
+ *  `cleanup` is the registry-tied teardown for the underlying fs.watch:
+ *  calling it both closes the watcher and untracks the diagnostic entry. */
 type TranscriptWatching =
   | { kind: "none" }
   | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+  | { kind: "watching"; path: string; cleanup: () => void };
 
 // --- Logger interface ---
 
@@ -116,7 +119,7 @@ export function createSessionWatcher(
     match(transcriptWatching)
       .with({ kind: "none" }, () => {})
       .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
+      .with({ kind: "watching" }, ({ cleanup }) => cleanup())
       .exhaustive();
     transcriptWatching = { kind: "none" };
   }
@@ -138,7 +141,17 @@ export function createSessionWatcher(
   function attachTranscriptWatcher(tp: string) {
     try {
       const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
-      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+      const cleanup = trackResource(
+        {
+          kind: "fs-watch",
+          label: "transcript JSONL",
+          owner: "kolu-claude-code",
+          target: tp,
+          context: { sessionId: session.sessionId, cwd: session.cwd },
+        },
+        () => fileWatcher.close(),
+      );
+      transcriptWatching = { kind: "watching", path: tp, cleanup };
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
