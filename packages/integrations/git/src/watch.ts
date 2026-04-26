@@ -28,9 +28,7 @@ function sortPaths(paths: Iterable<string>): string[] {
 }
 
 function hasEvents(event: Extract<FsWatchEvent, { kind: "delta" }>): boolean {
-  return Boolean(
-    event.added?.length || event.removed?.length || event.moved?.length,
-  );
+  return Boolean(event.added?.length || event.removed?.length);
 }
 
 function diffPathSets(
@@ -39,14 +37,6 @@ function diffPathSets(
 ): Extract<FsWatchEvent, { kind: "delta" }> | null {
   const added = sortPaths([...next].filter((p) => !previous.has(p)));
   const removed = sortPaths([...previous].filter((p) => !next.has(p)));
-
-  if (added.length === 1 && removed.length === 1) {
-    const [to] = added;
-    const [from] = removed;
-    if (from !== undefined && to !== undefined) {
-      return { kind: "delta", moved: [{ from, to }] };
-    }
-  }
 
   const event: Extract<FsWatchEvent, { kind: "delta" }> = { kind: "delta" };
   if (added.length > 0) event.added = added;

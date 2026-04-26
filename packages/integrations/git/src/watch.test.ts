@@ -115,7 +115,7 @@ describe("watchFiles", () => {
     await closeIterator(iter, controller);
   });
 
-  it("emits a move delta for a single-file rename", async () => {
+  it("emits add and remove for a rename without guessing move semantics", async () => {
     const dir = await initRepo("move");
     fs.writeFileSync(path.join(dir, "old.txt"), "content\n");
 
@@ -129,7 +129,8 @@ describe("watchFiles", () => {
 
     expect(await nextEvent(iter)).toEqual({
       kind: "delta",
-      moved: [{ from: "old.txt", to: "new.txt" }],
+      added: ["new.txt"],
+      removed: ["old.txt"],
     });
     await closeIterator(iter, controller);
   });
