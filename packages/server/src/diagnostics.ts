@@ -61,13 +61,26 @@ const BASELINE_DELAY_MS = 5 * 60 * 1000;
  *  Watch entries are aggregated by category, not enumerated per fs.watch
  *  handle: instrumenting every fs.watch site would be invasive churn for
  *  modest payoff. The shape ("is the server holding watchers I didn't
- *  expect?") is what diagnostics actually answers. */
+ *  expect?") is what diagnostics actually answers.
+ *
+ *  All state reads are sealed at the top — every count below derives from
+ *  the same `entries` snapshot and the one-shot `activations` read, so
+ *  the returned object is internally consistent (no field reflects a
+ *  later instant than another). */
 export function getServerDiagnostics(): ServerDiagnostics {
-  const m = process.memoryUsage();
+  const memory = process.memoryUsage();
+  const uptimeMs = Math.round(process.uptime() * 1000);
+  const nodeVersion = process.version;
+  const entries = [...terminalEntries()];
+  const activations = activationSnapshot();
+  const publisherChannels = publisherSize();
+  const pendingSummaryFetches = getPendingSummaryFetches();
 
   let terminalsWithGit = 0;
-  for (const [, entry] of terminalEntries()) {
+  let claudeSessions = 0;
+  for (const [, entry] of entries) {
     if (entry.info.meta.git !== null) terminalsWithGit++;
+    if (entry.info.meta.agent?.kind === "claude-code") claudeSessions++;
   }
 
   const watches: ServerDiagnostics["watches"] = [];
@@ -78,7 +91,6 @@ export function getServerDiagnostics(): ServerDiagnostics {
       count: terminalsWithGit,
     });
   }
-  const claudeSessions = countActiveClaudeSessions();
   if (claudeSessions > 0) {
     watches.push({
       kind: "claude-transcript",
@@ -86,7 +98,7 @@ export function getServerDiagnostics(): ServerDiagnostics {
       count: claudeSessions,
     });
   }
-  for (const a of activationSnapshot()) {
+  for (const a of activations) {
     if (!a.installed) continue;
     watches.push({
       kind: `agent-external:${a.kind}`,
@@ -96,19 +108,19 @@ export function getServerDiagnostics(): ServerDiagnostics {
   }
 
   return {
-    uptimeMs: Math.round(process.uptime() * 1000),
-    nodeVersion: process.version,
+    uptimeMs,
+    nodeVersion,
     memory: {
-      rss: m.rss,
-      heapUsed: m.heapUsed,
-      heapTotal: m.heapTotal,
-      external: m.external,
-      arrayBuffers: m.arrayBuffers,
+      rss: memory.rss,
+      heapUsed: memory.heapUsed,
+      heapTotal: memory.heapTotal,
+      external: memory.external,
+      arrayBuffers: memory.arrayBuffers,
     },
     subsystems: {
-      terminals: terminalCount(),
-      publisherChannels: publisherSize(),
-      pendingSummaryFetches: getPendingSummaryFetches(),
+      terminals: entries.length,
+      publisherChannels,
+      pendingSummaryFetches,
     },
     watches,
   };
