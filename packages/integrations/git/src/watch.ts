@@ -172,24 +172,25 @@ async function acquireWatcher(
   const existing = watchers.get(normalized);
   if (existing) return existing.promise;
 
-  let entry: WatcherEntry;
-  entry = {
-    promise: (async () => {
-      const initial = await listAll(normalized, log);
-      if (!initial.ok) {
-        if (watchers.get(normalized) === entry) watchers.delete(normalized);
-        return initial;
+  let entry: WatcherEntry | undefined;
+  const promise = (async () => {
+    const initial = await listAll(normalized, log);
+    if (!initial.ok) {
+      if (entry && watchers.get(normalized) === entry) {
+        watchers.delete(normalized);
       }
+      return initial;
+    }
 
-      const watcher = new RepoFileWatcher(normalized, initial.value, log);
-      entry.watcher = watcher;
-      await watcher.ready;
+    const watcher = new RepoFileWatcher(normalized, initial.value, log);
+    if (entry) entry.watcher = watcher;
+    await watcher.ready;
 
-      const refreshed = await listAll(normalized, log);
-      if (refreshed.ok) watcher.replacePaths(refreshed.value);
-      return ok(watcher);
-    })(),
-  };
+    const refreshed = await listAll(normalized, log);
+    if (refreshed.ok) watcher.replacePaths(refreshed.value);
+    return ok(watcher);
+  })();
+  entry = { promise };
 
   watchers.set(normalized, entry);
   return entry.promise;
