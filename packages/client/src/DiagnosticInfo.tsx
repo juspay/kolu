@@ -210,6 +210,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         <button
           type="button"
           onClick={copyJson}
+          data-testid="diagnostic-copy-json"
           class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         >
           Copy JSON
@@ -217,7 +218,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       </div>
 
       <div class="overflow-y-auto">
-        <Section title="Browser">
+        <Section title="Browser" data-testid="diagnostic-browser">
           <div class="space-y-0.5">
             <Row label="Viewport">
               <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
@@ -270,7 +271,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </div>
         </Section>
 
-        <Section title="Server">
+        <Section title="Server" data-testid="diagnostic-server">
           <div class="space-y-0.5">
             <Row label="WS" variant="badge">
               {wsStatus()}
@@ -354,7 +355,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </div>
         </Section>
 
-        <Section title="Resources">
+        <Section title="Resources" data-testid="diagnostic-resources">
           {/* Four explicit states so a transport error doesn't get
               rendered as "No active resources". The registry-backed
               list enumerates every fs.watch / timer / subscription
@@ -415,7 +416,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </Switch>
         </Section>
 
-        <Section title="Processes">
+        <Section title="Processes" data-testid="diagnostic-processes">
           <Show
             when={(server()?.processes.length ?? 0) > 0}
             fallback={
@@ -487,7 +488,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             canvas-lifecycle instrumentation (debug-only for #591). One parent
             section makes the relationship explicit; subgroup labels mirror the
             Watches section's idiom. */}
-        <Section title="Terminals (xterm)">
+        <Section title="Terminals (xterm)" data-testid="diagnostic-xterm">
           <div class="space-y-3">
             <div class="space-y-1">
               <div class="text-[11px] font-mono text-fg-2">live</div>
@@ -632,7 +633,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 </div>
               </Show>
               <Show when={snapshot().webgl.recentEvents.length > 0}>
-                <details class="mt-2 pt-2 border-t border-edge/50 group">
+                <details
+                  data-testid="webgl-recent-events"
+                  class="mt-2 pt-2 border-t border-edge/50 group"
+                >
                   <summary class="text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer list-none flex items-baseline justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm">
                     <span>
                       Recent events ({snapshot().webgl.recentEvents.length})
