@@ -57,10 +57,19 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "printf 'hello\n' > note.txt"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "note.txt"
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
+
+  # Validates the chokidar-backed live update path: a file written
+  # AFTER the Code tab is open must appear without any manual refresh.
+  Scenario: Live updates surface files written after opening the Code tab
+    When I run "git init /tmp/kolu-review-live && cd /tmp/kolu-review-live"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    Then the Code tab should show the empty-changes message
+    When I run "printf 'after\n' > live.txt"
+    Then the Code tab should list a changed file "live.txt"
 
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
@@ -69,7 +78,6 @@ Feature: Code tab (review + browse)
     And I run "printf 'modified\n' > tracked.txt"
     And I run "printf 'new\n' > untracked.txt"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "tracked.txt"
     And the Code tab should list a changed file "untracked.txt"
 
@@ -80,7 +88,6 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src/components && printf 'a\n' > src/index.ts && printf 'b\n' > src/components/Button.tsx"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should show a directory node "src"
     And the Code tab should list a changed file "src/index.ts"
     And the Code tab should list a changed file "src/components/Button.tsx"
@@ -90,7 +97,6 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts && printf 'y\n' > pkg/b.ts"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "pkg/a.ts"
     When I click the directory node "pkg" in the Code tab
     Then the Code tab should not list a changed file "pkg/a.ts"
@@ -104,7 +110,6 @@ Feature: Code tab (review + browse)
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p api && printf 'q\n' > api/handler.ts"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "api/handler.ts"
     When I right-click the changed file "api/handler.ts" in the Code tab
     And I click the context menu item "Copy path"
@@ -173,7 +178,6 @@ Feature: Code tab (review + browse)
     And I run "printf 'a-one\na-two\na-three\n' > file-a.txt"
     And I run "printf 'b-one\nb-two\nb-three\n' > file-b.txt"
     And I click the Code tab
-    And I click the refresh button in the Code tab
     Then the Code tab should list a changed file "file-a.txt"
     And the Code tab should list a changed file "file-b.txt"
     When I click the changed file "file-a.txt" in the Code tab

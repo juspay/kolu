@@ -9,11 +9,13 @@ import {
   type ContextMenuItem,
   type ContextMenuOpenContext,
   FileTree,
+  type FileTreeBatchOperation,
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
-import type { GitChangeStatus } from "kolu-common";
+import type { FsWatchEvent, GitChangeStatus } from "kolu-common";
 import {
+  type Accessor,
   type Component,
   createEffect,
   createMemo,
@@ -21,6 +23,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { match } from "ts-pattern";
 import { toast } from "solid-sonner";
 import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
 
@@ -60,6 +63,16 @@ export type PierreFileTreeProps = {
    *  change-set views where every entry should be visible without
    *  clicking. */
   initialExpansion?: FileTreeInitialExpansion;
+  /** Optional live event stream from `stream.fsWatch`. When provided,
+   *  the tree is updated incrementally — `snapshot` events go through
+   *  `resetPaths`, `delta` events through `batch([{type:'add'|'remove'}])`.
+   *  In this mode, the `paths` prop is only consulted at mount time
+   *  (as a placeholder until the first snapshot lands); subsequent
+   *  changes to `paths` are ignored — the event stream is the source
+   *  of truth. Without this prop, the tree falls back to driving
+   *  `resetPaths` on every `paths` change (the static-list mode used
+   *  for the diff/branch views, where `git.status` provides the list). */
+  event?: Accessor<FsWatchEvent | undefined>;
 };
 
 /** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
@@ -171,13 +184,35 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     tree.render({ containerWrapper: container });
   });
 
-  createEffect(
-    on(
-      () => props.paths,
-      (paths) => tree?.resetPaths(paths),
-      { defer: true },
-    ),
-  );
+  // Branch reactivity on whether the consumer drives updates via an event
+  // stream or via a static `paths` array. `props.event` is sampled
+  // untracked here — it's a structural prop that doesn't change identity
+  // across the component's lifetime (CodeTab decides at mount what mode
+  // it's in). The branch lives inside `createEffect` so the active path
+  // sees its own dependencies tracked normally.
+  createEffect(() => {
+    if (props.event) {
+      const ev = props.event();
+      if (!ev || !tree) return;
+      match(ev)
+        .with({ kind: "snapshot" }, ({ paths }) => tree?.resetPaths(paths))
+        .with({ kind: "delta" }, ({ added, removed }) => {
+          const ops: FileTreeBatchOperation[] = [
+            ...removed.map(
+              (path): FileTreeBatchOperation => ({ type: "remove", path }),
+            ),
+            ...added.map(
+              (path): FileTreeBatchOperation => ({ type: "add", path }),
+            ),
+          ];
+          if (ops.length > 0) tree?.batch(ops);
+        })
+        .exhaustive();
+    } else {
+      // Static-list mode: `paths` is the source of truth.
+      tree?.resetPaths(props.paths);
+    }
+  });
 
   createEffect(
     on(

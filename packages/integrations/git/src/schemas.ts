@@ -134,6 +134,31 @@ export const FsReadFileInputSchema = z.object({
   filePath: z.string(),
 });
 
+// --- File tree watching ---
+
+export const FsWatchInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+});
+
+/** Event delivered by the `fs.watch` streaming procedure. The first item on
+ *  every (re-)subscribe is a `snapshot` carrying the current path list;
+ *  subsequent items are `delta`s carrying paths added or removed since the
+ *  previous event. Renames surface as a paired remove + add — git ls-files
+ *  doesn't report renames as a single operation, so we don't either. */
+export const FsWatchEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    paths: z.array(z.string()),
+  }),
+  z.object({
+    kind: z.literal("delta"),
+    added: z.array(z.string()),
+    removed: z.array(z.string()),
+  }),
+]);
+export type FsWatchEvent = z.infer<typeof FsWatchEventSchema>;
+
 export const FsReadFileOutputSchema = z.object({
   content: z.string(),
   /** True if the file exceeded the size limit and was truncated. */

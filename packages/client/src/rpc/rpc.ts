@@ -92,6 +92,11 @@ export const stream = {
         context: { ...STREAM_RETRY, onRetry: opts.onRetry },
       },
     ),
+  /** Live file-tree stream — `snapshot` immediately, `delta` per
+   *  debounced fs change. Subscribe with `createSubscription` and dispatch
+   *  events into Pierre's `tree.batch()` for incremental updates. */
+  fsWatch: (repoPath: string, signal?: AbortSignal) =>
+    client.fs.watch({ repoPath }, { signal, context: STREAM_RETRY }),
 };
 
 /**

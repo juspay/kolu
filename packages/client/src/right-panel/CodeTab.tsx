@@ -13,7 +13,12 @@
  * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
-import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
+import type {
+  CodeTabView,
+  FsWatchEvent,
+  GitDiffMode,
+  TerminalMetadata,
+} from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -25,7 +30,9 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { client } from "../rpc/rpc";
+import { toast } from "solid-sonner";
+import { createSubscription } from "../rpc/createSubscription";
+import { client, stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
@@ -76,12 +83,44 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.git.status(input),
   );
 
-  const [allPaths, { refetch: refetchAll }] = createResource(
-    () => {
+  // Live file-tree subscription. Drives the browse-mode list (events
+  // flow straight into Pierre via the `event` prop on `PierreFileTree`)
+  // and acts as the change-notifier for diff modes — every delta
+  // triggers a `git.status` refetch so the changed-files list stays in
+  // sync with the working tree without a manual ↻.
+  //
+  // Repo-keyed: rebuilding the subscription when `repoPath` flips means
+  // the server's refcounted chokidar singleton tears down the old
+  // watcher and starts a fresh one for the new repo. The `repoPath()`
+  // read inside the source factory is what makes this happen — Solid
+  // tracks it and re-runs the factory when it changes.
+  const fsWatch = createSubscription<FsWatchEvent>(
+    async () => {
       const p = repoPath();
-      return p && view() === "browse" ? { repoPath: p } : null;
+      if (!p) return (async function* (): AsyncIterable<FsWatchEvent> {})();
+      return await stream.fsWatch(p);
     },
-    (input) => client.fs.listAll(input).then((r) => r.paths),
+    {
+      onError: (err) =>
+        toast.error(`File watcher subscription error: ${err.message}`),
+    },
+  );
+
+  // Diff-mode change-detector: any fs delta means git.status may have
+  // flipped (file content edited, file added, file removed). Re-fetching
+  // is cheap and keeps the local/branch list in sync without a refresh
+  // button. `defer: true` skips the initial run — the resource already
+  // fetches on first read.
+  createEffect(
+    on(
+      fsWatch,
+      (event) => {
+        if (event?.kind === "delta" && isDiffView()) {
+          void refetchStatus();
+        }
+      },
+      { defer: true },
+    ),
   );
 
   const [diff, { refetch: refetchDiff }] = createResource(
@@ -96,23 +135,50 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.git.diff(input),
   );
 
+  // Refetch the open diff on each fs change too — otherwise the diff
+  // pane stays frozen on the pre-edit hunk while the file list updates.
+  createEffect(
+    on(
+      fsWatch,
+      (event) => {
+        if (event?.kind === "delta" && isDiffView() && selectedPath()) {
+          void refetchDiff();
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   // Reset selection when the repo or view changes so a stale path doesn't
   // bleed across modes (e.g. a browse-mode pick showing up in diff mode).
   createEffect(
     on([repoPath, view], () => setSelectedPath(null), { defer: true }),
   );
 
-  const handleRefresh = () => {
-    if (isDiffView()) {
-      void refetchStatus();
-      if (selectedPath()) void refetchDiff();
-    } else {
-      void refetchAll();
-    }
-  };
+  // Path count for the surrounding `<Show>` empty-state check. Pierre
+  // itself is fed via the `event` accessor below — this count is just
+  // chrome bookkeeping. Tracking a separate signal (rather than
+  // reducing the full path list) keeps the per-delta cost O(1).
+  const [browseCount, setBrowseCount] = createSignal(0);
+  createEffect(() => {
+    const ev = fsWatch();
+    if (!ev) return;
+    if (ev.kind === "snapshot") setBrowseCount(ev.paths.length);
+    else setBrowseCount((c) => c + ev.added.length - ev.removed.length);
+  });
 
+  const hasTreeFiles = () =>
+    isDiffView() ? (status()?.files.length ?? 0) > 0 : browseCount() > 0;
+  // Initial path snapshot for `PierreFileTree`. In browse mode this is a
+  // bootstrap value used at mount only — once `event` starts firing,
+  // Pierre's incremental dispatch takes over and changes to this prop
+  // are ignored. In diff mode, where no event stream is wired, this is
+  // the live source of truth and gets `resetPaths`'d on every change.
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths() ?? [];
+    if (view() === "browse") {
+      const ev = fsWatch();
+      return ev?.kind === "snapshot" ? ev.paths : [];
+    }
     return status()?.files.map((f) => f.path) ?? [];
   });
   const treeGitStatus = createMemo(() => {
@@ -126,8 +192,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
 
   const treeError = (): Error | undefined =>
-    (isDiffView() ? status.error : allPaths.error) as Error | undefined;
-  const treeReady = () => (isDiffView() ? status() : allPaths());
+    (isDiffView() ? status.error : fsWatch.error()) as Error | undefined;
+  const treeReady = () => (isDiffView() ? status() : !fsWatch.pending());
   const branchTooltip = () =>
     `Changes vs ${status()?.base?.ref ?? "branch base"}`;
 
@@ -201,15 +267,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             </button>
           </div>
           <div class="flex-1" />
-          <button
-            type="button"
-            onClick={handleRefresh}
-            class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
-            aria-label="Refresh"
-            data-testid="diff-refresh"
-          >
-            ↻
-          </button>
         </div>
 
         <div
@@ -226,7 +283,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             </Match>
             <Match when={treeReady()}>
               <Show
-                when={treePaths().length > 0}
+                when={hasTreeFiles()}
                 fallback={
                   <div
                     class="px-2 py-4 text-fg-3/50 text-center"
@@ -245,6 +302,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
+                  event={view() === "browse" ? fsWatch : undefined}
                 />
               </Show>
             </Match>

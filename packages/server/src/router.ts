@@ -19,6 +19,7 @@ import {
 } from "kolu-git";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
+import { subscribeFileTree } from "./fileWatcher.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -252,6 +253,11 @@ export const appRouter = t.router({
     readFile: t.fs.readFile.handler(async ({ input }) =>
       unwrapGit(await readFile(input.repoPath, input.filePath, log)),
     ),
+    watch: t.fs.watch.handler(async function* ({ input, signal }) {
+      for await (const event of subscribeFileTree(input.repoPath, signal)) {
+        yield event;
+      }
+    }),
   },
   preferences: {
     get: t.preferences.get.handler(async function* ({ signal }) {
