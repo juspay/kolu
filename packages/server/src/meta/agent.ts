@@ -135,7 +135,6 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     unregisterWatch: () => void;
   } | null = null;
   let registeredForExternal = false;
-  let unregisterExternal: (() => void) | null = null;
 
   plog.debug("started");
 
@@ -168,10 +167,10 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
           (err) => slog.error({ err }, "external-change listener threw"),
           slog,
         );
-        unregisterExternal = registerWatch(
-          `${provider.kind}:external`,
-          "process-wide",
-        );
+        // The external-change watcher is process-lifetime — it stays up
+        // even after all terminals stop using the provider (see the
+        // activation comment above). No unregister needed.
+        registerWatch(`${provider.kind}:external`, "process-wide");
       }
     }
 
@@ -231,7 +230,6 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
-    unregisterExternal?.();
     current?.watcher.destroy();
     current?.unregisterWatch();
     plog.debug("stopped");
