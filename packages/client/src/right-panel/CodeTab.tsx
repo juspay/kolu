@@ -88,27 +88,43 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   );
 
   // Live file-tree subscription. Drives the browse-mode list (events
-  // flow straight into Pierre via the `event` prop on `PierreFileTree`)
+  // flow straight into Pierre via the `update` prop on `PierreFileTree`)
   // and acts as the change-notifier for diff modes — every delta
   // triggers a `git.status` refetch so the changed-files list stays in
   // sync with the working tree without a manual ↻.
+  //
+  // The `reduce` fold keeps a running `count` alongside the latest
+  // event, so the browse-mode empty-state check (`hasTreeFiles`) and the
+  // tree-update derivation read from one atomic store value — no
+  // separate `createEffect` mirroring count into a side signal.
   //
   // Repo-keyed: rebuilding the subscription when `repoPath` flips means
   // the server's refcounted chokidar singleton tears down the old
   // watcher and starts a fresh one for the new repo. The `repoPath()`
   // read inside the source factory is what makes this happen — Solid
   // tracks it and re-runs the factory when it changes.
-  const fsWatch = createSubscription<FsWatchEvent>(
+  type FsWatchState = { event: FsWatchEvent | undefined; count: number };
+  const fsWatch = createSubscription<FsWatchEvent, FsWatchState>(
     async () => {
       const p = repoPath();
       if (!p) return (async function* (): AsyncIterable<FsWatchEvent> {})();
       return await stream.fsWatch(p);
     },
     {
+      reduce: (acc, ev) => ({
+        event: ev,
+        count:
+          ev.kind === "snapshot"
+            ? ev.paths.length
+            : acc.count + ev.added.length - ev.removed.length,
+      }),
+      initial: { event: undefined, count: 0 },
       onError: (err) =>
         toast.error(`File watcher subscription error: ${err.message}`),
     },
   );
+  const fsEvent = (): FsWatchEvent | undefined => fsWatch()?.event;
+  const browseCount = (): number => fsWatch()?.count ?? 0;
 
   // Diff-mode change-detector: any fs delta means git.status may have
   // flipped (file content edited, file added, file removed). Re-fetching
@@ -117,7 +133,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // fetches on first read.
   createEffect(
     on(
-      fsWatch,
+      fsEvent,
       (event) => {
         if (event?.kind === "delta" && isDiffView()) {
           void refetchStatus();
@@ -143,7 +159,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // pane stays frozen on the pre-edit hunk while the file list updates.
   createEffect(
     on(
-      fsWatch,
+      fsEvent,
       (event) => {
         if (event?.kind === "delta" && isDiffView() && selectedPath()) {
           void refetchDiff();
@@ -159,18 +175,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     on([repoPath, view], () => setSelectedPath(null), { defer: true }),
   );
 
-  // Path count for the surrounding `<Show>` empty-state check. Pierre
-  // itself is fed via the `event` accessor below — this count is just
-  // chrome bookkeeping. Tracking a separate signal (rather than
-  // reducing the full path list) keeps the per-delta cost O(1).
-  const [browseCount, setBrowseCount] = createSignal(0);
-  createEffect(() => {
-    const ev = fsWatch();
-    if (!ev) return;
-    if (ev.kind === "snapshot") setBrowseCount(ev.paths.length);
-    else setBrowseCount((c) => c + ev.added.length - ev.removed.length);
-  });
-
   const hasTreeFiles = () =>
     isDiffView() ? (status()?.files.length ?? 0) > 0 : browseCount() > 0;
   // Initial path snapshot for `PierreFileTree`. In browse mode this is a
@@ -180,7 +184,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // the live source of truth and gets `resetPaths`'d on every change.
   const treePaths = createMemo(() => {
     if (view() === "browse") {
-      const ev = fsWatch();
+      const ev = fsEvent();
       return ev?.kind === "snapshot" ? ev.paths : [];
     }
     return status()?.files.map((f) => f.path) ?? [];
@@ -192,7 +196,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // chokidar prefers (rename = unlink + add); within a batch the order
   // doesn't materially affect Pierre's tree state.
   const treeUpdate = createMemo<PierreTreeUpdate | undefined>(() => {
-    const ev = fsWatch();
+    const ev = fsEvent();
     if (!ev) return undefined;
     if (ev.kind === "snapshot") return { kind: "reset", paths: ev.paths };
     const ops: FileTreeBatchOperation[] = [
@@ -217,7 +221,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   const treeError = (): Error | undefined =>
     (isDiffView() ? status.error : fsWatch.error()) as Error | undefined;
-  const treeReady = () => (isDiffView() ? status() : !fsWatch.pending());
+  const treeReady = () => (isDiffView() ? status() : fsEvent() !== undefined);
   const branchTooltip = () =>
     `Changes vs ${status()?.base?.ref ?? "branch base"}`;
 
