@@ -92,8 +92,6 @@ export function serverDiagnosticsSnapshot(): ServerDiagnostics {
     memory: readMemoryUsage(),
     counts: {
       publisherSize: publisherSize(),
-      claudeSessions: countActiveClaudeSessions(),
-      pendingSummaryFetches: getPendingSummaryFetches(),
     },
     processes: [...terminalEntries()].map(([terminalId, entry]) => ({
       terminalId,

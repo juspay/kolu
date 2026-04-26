@@ -347,8 +347,6 @@ export const ServerDiagnosticsSchema = z.object({
   }),
   counts: z.object({
     publisherSize: z.number(),
-    claudeSessions: z.number(),
-    pendingSummaryFetches: z.number(),
   }),
   processes: z.array(ServerProcessDiagnosticSchema),
   trackedResources: z.array(ServerDiagnosticResourceSchema),

@@ -475,15 +475,6 @@ const DiagnosticInfoContent: Component<{
                       {server().counts.publisherSize}
                     </span>
                   </Row>
-                  <Row label="Claude">
-                    <span class="font-mono text-fg">
-                      {server().counts.claudeSessions} sessions
-                      <span class="text-fg-3/70">
-                        {" "}
-                        · {server().counts.pendingSummaryFetches} summaries
-                      </span>
-                    </span>
-                  </Row>
                 </>
               )}
             </Show>
