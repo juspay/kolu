@@ -156,19 +156,19 @@ const CodeTabContent: Component<{ repoPath: string }> = (props) => {
 
   // Diff-mode change-detector: any fs delta means git.status may have
   // flipped (file content edited, file added, file removed) and the
-  // open diff hunk may be stale. `defer: true` skips the initial run —
-  // the resources already fetch on first read.
-  createEffect(
-    on(
-      fsEvent,
-      (event) => {
-        if (event?.kind !== "delta" || !isDiffView()) return;
-        void refetchStatus();
-        if (selectedPath()) void refetchDiff();
-      },
-      { defer: true },
-    ),
-  );
+  // open diff hunk may be stale. Plain `createEffect` (not `on()`) —
+  // `on(fsEvent, …)` short-circuits on identity check when reconcile
+  // diffs the wrapper store across snapshot→delta transitions, so the
+  // delta callback never fires. Reading `fsEvent()` directly inside a
+  // `createEffect` subscribes to the nested `event` field correctly.
+  // The `event === undefined` early-return covers the initial pre-
+  // first-event state; snapshots fall through the kind check.
+  createEffect(() => {
+    const event = fsEvent();
+    if (event?.kind !== "delta" || !isDiffView()) return;
+    void refetchStatus();
+    if (selectedPath()) void refetchDiff();
+  });
 
   // Reset selection when the view changes so a stale path doesn't bleed
   // across modes (e.g. a browse-mode pick showing up in diff mode).

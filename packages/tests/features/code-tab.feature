@@ -63,12 +63,17 @@ Feature: Code tab (review + browse)
 
   # Validates the chokidar-backed live update path: a file written
   # AFTER the Code tab is open must appear without any manual refresh.
+  # The write happens out-of-band (`the file system creates …`) because
+  # opening the Code tab moves keyboard focus to the panel UI — at that
+  # point `I run` keystrokes would land on the panel, not the PTY.
+  # `rm -rf` first so a stale dir from a prior run doesn't carry
+  # untracked files into the empty-changes assertion.
   Scenario: Live updates surface files written after opening the Code tab
-    When I run "git init /tmp/kolu-review-live && cd /tmp/kolu-review-live"
+    When I run "rm -rf /tmp/kolu-review-live && git init /tmp/kolu-review-live && cd /tmp/kolu-review-live"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     Then the Code tab should show the empty-changes message
-    When I run "printf 'after\n' > live.txt"
+    When the file system creates "after\n" at "/tmp/kolu-review-live/live.txt"
     Then the Code tab should list a changed file "live.txt"
 
   # Validates that editing an EXISTING tracked file (chokidar `change`
@@ -76,11 +81,11 @@ Feature: Code tab (review + browse)
   # changed list — the watcher's empty-delta event must propagate so the
   # client refetches `git.status`.
   Scenario: Live updates surface modifications to already-tracked files
-    When I run "git init /tmp/kolu-review-modify && cd /tmp/kolu-review-modify"
+    When I run "rm -rf /tmp/kolu-review-modify && git init /tmp/kolu-review-modify && cd /tmp/kolu-review-modify"
     And I run "printf 'one\n' > tracked.txt && git add tracked.txt && git commit -m init"
     And I click the Code tab
     Then the Code tab should show the empty-changes message
-    When I run "printf 'two\n' >> tracked.txt"
+    When the file system appends "two\n" to "/tmp/kolu-review-modify/tracked.txt"
     Then the Code tab should list a changed file "tracked.txt"
 
   Scenario: Untracked files appear alongside modified tracked files

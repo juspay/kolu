@@ -1,5 +1,25 @@
+import * as fs from "node:fs";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+
+// Bypass-the-terminal file ops: needed for live-update scenarios where
+// the Code tab has stolen keyboard focus, so subsequent `I run`
+// keystrokes vanish into the panel UI instead of the PTY. Writing
+// directly from the test process exercises chokidar → server →
+// client → tree the same way the user's editor would.
+When(
+  "the file system creates {string} at {string}",
+  function (this: KoluWorld, content: string, path: string) {
+    fs.writeFileSync(path, content);
+  },
+);
+
+When(
+  "the file system appends {string} to {string}",
+  function (this: KoluWorld, content: string, path: string) {
+    fs.appendFileSync(path, content);
+  },
+);
 
 // ── Pierre tree selectors ──
 //
