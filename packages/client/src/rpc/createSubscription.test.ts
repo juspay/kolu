@@ -500,7 +500,9 @@ describe("createSubscription", () => {
             return Promise.resolve(
               (async function* () {
                 await new Promise<void>((done) =>
-                  signal.addEventListener("abort", done, { once: true }),
+                  signal.addEventListener("abort", () => done(), {
+                    once: true,
+                  }),
                 );
               })(),
             );
