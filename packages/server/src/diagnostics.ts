@@ -36,11 +36,12 @@
 import path from "node:path";
 import v8 from "node:v8";
 import { getPendingSummaryFetches } from "kolu-claude-code";
-import type { ServerDiagnostics } from "kolu-common";
+import { AgentKindSchema, type ServerDiagnostics } from "kolu-common";
+import { getResources } from "kolu-runtime-diagnostics";
 import { log } from "./log.ts";
 import { installedActivations } from "./meta/agent.ts";
 import { publisherSize } from "./publisher.ts";
-import { terminalEntries } from "./terminal-registry.ts";
+import { type TerminalProcess, terminalEntries } from "./terminal-registry.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
  *  leak rate (the observed floor before the 4 GB OOM) produces ~50 MB
@@ -86,99 +87,83 @@ function captureMetrics(): MetricsCapture {
   };
 }
 
-/** First 8 chars of a UUID — matches the `id.slice(0, 8)` convention
- *  the dialog uses elsewhere. Long enough to disambiguate among the
- *  handful of terminals one user has open at once. */
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
-/** Build the per-instance Watches list. One row per active fs.watch
- *  handle (or per shared singleton, whose detail spells out fan-out
- *  membership). Iterates terminals once for the per-terminal categories
- *  and to build the `cwd` lookup that singletons use to annotate their
- *  attached terminals. */
-function collectWatches(): ServerDiagnostics["watches"] {
-  const gitInstances: ServerDiagnostics["watches"][number]["instances"] = [];
-  const claudeInstances: ServerDiagnostics["watches"][number]["instances"] = [];
-  const cwdById = new Map<string, string>();
-  for (const [id, entry] of terminalEntries()) {
-    const meta = entry.info.meta;
-    cwdById.set(id, meta.cwd);
-    if (meta.git !== null) {
-      gitInstances.push({
-        label: `${shortId(id)} · ${meta.git.repoName} (${meta.git.branch})`,
-        terminals: [{ id, cwd: meta.cwd }],
-      });
-    }
-    if (meta.agent?.kind === "claude-code") {
-      claudeInstances.push({
-        label: `${shortId(id)} · ${path.basename(meta.cwd)} (session ${shortId(meta.agent.sessionId)})`,
-        terminals: [{ id, cwd: meta.cwd }],
-      });
-    }
+/** Foreground binary basename — `entry.handle.process` is a kernel
+ *  syscall on darwin (sysctl) and can throw if node-pty has terminated
+ *  the process. Swallow the throw so a transient failure on one terminal
+ *  doesn't break the whole diagnostics snapshot. */
+function safeForegroundProcess(entry: TerminalProcess): string | null {
+  try {
+    const proc = entry.handle.process;
+    return proc ? path.basename(proc) : null;
+  } catch {
+    return null;
   }
-
-  const watches: ServerDiagnostics["watches"] = [];
-  if (gitInstances.length > 0) {
-    watches.push({
-      kind: "git-head",
-      description: ".git/HEAD watcher (per terminal in a repo)",
-      instances: gitInstances,
-    });
-  }
-  if (claudeInstances.length > 0) {
-    watches.push({
-      kind: "claude-transcript",
-      description: "Claude Code transcript JSONL watcher (per active session)",
-      instances: claudeInstances,
-    });
-  }
-  for (const a of installedActivations()) {
-    // The `?? "?"` defends against an activation reading mid-teardown,
-    // even though the cleanup ordering (stopProviders before
-    // unregisterTerminal) makes this unreachable today.
-    const attached = a.terminalIds.map((id) => ({
-      id,
-      cwd: cwdById.get(id) ?? "?",
-    }));
-    const fanOut =
-      attached.length > 0
-        ? `attached: ${attached.map((t) => shortId(t.id)).join(", ")}`
-        : "no terminal subscribers";
-    watches.push({
-      kind: `agent-external:${a.kind}`,
-      description: "Agent external-change watcher (shared singleton)",
-      instances: [
-        { label: "shared singleton", detail: fanOut, terminals: attached },
-      ],
-    });
-  }
-  return watches;
 }
 
 /** Snapshot for the client-facing Diagnostic info dialog (Debug → Diagnostic
- *  info). Aggregates memory + uptime + subsystem counts + per-instance
- *  enumerations of active server-side watchers. */
+ *  info). Combines `process.*` introspection, the runtime-diagnostics
+ *  registry (every fs.watch / timer / subscription handle), per-PTY
+ *  process state, and agent external-change activations.
+ *
+ *  The registry is the single source of truth for "what handles is the
+ *  server holding"; this aggregator just reads it and packages the
+ *  result for the wire — no per-integration knowledge lives here. */
 export function getServerDiagnostics(): ServerDiagnostics {
-  const m = captureMetrics();
+  const memory = process.memoryUsage();
+
+  const cwdById = new Map<string, string>();
+  const processes: ServerDiagnostics["processes"] = [];
+  for (const [terminalId, entry] of terminalEntries()) {
+    const meta = entry.info.meta;
+    cwdById.set(terminalId, meta.cwd);
+    processes.push({
+      terminalId,
+      pid: entry.info.pid,
+      cwd: meta.cwd,
+      foregroundPid: entry.handle.foregroundPid ?? null,
+      foregroundProcess: safeForegroundProcess(entry),
+      agentKind: meta.agent?.kind ?? null,
+    });
+  }
+
+  const activations: ServerDiagnostics["activations"] = [];
+  for (const a of installedActivations()) {
+    // Filter at the boundary — the activation map's `kind` is a free
+    // string, and the wire schema constrains it to AgentKind. Unknown
+    // kinds (a hypothetical future provider) just don't show up; not
+    // worth a runtime error in the diagnostics path.
+    const parsed = AgentKindSchema.safeParse(a.kind);
+    if (!parsed.success) continue;
+    activations.push({
+      kind: parsed.data,
+      // The `?? "?"` defends against a teardown race that the current
+      // cleanup ordering (stopProviders before unregisterTerminal)
+      // makes unreachable.
+      terminals: a.terminalIds.map((id) => ({
+        id,
+        cwd: cwdById.get(id) ?? "?",
+      })),
+    });
+  }
 
   return {
+    sampledAt: Date.now(),
     uptimeMs: Math.round(process.uptime() * 1000),
     nodeVersion: process.version,
     memory: {
-      rss: m.memory.rss,
-      heapUsed: m.memory.heapUsed,
-      heapTotal: m.memory.heapTotal,
-      external: m.memory.external,
-      arrayBuffers: m.memory.arrayBuffers,
+      rss: memory.rss,
+      heapUsed: memory.heapUsed,
+      heapTotal: memory.heapTotal,
+      external: memory.external,
+      arrayBuffers: memory.arrayBuffers,
     },
     subsystems: {
-      terminals: m.terminals,
-      publisherChannels: m.publisherChannels,
-      pendingSummaryFetches: m.pendingSummaryFetches,
+      publisherChannels: publisherSize(),
+      pendingSummaryFetches: getPendingSummaryFetches(),
     },
-    watches: collectWatches(),
+    resources: getResources(),
+    processes,
+    activations,
   };
 }
 

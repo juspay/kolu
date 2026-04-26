@@ -309,46 +309,68 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
-/** One active fs.watch instance the server is currently holding. The
- *  diagnostic dialog enumerates these one-per-row instead of folding
- *  them into a count, so a reader can see exactly which terminal /
- *  session / shared singleton each handle belongs to. */
-export const ServerWatchInstanceSchema = z.object({
-  /** Free-form per-instance label, e.g. `term-abcd · myrepo (main)` for
-   *  a `git-head` instance, or `term-xy · session-zw · ~/projects/foo`
-   *  for a Claude transcript watcher. */
+/** JSON-safe per-resource context. Lives on every entry so callers can
+ *  add cwd / sessionId / target-specific scalars without expanding the
+ *  schema. Restricted to scalars so the wire payload stays serializable
+ *  and the dialog can render it generically. */
+const ResourceContextSchema = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean(), z.null()]),
+);
+
+/** One active runtime handle the server is holding — fs.watch, timer,
+ *  or publisher subscription. Populated by the kolu-runtime-diagnostics
+ *  registry; the diagnostic dialog enumerates these one-per-row rather
+ *  than folding them into category counts. */
+export const ServerResourceSchema = z.object({
+  /** Process-local id assigned at registration. */
+  id: z.number().int().nonnegative(),
+  kind: z.enum(["fs-watch", "timer", "subscription"]),
+  /** Short human-readable category, e.g. `.git/HEAD`, `transcript JSONL`. */
   label: z.string(),
-  /** Optional secondary detail for the row (e.g. fan-out subscribers
-   *  on a shared singleton watcher). Absent for self-explanatory rows. */
-  detail: z.string().optional(),
-  /** Terminal contexts associated with this watcher. Per-terminal kinds
-   *  (git-head, claude-transcript) have exactly one entry; shared
-   *  singletons (agent-external:*) have one entry per attached terminal.
-   *  Surfaces the full cwd in the hover tooltip and JSON export, where
-   *  the truncated terminal IDs in `label`/`detail` would otherwise
-   *  hide it. */
-  terminals: z.array(z.object({ id: z.string(), cwd: z.string() })).optional(),
+  /** Owner package or subsystem, e.g. `kolu-git`, `kolu-claude-code`. */
+  owner: z.string(),
+  /** Path or identifier the resource is anchored to (gitDir, WAL file,
+   *  transcript JSONL, …). Null when the resource isn't tied to a single
+   *  path. */
+  target: z.string().nullable(),
+  /** Wall-clock millis the resource was registered. */
+  createdAt: z.number(),
+  /** Per-instance metadata (cwd, sessionId, etc.). */
+  context: ResourceContextSchema,
 });
 
-/** Categorical view of active server-side watchers — one group per
- *  category, with one row per actual fs.watch instance inside.
- *
- *  Server emits facts only (kind, category description, per-instance
- *  labels). The client composes any prose. No pluralization or other
- *  UI rendering rides in the wire shape. */
-export const ServerWatchSchema = z.object({
-  /** Stable identifier for the watch category, e.g. `git-head`,
-   *  `claude-transcript`, `agent-external:claude-code`. */
-  kind: z.string(),
-  /** Static, run-time-data-free description for the diagnostic dialog. */
-  description: z.string(),
-  /** One entry per active fs.watch handle in this category. Singleton
-   *  kinds (`agent-external:*`) produce exactly one entry; per-instance
-   *  kinds produce N entries. */
-  instances: z.array(ServerWatchInstanceSchema),
+/** PTY processes the server is currently managing. Surfaced separately
+ *  from the resource registry because PTYs aren't fs.watch handles —
+ *  they're per-terminal subprocesses with their own pid/cwd identity. */
+export const ServerProcessSchema = z.object({
+  terminalId: z.string(),
+  pid: z.number().int(),
+  cwd: z.string(),
+  /** Foreground job pid inside the PTY (null when shell is idle at the
+   *  prompt or the read failed on darwin sysctl). */
+  foregroundPid: z.number().int().nullable(),
+  /** Foreground binary basename (e.g. `claude`, `vim`). Null when
+   *  unknown — see `meta/agent.ts:readForegroundBasenameOnce`. */
+  foregroundProcess: z.string().nullable(),
+  /** Active agent kind detected for this terminal, if any. */
+  agentKind: AgentKindSchema.nullable(),
+});
+
+/** Shared agent external-change watcher and its current fan-out — one
+ *  entry per provider kind whose watcher is installed. Lets the dialog
+ *  show *which* terminals are subscribed to each `agent-external:*`
+ *  singleton, info that the resource registry alone can't carry. */
+export const ServerActivationSchema = z.object({
+  kind: AgentKindSchema,
+  /** Terminals currently fanned out from this singleton. */
+  terminals: z.array(z.object({ id: z.string(), cwd: z.string() })),
 });
 
 export const ServerDiagnosticsSchema = z.object({
+  /** Wall-clock millis when the snapshot was assembled. Lets a JSON
+   *  dump pasted into a bug report record *when* it was captured. */
+  sampledAt: z.number(),
   /** Process uptime in milliseconds. */
   uptimeMs: z.number(),
   /** `process.version` (e.g. `v22.11.0`). */
@@ -361,14 +383,17 @@ export const ServerDiagnosticsSchema = z.object({
     external: z.number(),
     arrayBuffers: z.number(),
   }),
-  /** Subsystem-level counts already collected by the heap-leak diag log. */
+  /** High-level counters that aren't tied to a specific handle. */
   subsystems: z.object({
-    terminals: z.number().int().nonnegative(),
     publisherChannels: z.number().int().nonnegative(),
     pendingSummaryFetches: z.number().int().nonnegative(),
   }),
-  /** Categorical view of active server-side watchers. */
-  watches: z.array(ServerWatchSchema),
+  /** Every long-lived runtime handle currently registered. */
+  resources: z.array(ServerResourceSchema),
+  /** PTY processes the server is managing (one per live terminal). */
+  processes: z.array(ServerProcessSchema),
+  /** Shared agent external-change watchers and their attached terminals. */
+  activations: z.array(ServerActivationSchema),
 });
 export type ServerDiagnostics = z.infer<typeof ServerDiagnosticsSchema>;
 

@@ -60,6 +60,47 @@ function formatMB(bytes: number): string {
   return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
+/** Group registry resources by `kind` for the Resources section. Order
+ *  follows first-occurrence in the input (which is sorted by createdAt
+ *  by the registry), so the rendered list is stable across snapshots. */
+function groupByKind(
+  resources: ServerDiagnostics["resources"],
+): Array<{ kind: string; items: ServerDiagnostics["resources"] }> {
+  const groups = new Map<string, ServerDiagnostics["resources"]>();
+  for (const r of resources) {
+    let bucket = groups.get(r.kind);
+    if (!bucket) {
+      bucket = [];
+      groups.set(r.kind, bucket);
+    }
+    bucket.push(r);
+  }
+  return [...groups.entries()].map(([kind, items]) => ({ kind, items }));
+}
+
+/** Multi-line title attribute for a resource row. Keys context entries
+ *  on separate lines so a long path or sessionId wraps cleanly. */
+function resourceTooltip(r: ServerDiagnostics["resources"][number]): string {
+  const lines = [
+    `id: ${r.id}`,
+    `owner: ${r.owner}`,
+    `created: ${new Date(r.createdAt).toISOString()}`,
+  ];
+  if (r.target) lines.push(`target: ${r.target}`);
+  for (const [k, v] of Object.entries(r.context)) {
+    lines.push(`${k}: ${v}`);
+  }
+  return lines.join("\n");
+}
+
+function processTooltip(p: ServerDiagnostics["processes"][number]): string {
+  const lines = [`terminal: ${p.terminalId}`, `pid: ${p.pid}`, `cwd: ${p.cwd}`];
+  if (p.foregroundPid !== null) lines.push(`fg pid: ${p.foregroundPid}`);
+  if (p.foregroundProcess) lines.push(`fg: ${p.foregroundProcess}`);
+  if (p.agentKind) lines.push(`agent: ${p.agentKind}`);
+  return lines.join("\n");
+}
+
 /** Compact d/h/m/s formatting for process uptime. Days dominate over hours
  *  for a long-lived dev server; seconds matter only for fresh restarts. */
 function formatUptime(ms: number): string {
@@ -287,7 +328,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   </Row>
                   <Row label="Terminals">
                     <span class="font-mono text-fg">
-                      {s().subsystems.terminals}
+                      {s().processes.length}
                     </span>
                   </Row>
                   <Row label="Channels">
@@ -313,9 +354,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </div>
         </Section>
 
-        <Section title="Watches">
-          {/* Four explicit states so a transport error doesn't get rendered
-              as "No active watchers". */}
+        <Section title="Resources">
+          {/* Four explicit states so a transport error doesn't get
+              rendered as "No active resources". The registry-backed
+              list enumerates every fs.watch / timer / subscription
+              handle the server is holding, grouped by kind for scan-
+              ability. */}
           <Switch>
             <Match when={serverErrorText()}>
               {(err) => (
@@ -325,37 +369,37 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Match when={server.loading}>
               <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
             </Match>
-            <Match when={(server()?.watches.length ?? 0) === 0}>
+            <Match when={(server()?.resources.length ?? 0) === 0}>
               <div class="text-[11px] text-fg-3/60 italic">
-                No active watchers
+                No tracked resources
               </div>
             </Match>
-            <Match when={server()?.watches}>
-              {(watches) => (
+            <Match when={server()?.resources}>
+              {(resources) => (
                 <div class="space-y-2">
-                  <For each={watches()}>
+                  <For each={groupByKind(resources())}>
                     {(group) => (
                       <div class="space-y-0.5">
-                        <div class="text-[11px]">
-                          <span class="font-mono text-fg-2">{group.kind}</span>
-                        </div>
-                        <div class="text-[10px] text-fg-3/70">
-                          {group.description}
+                        <div class="text-[11px] font-mono text-fg-2">
+                          {group.kind}{" "}
+                          <span class="text-fg-3/60">
+                            ({group.items.length})
+                          </span>
                         </div>
                         <ul class="pl-3 space-y-0.5 text-[10px] font-mono">
-                          <For each={group.instances}>
-                            {(inst) => (
+                          <For each={group.items}>
+                            {(r) => (
                               <li
-                                class="text-fg-2"
-                                title={inst.terminals
-                                  ?.map((t) => `${t.id.slice(0, 8)} · ${t.cwd}`)
-                                  .join("\n")}
+                                class="text-fg-2 break-all"
+                                title={resourceTooltip(r)}
                               >
-                                {inst.label}
-                                <Show when={inst.detail}>
+                                <span class="text-fg-3/70">{r.owner}</span>
+                                <span> · </span>
+                                <span class="text-fg-2">{r.label}</span>
+                                <Show when={r.target}>
                                   <span class="text-fg-3/60">
                                     {" "}
-                                    · {inst.detail}
+                                    · {r.target}
                                   </span>
                                 </Show>
                               </li>
@@ -370,6 +414,74 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </Match>
           </Switch>
         </Section>
+
+        <Section title="Processes">
+          <Show
+            when={(server()?.processes.length ?? 0) > 0}
+            fallback={
+              <div class="text-[11px] text-fg-3/60 italic">No processes</div>
+            }
+          >
+            <ul class="space-y-0.5 text-[10px] font-mono">
+              <For each={server()?.processes}>
+                {(p) => (
+                  <li class="text-fg-2 break-all" title={processTooltip(p)}>
+                    <span class="text-fg-3/70">{p.terminalId.slice(0, 8)}</span>
+                    <span class="text-fg-3"> · </span>
+                    <span class="tabular-nums text-fg-3">pid {p.pid}</span>
+                    <Show when={p.agentKind}>
+                      {(kind) => (
+                        <>
+                          <span class="text-fg-3"> · </span>
+                          <span class="text-accent">{kind()}</span>
+                        </>
+                      )}
+                    </Show>
+                    <Show when={p.foregroundProcess}>
+                      {(fg) => (
+                        <>
+                          <span class="text-fg-3"> · fg </span>
+                          <span class="text-fg-2">{fg()}</span>
+                        </>
+                      )}
+                    </Show>
+                    <span class="text-fg-3"> · </span>
+                    <span class="text-fg-3/70">{p.cwd}</span>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </Section>
+
+        <Show when={(server()?.activations.length ?? 0) > 0}>
+          <Section title="Agent activations">
+            <div class="text-[10px] text-fg-3/70 mb-1">
+              Shared external-change watchers and the terminals fanned out from
+              each.
+            </div>
+            <ul class="space-y-1 text-[11px]">
+              <For each={server()?.activations}>
+                {(a) => (
+                  <li>
+                    <div class="font-mono text-fg-2">{a.kind}</div>
+                    <ul class="pl-3 space-y-0.5 text-[10px] font-mono">
+                      <For each={a.terminals}>
+                        {(t) => (
+                          <li class="text-fg-2 break-all">
+                            <span class="text-fg-3/70">{t.id.slice(0, 8)}</span>
+                            <span class="text-fg-3"> · </span>
+                            <span class="text-fg-3/70">{t.cwd}</span>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Section>
+        </Show>
 
         {/* Xterm-related state — per-terminal facts plus the WebGL renderer's
             canvas-lifecycle instrumentation (debug-only for #591). One parent
