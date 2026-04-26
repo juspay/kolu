@@ -14,6 +14,7 @@ import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import {
   type Logger,
+  parseIsoTimestamp,
   type Transcript,
   type TranscriptEvent,
   withDb as sharedWithDb,
@@ -44,12 +45,6 @@ interface RolloutLine {
   };
 }
 
-function parseTimestamp(ts: string | undefined): number | null {
-  if (!ts) return null;
-  const ms = Date.parse(ts);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 /** Parse a JSON string but fall back to the raw string when invalid —
  *  Codex's tool arguments are always JSON-encoded, but we don't want a
  *  parse error to drop content silently. */
@@ -63,7 +58,7 @@ function tryParseJson(raw: string | undefined): unknown {
 }
 
 function eventFromLine(entry: RolloutLine): TranscriptEvent | null {
-  const ts = parseTimestamp(entry.timestamp);
+  const ts = parseIsoTimestamp(entry.timestamp);
   const outer = entry.type;
   const inner = entry.payload?.type;
 

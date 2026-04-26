@@ -27,6 +27,23 @@ export type Logger = {
   error: (obj: Record<string, unknown>, msg: string) => void;
 };
 
+/** Canonical list of supported agent kinds. Single source for the IR's
+ *  `agentKind` enum, the renderer's friendly-label map, and the router
+ *  dispatch table — adding a new vendor is one edit here plus the
+ *  loader. */
+export const AGENT_KINDS = ["claude-code", "opencode", "codex"] as const;
+export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
+
+/** Parse an ISO-8601 timestamp string to ms-since-epoch. Returns null on
+ *  empty input or unparseable strings. Shared between the Claude Code
+ *  and Codex JSONL loaders (both ride ISO timestamps in their event
+ *  envelopes). */
+export function parseIsoTimestamp(ts: string | undefined): number | null {
+  if (!ts) return null;
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /** Unified transcript IR for the "Export agent session as HTML" feature.
  *
  *  Lives here (anyagent, the shared base) rather than kolu-common because
@@ -77,7 +94,7 @@ export const TranscriptEventSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const TranscriptSchema = z.object({
-  agentKind: z.enum(["claude-code", "opencode", "codex"]),
+  agentKind: z.enum(AGENT_KINDS),
   /** Stable id from the source store (Claude session UUID, OpenCode
    *  `ses_…`, Codex thread UUID). Shown in the export header. */
   sessionId: z.string(),

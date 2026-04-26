@@ -9,8 +9,13 @@
  *  renderer JSON-stringifies them at display time. */
 
 import fs from "node:fs";
-import type { Transcript, TranscriptEvent } from "anyagent";
-import { findTranscriptPath, type SessionFile } from "./core.ts";
+import path from "node:path";
+import {
+  parseIsoTimestamp,
+  type Transcript,
+  type TranscriptEvent,
+} from "anyagent";
+import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
 
 interface AssistantContentBlock {
   type?: string;
@@ -36,18 +41,12 @@ interface JsonlEntry {
   toolUseResult?: unknown;
 }
 
-function parseTimestamp(ts: string | undefined): number | null {
-  if (!ts) return null;
-  const ms = Date.parse(ts);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 /** Convert one JSONL line into zero or more transcript events. Assistant
  *  lines fan out into one event per content block (text, thinking,
  *  tool_use); user lines become a single event whose shape depends on
  *  the content block kind. */
 function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
-  const ts = parseTimestamp(entry.timestamp);
+  const ts = parseIsoTimestamp(entry.timestamp);
 
   if (entry.type === "user") {
     const content = entry.message?.content;
@@ -135,14 +134,18 @@ export interface LoadClaudeCodeTranscriptInput {
 export function loadClaudeCodeTranscript(
   input: LoadClaudeCodeTranscriptInput,
 ): Transcript | null {
-  const session: SessionFile = {
-    pid: 0,
-    sessionId: input.sessionId,
-    cwd: input.cwd,
-  };
-  const file = findTranscriptPath(session);
-  if (!file) return null;
-  const raw = fs.readFileSync(file, "utf8");
+  const file = path.join(
+    PROJECTS_DIR,
+    encodeProjectPath(input.cwd),
+    `${input.sessionId}.jsonl`,
+  );
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
   return {
     agentKind: "claude-code",
     sessionId: input.sessionId,

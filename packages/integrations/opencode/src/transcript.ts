@@ -107,55 +107,84 @@ export interface LoadOpenCodeTranscriptInput {
 
 /** Read all messages + parts for a session and emit a unified Transcript.
  *  Returns null if the DB is unavailable; throws if the session id is
- *  unknown. */
+ *  unknown.
+ *
+ *  Single ordered LEFT JOIN against (message, part) — replaces the
+ *  N+1 (one query per message for its parts) that the first cut used.
+ *  The `part_message_id_id_idx` index already supports this; the
+ *  `LEFT JOIN` preserves message rows that have no parts (rare but
+ *  possible for in-flight assistant turns). */
 export function loadOpenCodeTranscript(
   input: LoadOpenCodeTranscriptInput,
   log?: Logger,
 ): Transcript | null {
   return withDb(
     (db) => {
-      const messages = db
+      const rows = db
         .prepare(
-          "SELECT id, data, time_created FROM message WHERE session_id = ? ORDER BY time_created ASC",
+          `SELECT m.id AS message_id,
+                  m.data AS message_data,
+                  m.time_created AS message_time,
+                  p.data AS part_data
+             FROM message m
+             LEFT JOIN part p ON p.message_id = m.id
+            WHERE m.session_id = ?
+            ORDER BY m.time_created ASC, p.time_created ASC`,
         )
         .all(input.sessionId) as Array<{
-        id: string;
-        data: string;
-        time_created: number;
+        message_id: string;
+        message_data: string;
+        message_time: number;
+        part_data: string | null;
       }>;
-      const partStmt = db.prepare(
-        "SELECT data, time_created FROM part WHERE message_id = ? ORDER BY time_created ASC",
-      );
       const events: TranscriptEvent[] = [];
-      for (const row of messages) {
-        let meta: MessageMeta;
-        try {
-          meta = JSON.parse(row.data) as MessageMeta;
-        } catch {
-          continue;
+      let lastMessageId: string | null = null;
+      let role: "user" | "assistant" | null = null;
+      let modelLabel: string | null = null;
+      let messageTs: number | null = null;
+      let parts: PartData[] = [];
+      const flush = () => {
+        if (role !== null) {
+          events.push(
+            ...eventsFromMessageParts(role, modelLabel, messageTs, parts),
+          );
         }
-        const role = meta.role;
-        if (role !== "user" && role !== "assistant") continue;
-        const modelLabel = meta.modelID
-          ? meta.providerID
-            ? `${meta.providerID}/${meta.modelID}`
-            : meta.modelID
-          : null;
-        const ts = meta.time?.created ?? row.time_created ?? null;
-        const partRows = partStmt.all(row.id) as Array<{
-          data: string;
-          time_created: number;
-        }>;
-        const parts: PartData[] = [];
-        for (const pr of partRows) {
+      };
+      for (const row of rows) {
+        if (row.message_id !== lastMessageId) {
+          flush();
+          lastMessageId = row.message_id;
+          parts = [];
+          let meta: MessageMeta;
           try {
-            parts.push(JSON.parse(pr.data) as PartData);
+            meta = JSON.parse(row.message_data) as MessageMeta;
           } catch {
-            // Malformed part — skip; OpenCode owns the writer so this is rare.
+            // Drop the whole message — without role we can't classify any
+            // of its parts. OpenCode writes this JSON itself, so a parse
+            // failure is exotic.
+            role = null;
+            continue;
           }
+          if (meta.role !== "user" && meta.role !== "assistant") {
+            role = null;
+            continue;
+          }
+          role = meta.role;
+          modelLabel = meta.modelID
+            ? meta.providerID
+              ? `${meta.providerID}/${meta.modelID}`
+              : meta.modelID
+            : null;
+          messageTs = meta.time?.created ?? row.message_time ?? null;
         }
-        events.push(...eventsFromMessageParts(role, modelLabel, ts, parts));
+        if (role === null || row.part_data === null) continue;
+        try {
+          parts.push(JSON.parse(row.part_data) as PartData);
+        } catch {
+          // Malformed part — skip; OpenCode owns the writer so this is rare.
+        }
       }
+      flush();
       return {
         agentKind: "opencode" as const,
         sessionId: input.sessionId,
