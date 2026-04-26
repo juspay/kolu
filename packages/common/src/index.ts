@@ -318,7 +318,7 @@ const DiagnosticDetailValueSchema = z.union([
 
 export const ServerDiagnosticResourceSchema = z.object({
   id: z.number(),
-  kind: z.enum(["fs-watch", "timer", "subscription", "process", "db"]),
+  kind: z.enum(["fs-watch", "timer", "subscription", "db"]),
   label: z.string(),
   owner: z.string().nullable(),
   target: z.string().nullable(),
@@ -351,7 +351,7 @@ export const ServerDiagnosticsSchema = z.object({
     pendingSummaryFetches: z.number(),
   }),
   processes: z.array(ServerProcessDiagnosticSchema),
-  resources: z.array(ServerDiagnosticResourceSchema),
+  trackedResources: z.array(ServerDiagnosticResourceSchema),
 });
 
 // --- Recent repos (server-side persistent state) ---

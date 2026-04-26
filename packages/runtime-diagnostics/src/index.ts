@@ -11,7 +11,6 @@ export type DiagnosticResourceKind =
   | "fs-watch"
   | "timer"
   | "subscription"
-  | "process"
   | "db";
 
 export type DiagnosticDetailValue = string | number | boolean | null;

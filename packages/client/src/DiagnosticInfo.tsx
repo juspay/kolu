@@ -68,7 +68,7 @@ function formatDuration(ms: number): string {
 }
 
 function formatDetails(
-  details: ServerDiagnostics["resources"][number]["details"],
+  details: ServerDiagnostics["trackedResources"][number]["details"],
 ): string | null {
   const entries = Object.entries(details);
   if (entries.length === 0) return null;
@@ -144,11 +144,15 @@ const DiagnosticInfoContent: Component<{
   });
   const activeWatches = createMemo(
     () =>
-      serverDiagnostics()?.resources.filter((r) => r.kind === "fs-watch") ?? [],
+      serverDiagnostics()?.trackedResources.filter(
+        (r) => r.kind === "fs-watch",
+      ) ?? [],
   );
   const activeResources = createMemo(
     () =>
-      serverDiagnostics()?.resources.filter((r) => r.kind !== "fs-watch") ?? [],
+      serverDiagnostics()?.trackedResources.filter(
+        (r) => r.kind !== "fs-watch",
+      ) ?? [],
   );
 
   function copyJson() {
@@ -574,7 +578,7 @@ const DiagnosticInfoContent: Component<{
 
                 <div class="mt-3 pt-2 border-t border-edge/50">
                   <div class="text-[10px] text-fg-3/70 mb-1">
-                    Other server resources
+                    Other tracked resources
                   </div>
                   <Show
                     when={activeResources().length > 0}

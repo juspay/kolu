@@ -54,7 +54,7 @@ Then(
         sampledAt?: number;
         uptimeMs?: number;
         memory?: { rss?: number };
-        resources?: unknown[];
+        trackedResources?: unknown[];
         processes?: unknown[];
       };
     };
@@ -62,7 +62,7 @@ Then(
     assert.strictEqual(typeof parsed.server.sampledAt, "number");
     assert.strictEqual(typeof parsed.server.uptimeMs, "number");
     assert.strictEqual(typeof parsed.server.memory?.rss, "number");
-    assert.ok(Array.isArray(parsed.server.resources));
+    assert.ok(Array.isArray(parsed.server.trackedResources));
     assert.ok(Array.isArray(parsed.server.processes));
   },
 );

@@ -85,7 +85,7 @@ function readMemoryUsage(): ServerDiagnostics["memory"] {
 }
 
 export function serverDiagnosticsSnapshot(): ServerDiagnostics {
-  const resources = diagnosticResourcesSnapshot();
+  const trackedResources = diagnosticResourcesSnapshot();
   return {
     sampledAt: Date.now(),
     uptimeMs: Math.round(process.uptime() * 1000),
@@ -103,7 +103,7 @@ export function serverDiagnosticsSnapshot(): ServerDiagnostics {
       foregroundProcess: safeForegroundProcess(entry) ?? null,
       agentKind: entry.info.meta.agent?.kind ?? null,
     })),
-    resources,
+    trackedResources,
   };
 }
 
