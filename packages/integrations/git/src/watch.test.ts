@@ -97,6 +97,25 @@ describe("watchFiles", () => {
     await closeIterator(iter, controller);
   });
 
+  it("emits changed paths when file content changes without tree membership changes", async () => {
+    const dir = await initRepo("changed");
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "before\n");
+
+    const controller = new AbortController();
+    const iter = watchFiles(dir, undefined, controller.signal)[
+      Symbol.asyncIterator
+    ]();
+
+    await nextEvent(iter);
+
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "after\n");
+    expect(await nextEvent(iter)).toEqual({
+      kind: "delta",
+      changed: ["tracked.txt"],
+    });
+    await closeIterator(iter, controller);
+  });
+
   it("watches git-visible node_modules paths when the repo does not ignore them", async () => {
     const dir = await initRepo("node-modules-visible");
     const controller = new AbortController();

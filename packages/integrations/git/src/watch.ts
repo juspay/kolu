@@ -28,19 +28,29 @@ function sortPaths(paths: Iterable<string>): string[] {
 }
 
 function hasEvents(event: Extract<FsWatchEvent, { kind: "delta" }>): boolean {
-  return Boolean(event.added?.length || event.removed?.length);
+  return Boolean(
+    event.added?.length ||
+      event.removed?.length ||
+      event.moved?.length ||
+      event.changed?.length,
+  );
 }
 
 function diffPathSets(
   previous: Set<string>,
   next: Set<string>,
+  changedPaths: Set<string>,
 ): Extract<FsWatchEvent, { kind: "delta" }> | null {
   const added = sortPaths([...next].filter((p) => !previous.has(p)));
   const removed = sortPaths([...previous].filter((p) => !next.has(p)));
+  const changed = sortPaths(
+    [...changedPaths].filter((p) => previous.has(p) && next.has(p)),
+  );
 
   const event: Extract<FsWatchEvent, { kind: "delta" }> = { kind: "delta" };
   if (added.length > 0) event.added = added;
   if (removed.length > 0) event.removed = removed;
+  if (changed.length > 0) event.changed = changed;
   return hasEvents(event) ? event : null;
 }
 
@@ -56,6 +66,7 @@ class RepoFileWatcher {
   private readonly watcher: FSWatcher;
   readonly ready: Promise<void>;
   private paths: Set<string>;
+  private changedPaths = new Set<string>();
   private debounce: NodeJS.Timeout | undefined;
 
   constructor(
@@ -75,7 +86,9 @@ class RepoFileWatcher {
       this.watcher.on("ready", resolve);
     });
 
-    this.watcher.on("all", () => this.scheduleRefresh());
+    this.watcher.on("all", (eventName, changedPath) =>
+      this.scheduleRefresh(eventName === "change" ? changedPath : undefined),
+    );
     this.watcher.on("error", (error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       log?.error({ err: error, repoPath }, "repo file watcher failed");
@@ -104,7 +117,8 @@ class RepoFileWatcher {
     for (const listener of [...this.listeners]) listener(event);
   }
 
-  private scheduleRefresh(): void {
+  private scheduleRefresh(changedPath?: string): void {
+    if (changedPath) this.changedPaths.add(changedPath);
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = setTimeout(() => {
       this.debounce = undefined;
@@ -120,7 +134,9 @@ class RepoFileWatcher {
     }
 
     const next = new Set(result.value);
-    const delta = diffPathSets(this.paths, next);
+    const changedPaths = this.changedPaths;
+    this.changedPaths = new Set();
+    const delta = diffPathSets(this.paths, next, changedPaths);
     this.paths = next;
     if (delta) this.emit(ok(delta));
   }

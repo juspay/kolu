@@ -148,6 +148,8 @@ export const FsWatchEventSchema = z.discriminatedUnion("kind", [
     added: z.array(z.string()).optional(),
     removed: z.array(z.string()).optional(),
     moved: z.array(FsWatchMoveSchema).optional(),
+    /** Git-visible paths whose contents or metadata changed without changing tree membership. */
+    changed: z.array(z.string()).optional(),
   }),
 ]);
 export type FsWatchEvent = z.infer<typeof FsWatchEventSchema>;
