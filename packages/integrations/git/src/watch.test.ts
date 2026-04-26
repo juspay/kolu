@@ -154,7 +154,7 @@ describe("watchFiles", () => {
     await closeIterator(iter, controller);
   });
 
-  it("shares one chokidar watcher across subscribers", async () => {
+  it("shares one chokidar watcher across concurrent subscribers", async () => {
     const dir = await initRepo("shared");
     const firstController = new AbortController();
     const secondController = new AbortController();
@@ -165,8 +165,7 @@ describe("watchFiles", () => {
       Symbol.asyncIterator
     ]();
 
-    await nextEvent(first);
-    await nextEvent(second);
+    await Promise.all([nextEvent(first), nextEvent(second)]);
     expect(test__activeFileTreeWatcherCount()).toBe(1);
 
     await closeIterator(first, firstController);

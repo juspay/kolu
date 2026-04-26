@@ -17,7 +17,12 @@ const WATCH_DEBOUNCE_MS = 200;
 
 type WatchListener = (event: GitResult<FsWatchEvent>) => void;
 
-const watchers = new Map<string, RepoFileWatcher>();
+type WatcherEntry = {
+  promise: Promise<GitResult<RepoFileWatcher>>;
+  watcher?: RepoFileWatcher;
+};
+
+const watchers = new Map<string, WatcherEntry>();
 
 function normalizeRepoPath(repoPath: string): string {
   return path.resolve(repoPath);
@@ -105,6 +110,11 @@ class RepoFileWatcher {
     return { kind: "snapshot", paths: sortPaths(this.paths) };
   }
 
+  replacePaths(paths: string[]): void {
+    this.paths = new Set(paths);
+    this.changedPaths = new Set();
+  }
+
   subscribe(listener: WatchListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -142,7 +152,8 @@ class RepoFileWatcher {
   }
 
   private close(): void {
-    watchers.delete(this.repoPath);
+    const entry = watchers.get(this.repoPath);
+    if (entry?.watcher === this) watchers.delete(this.repoPath);
     if (this.debounce) clearTimeout(this.debounce);
     void this.watcher.close().catch((error: unknown) => {
       this.log?.error(
@@ -159,18 +170,29 @@ async function acquireWatcher(
 ): Promise<GitResult<RepoFileWatcher>> {
   const normalized = normalizeRepoPath(repoPath);
   const existing = watchers.get(normalized);
-  if (existing) {
-    await existing.ready;
-    return ok(existing);
-  }
+  if (existing) return existing.promise;
 
-  const initial = await listAll(normalized, log);
-  if (!initial.ok) return initial;
+  let entry: WatcherEntry;
+  entry = {
+    promise: (async () => {
+      const initial = await listAll(normalized, log);
+      if (!initial.ok) {
+        if (watchers.get(normalized) === entry) watchers.delete(normalized);
+        return initial;
+      }
 
-  const watcher = new RepoFileWatcher(normalized, initial.value, log);
-  watchers.set(normalized, watcher);
-  await watcher.ready;
-  return ok(watcher);
+      const watcher = new RepoFileWatcher(normalized, initial.value, log);
+      entry.watcher = watcher;
+      await watcher.ready;
+
+      const refreshed = await listAll(normalized, log);
+      if (refreshed.ok) watcher.replacePaths(refreshed.value);
+      return ok(watcher);
+    })(),
+  };
+
+  watchers.set(normalized, entry);
+  return entry.promise;
 }
 
 /** Subscribe to git-filtered repo file-tree changes.
