@@ -14,9 +14,18 @@ export {
   matchesAgent,
 } from "./agent-provider.ts";
 export {
+  AGENT_KINDS,
+  type AgentKindLiteral,
   type Logger,
+  parseIsoTimestamp,
   type TaskProgress,
   TaskProgressSchema,
+  type Transcript,
+  type TranscriptEvent,
+  TranscriptEventSchema,
+  type TranscriptPr,
+  TranscriptPrSchema,
+  TranscriptSchema,
 } from "./schemas.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
 export {

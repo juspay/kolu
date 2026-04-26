@@ -6,8 +6,12 @@
  */
 import { implement, ORPCError } from "@orpc/server";
 
+import { loadClaudeCodeTranscript } from "kolu-claude-code";
+import { loadCodexTranscript } from "kolu-codex";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
+import type { Transcript, TranscriptPr } from "kolu-common";
+import { prValue } from "kolu-github/schemas";
 import {
   type GitResult,
   getDiff,
@@ -17,6 +21,9 @@ import {
   worktreeCreate,
   worktreeRemove,
 } from "kolu-git";
+import { loadOpenCodeTranscript } from "kolu-opencode";
+import { match } from "ts-pattern";
+import { transcriptToHtml } from "./transcriptHtml.ts";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
@@ -188,6 +195,75 @@ export const appRouter = t.router({
     killAll: t.terminal.killAll.handler(async () => {
       killAllTerminals();
     }),
+
+    exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
+      async ({ input }) => {
+        const term = requireTerminal(input.id);
+        const agent = term.info.meta.agent;
+        if (!agent) {
+          throw new ORPCError("PRECONDITION_FAILED", {
+            message:
+              "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
+          });
+        }
+        const cwd = term.info.meta.cwd;
+        const repoName = term.info.meta.git?.repoName ?? null;
+        const prInfo = prValue(term.info.meta.pr);
+        const pr: TranscriptPr | null = prInfo
+          ? { number: prInfo.number, url: prInfo.url }
+          : null;
+        const transcript = match<typeof agent, Transcript | null>(agent)
+          .with({ kind: "claude-code" }, (a) =>
+            loadClaudeCodeTranscript({
+              sessionId: a.sessionId,
+              cwd,
+              title: a.summary,
+              repoName,
+              model: a.model,
+              contextTokens: a.contextTokens,
+              pr,
+            }),
+          )
+          .with({ kind: "opencode" }, (a) =>
+            loadOpenCodeTranscript(
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                repoName,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
+              log,
+            ),
+          )
+          .with({ kind: "codex" }, (a) =>
+            loadCodexTranscript(
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                repoName,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
+              log,
+            ),
+          )
+          .exhaustive();
+        if (!transcript) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
+          });
+        }
+        const html = transcriptToHtml(transcript);
+        const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
+        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}.html`;
+        return { html, filename };
+      },
+    ),
 
     onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
       input,

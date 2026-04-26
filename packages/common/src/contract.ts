@@ -8,6 +8,8 @@ import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
 import {
   ActivityFeedSchema,
+  ExportTranscriptHtmlInputSchema,
+  ExportTranscriptHtmlOutputSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
@@ -78,6 +80,12 @@ export const contract = oc.router({
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     // Kill and remove all terminals (test-only: reset server state between scenarios)
     killAll: oc.output(z.void()),
+    // One-shot: read the active agent's transcript from disk and render
+    // a self-contained HTML export. Errors with PRECONDITION_FAILED if the
+    // terminal has no agent session attached.
+    exportTranscriptHtml: oc
+      .input(ExportTranscriptHtmlInputSchema)
+      .output(ExportTranscriptHtmlOutputSchema),
   },
   git: {
     worktreeCreate: oc

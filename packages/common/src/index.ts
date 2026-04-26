@@ -462,3 +462,17 @@ export {
 
 // --- Path helpers ---
 export { cwdBasename, shortenCwd } from "./path";
+
+// --- Transcript export ---
+export {
+  ExportTranscriptHtmlInputSchema,
+  ExportTranscriptHtmlOutputSchema,
+  type ExportTranscriptHtmlInput,
+  type ExportTranscriptHtmlOutput,
+  type Transcript,
+  type TranscriptEvent,
+  TranscriptEventSchema,
+  type TranscriptPr,
+  TranscriptPrSchema,
+  TranscriptSchema,
+} from "./transcript";

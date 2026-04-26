@@ -46,6 +46,7 @@ export interface CommandDeps {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportScrollbackAsPdf: () => void;
+  handleExportSessionAsHtml: () => void;
   handleScreenshotTerminal: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
@@ -156,6 +157,16 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Export scrollback as PDF",
             onSelect: () => deps.handleExportScrollbackAsPdf(),
           },
+          ...(deps.activeMeta()?.agent
+            ? [
+                {
+                  name: "Export agent session as HTML",
+                  description:
+                    "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
+                  onSelect: () => deps.handleExportSessionAsHtml(),
+                },
+              ]
+            : []),
           {
             name: "Screenshot terminal",
             keybind: SHORTCUTS.screenshotTerminal.keybind,

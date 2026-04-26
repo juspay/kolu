@@ -63,6 +63,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(SHORTCUTS.screenshotTerminal.keybind)} copies a PNG screenshot of the active terminal to your clipboard`,
   },
   {
+    id: "amb-export-session",
+    text: `${formatKeybind(SHORTCUTS.commandPalette.keybind)} → "Export agent session as HTML" saves the active Claude/OpenCode/Codex transcript as a self-contained, navigable file`,
+  },
+  {
     id: "amb-inspector",
     text: `${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
   },

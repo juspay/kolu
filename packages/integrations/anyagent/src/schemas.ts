@@ -26,3 +26,129 @@ export type Logger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
   error: (obj: Record<string, unknown>, msg: string) => void;
 };
+
+/** Canonical list of supported agent kinds. Single source for the IR's
+ *  `agentKind` enum, the renderer's friendly-label map, and the router
+ *  dispatch table — adding a new vendor is one edit here plus the
+ *  loader. */
+export const AGENT_KINDS = ["claude-code", "opencode", "codex"] as const;
+export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
+
+/** Parse an ISO-8601 timestamp string to ms-since-epoch. Returns null on
+ *  empty input or unparseable strings. Shared between the Claude Code
+ *  and Codex JSONL loaders (both ride ISO timestamps in their event
+ *  envelopes). */
+export function parseIsoTimestamp(ts: string | undefined): number | null {
+  if (!ts) return null;
+  const ms = Date.parse(ts);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+/** Unified transcript IR for the "Export agent session as HTML" feature.
+ *
+ *  Lives here (anyagent, the shared base) rather than kolu-common because
+ *  the per-agent loaders inside `kolu-claude-code` / `kolu-opencode` /
+ *  `kolu-codex` need the type, and those packages cannot import from
+ *  kolu-common (kolu-common imports from them — reverse direction). The
+ *  contract input/output schemas live in kolu-common where the contract
+ *  itself does. */
+export const TranscriptEventSchema = z.discriminatedUnion("kind", [
+  /** A user prompt. Anchor for prev/next-prompt navigation. */
+  z.object({
+    kind: z.literal("user"),
+    text: z.string(),
+    ts: z.number().nullable(),
+  }),
+  /** Visible assistant reply text. */
+  z.object({
+    kind: z.literal("assistant"),
+    text: z.string(),
+    model: z.string().nullable(),
+    ts: z.number().nullable(),
+  }),
+  /** Hidden chain-of-thought / reasoning. Rendered collapsed by default. */
+  z.object({
+    kind: z.literal("reasoning"),
+    text: z.string(),
+    ts: z.number().nullable(),
+  }),
+  /** A tool invocation. `id` correlates with a later `tool_result` when
+   *  the storage carries one; null for vendors that don't expose ids. */
+  z.object({
+    kind: z.literal("tool_call"),
+    id: z.string().nullable(),
+    toolName: z.string(),
+    inputs: z.unknown(),
+    ts: z.number().nullable(),
+  }),
+  /** Result of a previous tool call. `output` is `unknown` so vendors can
+   *  emit strings, structured payloads, or both — the renderer pretty-
+   *  prints whatever it gets. */
+  z.object({
+    kind: z.literal("tool_result"),
+    id: z.string().nullable(),
+    output: z.unknown(),
+    isError: z.boolean(),
+    ts: z.number().nullable(),
+  }),
+  /** Begin a nested subagent run inlined into the parent transcript.
+   *  Emitted by loaders that resolve cross-session references (e.g.
+   *  OpenCode's `task` tool, which spawns a child session whose full
+   *  activity would otherwise be invisible in the parent's export).
+   *  Pairs with `subtask_end`. */
+  z.object({
+    kind: z.literal("subtask_start"),
+    description: z.string(),
+    agentName: z.string().nullable(),
+    sessionId: z.string().nullable(),
+    ts: z.number().nullable(),
+  }),
+  /** Close a `subtask_start`. Loaders emit one per start; the renderer
+   *  uses the pair to scope visual indentation/grouping. */
+  z.object({
+    kind: z.literal("subtask_end"),
+    ts: z.number().nullable(),
+  }),
+]);
+
+/** Pull request context attached to the export header. Lives on the
+ *  Transcript rather than as an event so the renderer can show it
+ *  prominently regardless of how many events the session has. */
+export const TranscriptPrSchema = z.object({
+  number: z.number(),
+  url: z.string(),
+});
+export type TranscriptPr = z.infer<typeof TranscriptPrSchema>;
+
+export const TranscriptSchema = z.object({
+  agentKind: z.enum(AGENT_KINDS),
+  /** Stable id from the source store (Claude session UUID, OpenCode
+   *  `ses_…`, Codex thread UUID). Shown in the export header. */
+  sessionId: z.string(),
+  /** Optional human-readable title (Claude SDK summary, OpenCode title,
+   *  Codex thread title). Falls back to sessionId at render time. */
+  title: z.string().nullable(),
+  /** Repo name of the cwd's git worktree (e.g. "juspay/kolu" or
+   *  "kolu" when no remote is set). Null if the cwd is outside any
+   *  git repo. Shown in the masthead eyebrow next to the PR link. */
+  repoName: z.string().nullable(),
+  /** Original cwd of the session (display-only). */
+  cwd: z.string().nullable(),
+  /** Model identifier from the agent metadata (e.g. "claude-opus-4-6",
+   *  "gpt-5.4", "litellm/glm-latest"). Null when the session hasn't
+   *  produced an assistant turn yet. */
+  model: z.string().nullable(),
+  /** Running context-window token count from the agent metadata.
+   *  Pre-summed by each integration with its own accounting (see
+   *  ClaudeCodeInfo / OpenCodeInfo / CodexInfo `contextTokens` for the
+   *  vendor-specific math). Null when not yet available. */
+  contextTokens: z.number().nullable(),
+  /** GitHub PR linked to the session's worktree, if one exists. */
+  pr: TranscriptPrSchema.nullable(),
+  /** Wall-clock time the export was generated, in ms since epoch. */
+  exportedAt: z.number(),
+  events: z.array(TranscriptEventSchema),
+});
+
+export type TranscriptEvent = z.infer<typeof TranscriptEventSchema>;
+export type Transcript = z.infer<typeof TranscriptSchema>;

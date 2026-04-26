@@ -33,6 +33,7 @@ import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
+import { exportSessionAsHtml } from "./exportSessionAsHtml";
 import { useShortcuts } from "./input/useShortcuts";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
@@ -152,6 +153,12 @@ const App: Component = () => {
     exportScrollbackAsPdf(id, store.getMetadata(id));
   }
 
+  function handleExportSessionAsHtml() {
+    const id = store.activeId();
+    if (id === null) return;
+    void exportSessionAsHtml(id);
+  }
+
   function handleScreenshotTerminal(id?: TerminalId) {
     const targetId = id ?? store.activeId();
     if (targetId === null) return;
@@ -245,6 +252,7 @@ const App: Component = () => {
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportScrollbackAsPdf,
+    handleExportSessionAsHtml,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
