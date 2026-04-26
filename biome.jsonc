@@ -27,6 +27,7 @@
       "!.agents",
       "!.codex",
       "!.opencode",
+      "!opencode.json",
       "!**/dist",
       "!**/node_modules",
       "!**/.direnv",

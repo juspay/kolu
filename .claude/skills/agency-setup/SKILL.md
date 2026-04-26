@@ -99,7 +99,6 @@ Final file uses this template, including only the sections the user kept:
 ```markdown
 ---
 description: Workflow commands for the do pipeline
-applyTo: "**"
 ---
 
 ## Check command
@@ -148,6 +147,7 @@ Summarize for the user, in this order:
    - `code-police-rules.instructions.md` — project-specific quality rules checked alongside the built-in `code-police` rules.
    - `hickey-catalog.instructions.md` — project-specific complecting patterns extending the Hickey Layer 4 catalog.
    - `lowy-volatilities.instructions.md` — project-declared areas of volatility used by the Lowy review pass.
+   - `pr-evidence.instructions.md` — opts the project into `/do`'s `evidence` step, which posts an `## Evidence` PR comment with project-defined empirical artifacts (UI screenshots via chrome-devtools MCP, benchmark numbers, demo recordings, etc.).
 
    Point them at [Kolu's `.apm/instructions/`](https://github.com/juspay/kolu/tree/master/.apm/instructions) as a worked example. Skip files that already exist.
 6. **Restart the agent CLI** (Claude Code, Codex, opencode, etc.) so it picks up the newly generated skills — without a restart, the new skills won't be available in the running session.
