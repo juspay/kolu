@@ -458,7 +458,13 @@ function prettyJson(value: unknown): string {
 function formatTimestamp(ts: number | null): string {
   if (ts === null) return "";
   try {
-    return new Date(ts).toLocaleString();
+    return new Date(ts).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
   } catch {
     return "";
   }
@@ -691,6 +697,33 @@ const STYLE = `
   a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:hover { text-decoration-thickness: 2px; }
 
+  /* Thin themed scrollbars in any horizontally-scrollable code/diff
+     viewport. Replaces Chrome's chunky default that visually
+     dominated the Edit cards. */
+  .diff-body, .md-code, .card-text--code, pre.text {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) transparent;
+  }
+  .diff-body::-webkit-scrollbar,
+  .md-code::-webkit-scrollbar,
+  .card-text--code::-webkit-scrollbar,
+  pre.text::-webkit-scrollbar { height: 6px; width: 6px; }
+  .diff-body::-webkit-scrollbar-track,
+  .md-code::-webkit-scrollbar-track,
+  .card-text--code::-webkit-scrollbar-track,
+  pre.text::-webkit-scrollbar-track { background: transparent; }
+  .diff-body::-webkit-scrollbar-thumb,
+  .md-code::-webkit-scrollbar-thumb,
+  .card-text--code::-webkit-scrollbar-thumb,
+  pre.text::-webkit-scrollbar-thumb {
+    background: var(--rule-strong);
+    border-radius: 3px;
+  }
+  .diff-body::-webkit-scrollbar-thumb:hover,
+  .md-code::-webkit-scrollbar-thumb:hover,
+  .card-text--code::-webkit-scrollbar-thumb:hover,
+  pre.text::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
+
   /* --- Document --- */
   .doc {
     max-width: 48rem;
@@ -862,11 +895,11 @@ const STYLE = `
   }
   .gutter-num {
     font-family: ui-serif, Georgia, serif;
-    font-size: 0.875rem;
+    font-size: 0.6875rem;
     color: var(--ink-3);
-    margin-top: 0.5rem;
+    margin-top: 0.1875rem;
     font-feature-settings: "lnum", "tnum";
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
   .card {
     min-width: 0;
@@ -898,6 +931,7 @@ const STYLE = `
     color: var(--ink-3);
     margin-left: auto;
     font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
   }
 
   /* User events: tinted pulled-quote on rust accent. The wash bonds the
@@ -935,10 +969,15 @@ const STYLE = `
   }
   .event--user.is-current .gutter-num { color: var(--user); }
 
-  /* Assistant events: sans-serif working-notes voice, sage accent. The
-     font shift from serif (User) to sans (Assistant) is the dominant
-     human-vs-machine visual rhythm. */
+  /* Assistant events: sans-serif working-notes voice, steel-blue accent.
+     A hairline left rule mirrors the User card's stronger frame so
+     consecutive Assistant cards don't feel "loose" between Users. */
   .event--assistant .gutter-icon { color: var(--assistant); border-color: var(--assistant); }
+  .event--assistant .card {
+    border-left: 1px solid color-mix(in srgb, var(--assistant) 35%, transparent);
+    padding-left: 0.875rem;
+    margin-left: -1px;
+  }
   .card-text--assistant {
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 0.9375rem;
@@ -958,9 +997,8 @@ const STYLE = `
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
     font-size: 0.85em;
     background: var(--bg-elev);
-    border: 1px solid var(--rule);
-    border-radius: 3px;
-    padding: 0.0625rem 0.25rem;
+    border-radius: 2px;
+    padding: 0 0.1875rem;
     color: var(--ink);
   }
   .md a { color: var(--accent); }
