@@ -4,7 +4,7 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
-import type { TerminalId } from "kolu-common";
+import type { ServerDiagnostics, TerminalId } from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -23,11 +23,18 @@ import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { isMobile } from "./useMobile";
 
+/** WebGL2 support detection creates a throwaway canvas + WebGL context
+ *  that lingers on a detached node until GC. Compute once at module load
+ *  so re-opening this dialog doesn't burn one context per open — the exact
+ *  zombie-context pattern this dialog exists to diagnose (#591). */
 const WEBGL2_SUPPORTED = (() => {
   const canvas = document.createElement("canvas");
   return !!canvas.getContext("webgl2");
 })();
 
+/** One-shot browser facts read at first render. Stable for the session,
+ *  so no reactive source needed — keeps this module's dependency surface
+ *  small. */
 function browserFacts() {
   return {
     userAgent: navigator.userAgent,
@@ -38,6 +45,12 @@ function browserFacts() {
   };
 }
 
+/** Single source of truth for byte-count display across the dialog.
+ *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
+ *  callers may parse programmatically). `formatMB` returns a display string
+ *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
+ *  "0.0 MB" obscures more than it communicates. Every byte render in this
+ *  module goes through these two; evolving the granularity is one edit. */
 function bytesToMB(bytes: number): number {
   return Math.round((bytes / 1_048_576) * 10) / 10;
 }
@@ -56,6 +69,9 @@ function formatUptime(seconds: number): string {
   return `${h}h ${rm}m`;
 }
 
+/** `performance.memory` is Chromium-only and missing from the DOM type
+ *  definitions — isolate the narrow cast here so the snapshot memo stays
+ *  free of it. Returns null on non-Chromium browsers. */
 function readJsHeap(): {
   usedMB: number;
   totalMB: number;
@@ -76,24 +92,6 @@ function readJsHeap(): {
     totalMB: bytesToMB(mem.totalJSHeapSize),
     limitMB: bytesToMB(mem.jsHeapSizeLimit),
   };
-}
-
-interface ServerDiagnostics {
-  pid: number;
-  nodeVersion: string;
-  uptime: number;
-  memory: {
-    rss: number;
-    heapUsed: number;
-    heapTotal: number;
-    external: number;
-    arrayBuffers: number;
-  };
-  watches: Array<{ label: string; target: string }>;
-  terminals: number;
-  publisherSize: number;
-  claudeSessions: number;
-  pendingSummaryFetches: number;
 }
 
 function GroupLabel(props: { label: string }) {
@@ -121,8 +119,10 @@ const DiagnosticInfoContent: Component<{
     if (props.open) {
       client.server
         .diagnostics()
-        .then((d) => setServerDiag(d as ServerDiagnostics))
-        .catch(() => {});
+        .then((d) => setServerDiag(d))
+        .catch((err: Error) =>
+          toast.error(`Failed to fetch server diagnostics: ${err.message}`),
+        );
     }
   });
 
@@ -410,6 +410,8 @@ const DiagnosticInfoContent: Component<{
           </Show>
         </Section>
 
+        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
+            Remove this section when the leak is root-caused and fixed. */}
         <Section title="WebGL lifecycle">
           <div class="space-y-0.5">
             <Row label="Created">

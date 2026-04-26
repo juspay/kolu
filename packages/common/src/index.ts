@@ -332,6 +332,8 @@ export const ServerDiagnosticsSchema = z.object({
   pendingSummaryFetches: z.number(),
 });
 
+export type ServerDiagnostics = z.infer<typeof ServerDiagnosticsSchema>;
+
 // --- Recent repos (server-side persistent state) ---
 
 export const RecentRepoSchema = z.object({

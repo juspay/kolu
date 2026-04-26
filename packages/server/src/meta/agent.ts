@@ -155,6 +155,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         const slog = log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
+            // Snapshot before iteration so a reconcile that registers or
+            // unregisters synchronously can't skip a peer for this event.
             for (const fn of [...activation.reconcilers]) {
               try {
                 fn();
@@ -201,6 +203,12 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         next,
         (info) => {
           updateServerMetadata(entry, terminalId, (m) => {
+            // Widen Info to AgentInfo — every concrete Info variant is a
+            // member of the AgentInfo discriminated union by construction
+            // (its schema is one of the union's branches). The cast lives
+            // at the sole metadata-write site for agent info, so widening
+            // is confined to this one line rather than smeared across
+            // every provider.
             m.agent = info as unknown as AgentInfo;
           });
         },
