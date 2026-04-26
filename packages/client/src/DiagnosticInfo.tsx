@@ -332,26 +332,31 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </Match>
             <Match when={server()?.watches}>
               {(watches) => (
-                <div class="space-y-0.5">
+                <div class="space-y-2">
                   <For each={watches()}>
-                    {(w) => (
-                      <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
-                        <div class="min-w-0">
-                          <div class="font-mono text-fg-2">{w.kind}</div>
-                          <div class="text-[10px] text-fg-3/70">
-                            {w.description}
-                            <Show when={w.sharedReconcilers !== undefined}>
-                              {" — shared across "}
-                              {w.sharedReconcilers}{" "}
-                              {w.sharedReconcilers === 1
-                                ? "terminal"
-                                : "terminals"}
-                            </Show>
-                          </div>
+                    {(group) => (
+                      <div class="space-y-0.5">
+                        <div class="text-[11px]">
+                          <span class="font-mono text-fg-2">{group.kind}</span>
                         </div>
-                        <span class="font-mono text-fg tabular-nums">
-                          {w.count}
-                        </span>
+                        <div class="text-[10px] text-fg-3/70">
+                          {group.description}
+                        </div>
+                        <ul class="pl-3 space-y-0.5 text-[10px] font-mono">
+                          <For each={group.instances}>
+                            {(inst) => (
+                              <li class="text-fg-2">
+                                {inst.label}
+                                <Show when={inst.detail}>
+                                  <span class="text-fg-3/60">
+                                    {" "}
+                                    · {inst.detail}
+                                  </span>
+                                </Show>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
                       </div>
                     )}
                   </For>
@@ -361,178 +366,195 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </Switch>
         </Section>
 
-        <Section title="Terminals">
-          <Show
-            when={snapshot().terminals.length > 0}
-            fallback={
-              <div class="text-[11px] text-fg-3/60 italic">No terminals</div>
-            }
-          >
+        {/* Xterm-related state — per-terminal facts plus the WebGL renderer's
+            canvas-lifecycle instrumentation (debug-only for #591). One parent
+            section makes the relationship explicit; subgroup labels mirror the
+            Watches section's idiom. */}
+        <Section title="Terminals (xterm)">
+          <div class="space-y-3">
             <div class="space-y-1">
-              <For each={snapshot().terminals}>
-                {(d) => (
-                  <div class="text-[11px] font-mono space-y-0.5">
-                    <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3">
-                      <span class="text-fg-3/70">{d.id.slice(0, 8)}</span>
-                      <span class="text-fg-2 tabular-nums">
-                        {d.cols}×{d.rows}
-                      </span>
-                      <span
-                        class={
-                          d.renderer === "webgl" ? "text-accent" : "text-fg-2"
-                        }
-                      >
-                        {d.renderer}
-                      </span>
-                      <Show when={props.activeId === d.id}>
-                        <span class="text-[10px] text-fg-3/70">active</span>
-                      </Show>
-                    </div>
-                    <Show when={d.scrollback !== null}>
-                      <div class="pl-[9ch] text-[10px] text-fg-3/60 tabular-nums">
-                        scrollback: {d.scrollback}
-                        <Show when={d.atlas}>
-                          {(a) => (
-                            <span>
-                              {" "}
-                              · atlas: {a().w}×{a().h}
-                            </span>
-                          )}
-                        </Show>
-                        <Show when={d.bufferBytes}>
-                          {(bb) => (
-                            <span>
-                              {" "}
-                              · buf: {formatMB(bb().primary)}
-                              <Show when={bb().alternate > 0}>
-                                {" "}
-                                (+alt {formatMB(bb().alternate)})
-                              </Show>
-                            </span>
-                          )}
+              <div class="text-[11px] font-mono text-fg-2">live</div>
+              <Show
+                when={snapshot().terminals.length > 0}
+                fallback={
+                  <div class="text-[11px] text-fg-3/60 italic">
+                    No terminals
+                  </div>
+                }
+              >
+                <div class="space-y-1">
+                  <For each={snapshot().terminals}>
+                    {(d) => (
+                      <div class="text-[11px] font-mono space-y-0.5">
+                        <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3">
+                          <span class="text-fg-3/70">{d.id.slice(0, 8)}</span>
+                          <span class="text-fg-2 tabular-nums">
+                            {d.cols}×{d.rows}
+                          </span>
+                          <span
+                            class={
+                              d.renderer === "webgl"
+                                ? "text-accent"
+                                : "text-fg-2"
+                            }
+                          >
+                            {d.renderer}
+                          </span>
+                          <Show when={props.activeId === d.id}>
+                            <span class="text-[10px] text-fg-3/70">active</span>
+                          </Show>
+                        </div>
+                        <Show when={d.scrollback !== null}>
+                          <div class="pl-[9ch] text-[10px] text-fg-3/60 tabular-nums">
+                            scrollback: {d.scrollback}
+                            <Show when={d.atlas}>
+                              {(a) => (
+                                <span>
+                                  {" "}
+                                  · atlas: {a().w}×{a().h}
+                                </span>
+                              )}
+                            </Show>
+                            <Show when={d.bufferBytes}>
+                              {(bb) => (
+                                <span>
+                                  {" "}
+                                  · buf: {formatMB(bb().primary)}
+                                  <Show when={bb().alternate > 0}>
+                                    {" "}
+                                    (+alt {formatMB(bb().alternate)})
+                                  </Show>
+                                </span>
+                              )}
+                            </Show>
+                          </div>
                         </Show>
                       </div>
-                    </Show>
-                  </div>
-                )}
-              </For>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
-          </Show>
-        </Section>
 
-        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
-            Remove this section when the leak is root-caused and fixed. */}
-        <Section title="WebGL lifecycle">
-          <div class="space-y-0.5">
-            <Row label="Created">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.totalCreated}
-              </span>
-            </Row>
-            <Row label="Disposed">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.disposed}
-              </span>
-            </Row>
-            <Row label="In DOM">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.aliveInDom}
-              </span>
-            </Row>
-            <Row label="Zombies">
-              <span
-                class={`font-mono tabular-nums ${
-                  snapshot().webgl.aliveDetached > 0
-                    ? "text-danger font-semibold"
-                    : "text-fg"
-                }`}
-              >
-                {snapshot().webgl.aliveDetached}
-              </span>
-            </Row>
-            <Row label="GCed">
-              <span class="font-mono text-fg-3 tabular-nums">
-                {snapshot().webgl.gced}
-              </span>
-            </Row>
-            <Row label="Lost">
-              <span class="font-mono text-fg-3 tabular-nums">
-                {snapshot().webgl.contextsLost}
-              </span>
-            </Row>
-          </div>
-          <Show when={snapshot().webgl.aliveCanvases.length > 0}>
-            <div class="mt-2 pt-2 border-t border-edge/50">
-              <div class="text-[10px] text-fg-3/70 mb-1">Alive canvases</div>
-              <div class="space-y-0.5 text-[10px] font-mono">
-                <For each={snapshot().webgl.aliveCanvases}>
-                  {(c) => (
-                    <div class="flex items-baseline gap-2 whitespace-nowrap">
-                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
-                        #{c.canvasId}
-                      </span>
-                      <span
-                        class={
-                          c.isConnected
-                            ? "text-fg-2 w-[9ch] shrink-0"
-                            : "text-danger w-[9ch] shrink-0"
-                        }
-                      >
-                        {c.isConnected ? "in-dom" : "detached"}
-                      </span>
-                      <span class="text-fg-2 tabular-nums">
-                        {c.width}×{c.height}
-                      </span>
-                      <span class="text-fg-3">·</span>
-                      <span class="text-fg-2 tabular-nums">
-                        {formatMB(c.bytesEst)}
-                      </span>
-                      <Show when={c.contextLost}>
-                        <span class="text-fg-3">·</span>
-                        <span class="text-fg-3/70">ctx-lost</span>
-                      </Show>
-                    </div>
-                  )}
-                </For>
+            <div class="space-y-1">
+              <div class="text-[11px] font-mono text-fg-2">webgl-lifecycle</div>
+              <div class="space-y-0.5">
+                <Row label="Created">
+                  <span class="font-mono text-fg tabular-nums">
+                    {snapshot().webgl.totalCreated}
+                  </span>
+                </Row>
+                <Row label="Disposed">
+                  <span class="font-mono text-fg tabular-nums">
+                    {snapshot().webgl.disposed}
+                  </span>
+                </Row>
+                <Row label="In DOM">
+                  <span class="font-mono text-fg tabular-nums">
+                    {snapshot().webgl.aliveInDom}
+                  </span>
+                </Row>
+                <Row label="Zombies">
+                  <span
+                    class={`font-mono tabular-nums ${
+                      snapshot().webgl.aliveDetached > 0
+                        ? "text-danger font-semibold"
+                        : "text-fg"
+                    }`}
+                  >
+                    {snapshot().webgl.aliveDetached}
+                  </span>
+                </Row>
+                <Row label="GCed">
+                  <span class="font-mono text-fg-3 tabular-nums">
+                    {snapshot().webgl.gced}
+                  </span>
+                </Row>
+                <Row label="Lost">
+                  <span class="font-mono text-fg-3 tabular-nums">
+                    {snapshot().webgl.contextsLost}
+                  </span>
+                </Row>
               </div>
-            </div>
-          </Show>
-          <Show when={snapshot().webgl.recentEvents.length > 0}>
-            <details class="mt-2 pt-2 border-t border-edge/50 group">
-              <summary class="text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer list-none flex items-baseline justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm">
-                <span>
-                  Recent events ({snapshot().webgl.recentEvents.length})
-                </span>
-                <span class="font-mono text-fg-3/60 group-open:hidden">+</span>
-                <span class="font-mono text-fg-3/60 hidden group-open:inline">
-                  −
-                </span>
-              </summary>
-              <div class="mt-1 space-y-0.5 text-[10px] font-mono">
-                <For each={snapshot().webgl.recentEvents}>
-                  {(ev) => (
-                    <div class="flex items-baseline gap-2 whitespace-nowrap">
-                      <span class="text-fg-3/60 tabular-nums shrink-0">
-                        {new Date(ev.ts).toISOString().slice(11, 23)}
-                      </span>
-                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
-                        #{ev.canvasId}
-                      </span>
-                      <span class="text-fg-2">
-                        {ev.kind}
-                        {ev.kind === "contextlost" && (
-                          <span class="text-fg-3/70">
-                            {" "}
-                            (defaultPrevented={String(ev.defaultPrevented)})
+              <Show when={snapshot().webgl.aliveCanvases.length > 0}>
+                <div class="mt-2 pt-2 border-t border-edge/50">
+                  <div class="text-[10px] text-fg-3/70 mb-1">
+                    Alive canvases
+                  </div>
+                  <div class="space-y-0.5 text-[10px] font-mono">
+                    <For each={snapshot().webgl.aliveCanvases}>
+                      {(c) => (
+                        <div class="flex items-baseline gap-2 whitespace-nowrap">
+                          <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                            #{c.canvasId}
                           </span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </details>
-          </Show>
+                          <span
+                            class={
+                              c.isConnected
+                                ? "text-fg-2 w-[9ch] shrink-0"
+                                : "text-danger w-[9ch] shrink-0"
+                            }
+                          >
+                            {c.isConnected ? "in-dom" : "detached"}
+                          </span>
+                          <span class="text-fg-2 tabular-nums">
+                            {c.width}×{c.height}
+                          </span>
+                          <span class="text-fg-3">·</span>
+                          <span class="text-fg-2 tabular-nums">
+                            {formatMB(c.bytesEst)}
+                          </span>
+                          <Show when={c.contextLost}>
+                            <span class="text-fg-3">·</span>
+                            <span class="text-fg-3/70">ctx-lost</span>
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+              <Show when={snapshot().webgl.recentEvents.length > 0}>
+                <details class="mt-2 pt-2 border-t border-edge/50 group">
+                  <summary class="text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer list-none flex items-baseline justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm">
+                    <span>
+                      Recent events ({snapshot().webgl.recentEvents.length})
+                    </span>
+                    <span class="font-mono text-fg-3/60 group-open:hidden">
+                      +
+                    </span>
+                    <span class="font-mono text-fg-3/60 hidden group-open:inline">
+                      −
+                    </span>
+                  </summary>
+                  <div class="mt-1 space-y-0.5 text-[10px] font-mono">
+                    <For each={snapshot().webgl.recentEvents}>
+                      {(ev) => (
+                        <div class="flex items-baseline gap-2 whitespace-nowrap">
+                          <span class="text-fg-3/60 tabular-nums shrink-0">
+                            {new Date(ev.ts).toISOString().slice(11, 23)}
+                          </span>
+                          <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                            #{ev.canvasId}
+                          </span>
+                          <span class="text-fg-2">
+                            {ev.kind}
+                            {ev.kind === "contextlost" && (
+                              <span class="text-fg-3/70">
+                                {" "}
+                                (defaultPrevented=
+                                {String(ev.defaultPrevented)})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </details>
+              </Show>
+            </div>
+          </div>
         </Section>
       </div>
     </div>

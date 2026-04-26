@@ -309,28 +309,36 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
-/** Logical "watch" entries — categorical view of what the server is
- *  currently observing (per-terminal git HEAD watchers, agent transcripts,
- *  shared external-change watchers). Counts are aggregated, not handles —
- *  the goal is "is the server holding watchers I didn't expect?", not
- *  enumerating every fs.watch instance.
+/** One active fs.watch instance the server is currently holding. The
+ *  diagnostic dialog enumerates these one-per-row instead of folding
+ *  them into a count, so a reader can see exactly which terminal /
+ *  session / shared singleton each handle belongs to. */
+export const ServerWatchInstanceSchema = z.object({
+  /** Free-form per-instance label, e.g. `term-abcd · myrepo (main)` for
+   *  a `git-head` instance, or `term-xy · session-zw · ~/projects/foo`
+   *  for a Claude transcript watcher. */
+  label: z.string(),
+  /** Optional secondary detail for the row (e.g. fan-out subscribers
+   *  on a shared singleton watcher). Absent for self-explanatory rows. */
+  detail: z.string().optional(),
+});
+
+/** Categorical view of active server-side watchers — one group per
+ *  category, with one row per actual fs.watch instance inside.
  *
- *  Server emits facts (count, kind, optional reconciler count); the client
- *  composes any prose. No pluralization or other UI rendering rides in
- *  the wire shape. */
+ *  Server emits facts only (kind, category description, per-instance
+ *  labels). The client composes any prose. No pluralization or other
+ *  UI rendering rides in the wire shape. */
 export const ServerWatchSchema = z.object({
   /** Stable identifier for the watch category, e.g. `git-head`,
    *  `claude-transcript`, `agent-external:claude-code`. */
   kind: z.string(),
   /** Static, run-time-data-free description for the diagnostic dialog. */
   description: z.string(),
-  /** How many watchers of this kind are currently active. */
-  count: z.number().int().nonnegative(),
-  /** For shared singleton watchers (kinds prefixed `agent-external:`):
-   *  the number of terminals currently fanning out from this single
-   *  underlying watcher. Absent for per-instance kinds where `count`
-   *  already reflects per-terminal subscribers. */
-  sharedReconcilers: z.number().int().nonnegative().optional(),
+  /** One entry per active fs.watch handle in this category. Singleton
+   *  kinds (`agent-external:*`) produce exactly one entry; per-instance
+   *  kinds produce N entries. */
+  instances: z.array(ServerWatchInstanceSchema),
 });
 
 export const ServerDiagnosticsSchema = z.object({

@@ -65,7 +65,6 @@ const BASELINE_DELAY_MS = 5 * 60 * 1000;
 interface MetricsCapture {
   memory: NodeJS.MemoryUsage;
   terminals: number;
-  terminalsWithGit: number;
   claudeSessions: number;
   publisherChannels: number;
   pendingSummaryFetches: number;
@@ -73,57 +72,82 @@ interface MetricsCapture {
 
 function captureMetrics(): MetricsCapture {
   let terminals = 0;
-  let terminalsWithGit = 0;
   let claudeSessions = 0;
   for (const [, entry] of terminalEntries()) {
     terminals++;
-    if (entry.info.meta.git !== null) terminalsWithGit++;
     if (entry.info.meta.agent?.kind === "claude-code") claudeSessions++;
   }
   return {
     memory: process.memoryUsage(),
     terminals,
-    terminalsWithGit,
     claudeSessions,
     publisherChannels: publisherSize(),
     pendingSummaryFetches: getPendingSummaryFetches(),
   };
 }
 
-/** Snapshot for the client-facing Diagnostic info dialog (Debug → Diagnostic
- *  info). Aggregates memory + uptime + subsystem counts + a categorical
- *  view of active server-side watchers.
- *
- *  Watch entries are aggregated by category, not enumerated per fs.watch
- *  handle: instrumenting every fs.watch site would be invasive churn for
- *  modest payoff. The shape ("is the server holding watchers I didn't
- *  expect?") is what diagnostics actually answers. */
-export function getServerDiagnostics(): ServerDiagnostics {
-  const m = captureMetrics();
+/** First 8 chars of a UUID — matches the `id.slice(0, 8)` convention
+ *  the dialog uses elsewhere. Long enough to disambiguate among the
+ *  handful of terminals one user has open at once. */
+function shortId(id: string): string {
+  return id.slice(0, 8);
+}
+
+/** Build the per-instance Watches list. One row per active fs.watch
+ *  handle (or per shared singleton, whose detail spells out fan-out
+ *  membership). Iterates terminals once for the per-terminal categories;
+ *  the shared singletons read from `installedActivations()`. */
+function collectWatches(): ServerDiagnostics["watches"] {
+  const gitInstances: ServerDiagnostics["watches"][number]["instances"] = [];
+  const claudeInstances: ServerDiagnostics["watches"][number]["instances"] = [];
+  for (const [id, entry] of terminalEntries()) {
+    const meta = entry.info.meta;
+    if (meta.git !== null) {
+      gitInstances.push({
+        label: `${shortId(id)} · ${meta.git.repoName} (${meta.git.branch})`,
+      });
+    }
+    if (meta.agent?.kind === "claude-code") {
+      claudeInstances.push({
+        label: `${shortId(id)} · ${path.basename(meta.cwd)} (session ${shortId(meta.agent.sessionId)})`,
+      });
+    }
+  }
 
   const watches: ServerDiagnostics["watches"] = [];
-  if (m.terminalsWithGit > 0) {
+  if (gitInstances.length > 0) {
     watches.push({
       kind: "git-head",
       description: ".git/HEAD watcher (per terminal in a repo)",
-      count: m.terminalsWithGit,
+      instances: gitInstances,
     });
   }
-  if (m.claudeSessions > 0) {
+  if (claudeInstances.length > 0) {
     watches.push({
       kind: "claude-transcript",
       description: "Claude Code transcript JSONL watcher (per active session)",
-      count: m.claudeSessions,
+      instances: claudeInstances,
     });
   }
   for (const a of installedActivations()) {
+    const fanOut =
+      a.terminalIds.length > 0
+        ? `attached: ${a.terminalIds.map(shortId).join(", ")}`
+        : "no terminal subscribers";
     watches.push({
       kind: `agent-external:${a.kind}`,
       description: "Agent external-change watcher (shared singleton)",
-      count: 1,
-      sharedReconcilers: a.sharedReconcilers,
+      instances: [{ label: "shared singleton", detail: fanOut }],
     });
   }
+  return watches;
+}
+
+/** Snapshot for the client-facing Diagnostic info dialog (Debug → Diagnostic
+ *  info). Aggregates memory + uptime + subsystem counts + per-instance
+ *  enumerations of active server-side watchers. */
+export function getServerDiagnostics(): ServerDiagnostics {
+  const m = captureMetrics();
 
   return {
     uptimeMs: Math.round(process.uptime() * 1000),
@@ -140,7 +164,7 @@ export function getServerDiagnostics(): ServerDiagnostics {
       publisherChannels: m.publisherChannels,
       pendingSummaryFetches: m.pendingSummaryFetches,
     },
-    watches,
+    watches: collectWatches(),
   };
 }
 

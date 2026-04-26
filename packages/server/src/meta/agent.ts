@@ -97,7 +97,11 @@ function snapshotTerminalState(
  * that lifetime anyway — there is no useful uninstall).
  */
 interface ExternalChangesActivation {
-  reconcilers: Set<() => void>;
+  /** Per-terminal reconcile callbacks. Keying by terminal id (rather
+   *  than holding the bare functions in a Set) lets diagnostics enumerate
+   *  the fan-out membership without giving callers access to the
+   *  reconcile closures. Add/delete keep the same O(1) characteristics. */
+  reconcilers: Map<string, () => void>;
   installed: boolean;
 }
 const activations = new Map<string, ExternalChangesActivation>();
@@ -105,7 +109,7 @@ const activations = new Map<string, ExternalChangesActivation>();
 function getActivation(kind: string): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
-    entry = { reconcilers: new Set(), installed: false };
+    entry = { reconcilers: new Map(), installed: false };
     activations.set(kind, entry);
   }
   return entry;
@@ -119,12 +123,13 @@ function getActivation(kind: string): ExternalChangesActivation {
  *  flag, only the live set. */
 export function installedActivations(): Array<{
   kind: string;
-  sharedReconcilers: number;
+  /** Terminal IDs currently subscribed to this shared singleton. */
+  terminalIds: readonly string[];
 }> {
-  const out: Array<{ kind: string; sharedReconcilers: number }> = [];
+  const out: Array<{ kind: string; terminalIds: readonly string[] }> = [];
   for (const [kind, a] of activations) {
     if (!a.installed) continue;
-    out.push({ kind, sharedReconcilers: a.reconcilers.size });
+    out.push({ kind, terminalIds: [...a.reconcilers.keys()] });
   }
   return out;
 }
@@ -160,7 +165,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     // install the underlying watcher.
     if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
       const activation = getActivation(provider.kind);
-      activation.reconcilers.add(reconcile);
+      activation.reconcilers.set(terminalId, reconcile);
       registeredForExternal = true;
       if (!activation.installed) {
         activation.installed = true;
@@ -169,7 +174,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
           () => {
             // Snapshot before iteration so a reconcile that registers or
             // unregisters synchronously can't skip a peer for this event.
-            for (const fn of [...activation.reconcilers]) {
+            for (const fn of [...activation.reconcilers.values()]) {
               try {
                 fn();
               } catch (err) {
@@ -235,7 +240,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   return () => {
     abort.abort();
     if (registeredForExternal) {
-      activations.get(provider.kind)?.reconcilers.delete(reconcile);
+      activations.get(provider.kind)?.reconcilers.delete(terminalId);
     }
     current?.watcher.destroy();
     plog.debug("stopped");
