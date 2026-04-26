@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-04-26T00:23:58.980084+00:00'
-apm_version: 0.9.2
+generated_at: '2026-04-26T20:31:00.200823+00:00'
+apm_version: 0.9.3
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 96994aff26b010935f03835caba19d0d0491e243
+  resolved_commit: c122f08eeb4f53b829da4e3261932245db084853
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -90,7 +90,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:2d57a89ae458bef1584dc34bf25d95dfad68910e825b41dd27c2cf457a8b650a
+  content_hash: sha256:6a7864949f85675323ce0ded5c3811c48ee832b239259a42df701e227164bf24
 mcp_servers:
 - chrome-devtools
 mcp_configs:
@@ -120,6 +120,7 @@ local_deployed_files:
 - .claude/rules/hickey-catalog.md
 - .claude/rules/lowy-volatilities.md
 - .claude/rules/nix.md
+- .claude/rules/pr-evidence.md
 - .claude/rules/solidjs.md
 - .claude/rules/state.md
 - .claude/rules/streaming.md
@@ -146,6 +147,7 @@ local_deployed_file_hashes:
   .claude/rules/hickey-catalog.md: sha256:11144a19e7037941b34921fc9326245e4702e51b258fb3890b2984561e06af60
   .claude/rules/lowy-volatilities.md: sha256:82aeded3cd5a0e2016027b796abc3058544663f3e7bf636c54fb65704f1af0fd
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
+  .claude/rules/pr-evidence.md: sha256:d52173aae289b5d7cdddb39122907d3397704746def872c4bc19c7b13d16ba8d
   .claude/rules/solidjs.md: sha256:d6b03eb7701e4ae637d8c5a389148811ef028f68c40bf0e76e8769d816e6e545
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
