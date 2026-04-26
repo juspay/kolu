@@ -207,6 +207,7 @@ export const appRouter = t.router({
           });
         }
         const cwd = term.info.meta.cwd;
+        const repoName = term.info.meta.git?.repoName ?? null;
         const prInfo = prValue(term.info.meta.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
@@ -217,6 +218,7 @@ export const appRouter = t.router({
               sessionId: a.sessionId,
               cwd,
               title: a.summary,
+              repoName,
               model: a.model,
               contextTokens: a.contextTokens,
               pr,
@@ -227,6 +229,7 @@ export const appRouter = t.router({
               {
                 sessionId: a.sessionId,
                 title: a.summary,
+                repoName,
                 cwd,
                 model: a.model,
                 contextTokens: a.contextTokens,
@@ -240,6 +243,7 @@ export const appRouter = t.router({
               {
                 sessionId: a.sessionId,
                 title: a.summary,
+                repoName,
                 cwd,
                 model: a.model,
                 contextTokens: a.contextTokens,

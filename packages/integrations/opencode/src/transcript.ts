@@ -103,6 +103,7 @@ function withDb<T>(
 export interface LoadOpenCodeTranscriptInput {
   sessionId: string;
   title: string | null;
+  repoName: string | null;
   cwd: string | null;
   model: string | null;
   contextTokens: number | null;
@@ -193,6 +194,7 @@ export function loadOpenCodeTranscript(
         agentKind: "opencode" as const,
         sessionId: input.sessionId,
         title: input.title,
+        repoName: input.repoName,
         cwd: input.cwd,
         model: input.model,
         contextTokens: input.contextTokens,

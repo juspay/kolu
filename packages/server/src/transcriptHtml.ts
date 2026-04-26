@@ -32,8 +32,17 @@ const TOOL_ICON =
   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5 2.5-2.5z"></path></svg>';
 const TOOLS_DOCK_ICON =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path></svg>';
+const EDIT_DOCK_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>';
 const THEME_DOCK_ICON =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+
+/** Inline kolu logo — five rainbow tiered steps (கோலு). Pulled from
+ *  packages/client/favicon.svg verbatim so the export carries the same
+ *  brand mark the live app does. Inline keeps the document
+ *  self-contained and offline-safe. */
+const KOLU_LOGO =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="18" height="18" aria-hidden="true"><rect x="1" y="26" width="30" height="5" rx="1.2" fill="#ef4444"/><rect x="4" y="20" width="25" height="5" rx="1.2" fill="#f59e0b"/><rect x="8" y="14" width="20" height="5" rx="1.2" fill="#22c55e"/><rect x="12" y="8" width="15" height="5" rx="1.2" fill="#3b82f6"/><rect x="16" y="2" width="10" height="5" rx="1.2" fill="#a855f7"/></svg>';
 
 function escapeHtml(s: string): string {
   return s
@@ -57,6 +66,49 @@ function applyInline(s: string): string {
     )
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+}
+
+interface ListMarker {
+  match: RegExp;
+  tag: "ul" | "ol";
+  cls: string;
+}
+
+/** Detect the start of a markdown list at this line. The capture group
+ *  is the inline content after the marker, ready for `applyInline`. */
+function detectListMarker(line: string): ListMarker | null {
+  if (/^\s*[-*+]\s+/.test(line)) {
+    return {
+      match: /^\s*[-*+]\s+(.*)$/,
+      tag: "ul",
+      cls: "md-list",
+    };
+  }
+  if (/^\s*\d+\.\s+/.test(line)) {
+    return {
+      match: /^\s*\d+\.\s+(.*)$/,
+      tag: "ol",
+      cls: "md-list md-list--ordered",
+    };
+  }
+  return null;
+}
+
+/** Render the buffered content of a single list item. Blank entries in
+ *  `buf` mark paragraph breaks within the item; one paragraph collapses
+ *  to inline content (no wrapper), multiple paragraphs each get a
+ *  `<p>`. */
+function renderListItem(buf: string[]): string {
+  const paras: string[][] = [[]];
+  for (const ln of buf) {
+    if (ln === "") paras.push([]);
+    else (paras[paras.length - 1] ?? []).push(ln);
+  }
+  const nonEmpty = paras.filter((p) => p.length > 0);
+  if (nonEmpty.length <= 1) {
+    return applyInline((nonEmpty[0] ?? []).join(" "));
+  }
+  return nonEmpty.map((p) => `<p>${applyInline(p.join(" "))}</p>`).join("");
 }
 
 /** Render a markdown subset to HTML. Headings (h1–h3), fenced code,
@@ -135,32 +187,59 @@ export function renderMarkdown(text: string): string {
       continue;
     }
 
-    // Bullet list.
-    if (/^\s*[-*+]\s+/.test(line)) {
-      flushPara();
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i] ?? "")) {
-        items.push(
-          `<li>${applyInline((lines[i] ?? "").replace(/^\s*[-*+]\s+/, ""))}</li>`,
+    // Bullet / ordered list. Each item absorbs subsequent indented
+    // continuation lines (and blank lines between them) so multi-
+    // paragraph items render as one cohesive `<li>` instead of breaking
+    // into separate `<ul>` blocks at every blank line.
+    {
+      const bulletKind = detectListMarker(line);
+      if (bulletKind) {
+        flushPara();
+        const items: string[] = [];
+        while (i < lines.length) {
+          const cur = lines[i] ?? "";
+          const m = bulletKind.match.exec(cur);
+          if (!m) break;
+          const buf: string[] = [m[1] ?? ""];
+          i++;
+          // Pull in continuation lines: indented (≥1 space) lines, plus
+          // blank lines whose next non-blank is also indented. Stops at
+          // the next bullet marker or any non-indented non-blank line.
+          while (i < lines.length) {
+            const peek = lines[i] ?? "";
+            if (detectListMarker(peek)) break;
+            if (peek.trim() === "") {
+              let j = i + 1;
+              while (j < lines.length && (lines[j] ?? "").trim() === "") j++;
+              if (j >= lines.length) break;
+              const next = lines[j] ?? "";
+              if (detectListMarker(next)) {
+                // Blank lines between sibling bullets — skip past them
+                // so the outer loop picks up the next bullet.
+                i = j;
+                break;
+              }
+              if (/^\s+\S/.test(next)) {
+                buf.push("");
+                i = j;
+                continue;
+              }
+              break;
+            }
+            if (/^\s+\S/.test(peek)) {
+              buf.push(peek.replace(/^\s+/, ""));
+              i++;
+              continue;
+            }
+            break;
+          }
+          items.push(`<li>${renderListItem(buf)}</li>`);
+        }
+        out.push(
+          `<${bulletKind.tag} class="${bulletKind.cls}">${items.join("")}</${bulletKind.tag}>`,
         );
-        i++;
+        continue;
       }
-      out.push(`<ul class="md-list">${items.join("")}</ul>`);
-      continue;
-    }
-
-    // Numbered list.
-    if (/^\s*\d+\.\s+/.test(line)) {
-      flushPara();
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i] ?? "")) {
-        items.push(
-          `<li>${applyInline((lines[i] ?? "").replace(/^\s*\d+\.\s+/, ""))}</li>`,
-        );
-        i++;
-      }
-      out.push(`<ol class="md-list md-list--ordered">${items.join("")}</ol>`);
-      continue;
     }
 
     // Blank line breaks paragraphs.
@@ -176,6 +255,163 @@ export function renderMarkdown(text: string): string {
   }
   flushPara();
   return out.join("\n");
+}
+
+/** Tools whose payload is the agent's actual file change. These render
+ *  inline as a diff (not collapsed under "Tools hidden") because the
+ *  diff IS the conversation content — the agent's edits ARE the work
+ *  being reviewed. Names cover Claude Code (Edit/MultiEdit/Write/
+ *  NotebookEdit) and Codex (apply_patch). OpenCode emits its tools
+ *  under different names not yet covered. */
+const EDIT_TOOL_NAMES = new Set([
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+  "apply_patch",
+]);
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function strField(o: Record<string, unknown>, k: string): string {
+  const v = o[k];
+  return typeof v === "string" ? v : "";
+}
+
+/** Render an Edit-style diff (one old chunk → one new chunk) at line
+ *  granularity. Strips common leading/trailing lines so the change is
+ *  obvious; everything in between is rendered as `-` removed and `+`
+ *  added. Naive but adequate for the small chunks Edit tools carry. */
+function renderEditDiff(
+  filePath: string,
+  oldText: string,
+  newText: string,
+): string {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  let head = 0;
+  while (
+    head < oldLines.length &&
+    head < newLines.length &&
+    oldLines[head] === newLines[head]
+  )
+    head++;
+  let tailOld = oldLines.length;
+  let tailNew = newLines.length;
+  while (
+    tailOld > head &&
+    tailNew > head &&
+    oldLines[tailOld - 1] === newLines[tailNew - 1]
+  ) {
+    tailOld--;
+    tailNew--;
+  }
+  const ctx: string[] = [];
+  if (head > 0)
+    ctx.push(
+      `<span class="diff-line diff-ctx">  ${escapeHtml(oldLines[head - 1] ?? "")}</span>`,
+    );
+  for (let i = head; i < tailOld; i++) {
+    ctx.push(
+      `<span class="diff-line diff-del">- ${escapeHtml(oldLines[i] ?? "")}</span>`,
+    );
+  }
+  for (let i = head; i < tailNew; i++) {
+    ctx.push(
+      `<span class="diff-line diff-add">+ ${escapeHtml(newLines[i] ?? "")}</span>`,
+    );
+  }
+  if (tailOld < oldLines.length) {
+    ctx.push(
+      `<span class="diff-line diff-ctx">  ${escapeHtml(oldLines[tailOld] ?? "")}</span>`,
+    );
+  }
+  // Concatenate without newlines: each span is `display:block`, so a
+  // literal newline inside the surrounding `<pre>` would double-space
+  // every row.
+  return `<div class="diff"><div class="diff-file">${escapeHtml(filePath)}</div><pre class="diff-body">${ctx.join("")}</pre></div>`;
+}
+
+/** Render a Write tool call: a brand-new file with all content as
+ *  added lines. */
+function renderWriteDiff(filePath: string, content: string): string {
+  const body = content
+    .split("\n")
+    .map((l) => `<span class="diff-line diff-add">+ ${escapeHtml(l)}</span>`)
+    .join("");
+  return `<div class="diff"><div class="diff-file">${escapeHtml(filePath)} <span class="diff-tag">new</span></div><pre class="diff-body">${body}</pre></div>`;
+}
+
+/** Render a Codex `apply_patch` payload (already in unified-diff-ish
+ *  form) by line-coloring `+`/`-`/`***`. */
+function renderApplyPatch(patch: string): string {
+  const body = patch
+    .split("\n")
+    .map((l) => {
+      const cls = l.startsWith("+")
+        ? "diff-add"
+        : l.startsWith("-")
+          ? "diff-del"
+          : l.startsWith("***") || l.startsWith("@@")
+            ? "diff-hunk"
+            : "diff-ctx";
+      return `<span class="diff-line ${cls}">${escapeHtml(l)}</span>`;
+    })
+    .join("");
+  return `<div class="diff"><pre class="diff-body">${body}</pre></div>`;
+}
+
+/** Dispatch on toolName for the well-known edit tools; fall through to
+ *  pretty JSON for everything else. Operates on the IR's `unknown`
+ *  inputs without leaking vendor specifics into the renderer's
+ *  signature — the helper just probes structurally. */
+function renderToolInputsHtml(toolName: string, inputs: unknown): string {
+  if (toolName === "apply_patch" && typeof inputs === "string") {
+    return renderApplyPatch(inputs);
+  }
+  if (isObj(inputs)) {
+    if (toolName === "Edit") {
+      return renderEditDiff(
+        strField(inputs, "file_path"),
+        strField(inputs, "old_string"),
+        strField(inputs, "new_string"),
+      );
+    }
+    if (toolName === "Write") {
+      return renderWriteDiff(
+        strField(inputs, "file_path"),
+        strField(inputs, "content"),
+      );
+    }
+    if (toolName === "NotebookEdit") {
+      return renderEditDiff(
+        strField(inputs, "notebook_path"),
+        strField(inputs, "old_source"),
+        strField(inputs, "new_source"),
+      );
+    }
+    if (toolName === "MultiEdit") {
+      const filePath = strField(inputs, "file_path");
+      const edits = inputs.edits;
+      if (Array.isArray(edits)) {
+        return edits
+          .map((e) =>
+            isObj(e)
+              ? renderEditDiff(
+                  filePath,
+                  strField(e, "old_string"),
+                  strField(e, "new_string"),
+                )
+              : "",
+          )
+          .filter(Boolean)
+          .join("");
+      }
+    }
+  }
+  return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(inputs))}</pre>`;
 }
 
 /** JSON-stringify with a 2-space indent. Falls back to the empty string
@@ -263,6 +499,24 @@ function renderEvent(event: TranscriptEvent, index: number): string {
 </section>`;
     })
     .with({ kind: "tool_call" }, (e) => {
+      // Edit-class tools render inline as diffs and stay visible even
+      // when the global "Hide tools" toggle is on — the diff IS the
+      // conversation content, not an exec-output side-channel.
+      if (EDIT_TOOL_NAMES.has(e.toolName)) {
+        return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}">
+  <div class="gutter">
+    <span class="gutter-icon" aria-label="Edit">${TOOL_ICON}</span>
+  </div>
+  <div class="card">
+    <header class="card-head">
+      <span class="card-role">Edit</span>
+      <span class="tool-name">${escapeHtml(e.toolName)}</span>
+      ${tsHtml}
+    </header>
+    ${renderToolInputsHtml(e.toolName, e.inputs)}
+  </div>
+</section>`;
+      }
       const inputs = prettyJson(e.inputs);
       return `<section class="event event--tool event--tool-call" data-call-id="${escapeHtml(e.id ?? "")}">
   <div class="gutter">
@@ -336,8 +590,8 @@ const STYLE = `
     --ink-2: #B0A48A;
     --ink-3: #75694E;
     --accent: #D4823A;
-    --user: #D4823A;
-    --assistant: #82B099;
+    --user: #7FCC8A;
+    --assistant: #88AED8;
     --reasoning: #8895A4;
     --tool: #C4A046;
     --error: #DC6260;
@@ -353,8 +607,8 @@ const STYLE = `
       --ink-2: #4A4234;
       --ink-3: #87796A;
       --accent: #B5400F;
-      --user: #B5400F;
-      --assistant: #2F5F3E;
+      --user: #2F7A3A;
+      --assistant: #2D5F8A;
       --reasoning: #5B6A78;
       --tool: #8E6418;
       --error: #9B2828;
@@ -370,8 +624,8 @@ const STYLE = `
     --ink-2: #B0A48A;
     --ink-3: #75694E;
     --accent: #D4823A;
-    --user: #D4823A;
-    --assistant: #82B099;
+    --user: #7FCC8A;
+    --assistant: #88AED8;
     --reasoning: #8895A4;
     --tool: #C4A046;
     --error: #DC6260;
@@ -386,8 +640,8 @@ const STYLE = `
     --ink-2: #4A4234;
     --ink-3: #87796A;
     --accent: #B5400F;
-    --user: #B5400F;
-    --assistant: #2F5F3E;
+    --user: #2F7A3A;
+    --assistant: #2D5F8A;
     --reasoning: #5B6A78;
     --tool: #8E6418;
     --error: #9B2828;
@@ -420,21 +674,61 @@ const STYLE = `
   }
 
   /* --- Masthead --- */
-  .masthead { margin-bottom: 2rem; }
+  .masthead { margin-bottom: 2rem; position: relative; }
+  .brand {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem 0.25rem 0.375rem;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink-3);
+    text-decoration: none;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--bg-elev);
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+  .brand:hover { color: var(--ink); border-color: var(--rule-strong); }
+  .brand .brand-mark { display: inline-flex; }
+  .brand .brand-name { font-weight: 600; }
+
+  /* --- Footer colophon --- */
+  .colophon {
+    margin-top: 4rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.75rem;
+    color: var(--ink-3);
+  }
+  .colophon a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .colophon a:hover { color: var(--user); }
+  .colophon-mark { display: inline-flex; flex-shrink: 0; }
   .eyebrow {
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-size: 0.6875rem;
     text-transform: uppercase;
     letter-spacing: 0.18em;
     color: var(--ink-3);
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.25rem;
     display: flex;
     flex-wrap: wrap;
-    gap: 0.375rem 0.75rem;
+    gap: 0.25rem 0.625rem;
     align-items: center;
   }
   .eyebrow .sep { color: var(--rule-strong); }
-  .eyebrow .agent { color: var(--accent); font-weight: 600; }
+  .eyebrow .repo { color: var(--accent); font-weight: 600; letter-spacing: 0.12em; }
+  .eyebrow .pr { color: var(--user); text-decoration: none; border-bottom: 1px dotted currentColor; }
+  .eyebrow .pr:hover { color: var(--accent); }
   .title {
     font-family: ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
     font-size: clamp(1.875rem, 4vw, 2.625rem);
@@ -448,7 +742,7 @@ const STYLE = `
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-size: 0.8125rem;
     color: var(--ink-2);
-    line-height: 1.7;
+    line-height: 1.65;
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem 0.625rem;
@@ -457,8 +751,22 @@ const STYLE = `
   .byline .sep { color: var(--rule-strong); margin: 0 0.125rem; }
   .byline .key { color: var(--ink-3); }
   .byline code { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 0.78125rem; color: var(--ink-2); }
-  .byline a { color: var(--user); text-decoration: none; border-bottom: 1px dotted currentColor; }
-  .byline a:hover { color: var(--accent); }
+  /* Runtime stamp: agent · model · tokens grouped in a single subtle
+     pill so the "who/what is talking" trio reads as one beat. */
+  .byline-runtime {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.5rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    font-size: 0.75rem;
+  }
+  .byline-runtime .byline-rt-sep { color: var(--rule-strong); }
+  .byline-runtime .byline-agent { color: var(--accent); font-weight: 600; letter-spacing: 0.02em; }
+  .byline-runtime .byline-model { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 0.71875rem; color: var(--ink); background: none; border: none; padding: 0; }
+  .byline-runtime .byline-tokens { color: var(--ink-2); font-variant-numeric: tabular-nums; }
   .rule {
     border: none;
     border-top: 2px solid var(--ink);
@@ -617,6 +925,8 @@ const STYLE = `
   .md h5.md-h { font-size: 0.9375rem; color: var(--ink-2); }
   .md .md-list { margin: 0 0 0.5rem 0; padding-left: 1.25rem; }
   .md .md-list li { margin: 0.125rem 0; line-height: 1.5; }
+  .md .md-list li > p { margin: 0 0 0.25rem 0; }
+  .md .md-list li > p:last-child { margin-bottom: 0; }
   .md .md-list--ordered li::marker { color: var(--ink-3); font-feature-settings: "lnum", "tnum"; }
   .md .md-quote {
     margin: 0 0 0.5rem 0;
@@ -663,6 +973,67 @@ const STYLE = `
     line-height: 1.55;
     font-style: italic;
   }
+
+  /* Edit events: agent file changes, visible by default with a real
+     diff view. The dock toggle can hide them. Distinct from tool calls
+     (which stay hidden by their own toggle). */
+  body[data-hide-edits="true"] .event--edit { display: none; }
+  .event--edit .gutter-icon { color: var(--accent); border-color: var(--accent); }
+  .event--edit .card-role { color: var(--accent); letter-spacing: 0.16em; }
+  .event--edit .tool-name { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 0.71875rem; color: var(--ink-3); }
+  .diff {
+    margin-top: 0.25rem;
+    border: 1px solid var(--rule);
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--bg-sunk);
+  }
+  .diff + .diff { margin-top: 0.5rem; }
+  .diff-file {
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    color: var(--ink-2);
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--rule);
+    padding: 0.25rem 0.625rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .diff-tag {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    padding: 0 0.3125rem;
+  }
+  .diff-body {
+    margin: 0;
+    padding: 0.375rem 0;
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--ink);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .diff-line {
+    display: block;
+    padding: 0 0.625rem;
+  }
+  .diff-line.diff-add {
+    color: var(--assistant);
+    background: color-mix(in srgb, var(--assistant) 10%, transparent);
+  }
+  .diff-line.diff-del {
+    color: var(--error);
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+  }
+  .diff-line.diff-ctx { color: var(--ink-3); }
+  .diff-line.diff-hunk { color: var(--reasoning); font-weight: 600; }
 
   /* Tool events: bronze accent, hidden by default. */
   body[data-hide-tools="true"] .event--tool { display: none; }
@@ -896,13 +1267,30 @@ const SCRIPT = `
       if (stateEl) stateEl.textContent = hide ? 'hidden' : 'shown';
     }
   }
-  // Default to hidden unless the user explicitly chose to show.
-  const storedHide = localStorage.getItem('kolu-export-hide-tools');
-  applyTools(storedHide !== '0');
+  const storedHideTools = localStorage.getItem('kolu-export-hide-tools');
+  applyTools(storedHideTools !== '0');
   toolBtn?.addEventListener('click', () => {
     const nextHide = document.body.dataset.hideTools !== 'true';
     localStorage.setItem('kolu-export-hide-tools', nextHide ? '1' : '0');
     applyTools(nextHide);
+  });
+
+  // --- Hide edit calls toggle (default: shown) ---
+  const editBtn = document.querySelector('[data-toggle="edits"]');
+  function applyEdits(hide) {
+    document.body.dataset.hideEdits = String(hide);
+    if (editBtn) {
+      editBtn.setAttribute('aria-pressed', String(hide));
+      const stateEl = editBtn.querySelector('[data-state]');
+      if (stateEl) stateEl.textContent = hide ? 'hidden' : 'shown';
+    }
+  }
+  const storedHideEdits = localStorage.getItem('kolu-export-hide-edits');
+  applyEdits(storedHideEdits === '1');
+  editBtn?.addEventListener('click', () => {
+    const nextHide = document.body.dataset.hideEdits !== 'true';
+    localStorage.setItem('kolu-export-hide-edits', nextHide ? '1' : '0');
+    applyEdits(nextHide);
   });
 
   // --- Theme cycle (auto → light → dark → auto) ---
@@ -929,6 +1317,10 @@ const SCRIPT = `
 })();
 `;
 
+/** Eyebrow above the title — answers "what repo and PR am I looking at?"
+ *  before the document name. Repo name comes first as the most
+ *  identifying piece of context; PR (when present) anchors the work to
+ *  a code-review thread. Date and session id round it out. */
 function renderEyebrow(transcript: Transcript): string {
   const exportedDate = (() => {
     try {
@@ -941,53 +1333,55 @@ function renderEyebrow(transcript: Transcript): string {
       return "";
     }
   })();
-  const parts = [
-    `<span class="agent">${escapeHtml(AGENT_LABEL[transcript.agentKind])}</span>`,
-    `<span class="sep">·</span>`,
-    `<span>Transcript</span>`,
-  ];
-  if (exportedDate) {
+  const parts: string[] = [];
+  if (transcript.repoName) {
+    parts.push(`<span class="repo">${escapeHtml(transcript.repoName)}</span>`);
+  }
+  if (transcript.pr) {
     parts.push(
-      `<span class="sep">·</span>`,
-      `<span>${escapeHtml(exportedDate)}</span>`,
+      `<a class="pr" href="${escapeHtml(transcript.pr.url)}" target="_blank" rel="noopener noreferrer">PR #${transcript.pr.number}</a>`,
     );
   }
-  parts.push(
-    `<span class="sep">·</span>`,
-    `<span>#${escapeHtml(transcript.sessionId.slice(0, 8))}</span>`,
-  );
-  return `<div class="eyebrow">${parts.join("")}</div>`;
+  if (exportedDate) {
+    parts.push(`<span>${escapeHtml(exportedDate)}</span>`);
+  }
+  parts.push(`<span>#${escapeHtml(transcript.sessionId.slice(0, 8))}</span>`);
+  return `<div class="eyebrow">${parts.join('<span class="sep">·</span>')}</div>`;
 }
 
+/** Byline beneath the title — agent + model + tokens form a single
+ *  visually grouped "runtime stamp" (these three identify the
+ *  conversation's actor). Cwd, event counts, and exported timestamp
+ *  follow as separate beats. */
 function renderByline(
   transcript: Transcript,
   counts: { user: number; assistant: number; toolCalls: number },
 ): string {
-  const parts: string[] = [];
+  const runtime: string[] = [
+    `<span class="byline-agent">${escapeHtml(AGENT_LABEL[transcript.agentKind])}</span>`,
+  ];
   if (transcript.model) {
-    parts.push(
-      `<span><span class="key">Model</span> <code>${escapeHtml(transcript.model)}</code></span>`,
+    runtime.push(
+      `<span class="byline-rt-sep">·</span>`,
+      `<code class="byline-model">${escapeHtml(transcript.model)}</code>`,
     );
   }
   if (transcript.contextTokens !== null) {
-    parts.push(
-      `<span><span class="key">Tokens</span> ${escapeHtml(formatTokens(transcript.contextTokens))}</span>`,
+    runtime.push(
+      `<span class="byline-rt-sep">·</span>`,
+      `<span class="byline-tokens">${escapeHtml(formatTokens(transcript.contextTokens))} tokens</span>`,
     );
   }
-  if (transcript.pr) {
-    parts.push(
-      `<a href="${escapeHtml(transcript.pr.url)}" target="_blank" rel="noopener noreferrer">PR #${transcript.pr.number}</a>`,
-    );
-  }
+  const parts: string[] = [
+    `<span class="byline-runtime">${runtime.join("")}</span>`,
+  ];
   if (transcript.cwd) {
     parts.push(
       `<span><span class="key">Cwd</span> <code>${escapeHtml(transcript.cwd)}</code></span>`,
     );
   }
   parts.push(
-    `<span>${counts.user} prompts</span>`,
-    `<span>${counts.assistant} replies</span>`,
-    `<span>${counts.toolCalls} tools</span>`,
+    `<span>${counts.user} prompts · ${counts.assistant} replies · ${counts.toolCalls} tools</span>`,
   );
   return parts.join('<span class="sep">·</span>');
 }
@@ -1013,9 +1407,13 @@ export function transcriptToHtml(transcript: Transcript): string {
 <title>${escapeHtml(titleText)} — kolu</title>
 <style>${STYLE}</style>
 </head>
-<body data-hide-tools="true">
+<body data-hide-tools="true" data-hide-edits="false">
 <article class="doc">
   <header class="masthead">
+    <a class="brand" href="https://kolu.dev/" target="_blank" rel="noopener noreferrer" title="Exported by Kolu — kolu.dev">
+      <span class="brand-mark">${KOLU_LOGO}</span>
+      <span class="brand-name">kolu</span>
+    </a>
     ${eyebrow}
     <h1 class="title">${escapeHtml(titleText)}</h1>
     <div class="byline">${byline}</div>
@@ -1024,9 +1422,21 @@ export function transcriptToHtml(transcript: Transcript): string {
   <main class="events">
 ${eventsHtml}
   </main>
-  <p class="hint">Use <kbd>j</kbd>/<kbd>k</kbd> to move between prompts. The dock at lower-right toggles tools and theme.</p>
+  <footer class="colophon">
+    <span class="colophon-mark">${KOLU_LOGO}</span>
+    <span>
+      Exported by <a href="https://kolu.dev/" target="_blank" rel="noopener noreferrer">Kolu</a> —
+      a workspace for orchestrating AI coding agents.
+    </span>
+  </footer>
+  <p class="hint">Use <kbd>j</kbd>/<kbd>k</kbd> to move between prompts. The dock at lower-right toggles tools, edits, and theme.</p>
 </article>
 <aside class="dock" role="toolbar" aria-label="Document controls">
+  <button type="button" class="dock-btn" data-toggle="edits" aria-pressed="false" title="Show or hide agent edits (file diffs)">
+    <span class="dock-icon">${EDIT_DOCK_ICON}</span>
+    <span class="dock-label">Edits</span>
+    <span class="dock-state" data-state>shown</span>
+  </button>
   <button type="button" class="dock-btn" data-toggle="tools" aria-pressed="true" title="Show or hide tool calls">
     <span class="dock-icon">${TOOLS_DOCK_ICON}</span>
     <span class="dock-label">Tools</span>

@@ -82,8 +82,13 @@ function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
         out.push({ kind: "assistant", text: block.text, model, ts });
       } else if (
         block.type === "thinking" &&
-        typeof block.thinking === "string"
+        typeof block.thinking === "string" &&
+        block.thinking.length > 0
       ) {
+        // Anthropic's extended-thinking blocks are often returned with
+        // an empty `thinking` field and only a populated `signature`
+        // (the model's reasoning is server-side and not exposed to the
+        // client). Suppress those rather than render an empty card.
         out.push({ kind: "reasoning", text: block.thinking, ts });
       } else if (block.type === "tool_use" && typeof block.name === "string") {
         out.push({
@@ -124,6 +129,7 @@ export interface LoadClaudeCodeTranscriptInput {
   sessionId: string;
   cwd: string;
   title: string | null;
+  repoName: string | null;
   model: string | null;
   contextTokens: number | null;
   pr: TranscriptPr | null;
@@ -154,6 +160,7 @@ export function loadClaudeCodeTranscript(
     agentKind: "claude-code",
     sessionId: input.sessionId,
     title: input.title,
+    repoName: input.repoName,
     cwd: input.cwd,
     model: input.model,
     contextTokens: input.contextTokens,

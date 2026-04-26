@@ -110,6 +110,10 @@ export const TranscriptSchema = z.object({
   /** Optional human-readable title (Claude SDK summary, OpenCode title,
    *  Codex thread title). Falls back to sessionId at render time. */
   title: z.string().nullable(),
+  /** Repo name of the cwd's git worktree (e.g. "juspay/kolu" or
+   *  "kolu" when no remote is set). Null if the cwd is outside any
+   *  git repo. Shown in the masthead eyebrow next to the PR link. */
+  repoName: z.string().nullable(),
   /** Original cwd of the session (display-only). */
   cwd: z.string().nullable(),
   /** Model identifier from the agent metadata (e.g. "claude-opus-4-6",

@@ -7,6 +7,7 @@ function makeTranscript(overrides: Partial<Transcript> = {}): Transcript {
     agentKind: "claude-code",
     sessionId: "abcdef1234567890",
     title: "Hello session",
+    repoName: null,
     cwd: "/tmp/x",
     model: null,
     contextTokens: null,
@@ -31,10 +32,13 @@ describe("transcriptToHtml", () => {
 
   it("hides tool calls by default at the body level", () => {
     // The body carries `data-hide-tools="true"` server-side so tools
-    // collapse before any JS runs (no flash of visible content).
+    // collapse before any JS runs (no flash of visible content). Edits
+    // start visible (`data-hide-edits="false"`).
     const html = transcriptToHtml(makeTranscript());
-    expect(html).toContain('<body data-hide-tools="true">');
+    expect(html).toMatch(/<body[^>]*\bdata-hide-tools="true"/);
+    expect(html).toMatch(/<body[^>]*\bdata-hide-edits="false"/);
     expect(html).toContain('body[data-hide-tools="true"] .event--tool');
+    expect(html).toContain('body[data-hide-edits="true"] .event--edit');
   });
 
   it("escapes user content to prevent HTML injection", () => {
@@ -171,6 +175,81 @@ describe("transcriptToHtml", () => {
     expect(html).not.toContain("<strong>bold</strong>");
     expect(html).toContain("**bold**");
   });
+
+  it("renders the eyebrow with repo name and PR before the title", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        repoName: "juspay/kolu",
+        pr: { number: 742, url: "https://github.com/juspay/kolu/pull/742" },
+      }),
+    );
+    const eyebrowStart = html.indexOf('class="eyebrow"');
+    const titleStart = html.indexOf('class="title"');
+    expect(eyebrowStart).toBeGreaterThan(0);
+    expect(titleStart).toBeGreaterThan(eyebrowStart);
+    const eyebrow = html.slice(eyebrowStart, titleStart);
+    expect(eyebrow).toContain("juspay/kolu");
+    expect(eyebrow).toContain("PR #742");
+  });
+
+  it("groups agent + model + tokens in the byline runtime stamp", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        agentKind: "claude-code",
+        model: "claude-opus-4-6",
+        contextTokens: 47_000,
+      }),
+    );
+    expect(html).toContain('class="byline-runtime"');
+    expect(html).toContain("Claude Code");
+    expect(html).toContain("claude-opus-4-6");
+    expect(html).toContain("47K tokens");
+  });
+
+  it("renders Edit-tool calls as a diff and exempts them from tool hiding", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "tool_call",
+            id: "e1",
+            toolName: "Edit",
+            inputs: {
+              file_path: "/tmp/file.ts",
+              old_string: "const x = 1;",
+              new_string: "const x = 2;",
+            },
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="event event--edit"');
+    expect(html).not.toContain("event--tool-call"); // routed to edit, not tool-call
+    expect(html).toContain("/tmp/file.ts");
+    expect(html).toContain("diff-del");
+    expect(html).toContain("diff-add");
+  });
+
+  it("renders apply_patch payloads as a colored unified diff", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "tool_call",
+            id: "p1",
+            toolName: "apply_patch",
+            inputs:
+              "*** Begin Patch\n*** Add File: a.txt\n+hello\n+world\n*** End Patch",
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="event event--edit"');
+    expect(html).toContain("diff-add");
+    expect(html).toContain("Begin Patch");
+  });
 });
 
 describe("renderMarkdown", () => {
@@ -209,5 +288,20 @@ describe("renderMarkdown", () => {
     const out = renderMarkdown("a <script>alert(1)</script> b");
     expect(out).not.toContain("<script>alert(1)</script>");
     expect(out).toContain("&lt;script&gt;");
+  });
+
+  it("absorbs indented continuation paragraphs into the same list item", () => {
+    // The screenshot bug: each `- bullet` was rendering as its own
+    // `<ul>` because the indented "See ..." line below it broke list
+    // detection. With continuation handling, the bullet and its sub-
+    // paragraph should live inside one `<li>`.
+    const md =
+      "- Adds a new `postBuild` stage.\n\n  See [Type.hs](/x).\n\n- Adds webhook config types.";
+    const out = renderMarkdown(md);
+    // One `<ul>` with two `<li>`s, not two `<ul>`s.
+    expect((out.match(/<ul/g) ?? []).length).toBe(1);
+    expect((out.match(/<li>/g) ?? []).length).toBe(2);
+    // The continuation paragraph wraps in `<p>` inside the first `<li>`.
+    expect(out).toContain("<p>See");
   });
 });
