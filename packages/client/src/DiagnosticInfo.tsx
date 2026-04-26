@@ -345,7 +345,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                         <ul class="pl-3 space-y-0.5 text-[10px] font-mono">
                           <For each={group.instances}>
                             {(inst) => (
-                              <li class="text-fg-2">
+                              <li
+                                class="text-fg-2"
+                                title={inst.terminals
+                                  ?.map((t) => `${t.id.slice(0, 8)} · ${t.cwd}`)
+                                  .join("\n")}
+                              >
                                 {inst.label}
                                 <Show when={inst.detail}>
                                   <span class="text-fg-3/60">

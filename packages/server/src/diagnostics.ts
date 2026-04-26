@@ -95,21 +95,26 @@ function shortId(id: string): string {
 
 /** Build the per-instance Watches list. One row per active fs.watch
  *  handle (or per shared singleton, whose detail spells out fan-out
- *  membership). Iterates terminals once for the per-terminal categories;
- *  the shared singletons read from `installedActivations()`. */
+ *  membership). Iterates terminals once for the per-terminal categories
+ *  and to build the `cwd` lookup that singletons use to annotate their
+ *  attached terminals. */
 function collectWatches(): ServerDiagnostics["watches"] {
   const gitInstances: ServerDiagnostics["watches"][number]["instances"] = [];
   const claudeInstances: ServerDiagnostics["watches"][number]["instances"] = [];
+  const cwdById = new Map<string, string>();
   for (const [id, entry] of terminalEntries()) {
     const meta = entry.info.meta;
+    cwdById.set(id, meta.cwd);
     if (meta.git !== null) {
       gitInstances.push({
         label: `${shortId(id)} · ${meta.git.repoName} (${meta.git.branch})`,
+        terminals: [{ id, cwd: meta.cwd }],
       });
     }
     if (meta.agent?.kind === "claude-code") {
       claudeInstances.push({
         label: `${shortId(id)} · ${path.basename(meta.cwd)} (session ${shortId(meta.agent.sessionId)})`,
+        terminals: [{ id, cwd: meta.cwd }],
       });
     }
   }
@@ -130,14 +135,23 @@ function collectWatches(): ServerDiagnostics["watches"] {
     });
   }
   for (const a of installedActivations()) {
+    // The `?? "?"` defends against an activation reading mid-teardown,
+    // even though the cleanup ordering (stopProviders before
+    // unregisterTerminal) makes this unreachable today.
+    const attached = a.terminalIds.map((id) => ({
+      id,
+      cwd: cwdById.get(id) ?? "?",
+    }));
     const fanOut =
-      a.terminalIds.length > 0
-        ? `attached: ${a.terminalIds.map(shortId).join(", ")}`
+      attached.length > 0
+        ? `attached: ${attached.map((t) => shortId(t.id)).join(", ")}`
         : "no terminal subscribers";
     watches.push({
       kind: `agent-external:${a.kind}`,
       description: "Agent external-change watcher (shared singleton)",
-      instances: [{ label: "shared singleton", detail: fanOut }],
+      instances: [
+        { label: "shared singleton", detail: fanOut, terminals: attached },
+      ],
     });
   }
   return watches;

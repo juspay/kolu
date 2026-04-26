@@ -321,6 +321,13 @@ export const ServerWatchInstanceSchema = z.object({
   /** Optional secondary detail for the row (e.g. fan-out subscribers
    *  on a shared singleton watcher). Absent for self-explanatory rows. */
   detail: z.string().optional(),
+  /** Terminal contexts associated with this watcher. Per-terminal kinds
+   *  (git-head, claude-transcript) have exactly one entry; shared
+   *  singletons (agent-external:*) have one entry per attached terminal.
+   *  Surfaces the full cwd in the hover tooltip and JSON export, where
+   *  the truncated terminal IDs in `label`/`detail` would otherwise
+   *  hide it. */
+  terminals: z.array(z.object({ id: z.string(), cwd: z.string() })).optional(),
 });
 
 /** Categorical view of active server-side watchers — one group per
