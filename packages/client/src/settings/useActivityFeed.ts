@@ -15,7 +15,7 @@ import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 
 const sub = createRoot(() =>
-  createSubscription(() => stream.activityFeed(), {
+  createSubscription((signal) => stream.activityFeed(signal), {
     onError: (err) =>
       toast.error(`Activity feed subscription error: ${err.message}`),
   }),

@@ -35,7 +35,7 @@ let initialized = false;
 // createRoot detaches the subscription + init effect from any transient
 // caller's reactive owner so they live for the app's lifetime.
 const sub = createRoot(() => {
-  const s = createSubscription(() => stream.preferences(), {
+  const s = createSubscription((signal) => stream.preferences(signal), {
     onError: (err) =>
       toast.error(`Preferences subscription error: ${err.message}`),
   });

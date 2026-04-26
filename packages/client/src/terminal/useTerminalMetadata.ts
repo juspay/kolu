@@ -44,7 +44,7 @@ export function useTerminalMetadata(deps: {
   // When an ID leaves the list, its owner is disposed → onCleanup fires →
   // AbortController aborts → subscription streams close. No manual teardown.
   const perTerminal = mapArray(terminalIdList, (id): PerTerminalSubs => {
-    const meta = createSubscription(() => stream.metadata(id), {
+    const meta = createSubscription((signal) => stream.metadata(id, signal), {
       onError: (err) => toast.error(`Metadata error: ${err.message}`),
     });
     return { id, meta };

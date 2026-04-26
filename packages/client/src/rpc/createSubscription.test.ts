@@ -489,6 +489,32 @@ describe("createSubscription", () => {
 
       expect(result.valueBefore).toBe(1);
     });
+
+    it("passes the cleanup AbortSignal to the stream source", async () => {
+      const result = await new Promise<boolean>((resolve) => {
+        createRoot(async (dispose) => {
+          let seenSignal: AbortSignal | undefined;
+
+          createSubscription((signal) => {
+            seenSignal = signal;
+            return Promise.resolve(
+              (async function* () {
+                await new Promise<void>((done) =>
+                  signal.addEventListener("abort", done, { once: true }),
+                );
+              })(),
+            );
+          });
+
+          await flush();
+          dispose();
+          await flush();
+          resolve(seenSignal?.aborted ?? false);
+        });
+      });
+
+      expect(result).toBe(true);
+    });
   });
 
   describe("pending signal", () => {

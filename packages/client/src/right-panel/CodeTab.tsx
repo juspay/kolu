@@ -110,7 +110,7 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
   );
 
   const fsWatch = createSubscription<FsWatchEvent, FsWatchData>(
-    () => stream.fsWatch({ repoPath: repoPath() }),
+    (signal) => stream.fsWatch({ repoPath: repoPath() }, signal),
     {
       initial: EMPTY_FS_WATCH_DATA,
       reduce: (state, event) => ({
