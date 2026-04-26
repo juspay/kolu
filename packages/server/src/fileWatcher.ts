@@ -155,6 +155,10 @@ async function ensureEntry(repoPath: string): Promise<WatcherEntry> {
       return entry;
     });
     pending.set(repoPath, promise);
+    // Cleanup-only catch — the same rejection is delivered to the
+    // awaiter via the returned promise (which surfaces via oRPC →
+    // `onError` → toast). Logging here would double-log on every
+    // failure.
     promise.catch(() => pending.delete(repoPath));
   }
   return promise;

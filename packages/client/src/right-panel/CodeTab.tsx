@@ -107,6 +107,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const fsWatch = createSubscription<FsWatchEvent, FsWatchState>(
     async () => {
       const p = repoPath();
+      // No repo → nothing to watch. Yield an empty stream so the
+      // subscription cleanly idles; `pending()` stays true and the
+      // surrounding `<Show when={repoPath()}>` keeps the UI on the
+      // "no git" branch anyway.
       if (!p) return (async function* (): AsyncIterable<FsWatchEvent> {})();
       return await stream.fsWatch(p);
     },
