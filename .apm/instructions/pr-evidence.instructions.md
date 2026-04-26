@@ -1,6 +1,5 @@
 ---
 description: How to capture and post UI evidence on PRs
-applyTo: "**"
 ---
 
 ## PR Evidence

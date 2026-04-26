@@ -1,8 +1,3 @@
----
-paths:
-  - "**"
----
-
 ## PR Evidence
 
 When a PR adds or fixes user-facing UI behavior, attach screenshots so reviewers can see the visual diff without checking out the branch. Use the `chrome-devtools` MCP — it's already wired up in `.mcp.json` via `just ai::mcp-chrome-devtools`.
