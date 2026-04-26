@@ -14,15 +14,6 @@
 - Run `just fmt` (formatting) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
-## /do project config
-
-`/do` and the structural reviewers read their per-skill project config from `.agency/`:
-
-- [`.agency/do.md`](../../.agency/do.md) — check / fmt / test / ci commands plus the PR evidence procedure
-- [`.agency/code-police.md`](../../.agency/code-police.md) — Kolu-specific code-police rules
-- [`.agency/hickey.md`](../../.agency/hickey.md) — Kolu-specific complecting patterns
-- [`.agency/lowy.md`](../../.agency/lowy.md) — Kolu-declared areas of volatility
-
 ## Feature Discoverability (Tips)
 
 When adding a new user-facing feature or shortcut, consider adding a tip so users discover it. See `settings/tips.ts` and `settings/useTips.ts` for the registry and API.
