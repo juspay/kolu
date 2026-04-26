@@ -22,7 +22,7 @@ Every server-side streaming handler in `packages/server/src/router.ts` MUST yiel
 Two acceptable shapes:
 
 - **Implicit**: each yield is already a full replacement (e.g. `onMetadataChange` yields a current `TerminalMetadata`; `preferences.get` yields a current `Preferences`; `activity.get` yields a current `ActivityFeed`; `session.get` yields the current `SavedSession | null`; `terminal.list` yields a current `TerminalInfo[]`). Client reducers can just use the latest value.
-- **Explicit discriminated union**: when clients accumulate deltas into a derived structure, yield `{ kind: "snapshot", ... } | { kind: "delta", ... }`. Client reducers replace on snapshot, append on delta. Without the discriminator, reconnect replays the history into an already-populated accumulator and duplicates state.
+- **Explicit discriminated union**: when clients accumulate deltas into a derived structure, yield `{ kind: "snapshot", ... } | { kind: "delta", ... }`. Client reducers replace on snapshot, append on delta. Without the discriminator, reconnect replays the history into an already-populated accumulator and duplicates state. Canonical example: `fs.watch` (file-tree changes from chokidar) — the snapshot carries the full path list; deltas carry `added`/`removed` arrays that consumers fold into Pierre's `tree.batch([...])` for incremental updates.
 
 If a new handler yields deltas only (no initial snapshot), reconnects will silently lose state with no error.
 

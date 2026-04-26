@@ -21,6 +21,7 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "anyagent": "workspace:*",
+    "chokidar": "^4.0.3",
     "cleye": "^2.3.0",
     "conf": "^15.1.0",
     "hono": "^4.12.14",

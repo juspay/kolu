@@ -12,6 +12,8 @@ import {
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
   GitStatusInputSchema,
@@ -99,6 +101,12 @@ export const contract = oc.router({
     listAll: oc.input(FsListAllInputSchema).output(FsListAllOutputSchema),
     /** Read a file's UTF-8 content, path-traversal guarded. */
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
+    /** Live file-tree stream — yields a `snapshot` immediately, then a
+     *  `delta` per debounced filesystem change. Backed by a refcounted
+     *  chokidar watcher per repoPath. */
+    watch: oc
+      .input(FsWatchInputSchema)
+      .output(eventIterator(FsWatchEventSchema)),
   },
   preferences: {
     // Stream user preferences. Yields current value immediately, then on each change.

@@ -14,6 +14,8 @@ import {
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
   GitBaseRefSchema,
   GitChangedFileSchema,
   GitChangeStatusSchema,
@@ -32,6 +34,7 @@ import { z } from "zod";
 
 export type {
   FsListAllOutput,
+  FsWatchEvent,
   GitBaseRef,
   GitChangedFile,
   GitChangeStatus,
@@ -49,6 +52,8 @@ export {
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
   GitBaseRefSchema,
   GitChangedFileSchema,
   GitChangeStatusSchema,
