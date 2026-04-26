@@ -71,6 +71,18 @@ Feature: Code tab (review + browse)
     When I run "printf 'after\n' > live.txt"
     Then the Code tab should list a changed file "live.txt"
 
+  # Validates that editing an EXISTING tracked file (chokidar `change`
+  # event, no path-set change) still flips the file into Local mode's
+  # changed list — the watcher's empty-delta event must propagate so the
+  # client refetches `git.status`.
+  Scenario: Live updates surface modifications to already-tracked files
+    When I run "git init /tmp/kolu-review-modify && cd /tmp/kolu-review-modify"
+    And I run "printf 'one\n' > tracked.txt && git add tracked.txt && git commit -m init"
+    And I click the Code tab
+    Then the Code tab should show the empty-changes message
+    When I run "printf 'two\n' >> tracked.txt"
+    Then the Code tab should list a changed file "tracked.txt"
+
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"

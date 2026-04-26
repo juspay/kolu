@@ -90,10 +90,14 @@ async function rerun(repoPath: string, entry: WatcherEntry): Promise<void> {
     const next = await listAllPaths(repoPath);
     const { added, removed } = diffSets(entry.paths, next);
     entry.paths = next;
-    if (added.length > 0 || removed.length > 0) {
-      const event: FsWatchEvent = { kind: "delta", added, removed };
-      for (const sub of entry.subscribers) sub(event);
-    }
+    // Emit unconditionally — an empty delta still tells the client
+    // "working tree changed, refresh derived state if you care". The
+    // diff-mode change-detector in CodeTab uses this to refetch
+    // git.status when an existing tracked file's content is edited
+    // (chokidar `change` event yields no path-set change, but the
+    // file's modified-bit just flipped).
+    const event: FsWatchEvent = { kind: "delta", added, removed };
+    for (const sub of entry.subscribers) sub(event);
   } catch (err) {
     log.error({ err, repoPath }, "fs watcher re-list failed");
   } finally {
