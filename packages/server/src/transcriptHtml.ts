@@ -23,13 +23,13 @@ const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
 /** Inline SVGs for role badges. Styled with `currentColor` so they pick
  *  up the surrounding `--user`/`--assistant`/`--tool` accents. */
 const USER_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-1a8 8 0 0 1 16 0v1"></path></svg>';
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21v-1a8 8 0 0 1 16 0v1"></path></svg>';
 const ASSISTANT_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"></rect><path d="M12 7V3"></path><circle cx="12" cy="3" r="0.5" fill="currentColor"></circle><circle cx="9" cy="13" r="1" fill="currentColor"></circle><circle cx="15" cy="13" r="1" fill="currentColor"></circle><path d="M9 17h6"></path><path d="M2 13v2"></path><path d="M22 13v2"></path></svg>';
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="7" width="16" height="12" rx="2"></rect><path d="M12 7V3"></path><circle cx="12" cy="3" r="0.5" fill="currentColor"></circle><circle cx="9" cy="13" r="1" fill="currentColor"></circle><circle cx="15" cy="13" r="1" fill="currentColor"></circle><path d="M9 17h6"></path><path d="M2 13v2"></path><path d="M22 13v2"></path></svg>';
 const REASONING_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6z"></path><path d="M9 19h6"></path><path d="M10 22h4"></path></svg>';
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0-6 6c0 2 1 3 1 5h10c0-2 1-3 1-5a6 6 0 0 0-6-6z"></path><path d="M9 19h6"></path><path d="M10 22h4"></path></svg>';
 const TOOL_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5 2.5-2.5z"></path></svg>';
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-2.5 2.5-2.5z"></path></svg>';
 const TOOLS_DOCK_ICON =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v4"></path><path d="M12 18v4"></path><path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path><path d="M2 12h4"></path><path d="M18 12h4"></path><path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path></svg>';
 const THEME_DOCK_ICON =
@@ -399,8 +399,8 @@ const STYLE = `
     background: var(--bg);
     color: var(--ink);
     font-family: ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-    font-size: 17px;
-    line-height: 1.65;
+    font-size: 15px;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     counter-reset: prompt;
@@ -413,14 +413,14 @@ const STYLE = `
   .doc {
     max-width: 48rem;
     margin: 0 auto;
-    padding: 4rem 1.5rem 9rem 1.5rem;
+    padding: 2.5rem 1.25rem 8rem 1.25rem;
   }
   @media (min-width: 768px) {
-    .doc { padding: 5rem 2rem 9rem 4rem; }
+    .doc { padding: 3rem 1.5rem 8rem 3rem; }
   }
 
   /* --- Masthead --- */
-  .masthead { margin-bottom: 3rem; }
+  .masthead { margin-bottom: 2rem; }
   .eyebrow {
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-size: 0.6875rem;
@@ -465,23 +465,23 @@ const STYLE = `
     border-bottom: 1px solid var(--ink);
     height: 4px;
     background: transparent;
-    margin: 2.5rem 0 0 0;
+    margin: 1.5rem 0 0 0;
   }
 
   /* --- Events --- */
   .events {
     display: flex;
     flex-direction: column;
-    gap: 2.5rem;
+    gap: 1.25rem;
   }
   .event {
     display: grid;
-    grid-template-columns: 2.75rem 1fr;
-    gap: 0.75rem;
+    grid-template-columns: 2.25rem 1fr;
+    gap: 0.625rem;
     position: relative;
   }
   @media (min-width: 768px) {
-    .event { grid-template-columns: 3.5rem 1fr; gap: 1rem; }
+    .event { grid-template-columns: 2.75rem 1fr; gap: 0.875rem; }
   }
   .gutter {
     display: flex;
@@ -495,8 +495,8 @@ const STYLE = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.875rem;
-    height: 1.875rem;
+    width: 1.5rem;
+    height: 1.5rem;
     border-radius: 999px;
     border: 1px solid var(--rule);
     background: var(--bg-elev);
@@ -516,8 +516,8 @@ const STYLE = `
   .card-head {
     display: flex;
     align-items: baseline;
-    gap: 0.625rem;
-    margin-bottom: 0.625rem;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
     flex-wrap: wrap;
   }
   .card-role {
@@ -541,17 +541,26 @@ const STYLE = `
     font-variant-numeric: tabular-nums;
   }
 
-  /* User events: prominent rust accent, large serif quote feel. */
+  /* User events: tinted pulled-quote on rust accent. The wash bonds the
+     card to its gutter color so a User turn reads as "human input zone"
+     at a glance, contrasting strongly with the clean Assistant card. */
   .event--user .gutter-icon { color: var(--user); border-color: var(--user); }
   .event--user .gutter-num::before {
     counter-increment: prompt;
     content: counter(prompt, decimal-leading-zero);
   }
-  .event--user .card { border-left: 2px solid var(--user); padding-left: 1rem; margin-left: -1px; }
+  .event--user .card {
+    border-left: 3px solid var(--user);
+    padding: 0.5rem 0.75rem 0.5rem 0.875rem;
+    margin-left: -1px;
+    background: color-mix(in srgb, var(--user) 7%, transparent);
+    border-radius: 0 4px 4px 0;
+  }
   .event--user .card-text--user {
     font-family: ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-    font-size: 1.0625rem;
-    line-height: 1.55;
+    font-size: 1rem;
+    line-height: 1.5;
+    font-weight: 500;
     color: var(--ink);
     margin: 0;
     white-space: pre-wrap;
@@ -560,30 +569,39 @@ const STYLE = `
     border: none;
     padding: 0;
   }
-  .event--user.is-current .card { background: var(--bg-elev); margin-left: -1rem; padding-left: calc(1rem - 1px + 1rem); border-left-width: 3px; }
+  .event--user.is-current .card {
+    background: color-mix(in srgb, var(--user) 14%, transparent);
+    border-left-width: 4px;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--user) 30%, transparent);
+  }
   .event--user.is-current .gutter-num { color: var(--user); }
 
-  /* Assistant events: serif body, sage accent, markdown-rendered. */
+  /* Assistant events: sans-serif working-notes voice, sage accent. The
+     font shift from serif (User) to sans (Assistant) is the dominant
+     human-vs-machine visual rhythm. */
   .event--assistant .gutter-icon { color: var(--assistant); border-color: var(--assistant); }
   .card-text--assistant {
-    font-family: ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-    font-size: 1.0625rem;
-    line-height: 1.65;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 0.9375rem;
+    line-height: 1.55;
     color: var(--ink);
   }
 
-  /* Markdown elements inside assistant text */
-  .md p { margin: 0 0 0.875rem 0; }
+  /* Markdown elements inside assistant text — tighter rhythm so multi-
+     paragraph technical responses read as one unit, not as separate
+     beats. */
+  .md > :first-child { margin-top: 0; }
+  .md p { margin: 0 0 0.5rem 0; }
   .md p:last-child { margin-bottom: 0; }
   .md strong { font-weight: 700; }
   .md em { font-style: italic; }
   .md code {
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    font-size: 0.875em;
+    font-size: 0.85em;
     background: var(--bg-elev);
     border: 1px solid var(--rule);
     border-radius: 3px;
-    padding: 0.0625rem 0.3125rem;
+    padding: 0.0625rem 0.25rem;
     color: var(--ink);
   }
   .md a { color: var(--accent); }
@@ -592,17 +610,17 @@ const STYLE = `
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--ink);
-    margin: 1.25rem 0 0.5rem 0;
+    margin: 0.875rem 0 0.25rem 0;
   }
-  .md h3.md-h { font-size: 1.125rem; }
+  .md h3.md-h { font-size: 1.0625rem; }
   .md h4.md-h { font-size: 1rem; }
   .md h5.md-h { font-size: 0.9375rem; color: var(--ink-2); }
-  .md .md-list { margin: 0 0 0.875rem 0; padding-left: 1.5rem; }
-  .md .md-list li { margin: 0.1875rem 0; }
+  .md .md-list { margin: 0 0 0.5rem 0; padding-left: 1.25rem; }
+  .md .md-list li { margin: 0.125rem 0; line-height: 1.5; }
   .md .md-list--ordered li::marker { color: var(--ink-3); font-feature-settings: "lnum", "tnum"; }
   .md .md-quote {
-    margin: 0 0 0.875rem 0;
-    padding: 0.25rem 0 0.25rem 1rem;
+    margin: 0 0 0.5rem 0;
+    padding: 0.125rem 0 0.125rem 0.75rem;
     border-left: 3px solid var(--rule-strong);
     color: var(--ink-2);
     font-style: italic;
@@ -610,17 +628,17 @@ const STYLE = `
   .md .md-hr {
     border: none;
     border-top: 1px solid var(--rule);
-    margin: 1.5rem 0;
+    margin: 1rem 0;
   }
   .md .md-code {
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    font-size: 0.8125rem;
-    line-height: 1.55;
+    font-size: 0.78125rem;
+    line-height: 1.45;
     background: var(--bg-sunk);
     border: 1px solid var(--rule);
-    border-radius: 6px;
-    padding: 0.75rem 0.875rem;
-    margin: 0 0 0.875rem 0;
+    border-radius: 5px;
+    padding: 0.5rem 0.625rem;
+    margin: 0 0 0.5rem 0;
     color: var(--ink);
     overflow-x: auto;
     white-space: pre;
