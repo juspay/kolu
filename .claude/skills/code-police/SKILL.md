@@ -9,9 +9,9 @@ Review the current changes (scoped to the current branch/PR) against the rules b
 
 ## Project rules
 
-Before Pass 1, read `.apm/instructions/workflow.instructions.md` (if present) and look for a `## Code-police rules` section. Treat any rules listed there — whether inline or as a pointer to another file (`See ./code-police-rules.md`) — as additions to the built-in rules below. They appear as separate rows in the Pass 1 checklist with the project's chosen rule IDs.
+Before Pass 1, read `.agency/code-police.md` if it exists. Treat any rules declared there — whether inline or as a pointer to another file (`See ./code-police-rules.md`) — as additions to the built-in rules below. They appear as separate rows in the Pass 1 checklist with the project's chosen rule IDs.
 
-If no such section exists, proceed with only the built-in rules.
+If `.agency/code-police.md` is missing, proceed with only the built-in rules. The file is project-defined and free-form (Markdown, no required frontmatter).
 
 ## Rules
 

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-26T21:07:44.992693+00:00'
+generated_at: '2026-04-26T21:34:32.165313+00:00'
 apm_version: 0.9.3
 dependencies:
 - repo_url: anthropics/skills
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 18adc4931a5a494e5c8c56fc90e7b41f0b3e21f3
+  resolved_commit: 6d3e1d1121a54b722680b28d60610f00732a1889
   resolved_ref: simplify
   package_type: apm_package
   deployed_files:
@@ -90,7 +90,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:841f4211b06415fad4c323bfdc436a34cb0aeb0c385b1037f4ab8cae21d354a8
+  content_hash: sha256:27acdb723cc7f09de5bd1f80d3af46fe9e5d984bc0d1d1548e5a5e9a200c0990
 mcp_servers:
 - chrome-devtools
 mcp_configs:
@@ -144,5 +144,5 @@ local_deployed_file_hashes:
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
   .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
-  .claude/rules/workflow.md: sha256:2fd47ca8138fd68193aa564ca3a14925b349059add52fb0d0bbf2c6173d7a2d1
+  .claude/rules/workflow.md: sha256:ba43071ceb2ba15b09ec88c7c3cc8e5f41aa5ec918e7b0be6c5a4aa196d676fe
   .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69

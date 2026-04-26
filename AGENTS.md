@@ -14,25 +14,14 @@
 - Run `just fmt` (formatting) before declaring done.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
-## Execute Pipeline Commands
+## /do project config
 
-These commands are used by the `/do` workflow's check, fmt, test, and ci steps.
+`/do` and the structural reviewers read their per-skill project config from `.agency/`:
 
-### Check command
-
-`just check` — fast static-correctness gate. Runs `pnpm typecheck` plus `biome lint` across the workspace. CI's `ci::typecheck` runs the typecheck half and `ci::biome` runs the lint half. `just lint` is a standalone recipe that mirrors `ci::biome`.
-
-### Format command
-
-`just fmt` — runs `biome format --write` over the workspace plus `nixpkgs-fmt` over `.nix` files. Biome v2 is now the sole JS/TS/JSON/CSS formatter (Prettier was retired in [#710](https://github.com/juspay/kolu/issues/710)). Config lives in `biome.jsonc` at the repo root.
-
-### Test command
-
-Invoke the `/test` skill. It selects relevant `.feature` files from the git diff and runs `just test-quick`.
-
-### CI command
-
-Invoke the `/ci` skill. It runs `just ci` via the Monitor tool and cross-checks posted GitHub commit statuses against `just ci::_contexts` so missing steps can't silently pass.
+- [`.agency/do.md`](../../.agency/do.md) — check / fmt / test / ci commands plus the PR evidence procedure
+- [`.agency/code-police.md`](../../.agency/code-police.md) — Kolu-specific code-police rules
+- [`.agency/hickey.md`](../../.agency/hickey.md) — Kolu-specific complecting patterns
+- [`.agency/lowy.md`](../../.agency/lowy.md) — Kolu-declared areas of volatility
 
 ## Feature Discoverability (Tips)
 
@@ -41,22 +30,6 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 ## Git
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
-
-## Code-police rules
-
-See [`docs/agency/code-police-rules.md`](../../docs/agency/code-police-rules.md).
-
-## Hickey catalog
-
-See [`docs/agency/hickey-catalog.md`](../../docs/agency/hickey-catalog.md).
-
-## Lowy volatilities
-
-See [`docs/agency/lowy-volatilities.md`](../../docs/agency/lowy-volatilities.md).
-
-## PR evidence
-
-See [`docs/agency/pr-evidence.md`](../../docs/agency/pr-evidence.md).
 
 ## Files matching `**/*.nix`
 

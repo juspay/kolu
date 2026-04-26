@@ -1,6 +1,6 @@
 # Kolu lowy volatilities
 
-Project-declared areas of volatility used by the `lowy` review — read via the `## Lowy volatilities` section of `.apm/instructions/workflow.instructions.md`.
+Project-declared areas of volatility used by the `lowy` review — read by `lowy` from this file (`.agency/lowy.md`) when it runs.
 
 ## Areas of Volatility
 

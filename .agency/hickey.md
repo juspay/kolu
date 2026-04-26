@@ -1,6 +1,6 @@
 # Kolu hickey catalog
 
-Project-specific complecting patterns extending the `hickey` skill's Layer 4 catalog — read by `hickey` via the `## Hickey catalog` section of `.apm/instructions/workflow.instructions.md`.
+Project-specific complecting patterns extending the `hickey` skill's Layer 4 catalog — read by `hickey` from this file (`.agency/hickey.md`) when it runs.
 
 ## Additional Complecting Patterns
 

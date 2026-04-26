@@ -1,11 +1,11 @@
 ---
 name: agency-setup
-description: Bootstrap or update srid/agency in this project — run apm via uvx, configure apm.yml, install skills, draft workflow instructions. Use for first-time setup or to refresh an existing install.
+description: Bootstrap or update srid/agency in this project — run apm via uvx, configure apm.yml, install skills, draft .agency/do.md. Use for first-time setup or to refresh an existing install.
 ---
 
 # Agency Setup
 
-Configure (or refresh) this repo to use [srid/agency](https://github.com/srid/agency). Each step below is **idempotent** — it inspects what's already on disk and acts only on what's missing or out of date. The skill works equally well as first-time bootstrap, full refresh, or **partial-install upgrade** (e.g. user already added `srid/agency` to `apm.yml` manually but never created `workflow.instructions.md` — the skill detects the gap and fills it without re-doing the parts that already exist).
+Configure (or refresh) this repo to use [srid/agency](https://github.com/srid/agency). Each step below is **idempotent** — it inspects what's already on disk and acts only on what's missing or out of date. The skill works equally well as first-time bootstrap, full refresh, or **partial-install upgrade** (e.g. user already added `srid/agency` to `apm.yml` manually but never created `.agency/do.md` — the skill detects the gap and fills it without re-doing the parts that already exist).
 
 When the repo already has `srid/agency` in `apm.yml`, this skill also refreshes it to the latest ref (via `apm deps update srid/agency` in step 6) — there's no separate "update" mode.
 
@@ -72,11 +72,11 @@ Don't touch unrelated entries. Refreshing an existing `srid/agency` pin is handl
 - `/.do-results.json`
 - `/apm_modules/` (verify; `apm install` may already have added it as `apm_modules/` — either form is fine)
 
-## 5. Draft `.apm/instructions/workflow.instructions.md`
+## 5. Draft `.agency/do.md`
 
 If this file already exists, **leave it alone** — the user has either already configured it or is intentionally hand-maintaining it. Skip to step 6.
 
-If it's missing (whether this is a first-time setup or an upgrade where the user added `srid/agency` to `apm.yml` themselves but never wrote workflow instructions), create it now.
+If it's missing (whether this is a first-time setup or an upgrade where the user added `srid/agency` to `apm.yml` themselves but never wrote a do config), create it now. Make sure the `.agency/` directory exists at the project root before writing.
 
 `do` runs autonomously but needs to know your project's check, format, test, and CI commands. Inspect the project to figure them out — look at:
 
@@ -94,14 +94,12 @@ For each of the four command sections (Check, Format, Test, CI), there are three
 
 Sections the user discards are **omitted from the generated file entirely** — no `# TODO` placeholders. `do` already handles missing sections by skipping the corresponding step with a note, which is the right behavior for a section the user has consciously declined.
 
-The file also hosts **four optional sections** that other agency skills (`code-police`, `hickey`, `lowy`, `/do` evidence) read at runtime. Don't fill these in autonomously — they're project-specific and can't be inferred. Mention them at report-back time (step 7) so the user can layer them on later. Each section is free-form: inline prose, a pointer to another file (`See ./code-police-rules.md`), or a script reference all work.
+The same file also hosts an optional `## PR evidence` section that `/do`'s evidence step reads at runtime. Don't fill it in autonomously — it's project-specific and can't be inferred. Mention it at report-back time (step 7) so the user can add it later if they want PR-comment screenshots/benchmarks/etc. The section is free-form (inline prose, file pointer, script reference — all work).
 
-Final file uses this template, including only the command sections the user kept and leaving the optional sections out (the user adds them manually if and when they want them):
+Final file uses this template, including only the command sections the user kept and leaving the optional `## PR evidence` section out (the user adds it manually if and when they want it):
 
 ```markdown
----
-description: Workflow commands for the do pipeline
----
+# /do config
 
 ## Check command
 <command>
@@ -118,10 +116,7 @@ description: Workflow commands for the do pipeline
 ## Documentation
 Keep `README.md` in sync with user-facing changes.
 
-<!-- Optional sections (add manually if needed):
-## Code-police rules
-## Hickey catalog
-## Lowy volatilities
+<!-- Optional (add manually for the evidence step):
 ## PR evidence
 -->
 ```
@@ -132,7 +127,7 @@ If `srid/agency` was already listed in `apm.yml` at the start of this run (you n
 
 Then, regenerate the host configs in a single pass. Run `<apm-invocation> install` from the directory containing `apm.yml`. `apm` reads `target:` / `targets:` from the yml and generates the runtime-specific folders (`.claude/` / `.opencode/` / `.codex/`), plus adds `apm_modules/` to `.gitignore`.
 
-**`install` does not generate the project-root `AGENTS.md` instruction file.** Codex and opencode read `AGENTS.md` at session start; without it they will not see the workflow instructions, code-police rules, or any other `.apm/instructions/` content. To produce it, also run:
+**`install` does not generate the project-root `AGENTS.md` instruction file.** Codex and opencode read `AGENTS.md` at session start; without it they will not see any `.apm/instructions/` content (project-wide preamble, conventions, etc.). To produce it, also run:
 
 ```sh
 <apm-invocation> compile -t <subset>
@@ -152,13 +147,13 @@ Summarize for the user, in this order:
 2. Which target(s) ended up in `apm.yml` (and which form — `target:` scalar or `targets:` list).
 3. Which workflow sections were filled in (and from where) versus skipped at the user's request.
 4. Files changed (staged, not committed). Tell them to review the diff before committing.
-5. **Optional sections to consider adding to `workflow.instructions.md`** — list whichever of these are **not** already present in the file, and explain briefly what each is for. They're project-specific and can't be auto-generated, but the user should know they exist so they can layer them on. Each is free-form: inline prose, a file pointer (`See ./<path>`), or a script reference all work.
-   - `## Code-police rules` — project-specific quality rules checked alongside the built-in `code-police` rules.
-   - `## Hickey catalog` — project-specific complecting/fragmentation patterns extending the Hickey Layer 4 catalog.
-   - `## Lowy volatilities` — project-declared areas of volatility used by the Lowy review pass.
-   - `## PR evidence` — opts the project into `/do`'s `evidence` step, which posts an `## Evidence` PR comment with project-defined empirical artifacts (UI screenshots via chrome-devtools MCP, benchmark numbers, demo recordings, etc.).
+5. **Optional `.agency/<name>.md` files to consider adding** — list whichever of these don't yet exist under `.agency/`, and explain briefly what each is for. They're project-specific and can't be auto-generated, but the user should know they exist so they can layer them on. Each file is plain Markdown — no frontmatter — and free-form (inline content or `See ./<path>` pointers all work).
+   - `.agency/code-police.md` — project-specific quality rules checked alongside the built-in `code-police` rules.
+   - `.agency/hickey.md` — project-specific complecting/fragmentation patterns extending the Hickey Layer 4 catalog.
+   - `.agency/lowy.md` — project-declared areas of volatility used by the Lowy review pass.
+   - `.agency/do.md` `## PR evidence` section (in the file you may have just written in step 5) — opts the project into `/do`'s `evidence` step, which posts an `## Evidence` PR comment with project-defined empirical artifacts (UI screenshots via chrome-devtools MCP, benchmark numbers, demo recordings, etc.).
 
-   Point them at [Kolu's `workflow.instructions.md`](https://github.com/juspay/kolu/blob/master/.apm/instructions/workflow.instructions.md) as a worked example. Skip sections that already exist.
+   Point them at [Kolu's `.agency/`](https://github.com/juspay/kolu/tree/master/.agency) as a worked example. Skip files/sections that already exist.
 6. **Restart the agent CLI** (Claude Code, Codex, opencode, etc.) so it picks up the newly generated skills — without a restart, the new skills won't be available in the running session.
 7. After restart, try `talk` or `do` to verify everything works. Tell the user the **exact** invocation syntax for the target(s) you installed for — don't make them guess:
    - **Claude Code** → `/talk <question>` and `/do <task>` (slash commands).
