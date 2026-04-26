@@ -126,32 +126,76 @@ When(
 // `enableLineSelection` only fires for clicks on gutter line numbers,
 // not on the line content. Target the `[data-column-number]` element
 // (Pierre's `getSelectionPointerInfo` requires `numberColumn=true`).
+//
+// Pierre's `enableLineSelection` commits on `document` pointerup, not
+// element-level click — drive the gutter via Playwright's mouse API so
+// pointerdown / pointerup bubble through the document listener Pierre
+// attached on pointerdown. Both the file viewer (`FILE_VIEW`) and the
+// diff viewer (`DIFF_VIEW`) wrap the same Pierre primitive, so the
+// gutter selector and mouse dance are identical — only the host
+// element's CSS root changes.
+async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
+  const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
+  await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await lineEl.first().boundingBox();
+  if (!box) throw new Error("line gutter has no bounding box");
+  await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await world.page.mouse.down();
+  await world.page.mouse.up();
+  await world.waitForFrame();
+}
+
+async function rightClickViewRoot(world: KoluWorld, root: string) {
+  const view = world.page.locator(root);
+  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await view.click({ button: "right" });
+  await world.waitForFrame();
+}
+
 When(
   "I click the line number {int} in the file content",
   async function (this: KoluWorld, line: number) {
-    const lineEl = this.page.locator(
-      `${FILE_VIEW} [data-column-number="${line}"]`,
-    );
-    await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    // Pierre's `enableLineSelection` commits on `document` pointerup —
-    // not the element-level click. Drive the gutter via Playwright's
-    // mouse API so pointerdown / pointerup bubble through the
-    // document listener Pierre attached on pointerdown.
-    const box = await lineEl.first().boundingBox();
-    if (!box) throw new Error("line gutter has no bounding box");
-    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await this.page.mouse.down();
-    await this.page.mouse.up();
-    await this.waitForFrame();
+    await clickLineGutterIn(this, FILE_VIEW, line);
   },
 );
 
 When("I right-click the file content", async function (this: KoluWorld) {
-  const view = this.page.locator(FILE_VIEW);
-  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await view.click({ button: "right" });
-  await this.waitForFrame();
+  await rightClickViewRoot(this, FILE_VIEW);
 });
+
+When(
+  "I click the line number {int} in the diff view",
+  async function (this: KoluWorld, line: number) {
+    await clickLineGutterIn(this, DIFF_VIEW, line);
+  },
+);
+
+When("I right-click the diff view", async function (this: KoluWorld) {
+  await rightClickViewRoot(this, DIFF_VIEW);
+});
+
+// Asserts the exact set of items in the Pierre diff/file context menu,
+// in order, joined with " | ". Stronger than `I click the context menu
+// item {string}` because it catches "wrong items present" regressions
+// (e.g. a stale path:line entry persisting across file switches) that a
+// targeted click would only surface as an opaque locator timeout.
+Then(
+  "the context menu items should be {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) => {
+        const menu = document.querySelector("#code-context-menu");
+        if (!menu) return false;
+        const got = Array.from(menu.querySelectorAll('[role="menuitem"]'))
+          .map((b) => b.textContent || "")
+          .join(" | ");
+        return got === exp;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 // ── Assertions ──
 
@@ -274,32 +318,47 @@ Then(
   },
 );
 
+// Pierre's File / FileDiff renderers mount highlighted code inside a
+// shadow root. `Element.textContent` does NOT cross shadow boundaries,
+// so we walk the tree (including each `shadowRoot`) and stitch the text.
+// Inlined as a string-evaluate to dodge tsx's `__name` injection, which
+// crashes inside `page.evaluate` arg functions.
+async function waitForViewText(
+  world: KoluWorld,
+  testid: string,
+  expected: string,
+) {
+  await world.page.waitForFunction(
+    `(() => {
+      const root = document.querySelector('[data-testid="${testid}"]');
+      if (!root) return false;
+      const stack = [root];
+      let text = '';
+      while (stack.length) {
+        const node = stack.pop();
+        if (node.nodeType === 3) text += node.nodeValue || '';
+        if (node.nodeType === 1) {
+          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+          for (const ch of node.childNodes) stack.push(ch);
+        }
+      }
+      return text.includes(${JSON.stringify(expected)});
+    })()`,
+    undefined,
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
 Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    // Pierre's File renderer mounts highlighted code inside its shadow
-    // root. `Element.textContent` does NOT cross shadow boundaries, so
-    // we walk the tree (including each `shadowRoot`) and stitch the text.
-    // Inlined as a string-evaluate to dodge tsx's `__name` injection,
-    // which crashes inside `page.evaluate` arg functions.
-    await this.page.waitForFunction(
-      `(() => {
-        const root = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!root) return false;
-        const stack = [root];
-        let text = '';
-        while (stack.length) {
-          const node = stack.pop();
-          if (node.nodeType === 3) text += node.nodeValue || '';
-          if (node.nodeType === 1) {
-            if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-            for (const ch of node.childNodes) stack.push(ch);
-          }
-        }
-        return text.includes(${JSON.stringify(expected)});
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "the diff view should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForViewText(this, "pierre-diff-view", expected);
   },
 );

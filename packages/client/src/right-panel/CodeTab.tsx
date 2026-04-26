@@ -254,6 +254,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
           <Show
             when={selectedPath()}
+            keyed
             fallback={
               <FileSelectHint
                 label={
@@ -264,56 +265,62 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               />
             }
           >
-            <Switch>
-              <Match when={isDiffView()}>
-                <Switch
-                  fallback={
-                    <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
-                  }
-                >
-                  <Match when={diff.error}>
-                    <div class="px-2 py-1 text-danger">
-                      Error: {(diff.error as Error).message}
-                    </div>
-                  </Match>
-                  <Match when={renamedDiff()}>
-                    {(rename) => (
-                      <div class="flex items-center justify-center h-full text-fg-3/50">
-                        File renamed: {rename().oldFileName} →{" "}
-                        {rename().newFileName}
+            {(path) => (
+              // `keyed` remounts this subtree whenever the selected file
+              // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
+              // the same instance — its line-selection handlers don't
+              // re-bind to the new gutter elements, so right-clicking on
+              // a line in the second file would yield a "Copy path" menu
+              // with no "Copy path:line" entry. Per-file remount gives
+              // each file a fresh `FileDiff` and a clean
+              // `useLineSelection` range, which is also the right
+              // semantic — line refs don't survive across files.
+              <Switch>
+                <Match when={isDiffView()}>
+                  <Switch
+                    fallback={
+                      <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
+                    }
+                  >
+                    <Match when={diff.error}>
+                      <div class="px-2 py-1 text-danger">
+                        Error: {(diff.error as Error).message}
                       </div>
-                    )}
-                  </Match>
-                  <Match when={diff()}>
-                    {(d) => {
-                      const path = selectedPath();
-                      if (path === null) return null;
-                      return (
+                    </Match>
+                    <Match when={renamedDiff()}>
+                      {(rename) => (
+                        <div class="flex items-center justify-center h-full text-fg-3/50">
+                          File renamed: {rename().oldFileName} →{" "}
+                          {rename().newFileName}
+                        </div>
+                      )}
+                    </Match>
+                    <Match when={diff()}>
+                      {(d) => (
                         <PierreDiffView
                           path={path}
                           rawDiff={d().hunks[0] ?? ""}
                           theme={diffTheme()}
                         />
-                      );
-                    }}
-                  </Match>
-                </Switch>
-              </Match>
-              <Match when={!isDiffView()}>
-                {(() => {
-                  const repo = repoPath();
-                  const path = selectedPath();
-                  if (repo === null || path === null) return null;
-                  return (
-                    <BrowseFileView
-                      repoPath={repo}
-                      filePath={path}
-                      theme={diffTheme()}
-                    />
-                  );
-                })()}
-              </Match>
-            </Switch>
+                      )}
+                    </Match>
+                  </Switch>
+                </Match>
+                <Match when={!isDiffView()}>
+                  {(() => {
+                    const repo = repoPath();
+                    if (repo === null) return null;
+                    return (
+                      <BrowseFileView
+                        repoPath={repo}
+                        filePath={path}
+                        theme={diffTheme()}
+                      />
+                    );
+                  })()}
+                </Match>
+              </Switch>
+            )}
           </Show>
         </div>
       </div>

@@ -155,3 +155,38 @@ Feature: Code tab (review + browse)
     And I right-click the file content
     And I click the context menu item "Copy letters.txt:2"
     Then the clipboard should contain "letters.txt:2"
+
+  # Regression: switching diff files used to break the "Copy path:line"
+  # context-menu entry. Two interleaved causes — first, a `<Match>` callback
+  # in CodeTab captured `selectedPath()` to a `const`, freezing the path
+  # prop fed into `<PierreDiffView>`. Second, even after the path was made
+  # reactive, Pierre's `FileDiff.render(newFileDiff)` reuses the same
+  # instance and its line-selection handlers don't re-bind to the fresh
+  # gutter elements — so right-clicks on the second file's lines yielded a
+  # menu with no "Copy path:line" entry at all (range stayed null because
+  # no `onLineSelected` ever fired). Fix: key the diff/browse subtree on
+  # path so each file gets a fresh `FileDiff` and a clean
+  # `useLineSelection` range.
+  Scenario: Switching diff files keeps the "Copy path:line" entry in sync
+    When I run "git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'a-one\na-two\na-three\n' > file-a.txt"
+    And I run "printf 'b-one\nb-two\nb-three\n' > file-b.txt"
+    And I click the Code tab
+    And I click the refresh button in the Code tab
+    Then the Code tab should list a changed file "file-a.txt"
+    And the Code tab should list a changed file "file-b.txt"
+    When I click the changed file "file-a.txt" in the Code tab
+    Then the diff view should contain "a-one"
+    When I click the line number 1 in the diff view
+    And I right-click the diff view
+    And I click the context menu item "Copy file-a.txt:1"
+    Then the clipboard should contain "file-a.txt:1"
+    When I click the changed file "file-b.txt" in the Code tab
+    Then the diff view should contain "b-one"
+    When I click the line number 1 in the diff view
+    And I right-click the diff view
+    Then the context menu items should be "Copy path | Copy file-b.txt:1"
+    When I click the context menu item "Copy file-b.txt:1"
+    Then the clipboard should contain "file-b.txt:1"
+    And the clipboard should not contain "file-a.txt"
