@@ -17,6 +17,7 @@ import {
   worktreeCreate,
   worktreeRemove,
 } from "kolu-git";
+import { getPendingSummaryFetches } from "kolu-claude-code";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
@@ -26,9 +27,14 @@ import {
   setPreferencesForTest,
   updatePreferences,
 } from "./preferences.ts";
-import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
+import {
+  publisherSize,
+  subscribeForTerminal_,
+  subscribeSystem_,
+} from "./publisher.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
+  countActiveClaudeSessions,
   createTerminal,
   getTerminal,
   killAllTerminals,
@@ -39,8 +45,10 @@ import {
   setSubPanelState,
   setTerminalParent,
   setTerminalTheme,
+  terminalCount,
   type TerminalProcess,
 } from "./terminals.ts";
+import { getActiveWatches } from "./watch-registry.ts";
 
 const t = implement(contract);
 
@@ -76,6 +84,26 @@ export const appRouter = t.router({
       hostname: serverHostname,
       processId: serverProcessId,
     })),
+    diagnostics: t.server.diagnostics.handler(async () => {
+      const m = process.memoryUsage();
+      return {
+        pid: process.pid,
+        nodeVersion: process.version,
+        uptime: Math.round(process.uptime()),
+        memory: {
+          rss: m.rss,
+          heapUsed: m.heapUsed,
+          heapTotal: m.heapTotal,
+          external: m.external,
+          arrayBuffers: m.arrayBuffers,
+        },
+        watches: getActiveWatches(),
+        terminals: terminalCount(),
+        publisherSize: publisherSize(),
+        claudeSessions: countActiveClaudeSessions(),
+        pendingSummaryFetches: getPendingSummaryFetches(),
+      };
+    }),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

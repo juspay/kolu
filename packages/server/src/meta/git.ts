@@ -15,6 +15,7 @@ import { trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
 import { publishForTerminal, subscribeForTerminal } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
+import { registerWatch } from "../watch-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
 export function startGitProvider(
@@ -40,6 +41,8 @@ export function startGitProvider(
     plog,
   );
 
+  const unregisterWatch = registerWatch("git:HEAD", entry.info.meta.cwd);
+
   const abort = new AbortController();
   subscribeForTerminal("cwd", terminalId, abort.signal, (cwd) =>
     watcher.setCwd(cwd),
@@ -48,6 +51,7 @@ export function startGitProvider(
   return () => {
     abort.abort();
     watcher.stop();
+    unregisterWatch();
     plog.debug("stopped");
   };
 }

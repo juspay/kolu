@@ -309,6 +309,29 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+export const ServerWatchSchema = z.object({
+  label: z.string(),
+  target: z.string(),
+});
+
+export const ServerDiagnosticsSchema = z.object({
+  pid: z.number(),
+  nodeVersion: z.string(),
+  uptime: z.number(),
+  memory: z.object({
+    rss: z.number(),
+    heapUsed: z.number(),
+    heapTotal: z.number(),
+    external: z.number(),
+    arrayBuffers: z.number(),
+  }),
+  watches: z.array(ServerWatchSchema),
+  terminals: z.number(),
+  publisherSize: z.number(),
+  claudeSessions: z.number(),
+  pendingSummaryFetches: z.number(),
+});
+
 // --- Recent repos (server-side persistent state) ---
 
 export const RecentRepoSchema = z.object({

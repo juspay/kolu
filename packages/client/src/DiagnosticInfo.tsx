@@ -5,9 +5,16 @@
 
 import Dialog from "@corvu/dialog";
 import type { TerminalId } from "kolu-common";
-import { type Component, createMemo, For, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { toast } from "solid-sonner";
-import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { client, serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -16,18 +23,11 @@ import Row from "./ui/Row";
 import Section from "./ui/Section";
 import { isMobile } from "./useMobile";
 
-/** WebGL2 support detection creates a throwaway canvas + WebGL context
- *  that lingers on a detached node until GC. Compute once at module load
- *  so re-opening this dialog doesn't burn one context per open — the exact
- *  zombie-context pattern this dialog exists to diagnose (#591). */
 const WEBGL2_SUPPORTED = (() => {
   const canvas = document.createElement("canvas");
   return !!canvas.getContext("webgl2");
 })();
 
-/** One-shot browser facts read at first render. Stable for the session,
- *  so no reactive source needed — keeps this module's dependency surface
- *  small. */
 function browserFacts() {
   return {
     userAgent: navigator.userAgent,
@@ -38,12 +38,6 @@ function browserFacts() {
   };
 }
 
-/** Single source of truth for byte-count display across the dialog.
- *  `bytesToMB` returns a number (used by the `jsHeap` snapshot shape, which
- *  callers may parse programmatically). `formatMB` returns a display string
- *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
- *  "0.0 MB" obscures more than it communicates. Every byte render in this
- *  module goes through these two; evolving the granularity is one edit. */
 function bytesToMB(bytes: number): number {
   return Math.round((bytes / 1_048_576) * 10) / 10;
 }
@@ -52,9 +46,16 @@ function formatMB(bytes: number): string {
   return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
-/** `performance.memory` is Chromium-only and missing from the DOM type
- *  definitions — isolate the narrow cast here so the snapshot memo stays
- *  free of it. Returns null on non-Chromium browsers. */
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return s > 0 && m < 5 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return `${h}h ${rm}m`;
+}
+
 function readJsHeap(): {
   usedMB: number;
   totalMB: number;
@@ -77,10 +78,53 @@ function readJsHeap(): {
   };
 }
 
-const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
-  props,
-) => {
+interface ServerDiagnostics {
+  pid: number;
+  nodeVersion: string;
+  uptime: number;
+  memory: {
+    rss: number;
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    arrayBuffers: number;
+  };
+  watches: Array<{ label: string; target: string }>;
+  terminals: number;
+  publisherSize: number;
+  claudeSessions: number;
+  pendingSummaryFetches: number;
+}
+
+function GroupLabel(props: { label: string }) {
+  return (
+    <div class="px-3 pt-3 pb-1">
+      <span class="text-[9px] font-bold uppercase tracking-[0.15em] text-fg-3/40">
+        {props.label}
+      </span>
+    </div>
+  );
+}
+
+const DiagnosticInfoContent: Component<{
+  activeId: TerminalId | null;
+  open: boolean;
+}> = (props) => {
   const browser = browserFacts();
+
+  const [serverDiag, setServerDiag] = createSignal<ServerDiagnostics | null>(
+    null,
+  );
+  const [recentEventsExpanded, setRecentEventsExpanded] = createSignal(false);
+
+  createEffect(() => {
+    if (props.open) {
+      client.server
+        .diagnostics()
+        .then((d) => setServerDiag(d as ServerDiagnostics))
+        .catch(() => {});
+    }
+  });
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -121,6 +165,20 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
   }
 
+  const watchesByLabel = createMemo(() => {
+    const watches = serverDiag()?.watches ?? [];
+    const groups = new Map<string, { label: string; targets: string[] }>();
+    for (const w of watches) {
+      const existing = groups.get(w.label);
+      if (existing) {
+        existing.targets.push(w.target);
+      } else {
+        groups.set(w.label, { label: w.label, targets: [w.target] });
+      }
+    }
+    return [...groups.values()];
+  });
+
   return (
     <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[80vh]">
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-edge shrink-0">
@@ -137,6 +195,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       </div>
 
       <div class="overflow-y-auto">
+        <GroupLabel label="Client" />
         <Section title="Browser">
           <div class="space-y-0.5">
             <Row label="WebGL 2">
@@ -168,13 +227,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="WS" variant="badge">
               {wsStatus()}
             </Row>
-            <Show when={serverProcessId()}>
-              {(pid) => (
-                <Row label="Server">
-                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
-                </Row>
-              )}
-            </Show>
             <Row label="Active">
               <span class="font-mono text-fg-3">
                 {props.activeId ? props.activeId.slice(0, 8) : "—"}
@@ -213,6 +265,92 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </div>
         </Section>
 
+        <GroupLabel label="Server" />
+        <Section title="Server">
+          <Show
+            when={serverDiag()}
+            fallback={
+              <div class="text-[11px] text-fg-3/60 italic">
+                Fetching server info…
+              </div>
+            }
+          >
+            {(diag) => (
+              <div class="space-y-0.5">
+                <Row label="PID">
+                  <span class="font-mono text-fg-3">{diag().pid}</span>
+                </Row>
+                <Row label="Node">
+                  <span class="font-mono text-fg-3">{diag().nodeVersion}</span>
+                </Row>
+                <Show when={serverProcessId()}>
+                  {(pid) => (
+                    <Row label="Process">
+                      <span class="font-mono text-fg-3">
+                        {pid().slice(0, 8)}
+                      </span>
+                    </Row>
+                  )}
+                </Show>
+                <Row label="Uptime">
+                  <span class="font-mono text-fg">
+                    {formatUptime(diag().uptime)}
+                  </span>
+                </Row>
+                <Row label="RSS">
+                  <span class="font-mono text-fg">
+                    {formatMB(diag().memory.rss)}
+                  </span>
+                </Row>
+                <Row label="Heap">
+                  <span class="font-mono text-fg">
+                    {formatMB(diag().memory.heapUsed)} /{" "}
+                    {formatMB(diag().memory.heapTotal)}
+                  </span>
+                </Row>
+                <Row label="Sessions">
+                  <span class="font-mono text-fg">
+                    {diag().claudeSessions}
+                    <Show when={diag().pendingSummaryFetches > 0}>
+                      <span class="text-fg-3/70">
+                        {" "}
+                        ({diag().pendingSummaryFetches} pending)
+                      </span>
+                    </Show>
+                  </span>
+                </Row>
+                <Row label="Pub size">
+                  <span class="font-mono text-fg-3">
+                    {diag().publisherSize}
+                  </span>
+                </Row>
+                <Show when={watchesByLabel().length > 0}>
+                  <div class="mt-1.5 pt-1.5 border-t border-edge/50">
+                    <div class="text-[10px] text-fg-3/70 mb-1">
+                      Watches ({diag().watches.length})
+                    </div>
+                    <div class="space-y-0.5 text-[10px] font-mono">
+                      <For each={watchesByLabel()}>
+                        {(group) => (
+                          <div class="flex items-baseline gap-2">
+                            <span class="text-fg-2 w-[18ch] shrink-0 truncate">
+                              {group.label}
+                            </span>
+                            <span class="text-fg-3 tabular-nums">
+                              {group.targets.length}
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </Show>
+              </div>
+            )}
+          </Show>
+        </Section>
+
+        <GroupLabel label="xterm" />
         <Section title="Terminals">
           <Show
             when={snapshot().terminals.length > 0}
@@ -272,8 +410,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </Show>
         </Section>
 
-        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
-            Remove this section when the leak is root-caused and fixed. */}
         <Section title="WebGL lifecycle">
           <div class="space-y-0.5">
             <Row label="Created">
@@ -351,30 +487,43 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
             <div class="mt-2 pt-2 border-t border-edge/50">
-              <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
-              <div class="space-y-0.5 text-[10px] font-mono">
-                <For each={snapshot().webgl.recentEvents}>
-                  {(ev) => (
-                    <div class="flex items-baseline gap-2 whitespace-nowrap">
-                      <span class="text-fg-3/60 tabular-nums shrink-0">
-                        {new Date(ev.ts).toISOString().slice(11, 23)}
-                      </span>
-                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
-                        #{ev.canvasId}
-                      </span>
-                      <span class="text-fg-2">
-                        {ev.kind}
-                        {ev.kind === "contextlost" && (
-                          <span class="text-fg-3/70">
-                            {" "}
-                            (defaultPrevented={String(ev.defaultPrevented)})
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <button
+                type="button"
+                onClick={() => setRecentEventsExpanded((v) => !v)}
+                class="flex items-center gap-1 text-[10px] text-fg-3/70 hover:text-fg-3 cursor-pointer w-full text-left"
+              >
+                <span class="text-[8px] transition-transform">
+                  {recentEventsExpanded() ? "▼" : "▶"}
+                </span>
+                <span>
+                  Recent events ({snapshot().webgl.recentEvents.length})
+                </span>
+              </button>
+              <Show when={recentEventsExpanded()}>
+                <div class="space-y-0.5 text-[10px] font-mono mt-1">
+                  <For each={snapshot().webgl.recentEvents}>
+                    {(ev) => (
+                      <div class="flex items-baseline gap-2 whitespace-nowrap">
+                        <span class="text-fg-3/60 tabular-nums shrink-0">
+                          {new Date(ev.ts).toISOString().slice(11, 23)}
+                        </span>
+                        <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                          #{ev.canvasId}
+                        </span>
+                        <span class="text-fg-2">
+                          {ev.kind}
+                          {ev.kind === "contextlost" && (
+                            <span class="text-fg-3/70">
+                              {" "}
+                              (defaultPrevented={String(ev.defaultPrevented)})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </Show>
         </Section>
@@ -397,7 +546,7 @@ const DiagnosticInfo: Component<{
     size="md"
   >
     <Dialog.Content>
-      <DiagnosticInfoContent activeId={props.activeId} />
+      <DiagnosticInfoContent activeId={props.activeId} open={props.open} />
     </Dialog.Content>
   </ModalDialog>
 );

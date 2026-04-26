@@ -22,6 +22,7 @@ import type { AgentInfo } from "kolu-common";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
+import { registerWatch } from "../watch-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -128,8 +129,13 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
 
-  let current: { watcher: AgentWatcher; key: string } | null = null;
+  let current: {
+    watcher: AgentWatcher;
+    key: string;
+    unregisterWatch: () => void;
+  } | null = null;
   let registeredForExternal = false;
+  let unregisterExternal: (() => void) | null = null;
 
   plog.debug("started");
 
@@ -149,8 +155,6 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         const slog = log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
-            // Snapshot before iteration so a reconcile that registers or
-            // unregisters synchronously can't skip a peer for this event.
             for (const fn of [...activation.reconcilers]) {
               try {
                 fn();
@@ -162,6 +166,10 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
           (err) => slog.error({ err }, "external-change listener threw"),
           slog,
         );
+        unregisterExternal = registerWatch(
+          `${provider.kind}:external`,
+          "process-wide",
+        );
       }
     }
 
@@ -171,6 +179,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
     const hadCurrent = current !== null;
     current?.watcher.destroy();
+    current?.unregisterWatch();
     current = null;
 
     if (!next || !nextKey) {
@@ -192,17 +201,12 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         next,
         (info) => {
           updateServerMetadata(entry, terminalId, (m) => {
-            // Widen Info to AgentInfo — every concrete Info variant is a
-            // member of the AgentInfo discriminated union by construction
-            // (its schema is one of the union's branches). The cast lives
-            // at the sole metadata-write site for agent info, so widening
-            // is confined to this one line rather than smeared across
-            // every provider.
             m.agent = info as unknown as AgentInfo;
           });
         },
         plog,
       ),
+      unregisterWatch: registerWatch(provider.kind, nextKey),
     };
   }
 
@@ -219,7 +223,9 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
+    unregisterExternal?.();
     current?.watcher.destroy();
+    current?.unregisterWatch();
     plog.debug("stopped");
   };
 }
