@@ -17,6 +17,10 @@ export {
   type Logger,
   type TaskProgress,
   TaskProgressSchema,
+  type Transcript,
+  type TranscriptEvent,
+  TranscriptEventSchema,
+  TranscriptSchema,
 } from "./schemas.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
 export {

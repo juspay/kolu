@@ -26,3 +26,70 @@ export type Logger = {
   warn: (obj: Record<string, unknown>, msg: string) => void;
   error: (obj: Record<string, unknown>, msg: string) => void;
 };
+
+/** Unified transcript IR for the "Export agent session as HTML" feature.
+ *
+ *  Lives here (anyagent, the shared base) rather than kolu-common because
+ *  the per-agent loaders inside `kolu-claude-code` / `kolu-opencode` /
+ *  `kolu-codex` need the type, and those packages cannot import from
+ *  kolu-common (kolu-common imports from them — reverse direction). The
+ *  contract input/output schemas live in kolu-common where the contract
+ *  itself does. */
+export const TranscriptEventSchema = z.discriminatedUnion("kind", [
+  /** A user prompt. Anchor for prev/next-prompt navigation. */
+  z.object({
+    kind: z.literal("user"),
+    text: z.string(),
+    ts: z.number().nullable(),
+  }),
+  /** Visible assistant reply text. */
+  z.object({
+    kind: z.literal("assistant"),
+    text: z.string(),
+    model: z.string().nullable(),
+    ts: z.number().nullable(),
+  }),
+  /** Hidden chain-of-thought / reasoning. Rendered collapsed by default. */
+  z.object({
+    kind: z.literal("reasoning"),
+    text: z.string(),
+    ts: z.number().nullable(),
+  }),
+  /** A tool invocation. `id` correlates with a later `tool_result` when
+   *  the storage carries one; null for vendors that don't expose ids. */
+  z.object({
+    kind: z.literal("tool_call"),
+    id: z.string().nullable(),
+    toolName: z.string(),
+    inputs: z.unknown(),
+    ts: z.number().nullable(),
+  }),
+  /** Result of a previous tool call. `output` is `unknown` so vendors can
+   *  emit strings, structured payloads, or both — the renderer pretty-
+   *  prints whatever it gets. */
+  z.object({
+    kind: z.literal("tool_result"),
+    id: z.string().nullable(),
+    output: z.unknown(),
+    isError: z.boolean(),
+    ts: z.number().nullable(),
+  }),
+]);
+
+export const TranscriptSchema = z.object({
+  agentKind: z.enum(["claude-code", "opencode", "codex"]),
+  /** Stable id from the source store (Claude session UUID, OpenCode
+   *  `ses_…`, Codex thread UUID). Shown in the export header. */
+  sessionId: z.string(),
+  /** Optional human-readable title (Claude SDK summary, OpenCode title,
+   *  Codex thread title). Falls back to sessionId at render time. */
+  title: z.string().nullable(),
+  /** Original cwd of the session (display-only). */
+  cwd: z.string().nullable(),
+  /** Wall-clock time the export was generated, in ms since epoch. */
+  exportedAt: z.number(),
+  events: z.array(TranscriptEventSchema),
+});
+
+export type TranscriptEvent = z.infer<typeof TranscriptEventSchema>;
+export type Transcript = z.infer<typeof TranscriptSchema>;

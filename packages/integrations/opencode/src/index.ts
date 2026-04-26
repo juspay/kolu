@@ -48,3 +48,9 @@ export {
 export { subscribeOpenCodeDb } from "./wal-watcher.ts";
 
 export { opencodeProvider } from "./agent-provider.ts";
+
+export {
+  eventsFromMessageParts,
+  type LoadOpenCodeTranscriptInput,
+  loadOpenCodeTranscript,
+} from "./transcript.ts";
