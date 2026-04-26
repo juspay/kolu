@@ -11,7 +11,9 @@ import {
   createResource,
   createSignal,
   For,
+  Match,
   Show,
+  Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { client, serverProcessId, wsStatus } from "./rpc/rpc";
@@ -319,58 +321,51 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         </Section>
 
         <Section title="Watches">
-          {/* Four explicit states — the UI must distinguish "still loading"
-              from "request failed" from "succeeded with empty list" so a
-              transport error doesn't get rendered as "No active watchers". */}
-          <Show
-            when={serverErrorText()}
-            fallback={
-              <Show
-                when={!server.loading}
-                fallback={
-                  <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
-                }
-              >
-                <Show
-                  when={(snapshot().server?.watches.length ?? 0) > 0}
-                  fallback={
-                    <div class="text-[11px] text-fg-3/60 italic">
-                      No active watchers
-                    </div>
-                  }
-                >
-                  <div class="space-y-0.5">
-                    <For each={snapshot().server?.watches ?? []}>
-                      {(w) => (
-                        <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
-                          <div class="min-w-0">
-                            <div class="font-mono text-fg-2">{w.kind}</div>
-                            <div class="text-[10px] text-fg-3/70">
-                              {w.description}
-                              <Show when={w.sharedReconcilers !== undefined}>
-                                {" — shared across "}
-                                {w.sharedReconcilers}{" "}
-                                {w.sharedReconcilers === 1
-                                  ? "terminal"
-                                  : "terminals"}
-                              </Show>
-                            </div>
+          {/* Four explicit states so a transport error doesn't get rendered
+              as "No active watchers". */}
+          <Switch>
+            <Match when={serverErrorText()}>
+              {(err) => (
+                <div class="text-[11px] text-danger">failed: {err()}</div>
+              )}
+            </Match>
+            <Match when={server.loading}>
+              <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
+            </Match>
+            <Match when={(snapshot().server?.watches.length ?? 0) === 0}>
+              <div class="text-[11px] text-fg-3/60 italic">
+                No active watchers
+              </div>
+            </Match>
+            <Match when={snapshot().server?.watches}>
+              {(watches) => (
+                <div class="space-y-0.5">
+                  <For each={watches()}>
+                    {(w) => (
+                      <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
+                        <div class="min-w-0">
+                          <div class="font-mono text-fg-2">{w.kind}</div>
+                          <div class="text-[10px] text-fg-3/70">
+                            {w.description}
+                            <Show when={w.sharedReconcilers !== undefined}>
+                              {" — shared across "}
+                              {w.sharedReconcilers}{" "}
+                              {w.sharedReconcilers === 1
+                                ? "terminal"
+                                : "terminals"}
+                            </Show>
                           </div>
-                          <span class="font-mono text-fg tabular-nums">
-                            {w.count}
-                          </span>
                         </div>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-              </Show>
-            }
-          >
-            {(err) => (
-              <div class="text-[11px] text-danger">failed: {err()}</div>
-            )}
-          </Show>
+                        <span class="font-mono text-fg tabular-nums">
+                          {w.count}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              )}
+            </Match>
+          </Switch>
         </Section>
 
         <Section title="Terminals">
