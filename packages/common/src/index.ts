@@ -318,14 +318,15 @@ const ResourceContextSchema = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.null()]),
 );
 
-/** One active runtime handle the server is holding — fs.watch, timer,
- *  or publisher subscription. Populated by the kolu-runtime-diagnostics
- *  registry; the diagnostic dialog enumerates these one-per-row rather
- *  than folding them into category counts. */
+/** One active runtime handle the server is holding (today: just
+ *  fs.watch). Populated by the kolu-runtime-diagnostics registry; the
+ *  diagnostic dialog enumerates these one-per-row rather than folding
+ *  them into category counts. The kind enum is narrow on purpose —
+ *  widen it when a new owner ships a new kind, not in anticipation. */
 export const ServerResourceSchema = z.object({
   /** Process-local id assigned at registration. */
   id: z.number().int().nonnegative(),
-  kind: z.enum(["fs-watch", "timer", "subscription"]),
+  kind: z.enum(["fs-watch"]),
   /** Short human-readable category, e.g. `.git/HEAD`, `transcript JSONL`. */
   label: z.string(),
   /** Owner package or subsystem, e.g. `kolu-git`, `kolu-claude-code`. */

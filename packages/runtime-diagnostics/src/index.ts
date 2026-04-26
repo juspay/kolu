@@ -10,10 +10,11 @@
  * categorical knowledge required.
  */
 
-/** Kinds of runtime resource the registry tracks. Open enough to grow
- *  (subscriptions, db handles, etc.) without changing the registration
- *  surface. */
-export type ResourceKind = "fs-watch" | "timer" | "subscription";
+/** Kinds of runtime resource the registry tracks. Narrow to what's
+ *  actually registered today; the first owner that needs a new kind
+ *  (timer, subscription, db handle) widens the union and the wire
+ *  schema in lockstep. */
+export type ResourceKind = "fs-watch";
 
 /** JSON-safe scalar carried in `context` so the snapshot serializes
  *  cleanly through oRPC and lands in the Diagnostic-info JSON dump
