@@ -1,7 +1,6 @@
----
-paths:
-  - "packages/**/*.{ts,tsx}"
----
+# Kolu code-police rules
+
+Kolu-specific rules layered on top of the base `code-police` skill — read by `code-police` from this file (`.agency/code-police.md`) when it runs.
 
 ## Additional Code Police Rules
 
