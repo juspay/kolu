@@ -1,6 +1,6 @@
 import type { Transcript } from "kolu-common";
 import { describe, expect, it } from "vitest";
-import { transcriptToHtml } from "./transcriptHtml.ts";
+import { renderMarkdown, transcriptToHtml } from "./transcriptHtml.ts";
 
 function makeTranscript(overrides: Partial<Transcript> = {}): Transcript {
   return {
@@ -29,6 +29,14 @@ describe("transcriptToHtml", () => {
     expect(html).not.toMatch(/<script[^>]*\bsrc=/);
   });
 
+  it("hides tool calls by default at the body level", () => {
+    // The body carries `data-hide-tools="true"` server-side so tools
+    // collapse before any JS runs (no flash of visible content).
+    const html = transcriptToHtml(makeTranscript());
+    expect(html).toContain('<body data-hide-tools="true">');
+    expect(html).toContain('body[data-hide-tools="true"] .event--tool');
+  });
+
   it("escapes user content to prevent HTML injection", () => {
     const html = transcriptToHtml(
       makeTranscript({
@@ -54,14 +62,11 @@ describe("transcriptToHtml", () => {
         ],
       }),
     );
-    // Two user prompts → two <section> anchors. (The selector string in
-    // the embedded <script> also contains data-role="user", so match the
-    // surrounding section element to count actual events.)
     const matches = html.match(/<section[^>]*data-role="user"/g);
     expect(matches?.length).toBe(2);
   });
 
-  it("renders tool calls inside <details> for collapse/expand", () => {
+  it("renders tool calls inside <details> with the tool name", () => {
     const html = transcriptToHtml(
       makeTranscript({
         events: [
@@ -87,7 +92,7 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("Session 01234567");
   });
 
-  it("uses the friendly agent label in the header", () => {
+  it("uses the friendly agent label in the masthead eyebrow", () => {
     expect(
       transcriptToHtml(makeTranscript({ agentKind: "claude-code" })),
     ).toContain("Claude Code");
@@ -99,7 +104,7 @@ describe("transcriptToHtml", () => {
     );
   });
 
-  it("renders model, token count, and PR link when available", () => {
+  it("renders model, compact token count, and PR link in the byline", () => {
     const html = transcriptToHtml(
       makeTranscript({
         model: "claude-opus-4-6",
@@ -108,27 +113,16 @@ describe("transcriptToHtml", () => {
       }),
     );
     expect(html).toContain("claude-opus-4-6");
-    expect(html).toContain("47K tokens");
+    expect(html).toContain("47K");
     expect(html).toContain("PR #742");
     expect(html).toContain("https://github.com/juspay/kolu/pull/742");
   });
 
-  it("omits header pills when their value is null", () => {
-    const html = transcriptToHtml(
-      makeTranscript({ model: null, contextTokens: null, pr: null }),
-    );
-    expect(html).not.toContain('class="pill model"');
-    expect(html).not.toContain('class="pill tokens"');
-    expect(html).not.toContain('class="pill pr"');
-  });
-
-  it("emits a hide-tools toggle and a theme toggle", () => {
+  it("emits dock toggles for tools and theme", () => {
     const html = transcriptToHtml(makeTranscript());
     expect(html).toContain('data-toggle="tools"');
     expect(html).toContain('data-toggle="theme"');
-    // CSS rule that drives the toggle.
-    expect(html).toContain('body[data-hide-tools="true"]');
-    // Manual override for the auto theme.
+    // Manual override selectors for the auto theme.
     expect(html).toContain(':root[data-theme="dark"]');
     expect(html).toContain(':root[data-theme="light"]');
   });
@@ -142,9 +136,78 @@ describe("transcriptToHtml", () => {
         ],
       }),
     );
-    // Both events get an inline <svg> in their .icon column.
     expect(html).toContain('aria-label="User"');
     expect(html).toContain('aria-label="Assistant"');
     expect(html.match(/<svg[^>]*viewBox/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders assistant messages through the markdown pipeline", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "assistant",
+            text: "**Bold** and *italic* and `code` and a [link](https://example.com).",
+            model: null,
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("<strong>Bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).toContain('href="https://example.com"');
+  });
+
+  it("leaves user prompts as plain text (no markdown processing)", () => {
+    // User prompts often contain literal ** or backticks that should NOT
+    // be transformed. Markdown is for the assistant's output only.
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [{ kind: "user", text: "show me **bold** in code", ts: null }],
+      }),
+    );
+    expect(html).not.toContain("<strong>bold</strong>");
+    expect(html).toContain("**bold**");
+  });
+});
+
+describe("renderMarkdown", () => {
+  it("turns paragraphs into <p>", () => {
+    expect(renderMarkdown("hello\n\nworld")).toContain("<p>hello</p>");
+    expect(renderMarkdown("hello\n\nworld")).toContain("<p>world</p>");
+  });
+
+  it("supports headings as h3/h4/h5", () => {
+    const out = renderMarkdown("# H1\n\n## H2\n\n### H3");
+    expect(out).toContain("<h3");
+    expect(out).toContain("<h4");
+    expect(out).toContain("<h5");
+  });
+
+  it("supports bullet and numbered lists", () => {
+    expect(renderMarkdown("- one\n- two")).toContain('<ul class="md-list">');
+    expect(renderMarkdown("1. one\n2. two")).toContain(
+      'class="md-list md-list--ordered"',
+    );
+  });
+
+  it("supports fenced code blocks with optional lang", () => {
+    const out = renderMarkdown("```ts\nconst x = 1;\n```");
+    expect(out).toContain('data-lang="ts"');
+    expect(out).toContain("const x = 1;");
+  });
+
+  it("supports blockquotes", () => {
+    expect(renderMarkdown("> a quote")).toContain(
+      '<blockquote class="md-quote">',
+    );
+  });
+
+  it("escapes HTML in markdown content", () => {
+    const out = renderMarkdown("a <script>alert(1)</script> b");
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;");
   });
 });
