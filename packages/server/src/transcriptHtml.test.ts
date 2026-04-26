@@ -89,11 +89,45 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("&quot;path&quot;");
   });
 
-  it("falls back to the session id when title is null", () => {
+  it("falls back to the session id when title is null and there are no events", () => {
     const html = transcriptToHtml(
       makeTranscript({ title: null, sessionId: "01234567xyz" }),
     );
     expect(html).toContain("Session 01234567");
+  });
+
+  it("displays the first user prompt as the rendered title", () => {
+    // Claude's `summary` field is a rolling summary that drifts toward
+    // the latest prompt — useless as a session label. The first user
+    // prompt is the question that started the conversation, which is
+    // exactly the right one-line label.
+    const html = transcriptToHtml(
+      makeTranscript({
+        title: "this is the rolling summary, not the title we want",
+        events: [
+          { kind: "user", text: "Build me a flake.nix", ts: null },
+          { kind: "assistant", text: "ok", model: null, ts: null },
+          { kind: "user", text: "now add a CI step", ts: null },
+        ],
+      }),
+    );
+    expect(html).toContain('class="title-text">Build me a flake.nix</span>');
+    expect(html).not.toContain("rolling summary");
+    expect(html).not.toContain("now add a CI step</span>");
+  });
+
+  it("truncates long first prompts to keep the title one line", () => {
+    // The full prompt still appears in the user event card; only the
+    // title's copy is truncated.
+    const longPrompt = "x".repeat(200);
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [{ kind: "user", text: longPrompt, ts: null }],
+      }),
+    );
+    const titleMatch = html.match(/class="title-text">([^<]*)</);
+    expect(titleMatch?.[1]?.endsWith("…")).toBe(true);
+    expect((titleMatch?.[1]?.length ?? 0) < 130).toBe(true);
   });
 
   it("uses the friendly agent label in the masthead eyebrow", () => {

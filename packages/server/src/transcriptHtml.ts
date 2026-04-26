@@ -1433,6 +1433,29 @@ function renderEyebrow(transcript: Transcript): string {
   return `<div class="eyebrow">${parts.join('<span class="sep">·</span>')}</div>`;
 }
 
+/** Pick the displayed title for the document. Prefers the first user
+ *  prompt (one-line, truncated). Claude Code's `summary` field comes
+ *  from a rolling SDK summarizer that re-summarises on every turn, so
+ *  on long sessions it drifts toward the LATEST prompt — exactly the
+ *  opposite of what a session label should mean. The first prompt is
+ *  the question that started the conversation and is the most useful
+ *  one-line label across all three agents. Falls back to the agent's
+ *  `summary` if no user event is in the transcript yet. */
+function deriveDisplayTitle(transcript: Transcript): string {
+  for (const ev of transcript.events) {
+    if (ev.kind === "user") {
+      const firstLine = (ev.text.split(/\r?\n/)[0] ?? "").trim();
+      if (firstLine.length > 0) {
+        return firstLine.length > 120
+          ? `${firstLine.slice(0, 117)}…`
+          : firstLine;
+      }
+    }
+  }
+  if (transcript.title && transcript.title.length > 0) return transcript.title;
+  return `Session ${transcript.sessionId.slice(0, 8)}`;
+}
+
 /** Render the rich title: a small prefix line carrying repo name and
  *  PR link, then the actual title (first user prompt) in the big serif.
  *  Both share one `<h1>` so a screen reader reads them as a unit. */
@@ -1499,10 +1522,7 @@ export function transcriptToHtml(transcript: Transcript): string {
     transcript.events.length === 0
       ? '<div class="empty">No conversation events found.</div>'
       : transcript.events.map((e, i) => renderEvent(e, i)).join("\n");
-  const titleText =
-    transcript.title && transcript.title.length > 0
-      ? transcript.title
-      : `Session ${transcript.sessionId.slice(0, 8)}`;
+  const titleText = deriveDisplayTitle(transcript);
   const eyebrow = renderEyebrow(transcript);
   const byline = renderByline(transcript, counts);
   return `<!doctype html>
