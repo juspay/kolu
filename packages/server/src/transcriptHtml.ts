@@ -895,12 +895,12 @@ const STYLE = `
     color: var(--ink);
   }
 
-  /* Markdown elements inside assistant text — tighter rhythm so multi-
-     paragraph technical responses read as one unit, not as separate
-     beats. */
-  .md > :first-child { margin-top: 0; }
-  .md p { margin: 0 0 0.5rem 0; }
-  .md p:last-child { margin-bottom: 0; }
+  /* Markdown elements inside assistant text — tight rhythm; consecutive
+     blocks (p ↔ list, p ↔ p, p ↔ code) sit a single quarter-rem apart
+     so a multi-paragraph technical reply reads as one unit. */
+  .md > :first-child { margin-top: 0 !important; }
+  .md > :last-child { margin-bottom: 0 !important; }
+  .md p { margin: 0 0 0.25rem 0; }
   .md strong { font-weight: 700; }
   .md em { font-style: italic; }
   .md code {
@@ -918,18 +918,18 @@ const STYLE = `
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--ink);
-    margin: 0.875rem 0 0.25rem 0;
+    margin: 0.625rem 0 0.125rem 0;
   }
   .md h3.md-h { font-size: 1.0625rem; }
   .md h4.md-h { font-size: 1rem; }
   .md h5.md-h { font-size: 0.9375rem; color: var(--ink-2); }
-  .md .md-list { margin: 0 0 0.5rem 0; padding-left: 1.25rem; }
-  .md .md-list li { margin: 0.125rem 0; line-height: 1.5; }
-  .md .md-list li > p { margin: 0 0 0.25rem 0; }
+  .md .md-list { margin: 0 0 0.25rem 0; padding-left: 1.25rem; }
+  .md .md-list li { margin: 0.0625rem 0; line-height: 1.5; }
+  .md .md-list li > p { margin: 0 0 0.125rem 0; }
   .md .md-list li > p:last-child { margin-bottom: 0; }
   .md .md-list--ordered li::marker { color: var(--ink-3); font-feature-settings: "lnum", "tnum"; }
   .md .md-quote {
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 0.25rem 0;
     padding: 0.125rem 0 0.125rem 0.75rem;
     border-left: 3px solid var(--rule-strong);
     color: var(--ink-2);
@@ -938,7 +938,7 @@ const STYLE = `
   .md .md-hr {
     border: none;
     border-top: 1px solid var(--rule);
-    margin: 1rem 0;
+    margin: 0.75rem 0;
   }
   .md .md-code {
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
@@ -948,7 +948,7 @@ const STYLE = `
     border: 1px solid var(--rule);
     border-radius: 5px;
     padding: 0.5rem 0.625rem;
-    margin: 0 0 0.5rem 0;
+    margin: 0 0 0.25rem 0;
     color: var(--ink);
     overflow-x: auto;
     white-space: pre;
