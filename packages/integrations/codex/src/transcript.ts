@@ -146,6 +146,9 @@ export function parseCodexRollout(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as RolloutLine;
     } catch {
+      // Malformed line — skip. Codex writes the JSONL itself; a
+      // truncated final write is the only practical failure mode. One
+      // corrupt entry shouldn't fail the entire export.
       continue;
     }
     const ev = eventFromLine(entry);

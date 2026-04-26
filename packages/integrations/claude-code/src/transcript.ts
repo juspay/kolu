@@ -9,9 +9,8 @@
  *  renderer JSON-stringifies them at display time. */
 
 import fs from "node:fs";
-import path from "node:path";
 import type { Transcript, TranscriptEvent } from "anyagent";
-import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
+import { findTranscriptPath, type SessionFile } from "./core.ts";
 
 interface AssistantContentBlock {
   type?: string;
@@ -111,6 +110,9 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
     try {
       entry = JSON.parse(line) as JsonlEntry;
     } catch {
+      // Malformed line — skip. Claude writes the JSONL itself, so this is
+      // rare in practice; ignoring lets a single corrupt entry not bring
+      // down the entire export.
       continue;
     }
     events.push(...eventsFromEntry(entry));
@@ -125,16 +127,21 @@ export interface LoadClaudeCodeTranscriptInput {
 }
 
 /** Read the JSONL transcript for a Claude Code session and normalize it
- *  to the unified IR. Throws if the transcript file is absent (caller
- *  surfaces this as an oRPC error). */
+ *  to the unified IR. Returns null when the transcript file doesn't
+ *  exist yet (Claude creates it lazily on the first user↔assistant
+ *  exchange, so a brand-new session has no JSONL). Mirrors the
+ *  `Transcript | null` shape returned by the OpenCode and Codex loaders
+ *  so the router's "no transcript" branch is uniform across vendors. */
 export function loadClaudeCodeTranscript(
   input: LoadClaudeCodeTranscriptInput,
-): Transcript {
-  const file = path.join(
-    PROJECTS_DIR,
-    encodeProjectPath(input.cwd),
-    `${input.sessionId}.jsonl`,
-  );
+): Transcript | null {
+  const session: SessionFile = {
+    pid: 0,
+    sessionId: input.sessionId,
+    cwd: input.cwd,
+  };
+  const file = findTranscriptPath(session);
+  if (!file) return null;
   const raw = fs.readFileSync(file, "utf8");
   return {
     agentKind: "claude-code",
