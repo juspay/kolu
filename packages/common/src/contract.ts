@@ -19,6 +19,7 @@ import {
   PreferencesPatchSchema,
   PreferencesSchema,
   SavedSessionSchema,
+  ServerDiagnosticsSchema,
   ServerInfoSchema,
   SetActiveTerminalInputSchema,
   TerminalAttachInputSchema,
@@ -43,6 +44,9 @@ import {
 export const contract = oc.router({
   server: {
     info: oc.output(ServerInfoSchema),
+    /** One-shot snapshot of process memory/uptime + subsystem counts +
+     *  active watcher categories. Read on demand (Debug → Diagnostic info). */
+    diagnostics: oc.output(ServerDiagnosticsSchema),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

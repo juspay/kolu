@@ -36,8 +36,11 @@
 import path from "node:path";
 import v8 from "node:v8";
 import { getPendingSummaryFetches } from "kolu-claude-code";
+import type { ServerDiagnostics } from "kolu-common";
 import { log } from "./log.ts";
+import { activationSnapshot } from "./meta/agent.ts";
 import { publisherSize } from "./publisher.ts";
+import { terminalEntries } from "./terminal-registry.ts";
 import { countActiveClaudeSessions, terminalCount } from "./terminals.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
@@ -50,6 +53,66 @@ const DIAG_INTERVAL_MS = 5 * 60 * 1000;
  *  that the heap is small (a few hundred MB at most), late enough that
  *  startup transients have settled. */
 const BASELINE_DELAY_MS = 5 * 60 * 1000;
+
+/** Snapshot for the client-facing Diagnostic info dialog (Debug → Diagnostic
+ *  info). Aggregates memory + uptime + subsystem counts + a categorical
+ *  view of active server-side watchers.
+ *
+ *  Watch entries are aggregated by category, not enumerated per fs.watch
+ *  handle: instrumenting every fs.watch site would be invasive churn for
+ *  modest payoff. The shape ("is the server holding watchers I didn't
+ *  expect?") is what diagnostics actually answers. */
+export function getServerDiagnostics(): ServerDiagnostics {
+  const m = process.memoryUsage();
+
+  let terminalsWithGit = 0;
+  for (const [, entry] of terminalEntries()) {
+    if (entry.info.meta.git !== null) terminalsWithGit++;
+  }
+
+  const watches: ServerDiagnostics["watches"] = [];
+  if (terminalsWithGit > 0) {
+    watches.push({
+      kind: "git-head",
+      description: ".git/HEAD watcher (per terminal in a repo)",
+      count: terminalsWithGit,
+    });
+  }
+  const claudeSessions = countActiveClaudeSessions();
+  if (claudeSessions > 0) {
+    watches.push({
+      kind: "claude-transcript",
+      description: "Claude Code transcript JSONL watcher (per active session)",
+      count: claudeSessions,
+    });
+  }
+  for (const a of activationSnapshot()) {
+    if (!a.installed) continue;
+    watches.push({
+      kind: `agent-external:${a.kind}`,
+      description: `${a.kind} external-change watcher (shared across ${a.reconcilers} terminal${a.reconcilers === 1 ? "" : "s"})`,
+      count: 1,
+    });
+  }
+
+  return {
+    uptimeMs: Math.round(process.uptime() * 1000),
+    nodeVersion: process.version,
+    memory: {
+      rss: m.rss,
+      heapUsed: m.heapUsed,
+      heapTotal: m.heapTotal,
+      external: m.external,
+      arrayBuffers: m.arrayBuffers,
+    },
+    subsystems: {
+      terminals: terminalCount(),
+      publisherChannels: publisherSize(),
+      pendingSummaryFetches: getPendingSummaryFetches(),
+    },
+    watches,
+  };
+}
 
 /** Collect a single diagnostics sample: memory bands + subsystem counts.
  *  All values are numbers, ready for JSON logging. */

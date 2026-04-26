@@ -19,6 +19,7 @@ import {
 } from "kolu-git";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
+import { getServerDiagnostics } from "./diagnostics.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -76,6 +77,9 @@ export const appRouter = t.router({
       hostname: serverHostname,
       processId: serverProcessId,
     })),
+    diagnostics: t.server.diagnostics.handler(async () =>
+      getServerDiagnostics(),
+    ),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

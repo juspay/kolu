@@ -309,6 +309,45 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+/** Logical "watch" entries — categorical view of what the server is
+ *  currently observing (per-terminal git HEAD watchers, agent transcripts,
+ *  shared external-change watchers). Counts are aggregated, not handles —
+ *  the goal is "is the server holding watchers I didn't expect?", not
+ *  enumerating every fs.watch instance. */
+export const ServerWatchSchema = z.object({
+  /** Stable identifier for the watch category, e.g. `git-head`,
+   *  `claude-transcript`, `agent-external:claude-code`. */
+  kind: z.string(),
+  /** One-line human-readable description for the diagnostic dialog. */
+  description: z.string(),
+  /** How many watchers of this kind are currently active. */
+  count: z.number().int().nonnegative(),
+});
+
+export const ServerDiagnosticsSchema = z.object({
+  /** Process uptime in milliseconds. */
+  uptimeMs: z.number(),
+  /** `process.version` (e.g. `v22.11.0`). */
+  nodeVersion: z.string(),
+  /** Bytes from `process.memoryUsage()`. */
+  memory: z.object({
+    rss: z.number(),
+    heapUsed: z.number(),
+    heapTotal: z.number(),
+    external: z.number(),
+    arrayBuffers: z.number(),
+  }),
+  /** Subsystem-level counts already collected by the heap-leak diag log. */
+  subsystems: z.object({
+    terminals: z.number().int().nonnegative(),
+    publisherChannels: z.number().int().nonnegative(),
+    pendingSummaryFetches: z.number().int().nonnegative(),
+  }),
+  /** Categorical view of active server-side watchers. */
+  watches: z.array(ServerWatchSchema),
+});
+export type ServerDiagnostics = z.infer<typeof ServerDiagnosticsSchema>;
+
 // --- Recent repos (server-side persistent state) ---
 
 export const RecentRepoSchema = z.object({

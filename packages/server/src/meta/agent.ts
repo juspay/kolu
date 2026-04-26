@@ -111,6 +111,23 @@ function getActivation(kind: string): ExternalChangesActivation {
   return entry;
 }
 
+/** Snapshot of installed external-change activations for diagnostics. Each
+ *  entry whose `installed` is true represents one shared watcher running
+ *  for that provider kind (e.g. a directory watch on `~/.claude/projects`).
+ *  Provider kinds that have never been foregrounded in this process are
+ *  absent from the map and excluded from the snapshot. */
+export function activationSnapshot(): Array<{
+  kind: string;
+  reconcilers: number;
+  installed: boolean;
+}> {
+  return [...activations.entries()].map(([kind, a]) => ({
+    kind,
+    reconcilers: a.reconcilers.size,
+    installed: a.installed,
+  }));
+}
+
 /**
  * Start the provider's agent-detection loop for one terminal. Subscribes
  * to title events and — lazily, on first `isPresent` match — joins the

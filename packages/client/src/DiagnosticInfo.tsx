@@ -4,10 +4,17 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
-import type { TerminalId } from "kolu-common";
-import { type Component, createMemo, For, Show } from "solid-js";
+import type { ServerDiagnostics, TerminalId } from "kolu-common";
+import {
+  type Component,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { toast } from "solid-sonner";
-import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { client, serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -52,6 +59,19 @@ function formatMB(bytes: number): string {
   return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
+/** Compact d/h/m/s formatting for process uptime. Days dominate over hours
+ *  for a long-lived dev server; seconds matter only for fresh restarts. */
+function formatUptime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
  *  definitions — isolate the narrow cast here so the snapshot memo stays
  *  free of it. Returns null on non-Chromium browsers. */
@@ -82,10 +102,29 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 ) => {
   const browser = browserFacts();
 
+  // One-shot fetch on dialog open. Dialog.Content unmounts on close, so
+  // re-opening fires a fresh fetch — adequate for a snapshot dialog. The
+  // toast surfaces transport/server errors; createResource exposes the
+  // failed value as undefined to the UI, which renders "Loading…" then
+  // hides the Server/Watches sections so the dialog stays useful.
+  const [server] = createResource<ServerDiagnostics>(() =>
+    client.server.diagnostics().catch((err: Error) => {
+      toast.error(`Server diagnostics failed: ${err.message}`);
+      throw err;
+    }),
+  );
+
+  // `Recent events` is collapsed by default — it's a long debug-only list
+  // that pushes everything else off-screen. Persistence is intentionally
+  // not a preference: the toggle is per-dialog-open, mirroring the
+  // ephemeral-modal contract everything else here follows.
+  const [recentEventsOpen, setRecentEventsOpen] = createSignal(false);
+
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
     return {
       browser,
+      server: server(),
       session: {
         viewport: isMobile() ? "mobile" : "canvas",
         wsStatus: wsStatus(),
@@ -139,6 +178,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       <div class="overflow-y-auto">
         <Section title="Browser">
           <div class="space-y-0.5">
+            <Row label="Viewport">
+              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
+            </Row>
             <Row label="WebGL 2">
               <span class={browser.webgl2Supported ? "text-ok" : "text-danger"}>
                 {browser.webgl2Supported ? "available" : "unavailable"}
@@ -152,36 +194,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="xterm.js">
               <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
             </Row>
-            <Row label="UA">
-              <span class="font-mono text-fg-3 break-all">
-                {browser.userAgent}
+            <Row label="COI">
+              <span
+                class={browser.crossOriginIsolated ? "text-ok" : "text-fg-3"}
+              >
+                {browser.crossOriginIsolated ? "yes" : "no"}
               </span>
-            </Row>
-          </div>
-        </Section>
-
-        <Section title="Session">
-          <div class="space-y-0.5">
-            <Row label="Viewport">
-              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
-            </Row>
-            <Row label="WS" variant="badge">
-              {wsStatus()}
-            </Row>
-            <Show when={serverProcessId()}>
-              {(pid) => (
-                <Row label="Server">
-                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
-                </Row>
-              )}
-            </Show>
-            <Row label="Active">
-              <span class="font-mono text-fg-3">
-                {props.activeId ? props.activeId.slice(0, 8) : "—"}
-              </span>
-            </Row>
-            <Row label="Count">
-              <span class="font-mono text-fg">{getDiagnostics().length}</span>
             </Row>
             <Show when={snapshot().session.jsHeap}>
               {(heap) => (
@@ -203,14 +221,120 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 {snapshot().session.canvases}
               </span>
             </Row>
-            <Row label="COI">
-              <span
-                class={browser.crossOriginIsolated ? "text-ok" : "text-fg-3"}
-              >
-                {browser.crossOriginIsolated ? "yes" : "no"}
+            <Row label="UA">
+              <span class="font-mono text-fg-3 break-all">
+                {browser.userAgent}
               </span>
             </Row>
           </div>
+        </Section>
+
+        <Section title="Server">
+          <div class="space-y-0.5">
+            <Row label="WS" variant="badge">
+              {wsStatus()}
+            </Row>
+            <Show when={serverProcessId()}>
+              {(pid) => (
+                <Row label="Process">
+                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
+                </Row>
+              )}
+            </Show>
+            <Show when={snapshot().server}>
+              {(s) => (
+                <>
+                  <Row label="Node">
+                    <span class="font-mono text-fg-3">{s().nodeVersion}</span>
+                  </Row>
+                  <Row label="Uptime">
+                    <span class="font-mono text-fg">
+                      {formatUptime(s().uptimeMs)}
+                    </span>
+                  </Row>
+                  <Row label="RSS">
+                    <span class="font-mono text-fg">
+                      {formatMB(s().memory.rss)}
+                    </span>
+                  </Row>
+                  <Row label="Heap">
+                    <span class="font-mono text-fg">
+                      {formatMB(s().memory.heapUsed)} /{" "}
+                      {formatMB(s().memory.heapTotal)}
+                    </span>
+                  </Row>
+                  <Row label="External">
+                    <span class="font-mono text-fg-3">
+                      {formatMB(s().memory.external)}
+                    </span>
+                  </Row>
+                  <Row label="ArrBufs">
+                    <span class="font-mono text-fg-3">
+                      {formatMB(s().memory.arrayBuffers)}
+                    </span>
+                  </Row>
+                  <Row label="Terminals">
+                    <span class="font-mono text-fg">
+                      {s().subsystems.terminals}
+                    </span>
+                  </Row>
+                  <Row label="Channels">
+                    <span class="font-mono text-fg-3">
+                      {s().subsystems.publisherChannels}
+                    </span>
+                  </Row>
+                  <Show when={s().subsystems.pendingSummaryFetches > 0}>
+                    <Row label="Pending">
+                      <span class="font-mono text-warning">
+                        {s().subsystems.pendingSummaryFetches} summary
+                      </span>
+                    </Row>
+                  </Show>
+                </>
+              )}
+            </Show>
+            <Row label="Active">
+              <span class="font-mono text-fg-3">
+                {props.activeId ? props.activeId.slice(0, 8) : "—"}
+              </span>
+            </Row>
+          </div>
+        </Section>
+
+        <Section title="Watches">
+          <Show
+            when={server.loading}
+            fallback={
+              <Show
+                when={(snapshot().server?.watches.length ?? 0) > 0}
+                fallback={
+                  <div class="text-[11px] text-fg-3/60 italic">
+                    No active watchers
+                  </div>
+                }
+              >
+                <div class="space-y-0.5">
+                  <For each={snapshot().server?.watches ?? []}>
+                    {(w) => (
+                      <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
+                        <div class="min-w-0">
+                          <div class="font-mono text-fg-2">{w.kind}</div>
+                          <div class="text-[10px] text-fg-3/70">
+                            {w.description}
+                          </div>
+                        </div>
+                        <span class="font-mono text-fg tabular-nums">
+                          {w.count}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            }
+          >
+            <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
+          </Show>
         </Section>
 
         <Section title="Terminals">
@@ -351,30 +475,44 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
             <div class="mt-2 pt-2 border-t border-edge/50">
-              <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
-              <div class="space-y-0.5 text-[10px] font-mono">
-                <For each={snapshot().webgl.recentEvents}>
-                  {(ev) => (
-                    <div class="flex items-baseline gap-2 whitespace-nowrap">
-                      <span class="text-fg-3/60 tabular-nums shrink-0">
-                        {new Date(ev.ts).toISOString().slice(11, 23)}
-                      </span>
-                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
-                        #{ev.canvasId}
-                      </span>
-                      <span class="text-fg-2">
-                        {ev.kind}
-                        {ev.kind === "contextlost" && (
-                          <span class="text-fg-3/70">
-                            {" "}
-                            (defaultPrevented={String(ev.defaultPrevented)})
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                </For>
-              </div>
+              <button
+                type="button"
+                class="w-full flex items-baseline justify-between text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                onClick={() => setRecentEventsOpen((v) => !v)}
+                aria-expanded={recentEventsOpen()}
+              >
+                <span>
+                  Recent events ({snapshot().webgl.recentEvents.length})
+                </span>
+                <span class="font-mono text-fg-3/60">
+                  {recentEventsOpen() ? "−" : "+"}
+                </span>
+              </button>
+              <Show when={recentEventsOpen()}>
+                <div class="mt-1 space-y-0.5 text-[10px] font-mono">
+                  <For each={snapshot().webgl.recentEvents}>
+                    {(ev) => (
+                      <div class="flex items-baseline gap-2 whitespace-nowrap">
+                        <span class="text-fg-3/60 tabular-nums shrink-0">
+                          {new Date(ev.ts).toISOString().slice(11, 23)}
+                        </span>
+                        <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                          #{ev.canvasId}
+                        </span>
+                        <span class="text-fg-2">
+                          {ev.kind}
+                          {ev.kind === "contextlost" && (
+                            <span class="text-fg-3/70">
+                              {" "}
+                              (defaultPrevented={String(ev.defaultPrevented)})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </Show>
         </Section>
