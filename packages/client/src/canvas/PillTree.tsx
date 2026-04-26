@@ -88,7 +88,7 @@ const PillTree: Component<{
           <button
             type="button"
             data-testid="pill-tree-exit-maximize"
-            class="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
+            class="pointer-events-auto flex items-center justify-center w-7 h-7 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
             onClick={posture.toggle}
             title="Show all on canvas"
           >
@@ -103,7 +103,7 @@ const PillTree: Component<{
         <button
           type="button"
           data-testid="pill-tree-new"
-          class="pointer-events-auto flex items-center justify-center w-6 h-6 mt-3 rounded-full shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          class="pointer-events-auto flex items-center justify-center w-7 h-7 mt-3 rounded-full shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/80 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           onClick={props.onCreate}
           aria-label="New terminal"
           title="New terminal"
@@ -202,7 +202,7 @@ const PillTree: Component<{
                                     data-active={active() ? "" : undefined}
                                     data-unread={unread() ? "" : undefined}
                                     data-agent-state={agentState()}
-                                    class={`pointer-events-auto flex items-center gap-1 px-2 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${agentBorderClass()}`}
+                                    class={`pointer-events-auto flex items-center gap-1 px-2.5 h-8 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${agentBorderClass()}`}
                                     classList={{
                                       // Static repo-colored ring when
                                       // active and no agent animation
