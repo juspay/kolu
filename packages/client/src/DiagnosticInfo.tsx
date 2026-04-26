@@ -5,9 +5,16 @@
 
 import Dialog from "@corvu/dialog";
 import type { TerminalId } from "kolu-common";
-import { type Component, createMemo, For, Show } from "solid-js";
+import {
+  type Component,
+  type JSX,
+  createMemo,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
 import { toast } from "solid-sonner";
-import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { serverInfo, serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -77,10 +84,47 @@ function readJsHeap(): {
   };
 }
 
+/** Format uptime seconds into human-readable duration. */
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  if (days > 0) return `${days}d ${hours}h ${mins}m`;
+  if (hours > 0) return `${hours}h ${mins}m ${secs}s`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
+/** Collapsible sub-section for grouping related info. */
+const SubSection: Component<{
+  title: string;
+  defaultExpanded?: boolean;
+  children: JSX.Element;
+}> = (props) => {
+  const [expanded, setExpanded] = createSignal(props.defaultExpanded ?? true);
+  return (
+    <div class="mt-2 pt-2 border-t border-edge/50">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        class="flex items-center gap-1 w-full text-left group cursor-pointer"
+      >
+        <span class="text-[10px] text-fg-3/70">{props.title}</span>
+        <span class="text-[10px] text-fg-3/50 group-hover:text-fg-3 transition-colors">
+          {expanded() ? "▼" : "▶"}
+        </span>
+      </button>
+      <Show when={expanded()}>{props.children}</Show>
+    </div>
+  );
+};
+
 const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   props,
 ) => {
   const browser = browserFacts();
+  const info = serverInfo;
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -137,6 +181,41 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       </div>
 
       <div class="overflow-y-auto">
+        {/* Server section — server-side state */}
+        <Section title="Server">
+          <div class="space-y-0.5">
+            <Row label="Hostname">
+              <span class="font-mono text-fg-3">{info()?.hostname ?? "—"}</span>
+            </Row>
+            <Show when={serverProcessId()}>
+              {(pid) => (
+                <Row label="Process ID">
+                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
+                </Row>
+              )}
+            </Show>
+            <Show when={info()}>
+              {(i) => (
+                <Row label="Uptime">
+                  <span class="font-mono text-fg">
+                    {formatUptime(i().uptime)}
+                  </span>
+                </Row>
+              )}
+            </Show>
+            <Show when={info()?.memory}>
+              {(mem) => (
+                <Row label="Memory">
+                  <span class="font-mono text-fg">
+                    RSS: {formatMB(mem().rss)} · Heap:{" "}
+                    {formatMB(mem().heapUsed)} / {formatMB(mem().heapTotal)}
+                  </span>
+                </Row>
+              )}
+            </Show>
+          </div>
+        </Section>
+
         <Section title="Browser">
           <div class="space-y-0.5">
             <Row label="WebGL 2">
@@ -149,14 +228,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 {browser.devicePixelRatio}
               </span>
             </Row>
-            <Row label="xterm.js">
-              <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
-            </Row>
-            <Row label="UA">
-              <span class="font-mono text-fg-3 break-all">
-                {browser.userAgent}
+            <Row label="COI">
+              <span
+                class={browser.crossOriginIsolated ? "text-ok" : "text-fg-3"}
+              >
+                {browser.crossOriginIsolated ? "yes" : "no"}
               </span>
             </Row>
+            <SubSection title="User agent">
+              <span class="font-mono text-fg-3 break-all text-[10px]">
+                {browser.userAgent}
+              </span>
+            </SubSection>
           </div>
         </Section>
 
@@ -168,19 +251,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="WS" variant="badge">
               {wsStatus()}
             </Row>
-            <Show when={serverProcessId()}>
-              {(pid) => (
-                <Row label="Server">
-                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
-                </Row>
-              )}
-            </Show>
             <Row label="Active">
               <span class="font-mono text-fg-3">
                 {props.activeId ? props.activeId.slice(0, 8) : "—"}
               </span>
             </Row>
-            <Row label="Count">
+            <Row label="Terminals">
               <span class="font-mono text-fg">{getDiagnostics().length}</span>
             </Row>
             <Show when={snapshot().session.jsHeap}>
@@ -193,7 +269,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 </Row>
               )}
             </Show>
-            <Row label="DOM">
+            <Row label="DOM nodes">
               <span class="font-mono text-fg">
                 {snapshot().session.domNodes}
               </span>
@@ -201,13 +277,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Row label="Canvases">
               <span class="font-mono text-fg">
                 {snapshot().session.canvases}
-              </span>
-            </Row>
-            <Row label="COI">
-              <span
-                class={browser.crossOriginIsolated ? "text-ok" : "text-fg-3"}
-              >
-                {browser.crossOriginIsolated ? "yes" : "no"}
               </span>
             </Row>
           </div>
@@ -270,6 +339,15 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               </For>
             </div>
           </Show>
+        </Section>
+
+        {/* xterm section — xterm-specific info */}
+        <Section title="xterm.js">
+          <div class="space-y-0.5">
+            <Row label="Version">
+              <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
+            </Row>
+          </div>
         </Section>
 
         {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
@@ -350,9 +428,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </div>
           </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
-            <div class="mt-2 pt-2 border-t border-edge/50">
-              <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
-              <div class="space-y-0.5 text-[10px] font-mono">
+            <SubSection title="Recent events" defaultExpanded={false}>
+              <div class="space-y-0.5 text-[10px] font-mono mt-1">
                 <For each={snapshot().webgl.recentEvents}>
                   {(ev) => (
                     <div class="flex items-baseline gap-2 whitespace-nowrap">
@@ -375,7 +452,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   )}
                 </For>
               </div>
-            </div>
+            </SubSection>
           </Show>
         </Section>
       </div>

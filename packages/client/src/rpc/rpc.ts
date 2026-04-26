@@ -94,6 +94,8 @@ export const stream = {
     ),
 };
 
+import type { ServerInfo } from "kolu-common";
+
 /**
  * Single discriminated union describing every observable state of the
  * client/server connection. The header indicator, the dim overlay, the
@@ -132,7 +134,10 @@ const serverProcessId = createMemo(() => {
     : ev.processId;
 });
 
-export { serverProcessId, wsStatus };
+/** Full server info (hostname, processId, uptime, memory) when connected. */
+const [serverInfo, setServerInfo] = createSignal<ServerInfo | undefined>();
+
+export { serverInfo, serverProcessId, wsStatus };
 
 // IIFE scopes `connectCount` and `knownProcessId` — no module-level
 // mutables leak; external observers read `lifecycle()` instead.
@@ -147,7 +152,9 @@ export { serverProcessId, wsStatus };
     // fails fast; partysocket will fire another `open` after reconnect.
     client.server
       .info()
-      .then(({ processId }) => {
+      .then((info) => {
+        const { processId } = info;
+        setServerInfo(info);
         if (isFirstConnect) {
           knownProcessId = processId;
           setLifecycle({ kind: "connected", processId });

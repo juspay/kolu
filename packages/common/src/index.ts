@@ -303,10 +303,21 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
+export const ServerMemorySchema = z.object({
+  rss: z.number(),
+  heapUsed: z.number(),
+  heapTotal: z.number(),
+  external: z.number(),
+});
+
 export const ServerInfoSchema = z.object({
   hostname: z.string(),
   /** Unique ID for this server process — changes on restart. */
   processId: z.string().uuid(),
+  /** Server uptime in seconds. */
+  uptime: z.number(),
+  /** Process memory usage in bytes. */
+  memory: ServerMemorySchema,
 });
 
 // --- Recent repos (server-side persistent state) ---
@@ -438,6 +449,8 @@ export type InitialTerminalMetadata = z.infer<
 >;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
+export type ServerInfo = z.infer<typeof ServerInfoSchema>;
+export type ServerMemory = z.infer<typeof ServerMemorySchema>;
 export type PersistedTerminalFields = z.infer<
   typeof PersistedTerminalFieldsSchema
 >;

@@ -19,7 +19,11 @@ import {
 } from "kolu-git";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
-import { serverHostname, serverProcessId } from "./hostname.ts";
+import {
+  serverHostname,
+  serverProcessId,
+  serverStartTime,
+} from "./hostname.ts";
 import { log } from "./log.ts";
 import {
   getPreferences,
@@ -72,10 +76,20 @@ function unwrapGit<T>(result: GitResult<T>): T {
 
 export const appRouter = t.router({
   server: {
-    info: t.server.info.handler(async () => ({
-      hostname: serverHostname,
-      processId: serverProcessId,
-    })),
+    info: t.server.info.handler(async () => {
+      const m = process.memoryUsage();
+      return {
+        hostname: serverHostname,
+        processId: serverProcessId,
+        uptime: Math.floor((Date.now() - serverStartTime) / 1000),
+        memory: {
+          rss: m.rss,
+          heapUsed: m.heapUsed,
+          heapTotal: m.heapTotal,
+          external: m.external,
+        },
+      };
+    }),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
