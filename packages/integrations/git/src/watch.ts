@@ -14,7 +14,6 @@ import { listAll } from "./browse.ts";
 import type { FsWatchEvent } from "./schemas.ts";
 
 const WATCH_DEBOUNCE_MS = 200;
-const ALWAYS_IGNORED_SEGMENTS = new Set([".git", "node_modules"]);
 
 type WatchListener = (event: GitResult<FsWatchEvent>) => void;
 
@@ -59,9 +58,7 @@ function ignoredByDefault(repoPath: string, candidate: string): boolean {
   const rel = path.isAbsolute(candidate)
     ? path.relative(repoPath, candidate)
     : candidate;
-  return rel
-    .split(/[\\/]+/)
-    .some((segment) => ALWAYS_IGNORED_SEGMENTS.has(segment));
+  return rel.split(/[\\/]+/).includes(".git");
 }
 
 class RepoFileWatcher {

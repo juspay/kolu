@@ -97,6 +97,24 @@ describe("watchFiles", () => {
     await closeIterator(iter, controller);
   });
 
+  it("watches git-visible node_modules paths when the repo does not ignore them", async () => {
+    const dir = await initRepo("node-modules-visible");
+    const controller = new AbortController();
+    const iter = watchFiles(dir, undefined, controller.signal)[
+      Symbol.asyncIterator
+    ]();
+
+    await nextEvent(iter);
+
+    fs.mkdirSync(path.join(dir, "node_modules"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "node_modules", "visible.txt"), "live\n");
+    expect(await nextEvent(iter)).toEqual({
+      kind: "delta",
+      added: ["node_modules/visible.txt"],
+    });
+    await closeIterator(iter, controller);
+  });
+
   it("emits a move delta for a single-file rename", async () => {
     const dir = await initRepo("move");
     fs.writeFileSync(path.join(dir, "old.txt"), "content\n");
