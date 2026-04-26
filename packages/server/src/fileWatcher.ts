@@ -24,12 +24,9 @@
  *  selection across the rename) is a follow-up that would require git's
  *  `--find-renames` plumbing on top of this watcher. */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { type FSWatcher, watch } from "chokidar";
+import { listAll } from "kolu-git";
 import { log } from "./log.ts";
-
-const execFileAsync = promisify(execFile);
 
 /** Trailing-edge debounce window for chokidar bursts. Mirrors
  *  `TRANSCRIPT_DEBOUNCE_MS` in `session-watcher.ts`. */
@@ -67,12 +64,9 @@ const watchers = new Map<string, WatcherEntry>();
 const pending = new Map<string, Promise<WatcherEntry>>();
 
 async function listAllPaths(repoPath: string): Promise<Set<string>> {
-  const { stdout } = await execFileAsync(
-    "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard"],
-    { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
-  );
-  return new Set(stdout.split("\n").filter((l) => l.length > 0));
+  const result = await listAll(repoPath, log);
+  if (!result.ok) throw new Error(`git ls-files failed: ${result.error.code}`);
+  return new Set(result.value);
 }
 
 function diffSets(
