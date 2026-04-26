@@ -35,11 +35,12 @@ export interface ResourceMeta {
    *  WAL file, the transcript JSONL, the timer purpose). Null when the
    *  resource isn't tied to a single path. */
   target?: string | null;
-  /** Per-instance context shown in the diagnostic dialog. Pass a static
-   *  record for fixed-at-registration metadata; pass a thunk when the
-   *  fields evolve over the resource's lifetime (e.g. listener counts
-   *  on a shared singleton). */
-  context?: ContextMap | (() => ContextMap);
+  /** Per-instance context shown in the diagnostic dialog. Static — fields
+   *  fixed at registration. The first owner that needs evolving context
+   *  (e.g. a shared singleton's live listener count) can widen this to
+   *  also accept a thunk; today every site is static so the polymorphism
+   *  would be premature. */
+  context?: ContextMap;
 }
 
 export interface ResourceSnapshot {
@@ -58,9 +59,7 @@ interface Entry {
   label: string;
   owner: string;
   target: string | null;
-  /** Always a thunk internally — static records get wrapped at
-   *  registration, so reading is uniform. */
-  context: () => ContextMap;
+  context: ContextMap;
   createdAt: number;
 }
 
@@ -76,19 +75,12 @@ export function trackResource(
   dispose: () => void,
 ): () => void {
   const id = nextId++;
-  const context: () => ContextMap =
-    typeof meta.context === "function"
-      ? meta.context
-      : (
-          (value) => () =>
-            value
-        )(meta.context ?? {});
   resources.set(id, {
     kind: meta.kind,
     label: meta.label,
     owner: meta.owner,
     target: meta.target ?? null,
-    context,
+    context: meta.context ?? {},
     createdAt: Date.now(),
   });
   let done = false;
@@ -104,9 +96,7 @@ export function trackResource(
 }
 
 /** Snapshot of currently-tracked resources, sorted by creation time
- *  (id breaks ties for entries registered in the same millisecond).
- *  Each snapshot evaluates the entry's context thunk, so dynamic
- *  fields reflect the read instant. */
+ *  (id breaks ties for entries registered in the same millisecond). */
 export function getResources(): ResourceSnapshot[] {
   const out: ResourceSnapshot[] = [];
   for (const [id, e] of resources) {
@@ -117,7 +107,7 @@ export function getResources(): ResourceSnapshot[] {
       owner: e.owner,
       target: e.target,
       createdAt: e.createdAt,
-      context: e.context(),
+      context: e.context,
     });
   }
   out.sort((a, b) => a.createdAt - b.createdAt || a.id - b.id);
