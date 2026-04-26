@@ -18,7 +18,7 @@ import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 function init() {
-  const listSub = createSubscription(() => stream.terminalList(), {
+  const listSub = createSubscription((signal) => stream.terminalList(signal), {
     onError: (err) => toast.error(`Terminal list error: ${err.message}`),
   });
 

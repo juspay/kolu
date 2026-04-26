@@ -73,6 +73,15 @@ Feature: Code tab (review + browse)
     Then the Code tab should list a changed file "tracked.txt"
     And the Code tab should list a changed file "untracked.txt"
 
+  Scenario: Local mode live-lists a new untracked file without refresh
+    When I run "rm -rf /tmp/kolu-review-live-local && git init /tmp/kolu-review-live-local && cd /tmp/kolu-review-live-local"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    Then the Code tab should show the empty-changes message
+    When I click the terminal canvas
+    And I run "printf 'live\n' > live-local.txt"
+    Then the Code tab should live-list a changed file "live-local.txt"
+
   # ── Pierre tree behaviour: directory grouping + collapse ──
 
   Scenario: Groups files into a directory tree
@@ -140,6 +149,40 @@ Feature: Code tab (review + browse)
     Then the file browser should show a directory "lib"
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
+
+  Scenario: File browser live-adds a new file without refresh
+    When I run "rm -rf /tmp/kolu-browse-live-add && git init /tmp/kolu-browse-live-add && cd /tmp/kolu-browse-live-add"
+    And I run "printf 'base\n' > base.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "base.txt"
+    When I click the terminal canvas
+    And I run "printf 'fresh\n' > fresh.txt"
+    Then the file browser should show a file "fresh.txt"
+
+  Scenario: File browser live-removes a deleted file without refresh
+    When I run "rm -rf /tmp/kolu-browse-live-remove && git init /tmp/kolu-browse-live-remove && cd /tmp/kolu-browse-live-remove"
+    And I run "printf 'gone\n' > gone.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "gone.txt"
+    When I click the terminal canvas
+    And I run "rm gone.txt"
+    Then the file browser should not show a file "gone.txt"
+
+  Scenario: File browser live-renames a file without refresh
+    When I run "rm -rf /tmp/kolu-browse-live-rename && git init /tmp/kolu-browse-live-rename && cd /tmp/kolu-browse-live-rename"
+    And I run "printf 'name\n' > old-name.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the file browser should show a file "old-name.txt"
+    When I click the terminal canvas
+    And I run "mv old-name.txt new-name.txt"
+    Then the file browser should not show a file "old-name.txt"
+    And the file browser should show a file "new-name.txt"
 
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 

@@ -127,6 +127,33 @@ export const FsListAllOutputSchema = z.object({
 });
 export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 
+export const FsWatchInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+});
+
+export const FsWatchMoveSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+});
+
+export const FsWatchEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    /** Full git-filtered file list. Always the first stream item. */
+    paths: z.array(z.string()),
+  }),
+  z.object({
+    kind: z.literal("delta"),
+    added: z.array(z.string()).optional(),
+    removed: z.array(z.string()).optional(),
+    moved: z.array(FsWatchMoveSchema).optional(),
+    /** Git-visible paths whose contents or metadata changed without changing tree membership. */
+    changed: z.array(z.string()).optional(),
+  }),
+]);
+export type FsWatchEvent = z.infer<typeof FsWatchEventSchema>;
+
 export const FsReadFileInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),

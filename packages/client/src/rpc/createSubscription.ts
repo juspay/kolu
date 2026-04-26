@@ -31,6 +31,8 @@ export interface Subscription<T> extends Accessor<T | undefined> {
   readonly pending: Accessor<boolean>;
 }
 
+type SubscriptionSource<T> = (signal: AbortSignal) => Promise<AsyncIterable<T>>;
+
 /** Options for createSubscription. */
 export interface SubscriptionOptions<T, R = T> {
   /**
@@ -61,7 +63,7 @@ export interface SubscriptionOptions<T, R = T> {
  * for fine-grained reactivity on nested object fields.
  *
  * ```tsx
- * const meta = createSubscription(() => client.terminal.onMetadataChange({ id }), {
+ * const meta = createSubscription((signal) => stream.metadata(id, signal), {
  *   onError: (err) => toast.error(`Metadata error: ${err.message}`),
  * });
  * meta()?.tickCount  // reactive read — re-renders only when tickCount changes
@@ -70,18 +72,18 @@ export interface SubscriptionOptions<T, R = T> {
  * ```
  */
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: SubscriptionSource<T>,
 ): Subscription<T>;
 export function createSubscription<T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: SubscriptionSource<T>,
   options: Omit<SubscriptionOptions<T>, "reduce" | "initial">,
 ): Subscription<T>;
 export function createSubscription<T, R>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: SubscriptionSource<T>,
   options: SubscriptionOptions<T, R> & { initial: R },
 ): Subscription<R>;
 export function createSubscription<T, R = T>(
-  source: () => Promise<AsyncIterable<T>>,
+  source: SubscriptionSource<T>,
   options?: SubscriptionOptions<T, R>,
 ): Subscription<T | R> {
   const reduce = options?.reduce as
@@ -136,7 +138,7 @@ export function createSubscription<T, R = T>(
   // Consume the stream
   void (async () => {
     try {
-      const iterable = await source();
+      const iterable = await source(abortSignal);
       for await (const item of iterable) {
         if (abortSignal.aborted) break;
         updateValue(reduce ? reduce(store.v as T | R, item) : item);

@@ -12,6 +12,8 @@ import {
   FsListAllOutputSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
   GitStatusInputSchema,
@@ -97,6 +99,10 @@ export const contract = oc.router({
     /** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
      *  One-shot snapshot for path-first tree UIs like `@pierre/trees`. */
     listAll: oc.input(FsListAllInputSchema).output(FsListAllOutputSchema),
+    /** Stream repo file-tree changes. First item is a full snapshot, then deltas. */
+    watch: oc
+      .input(FsWatchInputSchema)
+      .output(eventIterator(FsWatchEventSchema)),
     /** Read a file's UTF-8 content, path-traversal guarded. */
     readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
   },

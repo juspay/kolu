@@ -16,7 +16,7 @@ import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 
 const sub = createRoot(() =>
-  createSubscription(() => stream.session(), {
+  createSubscription((signal) => stream.session(signal), {
     onError: (err) =>
       toast.error(`Saved-session subscription error: ${err.message}`),
   }),

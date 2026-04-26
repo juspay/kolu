@@ -7,6 +7,7 @@
 export { randomName } from "memorable-names";
 // File tree browsing
 export { listAll, readFile } from "./browse.ts";
+export { watchFiles } from "./watch.ts";
 // Error types
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
 // Repository resolution
@@ -27,6 +28,10 @@ export {
   FsListAllInputSchema,
   type FsListAllOutput,
   FsListAllOutputSchema,
+  type FsWatchEvent,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
+  FsWatchMoveSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
   type GitBaseRef,

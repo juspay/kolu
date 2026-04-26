@@ -14,6 +14,7 @@ import {
   getStatus,
   listAll,
   readFile,
+  watchFiles,
   worktreeCreate,
   worktreeRemove,
 } from "kolu-git";
@@ -249,6 +250,11 @@ export const appRouter = t.router({
     listAll: t.fs.listAll.handler(async ({ input }) => ({
       paths: unwrapGit(await listAll(input.repoPath, log)),
     })),
+    watch: t.fs.watch.handler(async function* ({ input, signal }) {
+      for await (const event of watchFiles(input.repoPath, log, signal)) {
+        yield unwrapGit(event);
+      }
+    }),
     readFile: t.fs.readFile.handler(async ({ input }) =>
       unwrapGit(await readFile(input.repoPath, input.filePath, log)),
     ),

@@ -1,8 +1,8 @@
 /** File tree browsing — git-filtered file listing and file reading.
  *
- *  Uses `git ls-files --cached --others --exclude-standard` to enumerate
- *  tracked + untracked-but-not-ignored paths in one shot. This avoids
- *  listing `node_modules/`, `.git/`, build artifacts, etc. */
+ *  Uses `git ls-files` to enumerate tracked files that still exist in the
+ *  working tree plus untracked-but-not-ignored paths. This avoids listing
+ *  `node_modules/`, `.git/`, build artifacts, etc. */
 
 import { execFile } from "node:child_process";
 import { readFile as fsReadFile } from "node:fs/promises";
@@ -13,7 +13,20 @@ import { resolveUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
+function parseNulList(stdout: string): string[] {
+  return stdout.split("\0").filter((l) => l.length > 0);
+}
+
+async function gitLsFiles(repoPath: string, args: string[]): Promise<string[]> {
+  const { stdout } = await execFileAsync("git", ["ls-files", "-z", ...args], {
+    cwd: repoPath,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return parseNulList(stdout);
+}
+
+/** Flat list of every repo-relative path present in the working tree
+ *  (tracked + untracked-but-not-ignored).
  *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
  *  hierarchy itself from a flat path list.
  *
@@ -24,13 +37,16 @@ export async function listAll(
   log?: Logger,
 ): Promise<GitResult<string[]>> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
+    const [paths, deleted] = await Promise.all([
+      gitLsFiles(repoPath, ["--cached", "--others", "--exclude-standard"]),
+      gitLsFiles(repoPath, ["--deleted"]),
+    ]);
+    const deletedSet = new Set(deleted);
+    return ok(
+      paths
+        .filter((p) => !deletedSet.has(p))
+        .sort((a, b) => a.localeCompare(b)),
     );
-    const paths = stdout.split("\n").filter((l) => l.length > 0);
-    return ok(paths);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log?.error({ err: e, repoPath }, "git ls-files failed");
