@@ -126,23 +126,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const fsEvent = (): FsWatchEvent | undefined => fsWatch()?.event;
   const browseCount = (): number => fsWatch()?.count ?? 0;
 
-  // Diff-mode change-detector: any fs delta means git.status may have
-  // flipped (file content edited, file added, file removed). Re-fetching
-  // is cheap and keeps the local/branch list in sync without a refresh
-  // button. `defer: true` skips the initial run — the resource already
-  // fetches on first read.
-  createEffect(
-    on(
-      fsEvent,
-      (event) => {
-        if (event?.kind === "delta" && isDiffView()) {
-          void refetchStatus();
-        }
-      },
-      { defer: true },
-    ),
-  );
-
   const [diff, { refetch: refetchDiff }] = createResource(
     () => {
       const p = repoPath();
@@ -155,15 +138,19 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     (input) => client.git.diff(input),
   );
 
-  // Refetch the open diff on each fs change too — otherwise the diff
-  // pane stays frozen on the pre-edit hunk while the file list updates.
+  // Diff-mode change-detector: any fs delta means git.status may have
+  // flipped (file content edited, file added, file removed) and the
+  // open diff hunk may be stale. Both refetches go through one effect
+  // so the "diff mode + delta arrived" predicate is checked exactly
+  // once per event. `defer: true` skips the initial run — the
+  // resources already fetch on first read.
   createEffect(
     on(
       fsEvent,
       (event) => {
-        if (event?.kind === "delta" && isDiffView() && selectedPath()) {
-          void refetchDiff();
-        }
+        if (event?.kind !== "delta" || !isDiffView()) return;
+        void refetchStatus();
+        if (selectedPath()) void refetchDiff();
       },
       { defer: true },
     ),
