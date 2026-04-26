@@ -2,6 +2,7 @@ Feature: Diagnostic info
   Debug diagnostic info groups browser, xterm, and server runtime state.
 
   Scenario: Diagnostic info shows server watches and collapsed WebGL events
+    Given the terminal is ready
     When I open the command palette
     And I select "Debug" in the palette
     And I select "Diagnostic info" in the palette

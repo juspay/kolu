@@ -8,10 +8,10 @@
  *  Anything exported here MUST stay free of `node:*` imports, SDK imports,
  *  and filesystem access — zod and `anyagent`'s schema re-exports only. */
 
-import { TaskProgressSchema } from "anyagent";
+import { TaskProgressSchema } from "anyagent/schemas";
 import { z } from "zod";
 
-export type { TaskProgress } from "anyagent";
+export type { TaskProgress } from "anyagent/schemas";
 export { TaskProgressSchema };
 
 export const ClaudeCodeInfoSchema = z.object({
