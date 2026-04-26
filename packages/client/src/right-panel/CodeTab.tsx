@@ -30,13 +30,17 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import type { FileTreeBatchOperation } from "@pierre/trees";
 import { toast } from "solid-sonner";
 import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
-import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
+import PierreFileTree, {
+  type PierreTreeUpdate,
+  toGitStatusEntries,
+} from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
 import { useRightPanel } from "./useRightPanel";
 
@@ -170,9 +174,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const hasTreeFiles = () =>
     isDiffView() ? (status()?.files.length ?? 0) > 0 : browseCount() > 0;
   // Initial path snapshot for `PierreFileTree`. In browse mode this is a
-  // bootstrap value used at mount only — once `event` starts firing,
+  // bootstrap value used at mount only — once `update` starts firing,
   // Pierre's incremental dispatch takes over and changes to this prop
-  // are ignored. In diff mode, where no event stream is wired, this is
+  // are ignored. In diff mode, where no update stream is wired, this is
   // the live source of truth and gets `resetPaths`'d on every change.
   const treePaths = createMemo(() => {
     if (view() === "browse") {
@@ -180,6 +184,26 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       return ev?.kind === "snapshot" ? ev.paths : [];
     }
     return status()?.files.map((f) => f.path) ?? [];
+  });
+
+  // Translate the wire-shape `FsWatchEvent` into Pierre's vocabulary at
+  // this seam (per Lowy: keep `PierreFileTree`'s API in Pierre's terms,
+  // not in the server transport's). Removes-then-adds matches the order
+  // chokidar prefers (rename = unlink + add); within a batch the order
+  // doesn't materially affect Pierre's tree state.
+  const treeUpdate = createMemo<PierreTreeUpdate | undefined>(() => {
+    const ev = fsWatch();
+    if (!ev) return undefined;
+    if (ev.kind === "snapshot") return { kind: "reset", paths: ev.paths };
+    const ops: FileTreeBatchOperation[] = [
+      ...ev.removed.map(
+        (path): FileTreeBatchOperation => ({ type: "remove", path }),
+      ),
+      ...ev.added.map(
+        (path): FileTreeBatchOperation => ({ type: "add", path }),
+      ),
+    ];
+    return { kind: "batch", ops };
   });
   const treeGitStatus = createMemo(() => {
     const s = status();
@@ -302,7 +326,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
-                  event={view() === "browse" ? fsWatch : undefined}
+                  update={view() === "browse" ? treeUpdate : undefined}
                 />
               </Show>
             </Match>

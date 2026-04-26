@@ -13,7 +13,7 @@ import {
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
-import type { FsWatchEvent, GitChangeStatus } from "kolu-common";
+import type { GitChangeStatus } from "kolu-common";
 import {
   type Accessor,
   type Component,
@@ -26,6 +26,14 @@ import {
 import { match } from "ts-pattern";
 import { toast } from "solid-sonner";
 import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
+
+/** Imperative tree update in Pierre's vocabulary. Decouples
+ *  `PierreFileTree` from any specific transport schema (oRPC's
+ *  `FsWatchEvent`, future SSE/WebSocket variants, polling, etc.) — the
+ *  consumer translates its own event stream into these ops. */
+export type PierreTreeUpdate =
+  | { kind: "reset"; paths: readonly string[] }
+  | { kind: "batch"; ops: readonly FileTreeBatchOperation[] };
 
 /** Map Kolu's single-letter porcelain status to Pierre's word form. */
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
@@ -63,16 +71,16 @@ export type PierreFileTreeProps = {
    *  change-set views where every entry should be visible without
    *  clicking. */
   initialExpansion?: FileTreeInitialExpansion;
-  /** Optional live event stream from `stream.fsWatch`. When provided,
-   *  the tree is updated incrementally — `snapshot` events go through
-   *  `resetPaths`, `delta` events through `batch([{type:'add'|'remove'}])`.
-   *  In this mode, the `paths` prop is only consulted at mount time
-   *  (as a placeholder until the first snapshot lands); subsequent
-   *  changes to `paths` are ignored — the event stream is the source
-   *  of truth. Without this prop, the tree falls back to driving
-   *  `resetPaths` on every `paths` change (the static-list mode used
-   *  for the diff/branch views, where `git.status` provides the list). */
-  event?: Accessor<FsWatchEvent | undefined>;
+  /** Optional live update stream in Pierre's vocabulary. When provided,
+   *  the tree is updated imperatively — `reset` clears and replays the
+   *  full path list, `batch` applies a list of add/remove/move ops. The
+   *  `paths` prop is only consulted at mount time (as a placeholder
+   *  until the first update lands); subsequent changes are ignored — the
+   *  update stream is the source of truth. Without this prop, the tree
+   *  falls back to driving `resetPaths` on every `paths` change (static-
+   *  list mode used for diff/branch views, where `git.status` is the
+   *  source). */
+  update?: Accessor<PierreTreeUpdate | undefined>;
 };
 
 /** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
@@ -184,27 +192,19 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     tree.render({ containerWrapper: container });
   });
 
-  // Branch reactivity on whether the consumer drives updates via an event
-  // stream or via a static `paths` array. `props.event` is sampled
-  // untracked here — it's a structural prop that doesn't change identity
-  // across the component's lifetime (CodeTab decides at mount what mode
-  // it's in). The branch lives inside `createEffect` so the active path
-  // sees its own dependencies tracked normally.
+  // Branch reactivity on whether the consumer drives updates via the
+  // imperative `update` stream or via a static `paths` array. `props.update`
+  // is a structural prop that doesn't change identity across the
+  // component's lifetime (CodeTab decides at mount what mode it's in).
+  // The branch lives inside `createEffect` so the active path sees its
+  // own dependencies tracked normally.
   createEffect(() => {
-    if (props.event) {
-      const ev = props.event();
-      if (!ev || !tree) return;
-      match(ev)
-        .with({ kind: "snapshot" }, ({ paths }) => tree?.resetPaths(paths))
-        .with({ kind: "delta" }, ({ added, removed }) => {
-          const ops: FileTreeBatchOperation[] = [
-            ...removed.map(
-              (path): FileTreeBatchOperation => ({ type: "remove", path }),
-            ),
-            ...added.map(
-              (path): FileTreeBatchOperation => ({ type: "add", path }),
-            ),
-          ];
+    if (props.update) {
+      const upd = props.update();
+      if (!upd || !tree) return;
+      match(upd)
+        .with({ kind: "reset" }, ({ paths }) => tree?.resetPaths(paths))
+        .with({ kind: "batch" }, ({ ops }) => {
           if (ops.length > 0) tree?.batch(ops);
         })
         .exhaustive();
