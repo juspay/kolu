@@ -40,7 +40,7 @@ import type { ServerDiagnostics } from "kolu-common";
 import { log } from "./log.ts";
 import { installedActivations } from "./meta/agent.ts";
 import { publisherSize } from "./publisher.ts";
-import { type TerminalProcess, terminalEntries } from "./terminal-registry.ts";
+import { terminalEntries } from "./terminal-registry.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
  *  leak rate (the observed floor before the 4 GB OOM) produces ~50 MB
@@ -57,13 +57,14 @@ const BASELINE_DELAY_MS = 5 * 60 * 1000;
  *  `sample()` and the on-demand `getServerDiagnostics()` consume. Adding
  *  a new metric (e.g. file descriptor count) is one edit here, propagating
  *  to both consumers — the previous duplication had no structural fence
- *  to keep them in sync. */
+ *  to keep them in sync.
+ *
+ *  Counts come from one pass over `terminalEntries()` without retaining
+ *  the entries array, so the long-lived 5-min log path stays
+ *  allocation-free. */
 interface MetricsCapture {
   memory: NodeJS.MemoryUsage;
-  /** Snapshot of `terminalEntries()` so per-terminal counts derive from
-   *  one iteration's worth of state. */
-  entries: ReadonlyArray<readonly [string, TerminalProcess]>;
-  /** Per-terminal aggregates derived from `entries`. */
+  terminals: number;
   terminalsWithGit: number;
   claudeSessions: number;
   publisherChannels: number;
@@ -71,16 +72,17 @@ interface MetricsCapture {
 }
 
 function captureMetrics(): MetricsCapture {
-  const entries = [...terminalEntries()];
+  let terminals = 0;
   let terminalsWithGit = 0;
   let claudeSessions = 0;
-  for (const [, entry] of entries) {
+  for (const [, entry] of terminalEntries()) {
+    terminals++;
     if (entry.info.meta.git !== null) terminalsWithGit++;
     if (entry.info.meta.agent?.kind === "claude-code") claudeSessions++;
   }
   return {
     memory: process.memoryUsage(),
-    entries,
+    terminals,
     terminalsWithGit,
     claudeSessions,
     publisherChannels: publisherSize(),
@@ -134,7 +136,7 @@ export function getServerDiagnostics(): ServerDiagnostics {
       arrayBuffers: m.memory.arrayBuffers,
     },
     subsystems: {
-      terminals: m.entries.length,
+      terminals: m.terminals,
       publisherChannels: m.publisherChannels,
       pendingSummaryFetches: m.pendingSummaryFetches,
     },
@@ -152,7 +154,7 @@ function sample(): Record<string, number> {
     heapTotal: m.memory.heapTotal,
     external: m.memory.external,
     arrayBuffers: m.memory.arrayBuffers,
-    terminals: m.entries.length,
+    terminals: m.terminals,
     publisherSize: m.publisherChannels,
     claudeSessions: m.claudeSessions,
     pendingSummaryFetches: m.pendingSummaryFetches,
