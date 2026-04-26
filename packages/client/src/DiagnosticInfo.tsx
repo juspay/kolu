@@ -124,7 +124,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     const webgl = webglLifecycleSnapshot();
     return {
       browser,
-      server: server(),
       session: {
         viewport: isMobile() ? "mobile" : "canvas",
         wsStatus: wsStatus(),
@@ -154,8 +153,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   });
 
   function copyJson() {
+    const dump = { ...snapshot(), server: server() };
     void navigator.clipboard
-      .writeText(JSON.stringify(snapshot(), null, 2))
+      .writeText(JSON.stringify(dump, null, 2))
       .then(() => toast.success("Diagnostic info copied"))
       .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
   }
@@ -253,7 +253,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 <span class="text-fg-3/60 italic text-[11px]">loading…</span>
               </Row>
             </Show>
-            <Show when={snapshot().server}>
+            <Show when={server()}>
               {(s) => (
                 <>
                   <Row label="Node">
@@ -325,12 +325,12 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             <Match when={server.loading}>
               <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
             </Match>
-            <Match when={(snapshot().server?.watches.length ?? 0) === 0}>
+            <Match when={(server()?.watches.length ?? 0) === 0}>
               <div class="text-[11px] text-fg-3/60 italic">
                 No active watchers
               </div>
             </Match>
-            <Match when={snapshot().server?.watches}>
+            <Match when={server()?.watches}>
               {(watches) => (
                 <div class="space-y-0.5">
                   <For each={watches()}>
