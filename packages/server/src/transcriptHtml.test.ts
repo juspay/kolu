@@ -108,9 +108,10 @@ describe("transcriptToHtml", () => {
     );
   });
 
-  it("renders model, compact token count, and PR link in the byline", () => {
+  it("renders model + tokens in the byline and PR in the title prefix", () => {
     const html = transcriptToHtml(
       makeTranscript({
+        repoName: "juspay/kolu",
         model: "claude-opus-4-6",
         contextTokens: 47_000,
         pr: { number: 742, url: "https://github.com/juspay/kolu/pull/742" },
@@ -120,6 +121,10 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("47K");
     expect(html).toContain("PR #742");
     expect(html).toContain("https://github.com/juspay/kolu/pull/742");
+    // PR + repo live inside the rich title's prefix line.
+    expect(html).toMatch(
+      /class="title-prefix"[\s\S]*juspay\/kolu[\s\S]*PR #742/,
+    );
   });
 
   it("emits dock toggles for tools and theme", () => {
@@ -176,20 +181,26 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("**bold**");
   });
 
-  it("renders the eyebrow with repo name and PR before the title", () => {
+  it("places repo and PR in the title prefix above the title text", () => {
     const html = transcriptToHtml(
       makeTranscript({
+        title: "Hello session",
         repoName: "juspay/kolu",
         pr: { number: 742, url: "https://github.com/juspay/kolu/pull/742" },
       }),
     );
+    // Eyebrow no longer carries repo/PR.
     const eyebrowStart = html.indexOf('class="eyebrow"');
     const titleStart = html.indexOf('class="title"');
-    expect(eyebrowStart).toBeGreaterThan(0);
-    expect(titleStart).toBeGreaterThan(eyebrowStart);
     const eyebrow = html.slice(eyebrowStart, titleStart);
-    expect(eyebrow).toContain("juspay/kolu");
-    expect(eyebrow).toContain("PR #742");
+    expect(eyebrow).not.toContain("juspay/kolu");
+    expect(eyebrow).not.toContain("PR #742");
+    // They live inside the rich-title prefix.
+    expect(html).toMatch(
+      /class="title-prefix"[\s\S]*juspay\/kolu[\s\S]*PR #742/,
+    );
+    // The actual title text follows.
+    expect(html).toContain('class="title-text">Hello session</span>');
   });
 
   it("groups agent + model + tokens in the byline runtime stamp", () => {

@@ -331,24 +331,32 @@ function renderEditDiff(
   // Concatenate without newlines: each span is `display:block`, so a
   // literal newline inside the surrounding `<pre>` would double-space
   // every row.
-  return `<div class="diff"><div class="diff-file">${escapeHtml(filePath)}</div><pre class="diff-body">${ctx.join("")}</pre></div>`;
+  return wrapDiffCollapsible(
+    `<div class="diff-file">${escapeHtml(filePath)}</div>`,
+    ctx.join(""),
+    ctx.length,
+  );
 }
 
 /** Render a Write tool call: a brand-new file with all content as
  *  added lines. */
 function renderWriteDiff(filePath: string, content: string): string {
-  const body = content
-    .split("\n")
+  const lines = content.split("\n");
+  const body = lines
     .map((l) => `<span class="diff-line diff-add">+ ${escapeHtml(l)}</span>`)
     .join("");
-  return `<div class="diff"><div class="diff-file">${escapeHtml(filePath)} <span class="diff-tag">new</span></div><pre class="diff-body">${body}</pre></div>`;
+  return wrapDiffCollapsible(
+    `<div class="diff-file">${escapeHtml(filePath)} <span class="diff-tag">new</span></div>`,
+    body,
+    lines.length,
+  );
 }
 
 /** Render a Codex `apply_patch` payload (already in unified-diff-ish
  *  form) by line-coloring `+`/`-`/`***`. */
 function renderApplyPatch(patch: string): string {
-  const body = patch
-    .split("\n")
+  const lines = patch.split("\n");
+  const body = lines
     .map((l) => {
       const cls = l.startsWith("+")
         ? "diff-add"
@@ -360,7 +368,27 @@ function renderApplyPatch(patch: string): string {
       return `<span class="diff-line ${cls}">${escapeHtml(l)}</span>`;
     })
     .join("");
-  return `<div class="diff"><pre class="diff-body">${body}</pre></div>`;
+  return wrapDiffCollapsible("", body, lines.length);
+}
+
+/** Threshold above which a diff renders collapsed by default with a
+ *  "Show all N lines" toggle. Picked so a typical Edit (a handful of
+ *  lines) renders fully, but a Write of a 200-line file collapses to
+ *  a previewable height. */
+const DIFF_COLLAPSE_THRESHOLD = 20;
+
+/** Wrap a diff body in chrome and, if it exceeds the line threshold,
+ *  mark it collapsed with a clickable expand toggle. The inline
+ *  `<script>` at the end of the document wires the button. */
+function wrapDiffCollapsible(
+  fileHeader: string,
+  body: string,
+  lineCount: number,
+): string {
+  if (lineCount <= DIFF_COLLAPSE_THRESHOLD) {
+    return `<div class="diff">${fileHeader}<pre class="diff-body">${body}</pre></div>`;
+  }
+  return `<div class="diff is-collapsed" data-line-count="${lineCount}">${fileHeader}<pre class="diff-body">${body}</pre><button type="button" class="diff-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
 }
 
 /** Dispatch on toolName for the well-known edit tools; fall through to
@@ -731,13 +759,36 @@ const STYLE = `
   .eyebrow .pr:hover { color: var(--accent); }
   .title {
     font-family: ui-serif, "Iowan Old Style", "Charter", "Cambria", Georgia, serif;
-    font-size: clamp(1.875rem, 4vw, 2.625rem);
+    font-size: clamp(1.625rem, 3.6vw, 2.25rem);
     font-weight: 600;
     line-height: 1.15;
     letter-spacing: -0.02em;
-    margin: 0 0 1.5rem 0;
+    margin: 0 0 1rem 0;
     color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
   }
+  .title-prefix {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.375rem;
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .title-prefix .title-repo { color: var(--accent); font-weight: 600; }
+  .title-prefix .title-pr {
+    color: var(--user);
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+  }
+  .title-prefix .title-pr:hover { color: var(--accent); }
+  .title-prefix .title-sep { color: var(--rule-strong); }
+  .title-text { display: block; }
   .byline {
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-size: 0.8125rem;
@@ -895,12 +946,12 @@ const STYLE = `
     color: var(--ink);
   }
 
-  /* Markdown elements inside assistant text — tight rhythm; consecutive
-     blocks (p ↔ list, p ↔ p, p ↔ code) sit a single quarter-rem apart
-     so a multi-paragraph technical reply reads as one unit. */
+  /* Markdown elements inside assistant text — programmer-density;
+     consecutive blocks sit a single line-leading apart, no extra
+     margin. */
   .md > :first-child { margin-top: 0 !important; }
   .md > :last-child { margin-bottom: 0 !important; }
-  .md p { margin: 0 0 0.25rem 0; }
+  .md p { margin: 0 0 0.125rem 0; }
   .md strong { font-weight: 700; }
   .md em { font-style: italic; }
   .md code {
@@ -918,18 +969,22 @@ const STYLE = `
     font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--ink);
-    margin: 0.625rem 0 0.125rem 0;
+    margin: 0.5rem 0 0.0625rem 0;
   }
   .md h3.md-h { font-size: 1.0625rem; }
   .md h4.md-h { font-size: 1rem; }
   .md h5.md-h { font-size: 0.9375rem; color: var(--ink-2); }
-  .md .md-list { margin: 0 0 0.25rem 0; padding-left: 1.25rem; }
-  .md .md-list li { margin: 0.0625rem 0; line-height: 1.5; }
-  .md .md-list li > p { margin: 0 0 0.125rem 0; }
-  .md .md-list li > p:last-child { margin-bottom: 0; }
+  .md ul.md-list, .md ol.md-list {
+    margin: 0 0 0.125rem 0;
+    padding-left: 1.25rem;
+  }
+  .md .md-list li { margin: 0; line-height: 1.5; }
+  .md .md-list li + li { margin-top: 0.0625rem; }
+  .md .md-list li > p { margin: 0; }
+  .md .md-list li > p + p { margin-top: 0.0625rem; }
   .md .md-list--ordered li::marker { color: var(--ink-3); font-feature-settings: "lnum", "tnum"; }
   .md .md-quote {
-    margin: 0 0 0.25rem 0;
+    margin: 0 0 0.125rem 0;
     padding: 0.125rem 0 0.125rem 0.75rem;
     border-left: 3px solid var(--rule-strong);
     color: var(--ink-2);
@@ -938,7 +993,7 @@ const STYLE = `
   .md .md-hr {
     border: none;
     border-top: 1px solid var(--rule);
-    margin: 0.75rem 0;
+    margin: 0.5rem 0;
   }
   .md .md-code {
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
@@ -948,12 +1003,15 @@ const STYLE = `
     border: 1px solid var(--rule);
     border-radius: 5px;
     padding: 0.5rem 0.625rem;
-    margin: 0 0 0.25rem 0;
+    margin: 0 0 0.125rem 0;
     color: var(--ink);
     overflow-x: auto;
     white-space: pre;
   }
   .md .md-code code { background: none; border: none; padding: 0; font-size: inherit; }
+  /* Tighten the assistant card line-height — counters the visual
+     "airy paragraphs" feel even when block margins are minimal. */
+  .card-text--assistant.md { line-height: 1.5; }
 
   /* Reasoning: muted, collapsed by default. */
   .event--reasoning { opacity: 0.85; }
@@ -1034,6 +1092,29 @@ const STYLE = `
   }
   .diff-line.diff-ctx { color: var(--ink-3); }
   .diff-line.diff-hunk { color: var(--reasoning); font-weight: 600; }
+  .diff.is-collapsed .diff-body {
+    max-height: 16rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
+  }
+  .diff-toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-elev);
+    border: none;
+    border-top: 1px solid var(--rule);
+    width: 100%;
+    padding: 0.375rem 0.625rem;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+  }
+  .diff-toggle:hover { color: var(--accent); background: var(--bg-sunk); }
 
   /* Tool events: bronze accent, hidden by default. */
   body[data-hide-tools="true"] .event--tool { display: none; }
@@ -1293,6 +1374,21 @@ const SCRIPT = `
     applyEdits(nextHide);
   });
 
+  // --- Long-diff expand toggle ---
+  document.querySelectorAll('.diff-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const wrap = btn.closest('.diff');
+      if (!wrap) return;
+      const lineCount = wrap.dataset.lineCount;
+      const collapsed = wrap.classList.toggle('is-collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      const label = btn.querySelector('[data-toggle-label]');
+      if (label) label.textContent = collapsed
+        ? 'Show all ' + lineCount + ' lines'
+        : 'Collapse';
+    });
+  });
+
   // --- Theme cycle (auto → light → dark → auto) ---
   const themeBtn = document.querySelector('[data-toggle="theme"]');
   function applyTheme(theme) {
@@ -1317,10 +1413,8 @@ const SCRIPT = `
 })();
 `;
 
-/** Eyebrow above the title — answers "what repo and PR am I looking at?"
- *  before the document name. Repo name comes first as the most
- *  identifying piece of context; PR (when present) anchors the work to
- *  a code-review thread. Date and session id round it out. */
+/** Eyebrow above the title — supporting metadata (date + session id).
+ *  Repo + PR live inside the rich title now, not here. */
 function renderEyebrow(transcript: Transcript): string {
   const exportedDate = (() => {
     try {
@@ -1333,20 +1427,32 @@ function renderEyebrow(transcript: Transcript): string {
       return "";
     }
   })();
-  const parts: string[] = [];
-  if (transcript.repoName) {
-    parts.push(`<span class="repo">${escapeHtml(transcript.repoName)}</span>`);
-  }
-  if (transcript.pr) {
-    parts.push(
-      `<a class="pr" href="${escapeHtml(transcript.pr.url)}" target="_blank" rel="noopener noreferrer">PR #${transcript.pr.number}</a>`,
-    );
-  }
-  if (exportedDate) {
-    parts.push(`<span>${escapeHtml(exportedDate)}</span>`);
-  }
+  const parts: string[] = [`<span>Transcript</span>`];
+  if (exportedDate) parts.push(`<span>${escapeHtml(exportedDate)}</span>`);
   parts.push(`<span>#${escapeHtml(transcript.sessionId.slice(0, 8))}</span>`);
   return `<div class="eyebrow">${parts.join('<span class="sep">·</span>')}</div>`;
+}
+
+/** Render the rich title: a small prefix line carrying repo name and
+ *  PR link, then the actual title (first user prompt) in the big serif.
+ *  Both share one `<h1>` so a screen reader reads them as a unit. */
+function renderRichTitle(transcript: Transcript, titleText: string): string {
+  const prefixParts: string[] = [];
+  if (transcript.repoName) {
+    prefixParts.push(
+      `<span class="title-repo">${escapeHtml(transcript.repoName)}</span>`,
+    );
+  }
+  if (transcript.pr) {
+    prefixParts.push(
+      `<a class="title-pr" href="${escapeHtml(transcript.pr.url)}" target="_blank" rel="noopener noreferrer">PR #${transcript.pr.number}</a>`,
+    );
+  }
+  const prefix =
+    prefixParts.length > 0
+      ? `<span class="title-prefix">${prefixParts.join('<span class="title-sep">·</span>')}</span>`
+      : "";
+  return `<h1 class="title">${prefix}<span class="title-text">${escapeHtml(titleText)}</span></h1>`;
 }
 
 /** Byline beneath the title — agent + model + tokens form a single
@@ -1415,7 +1521,7 @@ export function transcriptToHtml(transcript: Transcript): string {
       <span class="brand-name">kolu</span>
     </a>
     ${eyebrow}
-    <h1 class="title">${escapeHtml(titleText)}</h1>
+    ${renderRichTitle(transcript, titleText)}
     <div class="byline">${byline}</div>
     <hr class="rule" />
   </header>
