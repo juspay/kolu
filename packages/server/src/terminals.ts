@@ -2,9 +2,9 @@
  * Terminal lifecycle: spawn PTYs, wire them to metadata providers, and
  * manage create/kill/update operations. The underlying `Map` and its
  * simple accessors (`getTerminal`, `listTerminals`, `terminalCount`,
- * `countActiveClaudeSessions`, the `TerminalProcess` shape) live in
- * `./terminal-registry.ts` so `./meta/*` can depend on the registry
- * without closing a cycle back through this file.
+ * the `TerminalProcess` shape) live in `./terminal-registry.ts` so
+ * `./meta/*` can depend on the registry without closing a cycle back
+ * through this file.
  *
  * External callers that used to import state-reads + lifecycle from
  * `./terminals.ts` as a single module keep their import path — this
@@ -40,7 +40,6 @@ import {
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
 export {
-  countActiveClaudeSessions,
   getTerminal,
   listTerminals,
   terminalCount,
