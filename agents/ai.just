@@ -7,9 +7,7 @@ set working-directory := '..'
 # `just ci` → `just ai::apm-sync`).
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-# Pinned to juspay's fork while the hook-idempotency fix (microsoft/apm#708)
-# is unreleased upstream. Revert to `microsoft/apm` once the fix lands.
-apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm apm'
+apm_cmd := nix_shell + ' uvx --from apm-cli apm'
 
 # Install native APM integrations for Claude, Codex, and OpenCode.
 #
