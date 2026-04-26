@@ -194,6 +194,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -222,6 +225,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -266,6 +272,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       memorable-names:
         specifier: workspace:*
         version: link:../../memorable-names
@@ -349,6 +358,12 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/runtime-diagnostics:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/server:
     dependencies:
       '@hono/node-server':
@@ -411,6 +426,9 @@ importers:
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../runtime-diagnostics
       node-pty:
         specifier: ^1.0.0
         version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)
