@@ -14,6 +14,7 @@ import {
   parseIsoTimestamp,
   type Transcript,
   type TranscriptEvent,
+  type TranscriptPr,
 } from "anyagent";
 import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
 
@@ -123,6 +124,9 @@ export interface LoadClaudeCodeTranscriptInput {
   sessionId: string;
   cwd: string;
   title: string | null;
+  model: string | null;
+  contextTokens: number | null;
+  pr: TranscriptPr | null;
 }
 
 /** Read the JSONL transcript for a Claude Code session and normalize it
@@ -151,6 +155,9 @@ export function loadClaudeCodeTranscript(
     sessionId: input.sessionId,
     title: input.title,
     cwd: input.cwd,
+    model: input.model,
+    contextTokens: input.contextTokens,
+    pr: input.pr,
     exportedAt: Date.now(),
     events: parseClaudeCodeJsonl(raw),
   };

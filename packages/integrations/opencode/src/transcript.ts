@@ -16,6 +16,7 @@ import {
   type Logger,
   type Transcript,
   type TranscriptEvent,
+  type TranscriptPr,
   withDb as sharedWithDb,
 } from "anyagent";
 import { openDb } from "./core.ts";
@@ -103,6 +104,9 @@ export interface LoadOpenCodeTranscriptInput {
   sessionId: string;
   title: string | null;
   cwd: string | null;
+  model: string | null;
+  contextTokens: number | null;
+  pr: TranscriptPr | null;
 }
 
 /** Read all messages + parts for a session and emit a unified Transcript.
@@ -190,6 +194,9 @@ export function loadOpenCodeTranscript(
         sessionId: input.sessionId,
         title: input.title,
         cwd: input.cwd,
+        model: input.model,
+        contextTokens: input.contextTokens,
+        pr: input.pr,
         exportedAt: Date.now(),
         events,
       };

@@ -8,6 +8,9 @@ function makeTranscript(overrides: Partial<Transcript> = {}): Transcript {
     sessionId: "abcdef1234567890",
     title: "Hello session",
     cwd: "/tmp/x",
+    model: null,
+    contextTokens: null,
+    pr: null,
     exportedAt: 1_700_000_000_000,
     events: [],
     ...overrides,
@@ -94,5 +97,54 @@ describe("transcriptToHtml", () => {
     expect(transcriptToHtml(makeTranscript({ agentKind: "codex" }))).toContain(
       "Codex",
     );
+  });
+
+  it("renders model, token count, and PR link when available", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        model: "claude-opus-4-6",
+        contextTokens: 47_000,
+        pr: { number: 742, url: "https://github.com/juspay/kolu/pull/742" },
+      }),
+    );
+    expect(html).toContain("claude-opus-4-6");
+    expect(html).toContain("47K tokens");
+    expect(html).toContain("PR #742");
+    expect(html).toContain("https://github.com/juspay/kolu/pull/742");
+  });
+
+  it("omits header pills when their value is null", () => {
+    const html = transcriptToHtml(
+      makeTranscript({ model: null, contextTokens: null, pr: null }),
+    );
+    expect(html).not.toContain('class="pill model"');
+    expect(html).not.toContain('class="pill tokens"');
+    expect(html).not.toContain('class="pill pr"');
+  });
+
+  it("emits a hide-tools toggle and a theme toggle", () => {
+    const html = transcriptToHtml(makeTranscript());
+    expect(html).toContain('data-toggle="tools"');
+    expect(html).toContain('data-toggle="theme"');
+    // CSS rule that drives the toggle.
+    expect(html).toContain('body[data-hide-tools="true"]');
+    // Manual override for the auto theme.
+    expect(html).toContain(':root[data-theme="dark"]');
+    expect(html).toContain(':root[data-theme="light"]');
+  });
+
+  it("renders role icons inline as SVG (no external assets)", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          { kind: "user", text: "hi", ts: null },
+          { kind: "assistant", text: "hello", model: null, ts: null },
+        ],
+      }),
+    );
+    // Both events get an inline <svg> in their .icon column.
+    expect(html).toContain('aria-label="User"');
+    expect(html).toContain('aria-label="Assistant"');
+    expect(html.match(/<svg[^>]*viewBox/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });

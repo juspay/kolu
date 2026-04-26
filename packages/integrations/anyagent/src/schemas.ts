@@ -93,6 +93,15 @@ export const TranscriptEventSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
+/** Pull request context attached to the export header. Lives on the
+ *  Transcript rather than as an event so the renderer can show it
+ *  prominently regardless of how many events the session has. */
+export const TranscriptPrSchema = z.object({
+  number: z.number(),
+  url: z.string(),
+});
+export type TranscriptPr = z.infer<typeof TranscriptPrSchema>;
+
 export const TranscriptSchema = z.object({
   agentKind: z.enum(AGENT_KINDS),
   /** Stable id from the source store (Claude session UUID, OpenCode
@@ -103,6 +112,17 @@ export const TranscriptSchema = z.object({
   title: z.string().nullable(),
   /** Original cwd of the session (display-only). */
   cwd: z.string().nullable(),
+  /** Model identifier from the agent metadata (e.g. "claude-opus-4-6",
+   *  "gpt-5.4", "litellm/glm-latest"). Null when the session hasn't
+   *  produced an assistant turn yet. */
+  model: z.string().nullable(),
+  /** Running context-window token count from the agent metadata.
+   *  Pre-summed by each integration with its own accounting (see
+   *  ClaudeCodeInfo / OpenCodeInfo / CodexInfo `contextTokens` for the
+   *  vendor-specific math). Null when not yet available. */
+  contextTokens: z.number().nullable(),
+  /** GitHub PR linked to the session's worktree, if one exists. */
+  pr: TranscriptPrSchema.nullable(),
   /** Wall-clock time the export was generated, in ms since epoch. */
   exportedAt: z.number(),
   events: z.array(TranscriptEventSchema),

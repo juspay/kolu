@@ -23,6 +23,8 @@ export {
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,
+  type TranscriptPr,
+  TranscriptPrSchema,
   TranscriptSchema,
 } from "./schemas.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";

@@ -10,7 +10,8 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
-import type { Transcript } from "kolu-common";
+import type { Transcript, TranscriptPr } from "kolu-common";
+import { prValue } from "kolu-github/schemas";
 import {
   type GitResult,
   getDiff,
@@ -206,23 +207,44 @@ export const appRouter = t.router({
           });
         }
         const cwd = term.info.meta.cwd;
+        const prInfo = prValue(term.info.meta.pr);
+        const pr: TranscriptPr | null = prInfo
+          ? { number: prInfo.number, url: prInfo.url }
+          : null;
         const transcript = match<typeof agent, Transcript | null>(agent)
           .with({ kind: "claude-code" }, (a) =>
             loadClaudeCodeTranscript({
               sessionId: a.sessionId,
               cwd,
               title: a.summary,
+              model: a.model,
+              contextTokens: a.contextTokens,
+              pr,
             }),
           )
           .with({ kind: "opencode" }, (a) =>
             loadOpenCodeTranscript(
-              { sessionId: a.sessionId, title: a.summary, cwd },
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
               log,
             ),
           )
           .with({ kind: "codex" }, (a) =>
             loadCodexTranscript(
-              { sessionId: a.sessionId, title: a.summary, cwd },
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
               log,
             ),
           )

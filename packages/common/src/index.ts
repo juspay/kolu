@@ -472,5 +472,7 @@ export {
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,
+  type TranscriptPr,
+  TranscriptPrSchema,
   TranscriptSchema,
 } from "./transcript";
