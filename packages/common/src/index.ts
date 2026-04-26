@@ -323,7 +323,6 @@ export const ServerDiagnosticResourceSchema = z.object({
   owner: z.string().nullable(),
   target: z.string().nullable(),
   createdAt: z.number(),
-  ageMs: z.number(),
   details: z.record(z.string(), DiagnosticDetailValueSchema),
 });
 
@@ -337,6 +336,7 @@ export const ServerProcessDiagnosticSchema = z.object({
 });
 
 export const ServerDiagnosticsSchema = z.object({
+  sampledAt: z.number(),
   uptimeMs: z.number(),
   memory: z.object({
     rss: z.number(),
@@ -346,11 +346,9 @@ export const ServerDiagnosticsSchema = z.object({
     arrayBuffers: z.number(),
   }),
   counts: z.object({
-    terminals: z.number(),
     publisherSize: z.number(),
     claudeSessions: z.number(),
     pendingSummaryFetches: z.number(),
-    resources: z.number(),
   }),
   processes: z.array(ServerProcessDiagnosticSchema),
   resources: z.array(ServerDiagnosticResourceSchema),

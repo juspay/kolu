@@ -550,7 +550,12 @@ const DiagnosticInfoContent: Component<{
                                 {resource.target ?? "—"}
                               </span>
                               <span class="text-fg-3/70 tabular-nums">
-                                {formatDuration(resource.ageMs)}
+                                {formatDuration(
+                                  Math.max(
+                                    0,
+                                    server().sampledAt - resource.createdAt,
+                                  ),
+                                )}
                               </span>
                             </div>
                             <Show when={formatDetails(resource.details)}>
@@ -589,7 +594,12 @@ const DiagnosticInfoContent: Component<{
                               {resource.target ?? resource.owner ?? "—"}
                             </span>
                             <span class="text-fg-3/70 tabular-nums">
-                              {formatDuration(resource.ageMs)}
+                              {formatDuration(
+                                Math.max(
+                                  0,
+                                  server().sampledAt - resource.createdAt,
+                                ),
+                              )}
                             </span>
                           </div>
                         )}

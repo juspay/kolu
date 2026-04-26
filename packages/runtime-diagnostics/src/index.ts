@@ -23,7 +23,6 @@ export interface DiagnosticResourceSnapshot {
   owner: string | null;
   target: string | null;
   createdAt: number;
-  ageMs: number;
   details: Record<string, DiagnosticDetailValue>;
 }
 
@@ -92,9 +91,7 @@ export function trackDiagnosticCleanup(
   };
 }
 
-export function diagnosticResourcesSnapshot(
-  now = Date.now(),
-): DiagnosticResourceSnapshot[] {
+export function diagnosticResourcesSnapshot(): DiagnosticResourceSnapshot[] {
   return [...resources.values()]
     .map((resource) => ({
       id: resource.id,
@@ -103,7 +100,6 @@ export function diagnosticResourcesSnapshot(
       owner: resource.owner,
       target: resource.target,
       createdAt: resource.createdAt,
-      ageMs: now - resource.createdAt,
       details: resource.details(),
     }))
     .sort((a, b) => a.createdAt - b.createdAt || a.id - b.id);

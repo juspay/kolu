@@ -17,9 +17,9 @@
  *
  *  3. Starts a 5-min interval logging subsystem sizes at INFO level
  *     with msg "diag". Columns: memory bands (rss, heapUsed, external,
- *     arrayBuffers) + subsystem counts (terminals, publisherSize,
- *     claudeSessions, pendingSummaryFetches). The column that climbs
- *     monotonically alongside rss is the leak site.
+ *     arrayBuffers) + subsystem counts (publisherSize, claudeSessions,
+ *     pendingSummaryFetches). The column that climbs monotonically
+ *     alongside rss is the leak site.
  *
  * Deliberately NOT included:
  *
@@ -44,7 +44,7 @@ import {
 import { log } from "./log.ts";
 import { publisherSize } from "./publisher.ts";
 import { terminalEntries, type TerminalProcess } from "./terminal-registry.ts";
-import { countActiveClaudeSessions, terminalCount } from "./terminals.ts";
+import { countActiveClaudeSessions } from "./terminals.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
  *  leak rate (the observed floor before the 4 GB OOM) produces ~50 MB
@@ -67,7 +67,6 @@ function sample(): Record<string, number> {
     heapTotal: m.heapTotal,
     external: m.external,
     arrayBuffers: m.arrayBuffers,
-    terminals: terminalCount(),
     publisherSize: publisherSize(),
     claudeSessions: countActiveClaudeSessions(),
     pendingSummaryFetches: getPendingSummaryFetches(),
@@ -88,14 +87,13 @@ function readMemoryUsage(): ServerDiagnostics["memory"] {
 export function serverDiagnosticsSnapshot(): ServerDiagnostics {
   const resources = diagnosticResourcesSnapshot();
   return {
+    sampledAt: Date.now(),
     uptimeMs: Math.round(process.uptime() * 1000),
     memory: readMemoryUsage(),
     counts: {
-      terminals: terminalCount(),
       publisherSize: publisherSize(),
       claudeSessions: countActiveClaudeSessions(),
       pendingSummaryFetches: getPendingSummaryFetches(),
-      resources: resources.length,
     },
     processes: [...terminalEntries()].map(([terminalId, entry]) => ({
       terminalId,

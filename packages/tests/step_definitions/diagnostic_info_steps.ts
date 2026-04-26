@@ -51,6 +51,7 @@ Then(
     const text = await this.page.evaluate(() => navigator.clipboard.readText());
     const parsed = JSON.parse(text) as {
       server?: {
+        sampledAt?: number;
         uptimeMs?: number;
         memory?: { rss?: number };
         resources?: unknown[];
@@ -58,6 +59,7 @@ Then(
       };
     };
     assert.ok(parsed.server, "Expected copied JSON to include server");
+    assert.strictEqual(typeof parsed.server.sampledAt, "number");
     assert.strictEqual(typeof parsed.server.uptimeMs, "number");
     assert.strictEqual(typeof parsed.server.memory?.rss, "number");
     assert.ok(Array.isArray(parsed.server.resources));
