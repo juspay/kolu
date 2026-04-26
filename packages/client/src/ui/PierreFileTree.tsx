@@ -38,6 +38,7 @@ export function toGitStatusEntries(
   }));
 }
 
+/** Authoritative file-tree membership plus the event Pierre should apply. */
 export type PierrePathUpdate = {
   seq: number;
   event: FsWatchEvent;

@@ -116,15 +116,16 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
       onError: (err) => toast.error(`File tree watch error: ${err.message}`),
     },
   );
-  const [manualPathUpdate, setManualPathUpdate] =
-    createSignal<PierrePathUpdate>();
-  const pathUpdate = createMemo(
-    () => manualPathUpdate() ?? fsWatch() ?? EMPTY_PATH_UPDATE,
-  );
+  const [pathUpdate, setPathUpdate] =
+    createSignal<PierrePathUpdate>(EMPTY_PATH_UPDATE);
+
   createEffect(
     on(
       () => fsWatch()?.seq,
-      () => setManualPathUpdate(undefined),
+      () => {
+        const update = fsWatch();
+        if (update) setPathUpdate(update);
+      },
       { defer: true },
     ),
   );
@@ -159,7 +160,7 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
       void client.fs
         .listAll({ repoPath: repoPath() })
         .then(({ paths }) => {
-          setManualPathUpdate({
+          setPathUpdate({
             seq: pathUpdate().seq + 1,
             event: { kind: "snapshot", paths },
             paths,
