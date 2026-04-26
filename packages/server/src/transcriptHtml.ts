@@ -1240,6 +1240,7 @@ const STYLE = `
 
   /* Tool events: bronze accent, hidden by default. */
   body[data-hide-tools="true"] .event--tool { display: none; }
+  body[data-hide-reasoning="true"] .event--reasoning { display: none; }
   .event--tool .gutter-icon { color: var(--tool); border-color: var(--tool); }
   .event--tool details summary .card-role { color: var(--tool); }
   .event--tool .tool-name {
@@ -1478,6 +1479,24 @@ const SCRIPT = `
     applyTools(nextHide);
   });
 
+  // --- Hide reasoning toggle (default: hidden) ---
+  const reasoningBtn = document.querySelector('[data-toggle="reasoning"]');
+  function applyReasoning(hide) {
+    document.body.dataset.hideReasoning = String(hide);
+    if (reasoningBtn) {
+      reasoningBtn.setAttribute('aria-pressed', String(hide));
+      const stateEl = reasoningBtn.querySelector('[data-state]');
+      if (stateEl) stateEl.textContent = hide ? 'hidden' : 'shown';
+    }
+  }
+  const storedHideReasoning = localStorage.getItem('kolu-export-hide-reasoning');
+  applyReasoning(storedHideReasoning !== '0');
+  reasoningBtn?.addEventListener('click', () => {
+    const nextHide = document.body.dataset.hideReasoning !== 'true';
+    localStorage.setItem('kolu-export-hide-reasoning', nextHide ? '1' : '0');
+    applyReasoning(nextHide);
+  });
+
   // --- Hide edit calls toggle (default: shown) ---
   const editBtn = document.querySelector('[data-toggle="edits"]');
   function applyEdits(hide) {
@@ -1655,7 +1674,7 @@ export function transcriptToHtml(transcript: Transcript): string {
 <title>${escapeHtml(titleText)} — kolu</title>
 <style>${STYLE}</style>
 </head>
-<body data-hide-tools="true" data-hide-edits="false">
+<body data-hide-tools="true" data-hide-edits="false" data-hide-reasoning="true">
 <article class="doc">
   <header class="masthead">
     <a class="brand" href="https://kolu.dev/" target="_blank" rel="noopener noreferrer" title="Exported by Kolu — kolu.dev">
@@ -1677,7 +1696,7 @@ ${eventsHtml}
       a workspace for orchestrating AI coding agents.
     </span>
   </footer>
-  <p class="hint">Use <kbd>j</kbd>/<kbd>k</kbd> to move between prompts. The dock at lower-right toggles tools, edits, and theme.</p>
+  <p class="hint">Use <kbd>j</kbd>/<kbd>k</kbd> to move between prompts. The dock at lower-right toggles edits, tools, reasoning, and theme.</p>
 </article>
 <aside class="dock" role="toolbar" aria-label="Document controls">
   <button type="button" class="dock-btn" data-toggle="edits" aria-pressed="false" title="Show or hide agent edits (file diffs)">
@@ -1688,6 +1707,11 @@ ${eventsHtml}
   <button type="button" class="dock-btn" data-toggle="tools" aria-pressed="true" title="Show or hide tool calls">
     <span class="dock-icon">${TOOLS_DOCK_ICON}</span>
     <span class="dock-label">Tools</span>
+    <span class="dock-state" data-state>hidden</span>
+  </button>
+  <button type="button" class="dock-btn" data-toggle="reasoning" aria-pressed="true" title="Show or hide assistant reasoning">
+    <span class="dock-icon">${REASONING_ICON}</span>
+    <span class="dock-label">Reasoning</span>
     <span class="dock-state" data-state>hidden</span>
   </button>
   <button type="button" class="dock-btn" data-toggle="theme" title="Cycle theme: auto → light → dark">

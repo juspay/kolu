@@ -134,6 +134,11 @@ export function eventsFromMessageParts(
   const out: TranscriptEvent[] = [];
   for (const p of parts) {
     if (p.type === "text" && typeof p.text === "string") {
+      // OpenCode streams text in deltas and sometimes leaves empty text
+      // parts behind (a part row created when a streaming delta starts
+      // but never receives content, or a turn that ends mid-stream).
+      // They render as empty assistant cards if we pass them through.
+      if (p.text.trim().length === 0) continue;
       if (messageRole === "user") {
         out.push({ kind: "user", text: p.text, ts: messageTs });
       } else {
@@ -145,6 +150,7 @@ export function eventsFromMessageParts(
         });
       }
     } else if (p.type === "reasoning" && typeof p.text === "string") {
+      if (p.text.trim().length === 0) continue;
       out.push({ kind: "reasoning", text: p.text, ts: messageTs });
     } else if (p.type === "tool" && typeof p.tool === "string") {
       const id = p.callID ?? null;

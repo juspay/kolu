@@ -161,13 +161,24 @@ describe("transcriptToHtml", () => {
     );
   });
 
-  it("emits dock toggles for tools and theme", () => {
+  it("emits dock toggles for tools, reasoning, and theme", () => {
     const html = transcriptToHtml(makeTranscript());
     expect(html).toContain('data-toggle="tools"');
+    expect(html).toContain('data-toggle="reasoning"');
     expect(html).toContain('data-toggle="theme"');
     // Manual override selectors for the auto theme.
     expect(html).toContain(':root[data-theme="dark"]');
     expect(html).toContain(':root[data-theme="light"]');
+  });
+
+  it("hides reasoning by default at the body level", () => {
+    // Same flash-of-content prevention as tools: collapse server-side
+    // before any JS runs.
+    const html = transcriptToHtml(makeTranscript());
+    expect(html).toMatch(/<body[^>]*\bdata-hide-reasoning="true"/);
+    expect(html).toContain(
+      'body[data-hide-reasoning="true"] .event--reasoning',
+    );
   });
 
   it("renders role icons inline as SVG (no external assets)", () => {

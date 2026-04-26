@@ -214,6 +214,21 @@ describe("eventsFromMessageParts", () => {
     expect(events.map((e) => e.kind)).toEqual(["tool_call", "tool_result"]);
   });
 
+  it("skips empty text and reasoning parts (streaming artifacts)", () => {
+    // OpenCode sometimes leaves text parts with empty/whitespace-only
+    // text behind — passing those through produced ghost assistant
+    // cards in the export with no body.
+    const events = eventsFromMessageParts("assistant", null, 1000, [
+      { type: "text", text: "" },
+      { type: "text", text: "   " },
+      { type: "reasoning", text: "" },
+      { type: "text", text: "real reply" },
+    ]);
+    expect(events).toEqual([
+      { kind: "assistant", text: "real reply", model: null, ts: 1000 },
+    ]);
+  });
+
   it("skips lifecycle and metadata part types", () => {
     expect(
       eventsFromMessageParts("assistant", null, 1000, [
