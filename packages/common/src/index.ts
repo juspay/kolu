@@ -313,15 +313,24 @@ export const ServerInfoSchema = z.object({
  *  currently observing (per-terminal git HEAD watchers, agent transcripts,
  *  shared external-change watchers). Counts are aggregated, not handles —
  *  the goal is "is the server holding watchers I didn't expect?", not
- *  enumerating every fs.watch instance. */
+ *  enumerating every fs.watch instance.
+ *
+ *  Server emits facts (count, kind, optional reconciler count); the client
+ *  composes any prose. No pluralization or other UI rendering rides in
+ *  the wire shape. */
 export const ServerWatchSchema = z.object({
   /** Stable identifier for the watch category, e.g. `git-head`,
    *  `claude-transcript`, `agent-external:claude-code`. */
   kind: z.string(),
-  /** One-line human-readable description for the diagnostic dialog. */
+  /** Static, run-time-data-free description for the diagnostic dialog. */
   description: z.string(),
   /** How many watchers of this kind are currently active. */
   count: z.number().int().nonnegative(),
+  /** For shared singleton watchers (kinds prefixed `agent-external:`):
+   *  the number of terminals currently fanning out from this single
+   *  underlying watcher. Absent for per-instance kinds where `count`
+   *  already reflects per-terminal subscribers. */
+  sharedReconcilers: z.number().int().nonnegative().optional(),
 });
 
 export const ServerDiagnosticsSchema = z.object({

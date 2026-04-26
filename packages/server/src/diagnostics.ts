@@ -119,8 +119,9 @@ export function getServerDiagnostics(): ServerDiagnostics {
     if (!a.installed) continue;
     watches.push({
       kind: `agent-external:${a.kind}`,
-      description: `${a.kind} external-change watcher (shared across ${a.reconcilers} terminal${a.reconcilers === 1 ? "" : "s"})`,
+      description: "Agent external-change watcher (shared singleton)",
       count: 1,
+      sharedReconcilers: a.reconcilers,
     });
   }
 

@@ -321,6 +321,13 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                           <div class="font-mono text-fg-2">{w.kind}</div>
                           <div class="text-[10px] text-fg-3/70">
                             {w.description}
+                            <Show when={w.sharedReconcilers !== undefined}>
+                              {" — shared across "}
+                              {w.sharedReconcilers}{" "}
+                              {w.sharedReconcilers === 1
+                                ? "terminal"
+                                : "terminals"}
+                            </Show>
                           </div>
                         </div>
                         <span class="font-mono text-fg tabular-nums">
