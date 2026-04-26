@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ci-preflight
+# Asserts a clean worktree and that HEAD is reachable from a remote branch.
+# Emits the resolved sha on stdout — capture it with $(ci-preflight) and export
+# CI_SHA so every other shim sees the same value for the rest of the run.
+set -euo pipefail
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "ci-preflight: worktree is dirty — commit or stash before running CI" >&2
+    exit 1
+fi
+
+sha=$(git rev-parse HEAD)
+
+if ! git branch -r --contains "$sha" 2>/dev/null | grep -q .; then
+    echo "ci-preflight: $sha not pushed to a remote — push first" >&2
+    exit 1
+fi
+
+echo "$sha"

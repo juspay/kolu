@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ci-verify <step…>
+# Cross-checks posted commit statuses for the current sha against the listed
+# step names. Prints a one-line-per-step table; exits non-zero if any step is
+# missing or non-success.
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+    echo "usage: ci-verify <step…>" >&2
+    exit 2
+fi
+
+sha="${CI_SHA:-$(git rev-parse HEAD)}"
+repo=$(git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||')
+
+posted=$(gh api "repos/$repo/statuses/$sha" --jq '
+  [.[] | select(.context | startswith("ci/"))]
+  | group_by(.context)
+  | map(max_by(.updated_at))
+  | .[] | "\(.context | sub("^ci/"; "")) \(.state)"' 2>/dev/null || echo "")
+
+failed=0
+printf "%-32s %s\n" "STEP" "STATE"
+for step in "$@"; do
+    state=$(echo "$posted" | awk -v s="$step" '$1 == s { print $2; exit }')
+    state="${state:-MISSING}"
+    case "$state" in
+        success) marker="✓" ;;
+        failure|error) marker="✗"; failed=1 ;;
+        pending)        marker="●"; failed=1 ;;
+        *)              marker="-"; failed=1 ;;
+    esac
+    printf "%-32s %s %s\n" "$step" "$marker" "$state"
+done
+exit $failed

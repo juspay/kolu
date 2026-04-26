@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ci-ssh <system> <cmd…>
+# Git-bundles the repo at the captured sha, ships it to the SSH host mapped
+# from <system>, runs <cmd> in the extracted tree, streams output, cleans up.
+# Host map: ~/.config/ci/hosts.json — prompted + cached on first use per system.
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "usage: ci-ssh <system> <cmd…>" >&2
+    exit 2
+fi
+
+system="$1"
+shift
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/ci/hosts.json"
+mkdir -p "$(dirname "$config")"
+[[ -f "$config" ]] || echo '{"hosts":{}}' > "$config"
+
+host=$(jq -r ".hosts.\"$system\" // empty" "$config")
+if [[ -z "$host" ]]; then
+    read -r -p "Enter SSH hostname for $system: " host
+    jq ".hosts.\"$system\" = \"$host\"" "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+    echo "Saved $system → $host to $config" >&2
+fi
+
+sha="${CI_SHA:-$(git rev-parse HEAD)}"
+tmp=$(ssh "$host" mktemp -d)
+trap 'ssh "$host" "rm -rf $tmp" >/dev/null 2>&1 || true' EXIT
+
+# Bundle full .git so nix can read git revision info on the remote.
+git bundle create - --all 2>/dev/null \
+  | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet $sha"
+
+ssh "$host" "cd $tmp/src && $*"

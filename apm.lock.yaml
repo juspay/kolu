@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-26T00:23:58.980084+00:00'
+generated_at: '2026-04-26T01:19:46.305309+00:00'
 apm_version: 0.9.2
 dependencies:
 - repo_url: anthropics/skills
@@ -13,6 +13,16 @@ dependencies:
   - .claude/skills/frontend-design
   - .opencode/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+- repo_url: juspay/ci
+  host: github.com
+  resolved_commit: c2582c4f7d7e42c1e45d6d7489c440e309cf2505
+  resolved_ref: prototype
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/ci-runtime
+  - .claude/skills/ci-runtime
+  - .opencode/skills/ci-runtime
+  content_hash: sha256:01aea7d299108ef7a132ce03eab67c6514c5bdbbb863c99079df2cef454aa294
 - repo_url: juspay/skills
   host: github.com
   resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748

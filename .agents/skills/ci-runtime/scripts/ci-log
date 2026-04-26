@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# ci-log <step>
+# Emits the canonical log path for <step> at the current sha and ensures the
+# parent directory exists. Tee step output here.
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "usage: ci-log <step>" >&2
+    exit 2
+fi
+
+step="$1"
+sha="${CI_SHA:-$(git rev-parse HEAD)}"
+short="${sha:0:7}"
+logdir=".logs/$short"
+mkdir -p "$logdir"
+echo "$logdir/$step.log"

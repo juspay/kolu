@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# ci-status <step> <pending|success|failure|error> [description]
+# Posts a commit status via the configured forge (GitHub today).
+# Forge switch lives here — Bitbucket adds an internal branch; callers don't change.
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "usage: ci-status <step> <pending|success|failure|error> [description]" >&2
+    exit 2
+fi
+
+step="$1"
+state="$2"
+description="${3:-}"
+
+case "$state" in
+    pending|success|failure|error) ;;
+    *) echo "ci-status: invalid state '$state' (want: pending|success|failure|error)" >&2; exit 2 ;;
+esac
+
+sha="${CI_SHA:-$(git rev-parse HEAD)}"
+repo=$(git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||')
+
+gh api "repos/$repo/statuses/$sha" \
+    -f state="$state" \
+    -f context="ci/$step" \
+    -f description="$description" \
+    --silent
