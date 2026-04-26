@@ -1,10 +1,10 @@
 /**
  * Process-local diagnostics registry for long-lived runtime resources.
  *
- * Integration packages cannot import from the server package without forming
- * dependency cycles, so the small registry lives in `anyagent`, which all
- * integrations already depend on. Resource owners register at creation time
- * and receive a cleanup function to call beside the real close/clear call.
+ * Resource owners register at creation time and receive a cleanup function
+ * to call beside the real close/clear call. This package is deliberately
+ * neutral: server and integration packages can depend on it without pulling
+ * in agent or server concepts.
  */
 
 export type DiagnosticResourceKind =

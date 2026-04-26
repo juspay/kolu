@@ -8,7 +8,8 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { trackDiagnosticResource, type Logger } from "anyagent";
+import type { Logger } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
 import type { GitInfo } from "./schemas.ts";

@@ -12,7 +12,8 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import { agentInfoEqual, trackDiagnosticResource, type Logger } from "anyagent";
+import { agentInfoEqual, type Logger } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import {
   deriveSessionState,
   getLatestAssistantContextTokens,

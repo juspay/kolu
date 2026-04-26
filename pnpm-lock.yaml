@@ -194,6 +194,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -222,6 +225,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -244,6 +250,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -266,6 +275,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       memorable-names:
         specifier: workspace:*
         version: link:../../memorable-names
@@ -291,6 +303,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -313,6 +328,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../../runtime-diagnostics
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -344,6 +362,12 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/nonempty:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/runtime-diagnostics:
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -411,6 +435,9 @@ importers:
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
+      kolu-runtime-diagnostics:
+        specifier: workspace:*
+        version: link:../runtime-diagnostics
       node-pty:
         specifier: ^1.0.0
         version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)

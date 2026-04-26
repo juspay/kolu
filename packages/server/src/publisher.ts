@@ -7,7 +7,6 @@
  *  channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import { trackDiagnosticResource } from "anyagent";
 import type {
   ActivityFeed,
   GitInfo,
@@ -16,6 +15,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */

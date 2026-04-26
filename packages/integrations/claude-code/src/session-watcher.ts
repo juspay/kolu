@@ -10,7 +10,8 @@
  */
 
 import fs from "node:fs";
-import { agentInfoEqual, trackDiagnosticResource, type Logger } from "anyagent";
+import { agentInfoEqual, type Logger } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import {
   deriveState,

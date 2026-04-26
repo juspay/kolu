@@ -12,7 +12,6 @@
 
 import path from "node:path";
 import {
-  trackDiagnosticResource,
   type AgentInfoShape,
   type AgentProvider,
   type AgentTerminalState,
@@ -20,6 +19,7 @@ import {
   type Logger,
 } from "anyagent";
 import type { AgentInfo } from "kolu-common";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";

@@ -19,12 +19,8 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import {
-  agentInfoEqual,
-  readTailLines,
-  trackDiagnosticResource,
-  type Logger,
-} from "anyagent";
+import { agentInfoEqual, readTailLines, type Logger } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import {
   type CodexSession,
   getThreadMetadata,

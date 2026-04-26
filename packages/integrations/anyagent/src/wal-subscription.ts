@@ -30,7 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { trackDiagnosticResource } from "./diagnostics.ts";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import type { Logger } from "./index.ts";
 
 /** Per-listener record tracked in the singleton's Set. */

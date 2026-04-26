@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
+    "kolu-runtime-diagnostics": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

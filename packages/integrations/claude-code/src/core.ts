@@ -24,7 +24,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
-import { readTailLines, trackDiagnosticResource } from "anyagent";
+import { readTailLines } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 

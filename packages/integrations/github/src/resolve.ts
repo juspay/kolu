@@ -6,7 +6,8 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { trackDiagnosticResource, type Logger } from "anyagent";
+import type { Logger } from "anyagent";
+import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
 import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
 import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 

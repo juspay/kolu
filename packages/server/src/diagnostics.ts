@@ -35,9 +35,12 @@
 
 import path from "node:path";
 import v8 from "node:v8";
-import { diagnosticResourcesSnapshot, trackDiagnosticResource } from "anyagent";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import type { ServerDiagnostics } from "kolu-common";
+import {
+  diagnosticResourcesSnapshot,
+  trackDiagnosticResource,
+} from "kolu-runtime-diagnostics";
 import { log } from "./log.ts";
 import { publisherSize } from "./publisher.ts";
 import { terminalEntries, type TerminalProcess } from "./terminal-registry.ts";
