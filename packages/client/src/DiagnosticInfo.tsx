@@ -78,27 +78,39 @@ function groupByKind(
   return [...groups.entries()].map(([kind, items]) => ({ kind, items }));
 }
 
-/** Multi-line title attribute for a resource row. Keys context entries
- *  on separate lines so a long path or sessionId wraps cleanly. */
+/** Multi-line `title=` attribute from labeled entries. Filters out
+ *  entries whose value is null/undefined so optional fields don't
+ *  produce blank lines. */
+function buildTooltip(
+  entries: Array<
+    readonly [string, string | number | boolean | null | undefined]
+  >,
+): string {
+  return entries
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join("\n");
+}
+
 function resourceTooltip(r: ServerDiagnostics["resources"][number]): string {
-  const lines = [
-    `id: ${r.id}`,
-    `owner: ${r.owner}`,
-    `created: ${new Date(r.createdAt).toISOString()}`,
-  ];
-  if (r.target) lines.push(`target: ${r.target}`);
-  for (const [k, v] of Object.entries(r.context)) {
-    lines.push(`${k}: ${v}`);
-  }
-  return lines.join("\n");
+  return buildTooltip([
+    ["id", r.id],
+    ["owner", r.owner],
+    ["created", new Date(r.createdAt).toISOString()],
+    ["target", r.target],
+    ...Object.entries(r.context),
+  ]);
 }
 
 function processTooltip(p: ServerDiagnostics["processes"][number]): string {
-  const lines = [`terminal: ${p.terminalId}`, `pid: ${p.pid}`, `cwd: ${p.cwd}`];
-  if (p.foregroundPid !== null) lines.push(`fg pid: ${p.foregroundPid}`);
-  if (p.foregroundProcess) lines.push(`fg: ${p.foregroundProcess}`);
-  if (p.agentKind) lines.push(`agent: ${p.agentKind}`);
-  return lines.join("\n");
+  return buildTooltip([
+    ["terminal", p.terminalId],
+    ["pid", p.pid],
+    ["cwd", p.cwd],
+    ["fg pid", p.foregroundPid],
+    ["fg", p.foregroundProcess],
+    ["agent", p.agentKind],
+  ]);
 }
 
 /** Compact d/h/m/s formatting for process uptime. Days dominate over hours
