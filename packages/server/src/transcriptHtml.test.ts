@@ -409,6 +409,48 @@ describe("renderMarkdown", () => {
     );
   });
 
+  it("renders GFM tables with header + body rows", () => {
+    const md = [
+      "| File | Lines | Description |",
+      "|------|-------|-------------|",
+      "| index.ts | 1-245 | Main entry |",
+      "| router.ts | 1-305 | RPC router |",
+    ].join("\n");
+    const out = renderMarkdown(md);
+    expect(out).toContain('<table class="md-table">');
+    expect(out).toContain("<thead>");
+    expect(out).toContain("<th>File</th>");
+    expect(out).toContain("<th>Lines</th>");
+    expect(out).toContain("<th>Description</th>");
+    expect(out).toContain("<tbody>");
+    expect(out).toContain("<td>index.ts</td>");
+    expect(out).toContain("<td>1-245</td>");
+    expect(out).toContain("<td>RPC router</td>");
+    // The literal `|` separators must not survive into the rendered output.
+    expect(out).not.toContain("| File | Lines |");
+  });
+
+  it("respects column alignment markers in the separator row", () => {
+    const md = ["| L | C | R |", "|:---|:---:|---:|", "| a | b | c |"].join(
+      "\n",
+    );
+    const out = renderMarkdown(md);
+    expect(out).toContain('style="text-align:left"');
+    expect(out).toContain('style="text-align:center"');
+    expect(out).toContain('style="text-align:right"');
+  });
+
+  it("applies inline formatting inside table cells", () => {
+    const md = [
+      "| Name | Note |",
+      "|------|------|",
+      "| **bold** | `code` |",
+    ].join("\n");
+    const out = renderMarkdown(md);
+    expect(out).toContain("<strong>bold</strong>");
+    expect(out).toContain("<code>code</code>");
+  });
+
   it("escapes HTML in markdown content", () => {
     const out = renderMarkdown("a <script>alert(1)</script> b");
     expect(out).not.toContain("<script>alert(1)</script>");

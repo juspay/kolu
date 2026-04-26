@@ -98,6 +98,82 @@ function detectListMarker(line: string): ListMarker | null {
  *  `buf` mark paragraph breaks within the item; one paragraph collapses
  *  to inline content (no wrapper), multiple paragraphs each get a
  *  `<p>`. */
+/** Parse a GitHub-flavored markdown table starting at `lines[start]`.
+ *  A table is a header row (a `|`-delimited line) followed immediately
+ *  by a separator row (cells of `---`, `:---`, `:---:`, `---:`). Returns
+ *  null when the two-line shape isn't present. Cell content is escaped
+ *  HTML (the caller has already escaped) and runs through inline
+ *  formatting. */
+function parseTable(
+  lines: string[],
+  start: number,
+): { html: string; next: number } | null {
+  const header = lines[start] ?? "";
+  const sep = lines[start + 1] ?? "";
+  if (!isTableLine(header) || !isTableSeparator(sep)) return null;
+  const aligns = parseTableAlignments(sep);
+  const headerCells = splitTableCells(header);
+  const bodyRows: string[][] = [];
+  let i = start + 2;
+  while (i < lines.length && isTableLine(lines[i] ?? "")) {
+    bodyRows.push(splitTableCells(lines[i] ?? ""));
+    i++;
+  }
+  const align = (idx: number): string => {
+    const a = aligns[idx];
+    return a ? ` style="text-align:${a}"` : "";
+  };
+  const headHtml = headerCells
+    .map((c, idx) => `<th${align(idx)}>${applyInline(c)}</th>`)
+    .join("");
+  const bodyHtml = bodyRows
+    .map(
+      (row) =>
+        `<tr>${row.map((c, idx) => `<td${align(idx)}>${applyInline(c)}</td>`).join("")}</tr>`,
+    )
+    .join("");
+  return {
+    html: `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
+    next: i,
+  };
+}
+
+function isTableLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith("|") && trimmed.includes("|", 1);
+}
+
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim();
+  if (
+    !trimmed.startsWith("|") &&
+    !trimmed.startsWith(":") &&
+    !trimmed.startsWith("-")
+  )
+    return false;
+  // Each cell is `:?-{3,}:?` (with surrounding whitespace).
+  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(trimmed);
+}
+
+function parseTableAlignments(
+  sep: string,
+): Array<"left" | "right" | "center" | null> {
+  return splitTableCells(sep).map((cell) => {
+    const t = cell.trim();
+    const left = t.startsWith(":");
+    const right = t.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
+function splitTableCells(line: string): string[] {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((c) => c.trim());
+}
+
 function renderListItem(buf: string[]): string {
   const paras: string[][] = [[]];
   for (const ln of buf) {
@@ -160,6 +236,19 @@ export function renderMarkdown(text: string): string {
       );
       i++;
       continue;
+    }
+
+    // GFM table — header row + separator row, then any number of body
+    // rows. Detected before the horizontal-rule branch since a separator
+    // line in isolation would otherwise look like an `---` rule.
+    {
+      const table = parseTable(lines, i);
+      if (table) {
+        flushPara();
+        out.push(table.html);
+        i = table.next;
+        continue;
+      }
     }
 
     // Horizontal rule.
@@ -1067,6 +1156,31 @@ const STYLE = `
     border-top: 1px solid var(--rule);
     margin: 0.5rem 0;
   }
+  .md .md-table-wrap {
+    margin: 0.25rem 0 0.375rem 0;
+    overflow-x: auto;
+  }
+  .md .md-table {
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    color: var(--ink);
+  }
+  .md .md-table th,
+  .md .md-table td {
+    padding: 0.25rem 0.625rem;
+    border-bottom: 1px solid var(--rule);
+    text-align: left;
+    vertical-align: top;
+  }
+  .md .md-table thead th {
+    border-bottom: 1px solid var(--rule-strong);
+    font-weight: 600;
+    color: var(--ink);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .md .md-table tbody tr:last-child td { border-bottom: none; }
   .md .md-code {
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
     font-size: 0.78125rem;
