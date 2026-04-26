@@ -13,7 +13,12 @@
  * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
-import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
+import type {
+  CodeTabView,
+  FsWatchEvent,
+  GitDiffMode,
+  TerminalMetadata,
+} from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -25,7 +30,9 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { client } from "../rpc/rpc";
+import { toast } from "solid-sonner";
+import { createSubscription } from "../rpc/createSubscription";
+import { client, stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
@@ -51,7 +58,34 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
   </div>
 );
 
-const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+type FsWatchData = {
+  sourceSeq: number;
+  event: FsWatchEvent;
+  paths: string[];
+};
+
+type FsTreeState = FsWatchData & { seq: number };
+
+const EMPTY_FS_WATCH_DATA: FsWatchData = {
+  sourceSeq: 0,
+  event: { kind: "snapshot", paths: [] },
+  paths: [],
+};
+
+function applyFsWatchEvent(paths: string[], event: FsWatchEvent): string[] {
+  if (event.kind === "snapshot") return event.paths;
+
+  const next = new Set(paths);
+  for (const move of event.moved ?? []) {
+    next.delete(move.from);
+    next.add(move.to);
+  }
+  for (const removed of event.removed ?? []) next.delete(removed);
+  for (const added of event.added ?? []) next.add(added);
+  return Array.from(next).sort((a, b) => a.localeCompare(b));
+}
+
+const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
@@ -62,36 +96,61 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
   const setView = rightPanel.setCodeMode;
 
-  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  const repoPath = () => props.repoPath;
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
   const [status, { refetch: refetchStatus }] = createResource(
     () => {
-      const p = repoPath();
       const m = diffMode();
-      return p && m ? { repoPath: p, mode: m } : null;
+      return m ? { repoPath: repoPath(), mode: m } : null;
     },
     (input) => client.git.status(input),
   );
 
-  const [allPaths, { refetch: refetchAll }] = createResource(
-    () => {
-      const p = repoPath();
-      return p && view() === "browse" ? { repoPath: p } : null;
+  const fsWatch = createSubscription<FsWatchEvent, FsWatchData>(
+    () => stream.fsWatch({ repoPath: repoPath() }),
+    {
+      initial: EMPTY_FS_WATCH_DATA,
+      reduce: (state, event) => ({
+        sourceSeq: state.sourceSeq + 1,
+        event,
+        paths: applyFsWatchEvent(state.paths, event),
+      }),
+      onError: (err) => toast.error(`File tree watch error: ${err.message}`),
     },
-    (input) => client.fs.listAll(input).then((r) => r.paths),
+  );
+  const [fsTreeState, setFsTreeState] = createSignal<FsTreeState>({
+    seq: 0,
+    ...EMPTY_FS_WATCH_DATA,
+  });
+  let fsTreeSeq = 0;
+
+  createEffect(
+    on(
+      () => fsWatch()?.sourceSeq,
+      () => {
+        const state = fsWatch();
+        if (!state) return;
+        setFsTreeState({ seq: ++fsTreeSeq, ...state });
+      },
+      { defer: true },
+    ),
   );
 
   const [diff, { refetch: refetchDiff }] = createResource(
     () => {
-      const p = repoPath();
       const s = selectedPath();
       const m = diffMode();
-      if (!p || !s || !m) return null;
+      if (!s || !m) return null;
       const file = status()?.files.find((f) => f.path === s);
-      return { repoPath: p, filePath: s, mode: m, oldPath: file?.oldPath };
+      return {
+        repoPath: repoPath(),
+        filePath: s,
+        mode: m,
+        oldPath: file?.oldPath,
+      };
     },
     (input) => client.git.diff(input),
   );
@@ -107,17 +166,46 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       void refetchStatus();
       if (selectedPath()) void refetchDiff();
     } else {
-      void refetchAll();
+      void client.fs
+        .listAll({ repoPath: repoPath() })
+        .then(({ paths }) => {
+          setFsTreeState({
+            seq: ++fsTreeSeq,
+            sourceSeq: fsWatch()?.sourceSeq ?? 0,
+            event: { kind: "snapshot", paths },
+            paths,
+          });
+        })
+        .catch((err: Error) =>
+          toast.error(`File tree refresh error: ${err.message}`),
+        );
     }
   };
 
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths() ?? [];
+    if (view() === "browse") return fsTreeState().paths;
     return status()?.files.map((f) => f.path) ?? [];
   });
   const treeGitStatus = createMemo(() => {
     const s = status();
     return s ? toGitStatusEntries(s.files) : undefined;
+  });
+
+  createEffect(
+    on(
+      () => fsTreeState().seq,
+      (seq) => {
+        if (seq === 0 || !isDiffView()) return;
+        void refetchStatus();
+        if (selectedPath()) void refetchDiff();
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(() => {
+    const selected = selectedPath();
+    if (selected && !treePaths().includes(selected)) setSelectedPath(null);
   });
 
   const handleSelect = (path: string | null) => {
@@ -126,8 +214,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
 
   const treeError = (): Error | undefined =>
-    (isDiffView() ? status.error : allPaths.error) as Error | undefined;
-  const treeReady = () => (isDiffView() ? status() : allPaths());
+    (isDiffView() ? status.error : fsWatch.error()) as Error | undefined;
+  const treeReady = () => (isDiffView() ? status() : !fsWatch.pending());
   const branchTooltip = () =>
     `Changes vs ${status()?.base?.ref ?? "branch base"}`;
 
@@ -146,8 +234,177 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   });
 
   return (
+    <div
+      class="flex flex-col h-full min-h-0 text-[11px]"
+      data-testid="diff-tab"
+    >
+      <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1.5">
+        <div class="flex items-center bg-surface-2/40 rounded p-0.5">
+          <button
+            type="button"
+            onClick={() => setView("browse")}
+            title="Browse all files"
+            class={PILL_BUTTON_CLASS}
+            data-testid="diff-mode-browse"
+            data-active={view() === "browse"}
+            aria-pressed={view() === "browse"}
+          >
+            All
+          </button>
+        </div>
+        <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
+          <button
+            type="button"
+            onClick={() => setView("local")}
+            title="Changes vs HEAD"
+            class={PILL_BUTTON_CLASS}
+            data-testid="diff-mode-local"
+            data-active={view() === "local"}
+            aria-pressed={view() === "local"}
+          >
+            Local
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("branch")}
+            title={branchTooltip()}
+            class={PILL_BUTTON_CLASS}
+            data-testid="diff-mode-branch"
+            data-active={view() === "branch"}
+            aria-pressed={view() === "branch"}
+          >
+            Branch
+          </button>
+        </div>
+        <div class="flex-1" />
+        <button
+          type="button"
+          onClick={handleRefresh}
+          class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
+          aria-label="Refresh"
+          data-testid="diff-refresh"
+        >
+          ↻
+        </button>
+      </div>
+
+      <div
+        class="shrink-0 h-[35%] min-h-0 border-b border-edge"
+        data-testid="diff-file-list"
+      >
+        <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
+          <Match when={treeError()}>
+            {(err) => (
+              <div class="px-2 py-1 text-danger" data-testid="diff-error">
+                Error: {err().message}
+              </div>
+            )}
+          </Match>
+          <Match when={treeReady()}>
+            <Show
+              when={treePaths().length > 0}
+              fallback={
+                <div
+                  class="px-2 py-4 text-fg-3/50 text-center"
+                  data-testid="diff-empty"
+                >
+                  {(() => {
+                    const m = diffMode();
+                    return m ? EMPTY_STATE[m] : "Empty repository";
+                  })()}
+                </div>
+              }
+            >
+              <PierreFileTree
+                paths={treePaths()}
+                pathUpdate={view() === "browse" ? fsTreeState() : undefined}
+                gitStatus={treeGitStatus()}
+                selectedPath={selectedPath()}
+                onSelect={handleSelect}
+                initialExpansion={isDiffView() ? "open" : "closed"}
+              />
+            </Show>
+          </Match>
+        </Switch>
+      </div>
+
+      <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
+        <Show
+          when={selectedPath()}
+          keyed
+          fallback={
+            <FileSelectHint
+              label={
+                isDiffView()
+                  ? "Select a file to view its diff"
+                  : "Select a file to view its content"
+              }
+            />
+          }
+        >
+          {(path) => (
+            // `keyed` remounts this subtree whenever the selected file
+            // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
+            // the same instance — its line-selection handlers don't
+            // re-bind to the new gutter elements, so right-clicking on
+            // a line in the second file would yield a "Copy path" menu
+            // with no "Copy path:line" entry. Per-file remount gives
+            // each file a fresh `FileDiff` and a clean
+            // `useLineSelection` range, which is also the right
+            // semantic — line refs don't survive across files.
+            <Switch>
+              <Match when={isDiffView()}>
+                <Switch
+                  fallback={
+                    <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
+                  }
+                >
+                  <Match when={diff.error}>
+                    <div class="px-2 py-1 text-danger">
+                      Error: {(diff.error as Error).message}
+                    </div>
+                  </Match>
+                  <Match when={renamedDiff()}>
+                    {(rename) => (
+                      <div class="flex items-center justify-center h-full text-fg-3/50">
+                        File renamed: {rename().oldFileName} →{" "}
+                        {rename().newFileName}
+                      </div>
+                    )}
+                  </Match>
+                  <Match when={diff()}>
+                    {(d) => (
+                      <PierreDiffView
+                        path={path}
+                        rawDiff={d().hunks[0] ?? ""}
+                        theme={diffTheme()}
+                      />
+                    )}
+                  </Match>
+                </Switch>
+              </Match>
+              <Match when={!isDiffView()}>
+                <BrowseFileView
+                  repoPath={repoPath()}
+                  filePath={path}
+                  theme={diffTheme()}
+                />
+              </Match>
+            </Switch>
+          )}
+        </Show>
+      </div>
+    </div>
+  );
+};
+
+const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+  const repoPath = () => props.meta?.git?.repoRoot ?? null;
+
+  return (
     <Show
       when={repoPath()}
+      keyed
       fallback={
         <div
           class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2 text-[11px]"
@@ -158,172 +415,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         </div>
       }
     >
-      <div
-        class="flex flex-col h-full min-h-0 text-[11px]"
-        data-testid="diff-tab"
-      >
-        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1.5">
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5">
-            <button
-              type="button"
-              onClick={() => setView("browse")}
-              title="Browse all files"
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-browse"
-              data-active={view() === "browse"}
-              aria-pressed={view() === "browse"}
-            >
-              All
-            </button>
-          </div>
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
-            <button
-              type="button"
-              onClick={() => setView("local")}
-              title="Changes vs HEAD"
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-local"
-              data-active={view() === "local"}
-              aria-pressed={view() === "local"}
-            >
-              Local
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("branch")}
-              title={branchTooltip()}
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-branch"
-              data-active={view() === "branch"}
-              aria-pressed={view() === "branch"}
-            >
-              Branch
-            </button>
-          </div>
-          <div class="flex-1" />
-          <button
-            type="button"
-            onClick={handleRefresh}
-            class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
-            aria-label="Refresh"
-            data-testid="diff-refresh"
-          >
-            ↻
-          </button>
-        </div>
-
-        <div
-          class="shrink-0 h-[35%] min-h-0 border-b border-edge"
-          data-testid="diff-file-list"
-        >
-          <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-            <Match when={treeError()}>
-              {(err) => (
-                <div class="px-2 py-1 text-danger" data-testid="diff-error">
-                  Error: {err().message}
-                </div>
-              )}
-            </Match>
-            <Match when={treeReady()}>
-              <Show
-                when={treePaths().length > 0}
-                fallback={
-                  <div
-                    class="px-2 py-4 text-fg-3/50 text-center"
-                    data-testid="diff-empty"
-                  >
-                    {(() => {
-                      const m = diffMode();
-                      return m ? EMPTY_STATE[m] : "Empty repository";
-                    })()}
-                  </div>
-                }
-              >
-                <PierreFileTree
-                  paths={treePaths()}
-                  gitStatus={treeGitStatus()}
-                  selectedPath={selectedPath()}
-                  onSelect={handleSelect}
-                  initialExpansion={isDiffView() ? "open" : "closed"}
-                />
-              </Show>
-            </Match>
-          </Switch>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
-          <Show
-            when={selectedPath()}
-            keyed
-            fallback={
-              <FileSelectHint
-                label={
-                  isDiffView()
-                    ? "Select a file to view its diff"
-                    : "Select a file to view its content"
-                }
-              />
-            }
-          >
-            {(path) => (
-              // `keyed` remounts this subtree whenever the selected file
-              // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
-              // the same instance — its line-selection handlers don't
-              // re-bind to the new gutter elements, so right-clicking on
-              // a line in the second file would yield a "Copy path" menu
-              // with no "Copy path:line" entry. Per-file remount gives
-              // each file a fresh `FileDiff` and a clean
-              // `useLineSelection` range, which is also the right
-              // semantic — line refs don't survive across files.
-              <Switch>
-                <Match when={isDiffView()}>
-                  <Switch
-                    fallback={
-                      <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
-                    }
-                  >
-                    <Match when={diff.error}>
-                      <div class="px-2 py-1 text-danger">
-                        Error: {(diff.error as Error).message}
-                      </div>
-                    </Match>
-                    <Match when={renamedDiff()}>
-                      {(rename) => (
-                        <div class="flex items-center justify-center h-full text-fg-3/50">
-                          File renamed: {rename().oldFileName} →{" "}
-                          {rename().newFileName}
-                        </div>
-                      )}
-                    </Match>
-                    <Match when={diff()}>
-                      {(d) => (
-                        <PierreDiffView
-                          path={path}
-                          rawDiff={d().hunks[0] ?? ""}
-                          theme={diffTheme()}
-                        />
-                      )}
-                    </Match>
-                  </Switch>
-                </Match>
-                <Match when={!isDiffView()}>
-                  {(() => {
-                    const repo = repoPath();
-                    if (repo === null) return null;
-                    return (
-                      <BrowseFileView
-                        repoPath={repo}
-                        filePath={path}
-                        theme={diffTheme()}
-                      />
-                    );
-                  })()}
-                </Match>
-              </Switch>
-            )}
-          </Show>
-        </div>
-      </div>
+      {(repo) => <CodeTabForRepo repoPath={repo} />}
     </Show>
   );
 };

@@ -81,6 +81,8 @@ export const stream = {
     client.terminal.onMetadataChange({ id }, { signal, context: STREAM_RETRY }),
   exit: (id: TerminalId, signal?: AbortSignal) =>
     client.terminal.onExit({ id }, { signal, context: STREAM_RETRY }),
+  fsWatch: (input: { repoPath: string }, signal?: AbortSignal) =>
+    client.fs.watch(input, { signal, context: STREAM_RETRY }),
   attach: (
     id: TerminalId,
     opts: { signal?: AbortSignal; onRetry: () => void },

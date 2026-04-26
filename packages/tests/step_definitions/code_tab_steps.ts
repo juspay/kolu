@@ -232,6 +232,14 @@ Then(
 );
 
 Then(
+  "the Code tab should live-list a changed file {string}",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(fileRow(path));
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the Code tab should show a directory node {string}",
   async function (this: KoluWorld, path: string) {
     const dir = this.page.locator(dirRow(path));
@@ -315,6 +323,14 @@ Then(
   async function (this: KoluWorld, path: string) {
     const item = this.page.locator(fileRow(path));
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file browser should not show a file {string}",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(fileRow(path));
+    await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
 

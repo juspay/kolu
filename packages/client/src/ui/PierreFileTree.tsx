@@ -12,15 +12,8 @@ import {
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
-import type { GitChangeStatus } from "kolu-common";
-import {
-  type Component,
-  createEffect,
-  createMemo,
-  on,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import type { FsWatchEvent, GitChangeStatus } from "kolu-common";
+import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import { toast } from "solid-sonner";
 import { pierreIconConfig, pierreTreesStyle } from "./pierreTheme";
 
@@ -47,6 +40,10 @@ export function toGitStatusEntries(
 
 export type PierreFileTreeProps = {
   paths: string[];
+  pathUpdate?: {
+    seq: number;
+    event: FsWatchEvent;
+  };
   gitStatus?: GitStatusEntry[];
   selectedPath?: string | null;
   onSelect?: (path: string | null) => void;
@@ -61,6 +58,8 @@ export type PierreFileTreeProps = {
    *  clicking. */
   initialExpansion?: FileTreeInitialExpansion;
 };
+
+type FileTreeBatchOperation = Parameters<FileTree["batch"]>[0][number];
 
 /** Build the Pierre right-click menu. Pierre wants an `HTMLElement` (not a
  *  Solid component) since the menu lives inside the tree's shadow DOM.
@@ -133,14 +132,40 @@ function renderContextMenu(
 const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTree | undefined;
+  let fileSet = new Set(props.paths);
 
-  // Pierre emits onSelectionChange for directory clicks too — which would
-  // trigger a file read and crash with EISDIR. Directories don't appear in
-  // `paths` (Pierre infers them from path prefixes), so membership in this
-  // set is a reliable file-vs-folder discriminator.
-  const fileSet = createMemo(() => new Set(props.paths));
+  function applyPathUpdate(event: FsWatchEvent): void {
+    if (event.kind === "snapshot") {
+      fileSet = new Set(event.paths);
+      tree?.resetPaths(event.paths);
+      return;
+    }
+
+    const operations: FileTreeBatchOperation[] = [];
+
+    for (const move of event.moved ?? []) {
+      if (!fileSet.has(move.from)) continue;
+      fileSet.delete(move.from);
+      fileSet.add(move.to);
+      operations.push({ type: "move", from: move.from, to: move.to });
+    }
+
+    for (const removed of event.removed ?? []) {
+      if (!fileSet.delete(removed)) continue;
+      operations.push({ type: "remove", path: removed, recursive: true });
+    }
+
+    for (const added of event.added ?? []) {
+      if (fileSet.has(added)) continue;
+      fileSet.add(added);
+      operations.push({ type: "add", path: added });
+    }
+
+    if (operations.length > 0) tree?.batch(operations);
+  }
 
   onMount(() => {
+    fileSet = new Set(props.paths);
     tree = new FileTree({
       paths: props.paths,
       initialExpansion: props.initialExpansion ?? "closed",
@@ -164,7 +189,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
       onSelectionChange: (paths) => {
         // Pierre fires with all selected paths; we model single-select.
         const p = paths[0] ?? null;
-        if (p !== null && !fileSet().has(p)) return; // ignore directories
+        if (p !== null && !fileSet.has(p)) return; // ignore directories
         props.onSelect?.(p);
       },
     });
@@ -174,7 +199,22 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   createEffect(
     on(
       () => props.paths,
-      (paths) => tree?.resetPaths(paths),
+      (paths) => {
+        if (props.pathUpdate) return;
+        fileSet = new Set(paths);
+        tree?.resetPaths(paths);
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.pathUpdate?.seq,
+      () => {
+        const update = props.pathUpdate;
+        if (update) applyPathUpdate(update.event);
+      },
       { defer: true },
     ),
   );

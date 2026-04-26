@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
+    "chokidar": "^5.0.0",
     "memorable-names": "workspace:*",
     "simple-git": "^3.33.0",
     "zod": "^4.3.6"

@@ -12,6 +12,9 @@ import { CodexInfoSchema } from "kolu-codex/schemas";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
+  FsWatchMoveSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
   GitBaseRefSchema,
@@ -32,6 +35,7 @@ import { z } from "zod";
 
 export type {
   FsListAllOutput,
+  FsWatchEvent,
   GitBaseRef,
   GitChangedFile,
   GitChangeStatus,
@@ -47,6 +51,9 @@ export {
   CodexInfoSchema,
   FsListAllInputSchema,
   FsListAllOutputSchema,
+  FsWatchEventSchema,
+  FsWatchInputSchema,
+  FsWatchMoveSchema,
   FsReadFileInputSchema,
   FsReadFileOutputSchema,
   GitBaseRefSchema,
