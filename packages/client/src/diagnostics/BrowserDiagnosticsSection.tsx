@@ -4,6 +4,7 @@ import Row from "../ui/Row";
 import Section from "../ui/Section";
 import type { DiagnosticSnapshot } from "./useDiagnosticSnapshot";
 
+/** Browser runtime facts shown in the diagnostic info dialog. */
 const BrowserDiagnosticsSection: Component<{
   snapshot: Accessor<DiagnosticSnapshot>;
 }> = (props) => (

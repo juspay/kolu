@@ -7,14 +7,17 @@
  * in agent or server concepts.
  */
 
+/** Kind of process-local resource that can remain open across user actions. */
 export type DiagnosticResourceKind =
   | "fs-watch"
   | "timer"
   | "subscription"
   | "db";
 
+/** JSON-safe scalar value included in diagnostic resource details. */
 export type DiagnosticDetailValue = string | number | boolean | null;
 
+/** Immutable view of one currently tracked runtime resource. */
 export interface DiagnosticResourceSnapshot {
   id: number;
   kind: DiagnosticResourceKind;
@@ -35,6 +38,7 @@ interface DiagnosticResourceEntry {
   details: () => Record<string, DiagnosticDetailValue>;
 }
 
+/** Registration metadata for a resource and its optional dynamic details. */
 export interface TrackDiagnosticResourceInput {
   kind: DiagnosticResourceKind;
   label: string;
@@ -48,7 +52,7 @@ export interface TrackDiagnosticResourceInput {
 let nextId = 1;
 const resources = new Map<number, DiagnosticResourceEntry>();
 
-export function trackDiagnosticResource(
+function trackDiagnosticResource(
   input: TrackDiagnosticResourceInput,
 ): () => void {
   const id = nextId++;
@@ -73,6 +77,8 @@ export function trackDiagnosticResource(
   };
 }
 
+/** Register a resource and return an idempotent cleanup that releases both
+ *  the underlying handle and its diagnostic entry. */
 export function trackDiagnosticCleanup(
   input: TrackDiagnosticResourceInput,
   cleanup: () => void,
@@ -90,6 +96,7 @@ export function trackDiagnosticCleanup(
   };
 }
 
+/** Return active resources in creation order for the one-shot diagnostics RPC. */
 export function diagnosticResourcesSnapshot(): DiagnosticResourceSnapshot[] {
   return [...resources.values()]
     .map((resource) => ({

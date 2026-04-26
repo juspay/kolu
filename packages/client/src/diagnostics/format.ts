@@ -5,15 +5,18 @@ import type { ServerDiagnostics } from "kolu-common";
  *  callers may parse programmatically). `formatMB` returns a display string
  *  and drops to KB below 100 KB — a fresh 80×24 buffer is ~23 KB, and
  *  "0.0 MB" obscures more than it communicates. */
+/** Convert bytes to one-decimal megabytes for JSON-copyable heap facts. */
 export function bytesToMB(bytes: number): number {
   return Math.round((bytes / 1_048_576) * 10) / 10;
 }
 
+/** Format bytes for compact diagnostic display. */
 export function formatMB(bytes: number): string {
   if (bytes < 100_000) return `${Math.round(bytes / 1024)} KB`;
   return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
+/** Format milliseconds as a compact elapsed-time label. */
 export function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
@@ -23,6 +26,7 @@ export function formatDuration(ms: number): string {
   return `${hours}h ${minutes % 60}m`;
 }
 
+/** Format resource detail fields as stable key=value text. */
 export function formatDetails(
   details: ServerDiagnostics["trackedResources"][number]["details"],
 ): string | null {
@@ -31,6 +35,7 @@ export function formatDetails(
   return entries.map(([key, value]) => `${key}=${String(value)}`).join(" · ");
 }
 
+/** Derive resource age from the server sample timestamp and resource creation. */
 export function formatResourceAge(
   server: ServerDiagnostics,
   resource: ServerDiagnostics["trackedResources"][number],

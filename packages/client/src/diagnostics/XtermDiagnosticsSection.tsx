@@ -9,6 +9,7 @@ function shortActiveId(snapshot: DiagnosticSnapshot): string {
   return snapshot.session.activeId?.slice(0, 8) ?? "—";
 }
 
+/** Xterm and WebGL lifecycle facts shown in the diagnostic info dialog. */
 const XtermDiagnosticsSection: Component<{
   snapshot: Accessor<DiagnosticSnapshot>;
 }> = (props) => (

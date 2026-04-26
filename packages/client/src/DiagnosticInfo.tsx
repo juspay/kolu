@@ -12,6 +12,7 @@ import { useDiagnosticSnapshot } from "./diagnostics/useDiagnosticSnapshot";
 import XtermDiagnosticsSection from "./diagnostics/XtermDiagnosticsSection";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 
+/** Modal body that owns diagnostic snapshot loading and JSON copy behavior. */
 const DiagnosticInfoContent: Component<{
   open: boolean;
   activeId: TerminalId | null;
@@ -53,6 +54,7 @@ const DiagnosticInfoContent: Component<{
   );
 };
 
+/** Command-palette diagnostic info modal. */
 const DiagnosticInfo: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;

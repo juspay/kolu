@@ -68,6 +68,8 @@ function terminalSnapshots() {
   });
 }
 
+/** JSON-copyable diagnostic snapshot assembled from browser, terminal, and
+ *  one-shot server sources. */
 export interface DiagnosticSnapshot {
   browser: ReturnType<typeof browserFacts>;
   session: {
@@ -85,6 +87,8 @@ export interface DiagnosticSnapshot {
   webgl: ReturnType<typeof webglLifecycleSnapshot>;
 }
 
+/** Load server diagnostics when the dialog opens and compose the full
+ *  browser-side snapshot used for rendering and Copy JSON. */
 export function useDiagnosticSnapshot(props: {
   open: Accessor<boolean>;
   activeId: Accessor<TerminalId | null>;
