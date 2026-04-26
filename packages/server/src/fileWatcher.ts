@@ -58,10 +58,10 @@ interface WatcherEntry {
   rerunPending: boolean;
 }
 
-const watchers = new Map<string, WatcherEntry>();
-/** Promise cache so concurrent `subscribe` calls for the same `repoPath`
- *  don't both kick off `chokidar.watch` + `git ls-files`. */
-const pending = new Map<string, Promise<WatcherEntry>>();
+/** One slot per `repoPath`. Stores the `Promise<WatcherEntry>` directly
+ *  so concurrent `subscribe` calls dedupe on the same in-flight setup;
+ *  resolved entries return synchronously on `await`. */
+const watchers = new Map<string, Promise<WatcherEntry>>();
 
 async function listAllPaths(repoPath: string): Promise<Set<string>> {
   const result = await listAll(repoPath, log);
@@ -142,22 +142,16 @@ async function createEntry(repoPath: string): Promise<WatcherEntry> {
   return entry;
 }
 
-async function ensureEntry(repoPath: string): Promise<WatcherEntry> {
-  const existing = watchers.get(repoPath);
-  if (existing) return existing;
-  let promise = pending.get(repoPath);
+function ensureEntry(repoPath: string): Promise<WatcherEntry> {
+  let promise = watchers.get(repoPath);
   if (!promise) {
-    promise = createEntry(repoPath).then((entry) => {
-      watchers.set(repoPath, entry);
-      pending.delete(repoPath);
-      return entry;
-    });
-    pending.set(repoPath, promise);
+    promise = createEntry(repoPath);
+    watchers.set(repoPath, promise);
     // Cleanup-only catch — the same rejection is delivered to the
     // awaiter via the returned promise (which surfaces via oRPC →
     // `onError` → toast). Logging here would double-log on every
     // failure.
-    promise.catch(() => pending.delete(repoPath));
+    promise.catch(() => watchers.delete(repoPath));
   }
   return promise;
 }
@@ -201,10 +195,12 @@ export async function* subscribeFileTree(
   // Add handler before snapshotting so any delta in the same tick is
   // queued and replayed after the snapshot — single-threaded JS makes
   // this race-free as long as there's no await between these two lines.
+  // Pierre sorts paths internally (`FileTree`'s `sort: 'default'`), so
+  // we don't pre-sort here.
   entry.subscribers.add(handler);
   const snapshot: FsWatchEvent = {
     kind: "snapshot",
-    paths: [...entry.paths].sort(),
+    paths: [...entry.paths],
   };
 
   const onAbort = () => {
