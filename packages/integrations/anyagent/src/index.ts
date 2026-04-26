@@ -14,6 +14,13 @@ export {
   matchesAgent,
 } from "./agent-provider.ts";
 export {
+  type DiagnosticDetailValue,
+  type DiagnosticResourceKind,
+  type DiagnosticResourceSnapshot,
+  diagnosticResourcesSnapshot,
+  trackDiagnosticResource,
+} from "./diagnostics.ts";
+export {
   type Logger,
   type TaskProgress,
   TaskProgressSchema,

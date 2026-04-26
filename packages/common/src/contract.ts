@@ -18,6 +18,7 @@ import {
   GitStatusOutputSchema,
   PreferencesPatchSchema,
   PreferencesSchema,
+  ServerDiagnosticsSchema,
   SavedSessionSchema,
   ServerInfoSchema,
   SetActiveTerminalInputSchema,
@@ -43,6 +44,7 @@ import {
 export const contract = oc.router({
   server: {
     info: oc.output(ServerInfoSchema),
+    diagnostics: oc.output(ServerDiagnosticsSchema),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

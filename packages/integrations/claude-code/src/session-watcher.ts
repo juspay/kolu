@@ -10,7 +10,7 @@
  */
 
 import fs from "node:fs";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual, trackDiagnosticResource, type Logger } from "anyagent";
 import { match } from "ts-pattern";
 import {
   deriveState,
@@ -50,11 +50,14 @@ const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 type TranscriptWatching =
   | { kind: "none" }
   | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+  | {
+      kind: "watching";
+      path: string;
+      fileWatcher: fs.FSWatcher;
+      untrack: () => void;
+    };
 
 // --- Logger interface ---
-
-import type { Logger } from "anyagent";
 
 export type { Logger as WatcherLog } from "anyagent";
 
@@ -116,7 +119,10 @@ export function createSessionWatcher(
     match(transcriptWatching)
       .with({ kind: "none" }, () => {})
       .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
+      .with({ kind: "watching" }, ({ fileWatcher, untrack }) => {
+        fileWatcher.close();
+        untrack();
+      })
       .exhaustive();
     transcriptWatching = { kind: "none" };
   }
@@ -138,7 +144,14 @@ export function createSessionWatcher(
   function attachTranscriptWatcher(tp: string) {
     try {
       const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
-      transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+      const untrack = trackDiagnosticResource({
+        kind: "fs-watch",
+        label: "Claude transcript",
+        owner: "kolu-claude-code",
+        target: tp,
+        details: { sessionId: session.sessionId },
+      });
+      transcriptWatching = { kind: "watching", path: tp, fileWatcher, untrack };
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
@@ -158,8 +171,14 @@ export function createSessionWatcher(
       "transcript not found yet (JSONL created after first message)",
     );
     const projectDir = `${PROJECTS_DIR}/${encodeProjectPath(session.cwd)}`;
-    const dirWatcher = watchOrWaitForDir(projectDir, () =>
-      onProjectDirChanged(),
+    const dirWatcher = watchOrWaitForDir(
+      projectDir,
+      () => onProjectDirChanged(),
+      undefined,
+      {
+        label: "Claude project directory",
+        details: { sessionId: session.sessionId },
+      },
     );
     transcriptWatching = { kind: "waiting", dirWatcher };
   }

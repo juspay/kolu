@@ -309,6 +309,53 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+const DiagnosticDetailValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const ServerDiagnosticResourceSchema = z.object({
+  id: z.number(),
+  kind: z.enum(["fs-watch", "timer", "subscription", "process", "db"]),
+  label: z.string(),
+  owner: z.string().nullable(),
+  target: z.string().nullable(),
+  createdAt: z.number(),
+  ageMs: z.number(),
+  details: z.record(z.string(), DiagnosticDetailValueSchema),
+});
+
+export const ServerProcessDiagnosticSchema = z.object({
+  terminalId: TerminalIdSchema,
+  pid: z.number(),
+  cwd: z.string(),
+  foregroundPid: z.number().nullable(),
+  foregroundProcess: z.string().nullable(),
+  agentKind: AgentKindSchema.nullable(),
+});
+
+export const ServerDiagnosticsSchema = z.object({
+  uptimeMs: z.number(),
+  memory: z.object({
+    rss: z.number(),
+    heapUsed: z.number(),
+    heapTotal: z.number(),
+    external: z.number(),
+    arrayBuffers: z.number(),
+  }),
+  counts: z.object({
+    terminals: z.number(),
+    publisherSize: z.number(),
+    claudeSessions: z.number(),
+    pendingSummaryFetches: z.number(),
+    resources: z.number(),
+  }),
+  processes: z.array(ServerProcessDiagnosticSchema),
+  resources: z.array(ServerDiagnosticResourceSchema),
+});
+
 // --- Recent repos (server-side persistent state) ---
 
 export const RecentRepoSchema = z.object({
@@ -438,6 +485,13 @@ export type InitialTerminalMetadata = z.infer<
 >;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
+export type ServerDiagnosticResource = z.infer<
+  typeof ServerDiagnosticResourceSchema
+>;
+export type ServerProcessDiagnostic = z.infer<
+  typeof ServerProcessDiagnosticSchema
+>;
+export type ServerDiagnostics = z.infer<typeof ServerDiagnosticsSchema>;
 export type PersistedTerminalFields = z.infer<
   typeof PersistedTerminalFieldsSchema
 >;

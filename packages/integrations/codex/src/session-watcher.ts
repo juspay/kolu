@@ -19,8 +19,12 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import type { Logger } from "anyagent";
-import { agentInfoEqual, readTailLines } from "anyagent";
+import {
+  agentInfoEqual,
+  readTailLines,
+  trackDiagnosticResource,
+  type Logger,
+} from "anyagent";
 import {
   type CodexSession,
   getThreadMetadata,
@@ -94,6 +98,16 @@ export function createCodexWatcher(
   // connection holds no locks until a transaction starts, and our
   // single-SELECT queries are autocommit.
   const db: DatabaseSync | null = openDb(log);
+  const untrackDb =
+    db === null
+      ? null
+      : trackDiagnosticResource({
+          kind: "db",
+          label: "Codex thread DB",
+          owner: "kolu-codex",
+          target: session.id,
+          details: { sessionId: session.id },
+        });
 
   function refresh() {
     if (destroyed || !db) return;
@@ -184,6 +198,7 @@ export function createCodexWatcher(
       }
       unsubscribe();
       db?.close();
+      untrackDb?.();
     },
   };
 }

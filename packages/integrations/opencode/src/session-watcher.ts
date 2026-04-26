@@ -12,8 +12,7 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Logger } from "anyagent";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual, trackDiagnosticResource, type Logger } from "anyagent";
 import {
   deriveSessionState,
   getLatestAssistantContextTokens,
@@ -68,6 +67,16 @@ export function createOpenCodeWatcher(
   // autocommit. See README's OpenCode Status section for the full
   // locking analysis.
   const db: DatabaseSync | null = openDb(log);
+  const untrackDb =
+    db === null
+      ? null
+      : trackDiagnosticResource({
+          kind: "db",
+          label: "OpenCode DB",
+          owner: "kolu-opencode",
+          target: session.id,
+          details: { sessionId: session.id },
+        });
 
   function refresh() {
     if (destroyed || !db) return;
@@ -152,6 +161,7 @@ export function createOpenCodeWatcher(
       }
       unsubscribe();
       db?.close();
+      untrackDb?.();
     },
   };
 }

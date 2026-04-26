@@ -30,6 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { trackDiagnosticResource } from "./diagnostics.ts";
 import type { Logger } from "./index.ts";
 
 /** Per-listener record tracked in the singleton's Set. */
@@ -106,6 +107,7 @@ export function createWalSubscription(
         },
         config,
         log,
+        () => ({ listeners: listeners.size }),
       );
       sharedWalWatcher = { cleanup, listeners };
     }
@@ -130,10 +132,21 @@ function tryWatchWal(
   onChange: () => void,
   config: WalSubscriptionConfig,
   log?: Logger,
+  details?: () => Record<string, number>,
 ): (() => void) | null {
   try {
     const w = fs.watch(config.walPath, () => onChange());
-    return () => w.close();
+    const untrack = trackDiagnosticResource({
+      kind: "fs-watch",
+      label: `${config.label} WAL`,
+      owner: "anyagent",
+      target: config.walPath,
+      details,
+    });
+    return () => {
+      w.close();
+      untrack();
+    };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       // Non-ENOENT (EACCES, EMFILE, etc.) means state detection for
@@ -156,26 +169,37 @@ function installWalWatcher(
   onChange: () => void,
   config: WalSubscriptionConfig,
   log?: Logger,
+  details?: () => Record<string, number>,
 ): () => void {
-  const direct = tryWatchWal(onChange, config, log);
+  const direct = tryWatchWal(onChange, config, log, details);
   if (direct) return direct;
 
   // WAL doesn't exist yet — watch the parent directory and promote
   // to the WAL file once it appears.
   let promoted: (() => void) | null = null;
   let dirWatcher: fs.FSWatcher | null = null;
+  let untrackDir: (() => void) | null = null;
   const dir = path.dirname(config.dbPath);
   try {
     dirWatcher = fs.watch(dir, () => {
       if (promoted) return;
-      const walCleanup = tryWatchWal(onChange, config, log);
+      const walCleanup = tryWatchWal(onChange, config, log, details);
       if (!walCleanup) return;
       promoted = walCleanup;
       dirWatcher?.close();
+      untrackDir?.();
       dirWatcher = null;
+      untrackDir = null;
       // Kick — WAL may already have data written between our first
       // attempt and the directory event.
       onChange();
+    });
+    untrackDir = trackDiagnosticResource({
+      kind: "fs-watch",
+      label: `${config.label} DB directory`,
+      owner: "anyagent",
+      target: dir,
+      details,
     });
   } catch (err) {
     // Same rationale as tryWatchWal's non-ENOENT branch: a watch
@@ -185,6 +209,7 @@ function installWalWatcher(
   }
   return () => {
     dirWatcher?.close();
+    untrackDir?.();
     promoted?.();
   };
 }

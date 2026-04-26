@@ -7,6 +7,7 @@
  *  channels with no terminal prefix. */
 
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
+import { trackDiagnosticResource } from "anyagent";
 import type {
   ActivityFeed,
   GitInfo,
@@ -107,12 +108,21 @@ export function publishSystem<C extends keyof SystemChannels>(
 async function* iterateUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal | undefined,
+  diagnostic: { label: string; target?: string | null },
 ): AsyncGenerator<T> {
+  const untrack = trackDiagnosticResource({
+    kind: "subscription",
+    label: diagnostic.label,
+    owner: "server:publisher",
+    target: diagnostic.target ?? null,
+  });
   try {
     for await (const item of source) yield item;
   } catch (err) {
     if (signal?.aborted && err === signal.reason) return;
     throw err;
+  } finally {
+    untrack();
   }
 }
 
@@ -127,6 +137,7 @@ export function subscribeSystem_<C extends keyof SystemChannels>(
       SystemChannels[C]
     >,
     signal,
+    { label: `system:${String(channel)}` },
   );
 }
 
@@ -142,6 +153,10 @@ export function subscribeForTerminal_<C extends keyof TerminalChannels>(
       signal,
     }) as AsyncIterable<TerminalChannels[C]>,
     signal,
+    {
+      label: `terminal:${String(channel)}`,
+      target: terminalId,
+    },
   );
 }
 

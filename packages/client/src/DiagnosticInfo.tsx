@@ -4,10 +4,16 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
-import type { TerminalId } from "kolu-common";
-import { type Component, createMemo, For, Show } from "solid-js";
+import type { ServerDiagnostics, TerminalId } from "kolu-common";
+import {
+  type Component,
+  createMemo,
+  createResource,
+  For,
+  Show,
+} from "solid-js";
 import { toast } from "solid-sonner";
-import { serverProcessId, wsStatus } from "./rpc/rpc";
+import { client, serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
@@ -52,6 +58,23 @@ function formatMB(bytes: number): string {
   return `${bytesToMB(bytes).toFixed(1)} MB`;
 }
 
+function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+function formatDetails(
+  details: ServerDiagnostics["resources"][number]["details"],
+): string | null {
+  const entries = Object.entries(details);
+  if (entries.length === 0) return null;
+  return entries.map(([key, value]) => `${key}=${String(value)}`).join(" · ");
+}
+
 /** `performance.memory` is Chromium-only and missing from the DOM type
  *  definitions — isolate the narrow cast here so the snapshot memo stays
  *  free of it. Returns null on non-Chromium browsers. */
@@ -77,10 +100,15 @@ function readJsHeap(): {
   };
 }
 
-const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
-  props,
-) => {
+const DiagnosticInfoContent: Component<{
+  open: boolean;
+  activeId: TerminalId | null;
+}> = (props) => {
   const browser = browserFacts();
+  const [serverDiagnostics] = createResource(
+    () => (props.open ? serverProcessId() : undefined),
+    () => client.server.diagnostics(),
+  );
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -96,6 +124,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         domNodes: document.getElementsByTagName("*").length,
         canvases: webgl.totalDomCanvases,
       },
+      server: serverDiagnostics() ?? null,
       terminals: getDiagnostics().map((d) => {
         const refs = getTerminalRefs(d.id);
         const bufferLen = refs?.xterm.buffer.active.length ?? null;
@@ -113,6 +142,14 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       webgl,
     };
   });
+  const activeWatches = createMemo(
+    () =>
+      serverDiagnostics()?.resources.filter((r) => r.kind === "fs-watch") ?? [],
+  );
+  const activeResources = createMemo(
+    () =>
+      serverDiagnostics()?.resources.filter((r) => r.kind !== "fs-watch") ?? [],
+  );
 
   function copyJson() {
     void navigator.clipboard
@@ -129,6 +166,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         </Dialog.Label>
         <button
           type="button"
+          data-testid="diagnostic-copy-json"
           onClick={copyJson}
           class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         >
@@ -137,8 +175,11 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       </div>
 
       <div class="overflow-y-auto">
-        <Section title="Browser">
+        <Section title="Browser" data-testid="diagnostic-browser">
           <div class="space-y-0.5">
+            <Row label="Viewport">
+              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
+            </Row>
             <Row label="WebGL 2">
               <span class={browser.webgl2Supported ? "text-ok" : "text-danger"}>
                 {browser.webgl2Supported ? "available" : "unavailable"}
@@ -148,40 +189,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               <span class="font-mono text-fg-3">
                 {browser.devicePixelRatio}
               </span>
-            </Row>
-            <Row label="xterm.js">
-              <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
-            </Row>
-            <Row label="UA">
-              <span class="font-mono text-fg-3 break-all">
-                {browser.userAgent}
-              </span>
-            </Row>
-          </div>
-        </Section>
-
-        <Section title="Session">
-          <div class="space-y-0.5">
-            <Row label="Viewport">
-              <span class="text-fg">{isMobile() ? "mobile" : "canvas"}</span>
-            </Row>
-            <Row label="WS" variant="badge">
-              {wsStatus()}
-            </Row>
-            <Show when={serverProcessId()}>
-              {(pid) => (
-                <Row label="Server">
-                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
-                </Row>
-              )}
-            </Show>
-            <Row label="Active">
-              <span class="font-mono text-fg-3">
-                {props.activeId ? props.activeId.slice(0, 8) : "—"}
-              </span>
-            </Row>
-            <Row label="Count">
-              <span class="font-mono text-fg">{getDiagnostics().length}</span>
             </Row>
             <Show when={snapshot().session.jsHeap}>
               {(heap) => (
@@ -210,10 +217,32 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 {browser.crossOriginIsolated ? "yes" : "no"}
               </span>
             </Row>
+            <Row label="UA">
+              <span class="font-mono text-fg-3 break-all">
+                {browser.userAgent}
+              </span>
+            </Row>
           </div>
         </Section>
 
-        <Section title="Terminals">
+        <Section title="Xterm" data-testid="diagnostic-xterm">
+          <div class="space-y-0.5">
+            <Row label="xterm.js">
+              <span class="font-mono text-fg-3">{browser.xtermVersion}</span>
+            </Row>
+            <Row label="Active">
+              <span class="font-mono text-fg-3">
+                {props.activeId ? props.activeId.slice(0, 8) : "—"}
+              </span>
+            </Row>
+            <Row label="Count">
+              <span class="font-mono text-fg">{getDiagnostics().length}</span>
+            </Row>
+          </div>
+
+          <div class="mt-3 pt-2 border-t border-edge/50">
+            <div class="text-[10px] text-fg-3/70 mb-1">Terminals</div>
+          </div>
           <Show
             when={snapshot().terminals.length > 0}
             fallback={
@@ -270,49 +299,49 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               </For>
             </div>
           </Show>
-        </Section>
 
-        {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
-            Remove this section when the leak is root-caused and fixed. */}
-        <Section title="WebGL lifecycle">
-          <div class="space-y-0.5">
-            <Row label="Created">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.totalCreated}
-              </span>
-            </Row>
-            <Row label="Disposed">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.disposed}
-              </span>
-            </Row>
-            <Row label="In DOM">
-              <span class="font-mono text-fg tabular-nums">
-                {snapshot().webgl.aliveInDom}
-              </span>
-            </Row>
-            <Row label="Zombies">
-              <span
-                class={`font-mono tabular-nums ${
-                  snapshot().webgl.aliveDetached > 0
-                    ? "text-danger font-semibold"
-                    : "text-fg"
-                }`}
-              >
-                {snapshot().webgl.aliveDetached}
-              </span>
-            </Row>
-            <Row label="GCed">
-              <span class="font-mono text-fg-3 tabular-nums">
-                {snapshot().webgl.gced}
-              </span>
-            </Row>
-            <Row label="Lost">
-              <span class="font-mono text-fg-3 tabular-nums">
-                {snapshot().webgl.contextsLost}
-              </span>
-            </Row>
+          <div class="mt-3 pt-2 border-t border-edge/50">
+            <div class="text-[10px] text-fg-3/70 mb-1">WebGL lifecycle</div>
+            <div class="space-y-0.5">
+              <Row label="Created">
+                <span class="font-mono text-fg tabular-nums">
+                  {snapshot().webgl.totalCreated}
+                </span>
+              </Row>
+              <Row label="Disposed">
+                <span class="font-mono text-fg tabular-nums">
+                  {snapshot().webgl.disposed}
+                </span>
+              </Row>
+              <Row label="In DOM">
+                <span class="font-mono text-fg tabular-nums">
+                  {snapshot().webgl.aliveInDom}
+                </span>
+              </Row>
+              <Row label="Zombies">
+                <span
+                  class={`font-mono tabular-nums ${
+                    snapshot().webgl.aliveDetached > 0
+                      ? "text-danger font-semibold"
+                      : "text-fg"
+                  }`}
+                >
+                  {snapshot().webgl.aliveDetached}
+                </span>
+              </Row>
+              <Row label="GCed">
+                <span class="font-mono text-fg-3 tabular-nums">
+                  {snapshot().webgl.gced}
+                </span>
+              </Row>
+              <Row label="Lost">
+                <span class="font-mono text-fg-3 tabular-nums">
+                  {snapshot().webgl.contextsLost}
+                </span>
+              </Row>
+            </div>
           </div>
+
           <Show when={snapshot().webgl.aliveCanvases.length > 0}>
             <div class="mt-2 pt-2 border-t border-edge/50">
               <div class="text-[10px] text-fg-3/70 mb-1">Alive canvases</div>
@@ -349,10 +378,26 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
               </div>
             </div>
           </Show>
-          <Show when={snapshot().webgl.recentEvents.length > 0}>
-            <div class="mt-2 pt-2 border-t border-edge/50">
-              <div class="text-[10px] text-fg-3/70 mb-1">Recent events</div>
-              <div class="space-y-0.5 text-[10px] font-mono">
+
+          <details
+            data-testid="webgl-recent-events"
+            class="mt-2 pt-2 border-t border-edge/50 group"
+          >
+            <summary class="text-[10px] text-fg-3/70 cursor-pointer select-none list-none flex items-center justify-between gap-3">
+              <span>Recent events</span>
+              <span class="font-mono tabular-nums">
+                {snapshot().webgl.recentEvents.length}
+              </span>
+            </summary>
+            <Show
+              when={snapshot().webgl.recentEvents.length > 0}
+              fallback={
+                <div class="mt-1 text-[10px] text-fg-3/60 italic">
+                  No recent events
+                </div>
+              }
+            >
+              <div class="mt-1 space-y-0.5 text-[10px] font-mono overflow-x-auto">
                 <For each={snapshot().webgl.recentEvents}>
                   {(ev) => (
                     <div class="flex items-baseline gap-2 whitespace-nowrap">
@@ -375,7 +420,185 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                   )}
                 </For>
               </div>
-            </div>
+            </Show>
+          </details>
+        </Section>
+
+        <Section title="Server" data-testid="diagnostic-server">
+          <div class="space-y-0.5">
+            <Row label="WS" variant="badge">
+              {wsStatus()}
+            </Row>
+            <Show when={serverProcessId()}>
+              {(pid) => (
+                <Row label="Process">
+                  <span class="font-mono text-fg-3">{pid().slice(0, 8)}</span>
+                </Row>
+              )}
+            </Show>
+            <Show
+              when={serverDiagnostics()}
+              fallback={
+                <div
+                  data-testid="server-diagnostics-loading"
+                  class="text-[11px] text-fg-3/60 italic"
+                >
+                  {serverDiagnostics.error
+                    ? `Server diagnostics unavailable: ${serverDiagnostics.error.message}`
+                    : "Loading server diagnostics"}
+                </div>
+              }
+            >
+              {(server) => (
+                <>
+                  <Row label="Uptime">
+                    <span class="font-mono text-fg">
+                      {formatDuration(server().uptimeMs)}
+                    </span>
+                  </Row>
+                  <Row label="Memory">
+                    <span class="font-mono text-fg">
+                      rss {formatMB(server().memory.rss)}
+                      <span class="text-fg-3/70">
+                        {" "}
+                        · heap {formatMB(server().memory.heapUsed)} /{" "}
+                        {formatMB(server().memory.heapTotal)}
+                      </span>
+                    </span>
+                  </Row>
+                  <Row label="Publisher">
+                    <span class="font-mono text-fg">
+                      {server().counts.publisherSize}
+                    </span>
+                  </Row>
+                  <Row label="Claude">
+                    <span class="font-mono text-fg">
+                      {server().counts.claudeSessions} sessions
+                      <span class="text-fg-3/70">
+                        {" "}
+                        · {server().counts.pendingSummaryFetches} summaries
+                      </span>
+                    </span>
+                  </Row>
+                </>
+              )}
+            </Show>
+          </div>
+
+          <Show when={serverDiagnostics()}>
+            {(server) => (
+              <>
+                <div class="mt-3 pt-2 border-t border-edge/50">
+                  <div class="text-[10px] text-fg-3/70 mb-1">
+                    Terminal processes
+                  </div>
+                  <Show
+                    when={server().processes.length > 0}
+                    fallback={
+                      <div class="text-[11px] text-fg-3/60 italic">
+                        No terminal processes
+                      </div>
+                    }
+                  >
+                    <div class="space-y-1 text-[10px] font-mono">
+                      <For each={server().processes}>
+                        {(proc) => (
+                          <div class="grid grid-cols-[9ch_8ch_1fr_auto] items-baseline gap-3">
+                            <span class="text-fg-3/70">
+                              {proc.terminalId.slice(0, 8)}
+                            </span>
+                            <span class="text-fg-2 tabular-nums">
+                              pid {proc.pid}
+                            </span>
+                            <span class="text-fg-2 truncate" title={proc.cwd}>
+                              {proc.foregroundProcess ?? proc.cwd}
+                            </span>
+                            <Show when={proc.agentKind}>
+                              {(kind) => (
+                                <span class="text-accent">{kind()}</span>
+                              )}
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+
+                <div class="mt-3 pt-2 border-t border-edge/50">
+                  <div class="text-[10px] text-fg-3/70 mb-1">
+                    Active file system watches
+                  </div>
+                  <Show
+                    when={activeWatches().length > 0}
+                    fallback={
+                      <div class="text-[11px] text-fg-3/60 italic">
+                        No active file watches
+                      </div>
+                    }
+                  >
+                    <div class="space-y-1 text-[10px] font-mono">
+                      <For each={activeWatches()}>
+                        {(resource) => (
+                          <div>
+                            <div class="grid grid-cols-[12ch_14ch_1fr_6ch] items-baseline gap-3">
+                              <span class="text-fg-2">{resource.label}</span>
+                              <span class="text-fg-3/70">
+                                {resource.owner ?? "unknown"}
+                              </span>
+                              <span class="text-fg-2 break-all">
+                                {resource.target ?? "—"}
+                              </span>
+                              <span class="text-fg-3/70 tabular-nums">
+                                {formatDuration(resource.ageMs)}
+                              </span>
+                            </div>
+                            <Show when={formatDetails(resource.details)}>
+                              {(details) => (
+                                <div class="pl-[12ch] text-fg-3/60 break-all">
+                                  {details()}
+                                </div>
+                              )}
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+
+                <div class="mt-3 pt-2 border-t border-edge/50">
+                  <div class="text-[10px] text-fg-3/70 mb-1">
+                    Other server resources
+                  </div>
+                  <Show
+                    when={activeResources().length > 0}
+                    fallback={
+                      <div class="text-[11px] text-fg-3/60 italic">
+                        No active timers, subscriptions, or DB handles
+                      </div>
+                    }
+                  >
+                    <div class="space-y-1 text-[10px] font-mono">
+                      <For each={activeResources()}>
+                        {(resource) => (
+                          <div class="grid grid-cols-[12ch_13ch_1fr_6ch] items-baseline gap-3">
+                            <span class="text-fg-2">{resource.label}</span>
+                            <span class="text-fg-3/70">{resource.kind}</span>
+                            <span class="text-fg-2 break-all">
+                              {resource.target ?? resource.owner ?? "—"}
+                            </span>
+                            <span class="text-fg-3/70 tabular-nums">
+                              {formatDuration(resource.ageMs)}
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </>
+            )}
           </Show>
         </Section>
       </div>
@@ -394,10 +617,10 @@ const DiagnosticInfo: Component<{
       props.onOpenChange(open);
       if (!open) refocusTerminal();
     }}
-    size="md"
+    size="lg"
   >
     <Dialog.Content>
-      <DiagnosticInfoContent activeId={props.activeId} />
+      <DiagnosticInfoContent open={props.open} activeId={props.activeId} />
     </Dialog.Content>
   </ModalDialog>
 );

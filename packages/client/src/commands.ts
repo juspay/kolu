@@ -241,7 +241,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       children: [
         {
           name: "Diagnostic info",
-          description: "Runtime state — renderer, WS, terminals",
+          description: "Runtime state — browser, xterm, server watches",
           onSelect: () => deps.setDiagnosticInfoOpen(true),
         },
         {

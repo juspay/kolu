@@ -11,12 +11,13 @@
  */
 
 import path from "node:path";
-import type {
-  AgentInfoShape,
-  AgentProvider,
-  AgentTerminalState,
-  AgentWatcher,
-  Logger,
+import {
+  trackDiagnosticResource,
+  type AgentInfoShape,
+  type AgentProvider,
+  type AgentTerminalState,
+  type AgentWatcher,
+  type Logger,
 } from "anyagent";
 import type { AgentInfo } from "kolu-common";
 import { log } from "../log.ts";
@@ -128,7 +129,11 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
 
-  let current: { watcher: AgentWatcher; key: string } | null = null;
+  let current: {
+    watcher: AgentWatcher;
+    key: string;
+    untrack: () => void;
+  } | null = null;
   let registeredForExternal = false;
 
   plog.debug("started");
@@ -171,6 +176,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
     const hadCurrent = current !== null;
     current?.watcher.destroy();
+    current?.untrack();
     current = null;
 
     if (!next || !nextKey) {
@@ -203,6 +209,13 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         },
         plog,
       ),
+      untrack: trackDiagnosticResource({
+        kind: "subscription",
+        label: `${provider.kind} session watcher`,
+        owner: "server:agent",
+        target: nextKey,
+        details: { terminalId },
+      }),
     };
   }
 
@@ -220,6 +233,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
     current?.watcher.destroy();
+    current?.untrack();
     plog.debug("stopped");
   };
 }

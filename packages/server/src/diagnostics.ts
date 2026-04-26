@@ -35,9 +35,12 @@
 
 import path from "node:path";
 import v8 from "node:v8";
+import { diagnosticResourcesSnapshot, trackDiagnosticResource } from "anyagent";
 import { getPendingSummaryFetches } from "kolu-claude-code";
+import type { ServerDiagnostics } from "kolu-common";
 import { log } from "./log.ts";
 import { publisherSize } from "./publisher.ts";
+import { terminalEntries, type TerminalProcess } from "./terminal-registry.ts";
 import { countActiveClaudeSessions, terminalCount } from "./terminals.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
@@ -54,7 +57,7 @@ const BASELINE_DELAY_MS = 5 * 60 * 1000;
 /** Collect a single diagnostics sample: memory bands + subsystem counts.
  *  All values are numbers, ready for JSON logging. */
 function sample(): Record<string, number> {
-  const m = process.memoryUsage();
+  const m = readMemoryUsage();
   return {
     rss: m.rss,
     heapUsed: m.heapUsed,
@@ -66,6 +69,49 @@ function sample(): Record<string, number> {
     claudeSessions: countActiveClaudeSessions(),
     pendingSummaryFetches: getPendingSummaryFetches(),
   };
+}
+
+function readMemoryUsage(): ServerDiagnostics["memory"] {
+  const m = process.memoryUsage();
+  return {
+    rss: m.rss,
+    heapUsed: m.heapUsed,
+    heapTotal: m.heapTotal,
+    external: m.external,
+    arrayBuffers: m.arrayBuffers,
+  };
+}
+
+export function serverDiagnosticsSnapshot(): ServerDiagnostics {
+  const resources = diagnosticResourcesSnapshot();
+  return {
+    uptimeMs: Math.round(process.uptime() * 1000),
+    memory: readMemoryUsage(),
+    counts: {
+      terminals: terminalCount(),
+      publisherSize: publisherSize(),
+      claudeSessions: countActiveClaudeSessions(),
+      pendingSummaryFetches: getPendingSummaryFetches(),
+      resources: resources.length,
+    },
+    processes: [...terminalEntries()].map(([terminalId, entry]) => ({
+      terminalId,
+      pid: entry.info.pid,
+      cwd: entry.info.meta.cwd,
+      foregroundPid: entry.handle.foregroundPid ?? null,
+      foregroundProcess: safeForegroundProcess(entry) ?? null,
+      agentKind: entry.info.meta.agent?.kind ?? null,
+    })),
+    resources,
+  };
+}
+
+function safeForegroundProcess(entry: TerminalProcess): string | null {
+  try {
+    return entry.handle.process;
+  } catch {
+    return null;
+  }
 }
 
 /** Start diagnostics if `KOLU_DIAG_DIR` is set. Called once from
@@ -96,7 +142,9 @@ export function startDiagnostics(): void {
   // server/src/index.ts` from a dev shell). The wrapper normally cds
   // into $KOLU_DIAG_DIR, but we shouldn't rely on that coupling for
   // the one path we control.
-  setTimeout(() => {
+  let untrackBaselineTimer = () => {};
+  const baselineTimer = setTimeout(() => {
+    untrackBaselineTimer();
     const snapshotPath = path.join(diagDir, "baseline.heapsnapshot");
     try {
       v8.writeHeapSnapshot(snapshotPath);
@@ -104,15 +152,31 @@ export function startDiagnostics(): void {
     } catch (err) {
       log.error({ err, path: snapshotPath }, "diag_baseline_snapshot_failed");
     }
-  }, BASELINE_DELAY_MS).unref();
+  }, BASELINE_DELAY_MS);
+  baselineTimer.unref();
+  untrackBaselineTimer = trackDiagnosticResource({
+    kind: "timer",
+    label: "diagnostics baseline heap snapshot",
+    owner: "server:diagnostics",
+    target: diagDir,
+    details: { delayMs: BASELINE_DELAY_MS },
+  });
 
   // Periodic subsystem stats. `unref` so the interval doesn't keep the
   // process alive on its own — if the server exits, the interval dies
   // with it. The kolu process never exits cleanly in production anyway
   // (systemd restart on failure), but unref is correct hygiene.
-  setInterval(() => {
+  const sampleTimer = setInterval(() => {
     log.info(sample(), "diag");
-  }, DIAG_INTERVAL_MS).unref();
+  }, DIAG_INTERVAL_MS);
+  sampleTimer.unref();
+  trackDiagnosticResource({
+    kind: "timer",
+    label: "diagnostics sampler",
+    owner: "server:diagnostics",
+    target: diagDir,
+    details: { intervalMs: DIAG_INTERVAL_MS },
+  });
 
   // Emit one immediate sample so the log timeline has a T+0 row to
   // anchor the curve. The interval will tick again at T+5min.

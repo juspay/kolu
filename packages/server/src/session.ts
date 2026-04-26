@@ -11,7 +11,7 @@
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { log } from "./log.ts";
-import { publisher, publishSystem } from "./publisher.ts";
+import { publishSystem, subscribeSystem_ } from "./publisher.ts";
 import { store } from "./state.ts";
 
 /** Write the session blob (or clear it) and publish to subscribers. */
@@ -66,7 +66,7 @@ export function initSessionAutoSave(
 ): void {
   void (async () => {
     try {
-      for await (const _ of publisher.subscribe("terminals:dirty")) {
+      for await (const _ of subscribeSystem_("terminals:dirty", undefined)) {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => saveSession(snapshot()), 500);
       }
