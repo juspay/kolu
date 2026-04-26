@@ -36,7 +36,10 @@ import { client, stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
-import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
+import PierreFileTree, {
+  type PierrePathUpdate,
+  toGitStatusEntries,
+} from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
 import { useRightPanel } from "./useRightPanel";
 
@@ -58,16 +61,8 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
   </div>
 );
 
-type FsWatchData = {
-  sourceSeq: number;
-  event: FsWatchEvent;
-  paths: string[];
-};
-
-type FsTreeState = FsWatchData & { seq: number };
-
-const EMPTY_FS_WATCH_DATA: FsWatchData = {
-  sourceSeq: 0,
+const EMPTY_PATH_UPDATE: PierrePathUpdate = {
+  seq: 0,
   event: { kind: "snapshot", paths: [] },
   paths: [],
 };
@@ -109,32 +104,27 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
     (input) => client.git.status(input),
   );
 
-  const fsWatch = createSubscription<FsWatchEvent, FsWatchData>(
+  const fsWatch = createSubscription<FsWatchEvent, PierrePathUpdate>(
     (signal) => stream.fsWatch({ repoPath: repoPath() }, signal),
     {
-      initial: EMPTY_FS_WATCH_DATA,
+      initial: EMPTY_PATH_UPDATE,
       reduce: (state, event) => ({
-        sourceSeq: state.sourceSeq + 1,
+        seq: state.seq + 1,
         event,
         paths: applyFsWatchEvent(state.paths, event),
       }),
       onError: (err) => toast.error(`File tree watch error: ${err.message}`),
     },
   );
-  const [fsTreeState, setFsTreeState] = createSignal<FsTreeState>({
-    seq: 0,
-    ...EMPTY_FS_WATCH_DATA,
-  });
-  let fsTreeSeq = 0;
-
+  const [manualPathUpdate, setManualPathUpdate] =
+    createSignal<PierrePathUpdate>();
+  const pathUpdate = createMemo(
+    () => manualPathUpdate() ?? fsWatch() ?? EMPTY_PATH_UPDATE,
+  );
   createEffect(
     on(
-      () => fsWatch()?.sourceSeq,
-      () => {
-        const state = fsWatch();
-        if (!state) return;
-        setFsTreeState({ seq: ++fsTreeSeq, ...state });
-      },
+      () => fsWatch()?.seq,
+      () => setManualPathUpdate(undefined),
       { defer: true },
     ),
   );
@@ -169,9 +159,8 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
       void client.fs
         .listAll({ repoPath: repoPath() })
         .then(({ paths }) => {
-          setFsTreeState({
-            seq: ++fsTreeSeq,
-            sourceSeq: fsWatch()?.sourceSeq ?? 0,
+          setManualPathUpdate({
+            seq: pathUpdate().seq + 1,
             event: { kind: "snapshot", paths },
             paths,
           });
@@ -183,7 +172,7 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
   };
 
   const treePaths = createMemo(() => {
-    if (view() === "browse") return fsTreeState().paths;
+    if (view() === "browse") return pathUpdate().paths;
     return status()?.files.map((f) => f.path) ?? [];
   });
   const treeGitStatus = createMemo(() => {
@@ -193,7 +182,7 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
 
   createEffect(
     on(
-      () => fsTreeState().seq,
+      () => pathUpdate().seq,
       (seq) => {
         if (seq === 0 || !isDiffView()) return;
         void refetchStatus();
@@ -317,7 +306,7 @@ const CodeTabForRepo: Component<{ repoPath: string }> = (props) => {
             >
               <PierreFileTree
                 paths={treePaths()}
-                pathUpdate={view() === "browse" ? fsTreeState() : undefined}
+                pathUpdate={view() === "browse" ? pathUpdate() : undefined}
                 gitStatus={treeGitStatus()}
                 selectedPath={selectedPath()}
                 onSelect={handleSelect}

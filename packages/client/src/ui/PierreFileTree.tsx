@@ -38,12 +38,15 @@ export function toGitStatusEntries(
   }));
 }
 
+export type PierrePathUpdate = {
+  seq: number;
+  event: FsWatchEvent;
+  paths: string[];
+};
+
 export type PierreFileTreeProps = {
   paths: string[];
-  pathUpdate?: {
-    seq: number;
-    event: FsWatchEvent;
-  };
+  pathUpdate?: PierrePathUpdate;
   gitStatus?: GitStatusEntry[];
   selectedPath?: string | null;
   onSelect?: (path: string | null) => void;
@@ -132,12 +135,17 @@ function renderContextMenu(
 const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTree | undefined;
-  let fileSet = new Set(props.paths);
+  let fileSet = new Set(props.pathUpdate?.paths ?? props.paths);
 
-  function applyPathUpdate(event: FsWatchEvent): void {
+  function currentPaths(): string[] {
+    return props.pathUpdate?.paths ?? props.paths;
+  }
+
+  function applyPathUpdate(update: PierrePathUpdate): void {
+    const { event } = update;
     if (event.kind === "snapshot") {
-      fileSet = new Set(event.paths);
-      tree?.resetPaths(event.paths);
+      fileSet = new Set(update.paths);
+      tree?.resetPaths(update.paths);
       return;
     }
 
@@ -162,12 +170,14 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     }
 
     if (operations.length > 0) tree?.batch(operations);
+    fileSet = new Set(update.paths);
   }
 
   onMount(() => {
-    fileSet = new Set(props.paths);
+    const paths = currentPaths();
+    fileSet = new Set(paths);
     tree = new FileTree({
-      paths: props.paths,
+      paths,
       initialExpansion: props.initialExpansion ?? "closed",
       // Collapse single-child directory chains (e.g. `packages/client/src` →
       // one row) so deep monorepo paths don't eat half the panel width.
@@ -213,7 +223,7 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
       () => props.pathUpdate?.seq,
       () => {
         const update = props.pathUpdate;
-        if (update) applyPathUpdate(update.event);
+        if (update) applyPathUpdate(update);
       },
       { defer: true },
     ),
