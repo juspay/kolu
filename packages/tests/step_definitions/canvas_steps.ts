@@ -5,7 +5,6 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
-const MINIMAP_TOGGLE_SELECTOR = '[data-testid="minimap-toggle"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const TILE_SELECTOR = '[data-testid="canvas-tile"]';
 
@@ -522,38 +521,12 @@ Then("the minimap should be visible", async function (this: KoluWorld) {
   );
 });
 
-Then(
-  "the minimap toggle button should be visible",
-  async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      (sel: string) => document.querySelector(sel) !== null,
-      MINIMAP_TOGGLE_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
-  },
-);
-
 Then("the minimap map should be visible", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => document.querySelector(sel) !== null,
     MINIMAP_MAP_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
-});
-
-Then("the minimap map should not be visible", async function (this: KoluWorld) {
-  await this.page.waitForFunction(
-    (sel: string) => document.querySelector(sel) === null,
-    MINIMAP_MAP_SELECTOR,
-    { timeout: POLL_TIMEOUT },
-  );
-});
-
-When("I click the minimap toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator(MINIMAP_TOGGLE_SELECTOR);
-  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await toggle.click();
-  await this.waitForFrame();
 });
 
 When("I save the canvas viewport state", async function (this: KoluWorld) {

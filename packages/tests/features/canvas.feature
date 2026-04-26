@@ -81,22 +81,11 @@ Feature: Canvas workspace
 
   Scenario: Minimap shows zoom bar on the canvas
     Then the minimap should be visible
-    And the minimap toggle button should be visible
     And there should be no page errors
 
   Scenario: Minimap expands with multiple terminals
     Given I create a terminal
     And I create a terminal
-    Then the minimap map should be visible
-    And there should be no page errors
-
-  Scenario: Minimap toggle collapses and expands the map
-    Given I create a terminal
-    And I create a terminal
-    Then the minimap map should be visible
-    When I click the minimap toggle
-    Then the minimap map should not be visible
-    When I click the minimap toggle
     Then the minimap map should be visible
     And there should be no page errors
 

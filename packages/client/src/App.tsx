@@ -22,7 +22,6 @@ import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
-import { toggleMinimap } from "./canvas/CanvasMinimap";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import PillTree from "./canvas/PillTree";
 import { flatPillOrder, groupByRepo } from "./canvas/pillTreeOrder";
@@ -273,7 +272,6 @@ const App: Component = () => {
     simulateAlert: alerts.simulateAlert,
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
-    toggleMinimap,
     isMobile,
   });
 

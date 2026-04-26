@@ -1,7 +1,6 @@
----
-paths:
-  - "packages/client/src/**"
----
+# Kolu hickey catalog
+
+Project-specific complecting patterns extending the `hickey` skill's Layer 4 catalog — read by `hickey` from this file (`.agency/hickey.md`) when it runs.
 
 ## Additional Complecting Patterns
 

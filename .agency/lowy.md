@@ -1,7 +1,6 @@
----
-description: Project-declared areas of volatility for lowy evaluations — Kolu client
-applyTo: "packages/client/src/**"
----
+# Kolu lowy volatilities
+
+Project-declared areas of volatility used by the `lowy` review — read by `lowy` from this file (`.agency/lowy.md`) when it runs.
 
 ## Areas of Volatility
 

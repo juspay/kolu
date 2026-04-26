@@ -83,10 +83,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Hold Shift and drag (or scroll) to pan the canvas — even over a terminal tile",
   },
   {
-    id: "amb-canvas-minimap",
-    text: "Toggle the minimap via its grid icon (bottom-left) for a bird's-eye view of every tile",
-  },
-  {
     id: "amb-tile-maximize",
     text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
   },
