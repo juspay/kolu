@@ -1,3 +1,7 @@
+# Kolu PR evidence
+
+How `/do`'s `evidence` step captures and posts UI evidence on Kolu PRs — read via the `## PR evidence` section of `.apm/instructions/workflow.instructions.md`.
+
 ## PR Evidence
 
 When the change has visible UI impact, post a `## Evidence` PR comment with screenshots. Use judgment — server-only diffs sometimes ripple into rendering.

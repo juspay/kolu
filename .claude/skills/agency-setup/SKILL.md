@@ -86,7 +86,7 @@ If it's missing (whether this is a first-time setup or an upgrade where the user
 - `Cargo.toml`, `flake.nix`, `pyproject.toml`
 - `.github/workflows/` for CI hints
 
-For each of the four sections (Check, Format, Test, CI), there are three possible outcomes:
+For each of the four command sections (Check, Format, Test, CI), there are three possible outcomes:
 
 - **Found a clear command** in the project → fill it in.
 - **Found a plausible command but you're not certain** → use `AskUserQuestion` to confirm. Offer the candidate as one option and "skip this section" as another, with a free-form fallback for the user to type a different command.
@@ -94,7 +94,9 @@ For each of the four sections (Check, Format, Test, CI), there are three possibl
 
 Sections the user discards are **omitted from the generated file entirely** — no `# TODO` placeholders. `do` already handles missing sections by skipping the corresponding step with a note, which is the right behavior for a section the user has consciously declined.
 
-Final file uses this template, including only the sections the user kept:
+The file also hosts **four optional sections** that other agency skills (`code-police`, `hickey`, `lowy`, `/do` evidence) read at runtime. Don't fill these in autonomously — they're project-specific and can't be inferred. Mention them at report-back time (step 7) so the user can layer them on later. Each section is free-form: inline prose, a pointer to another file (`See ./code-police-rules.md`), or a script reference all work.
+
+Final file uses this template, including only the command sections the user kept and leaving the optional sections out (the user adds them manually if and when they want them):
 
 ```markdown
 ---
@@ -115,6 +117,13 @@ description: Workflow commands for the do pipeline
 
 ## Documentation
 Keep `README.md` in sync with user-facing changes.
+
+<!-- Optional sections (add manually if needed):
+## Code-police rules
+## Hickey catalog
+## Lowy volatilities
+## PR evidence
+-->
 ```
 
 ## 6. Refresh `srid/agency` (if already present), then run `apm install` (and `apm compile` for Codex / opencode)
@@ -143,13 +152,13 @@ Summarize for the user, in this order:
 2. Which target(s) ended up in `apm.yml` (and which form — `target:` scalar or `targets:` list).
 3. Which workflow sections were filled in (and from where) versus skipped at the user's request.
 4. Files changed (staged, not committed). Tell them to review the diff before committing.
-5. **Optional instructions to consider adding** — list whichever of these files do **not** yet exist under `.apm/instructions/`, and explain briefly what each is for. They're project-specific and can't be auto-generated, but the user should know they exist so they can layer them on:
-   - `code-police-rules.instructions.md` — project-specific quality rules checked alongside the built-in `code-police` rules.
-   - `hickey-catalog.instructions.md` — project-specific complecting patterns extending the Hickey Layer 4 catalog.
-   - `lowy-volatilities.instructions.md` — project-declared areas of volatility used by the Lowy review pass.
-   - `pr-evidence.instructions.md` — opts the project into `/do`'s `evidence` step, which posts an `## Evidence` PR comment with project-defined empirical artifacts (UI screenshots via chrome-devtools MCP, benchmark numbers, demo recordings, etc.).
+5. **Optional sections to consider adding to `workflow.instructions.md`** — list whichever of these are **not** already present in the file, and explain briefly what each is for. They're project-specific and can't be auto-generated, but the user should know they exist so they can layer them on. Each is free-form: inline prose, a file pointer (`See ./<path>`), or a script reference all work.
+   - `## Code-police rules` — project-specific quality rules checked alongside the built-in `code-police` rules.
+   - `## Hickey catalog` — project-specific complecting/fragmentation patterns extending the Hickey Layer 4 catalog.
+   - `## Lowy volatilities` — project-declared areas of volatility used by the Lowy review pass.
+   - `## PR evidence` — opts the project into `/do`'s `evidence` step, which posts an `## Evidence` PR comment with project-defined empirical artifacts (UI screenshots via chrome-devtools MCP, benchmark numbers, demo recordings, etc.).
 
-   Point them at [Kolu's `.apm/instructions/`](https://github.com/juspay/kolu/tree/master/.apm/instructions) as a worked example. Skip files that already exist.
+   Point them at [Kolu's `workflow.instructions.md`](https://github.com/juspay/kolu/blob/master/.apm/instructions/workflow.instructions.md) as a worked example. Skip sections that already exist.
 6. **Restart the agent CLI** (Claude Code, Codex, opencode, etc.) so it picks up the newly generated skills — without a restart, the new skills won't be available in the running session.
 7. After restart, try `talk` or `do` to verify everything works. Tell the user the **exact** invocation syntax for the target(s) you installed for — don't make them guess:
    - **Claude Code** → `/talk <question>` and `/do <task>` (slash commands).

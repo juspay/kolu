@@ -18,7 +18,7 @@ compilation:
 # Reinstall all:       just ai::apm
 dependencies:
   apm:
-    - srid/agency#master
+    - srid/agency#simplify
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design

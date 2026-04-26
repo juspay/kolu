@@ -1,7 +1,6 @@
----
-paths:
-  - "packages/**/*.{ts,tsx}"
----
+# Kolu code-police rules
+
+Kolu-specific rules layered on top of the base `code-police` skill — read by `code-police` via the `## Code-police rules` section of `.apm/instructions/workflow.instructions.md`.
 
 ## Additional Code Police Rules
 

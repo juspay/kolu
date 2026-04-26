@@ -1,7 +1,6 @@
----
-paths:
-  - "packages/client/src/**"
----
+# Kolu hickey catalog
+
+Project-specific complecting patterns extending the `hickey` skill's Layer 4 catalog — read by `hickey` via the `## Hickey catalog` section of `.apm/instructions/workflow.instructions.md`.
 
 ## Additional Complecting Patterns
 

@@ -42,6 +42,22 @@ When adding a new user-facing feature or shortcut, consider adding a tip so user
 
 - Use [conventional commits](https://www.conventionalcommits.org/) (e.g. `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`).
 
+## Code-police rules
+
+See [`docs/agency/code-police-rules.md`](../../docs/agency/code-police-rules.md).
+
+## Hickey catalog
+
+See [`docs/agency/hickey-catalog.md`](../../docs/agency/hickey-catalog.md).
+
+## Lowy volatilities
+
+See [`docs/agency/lowy-volatilities.md`](../../docs/agency/lowy-volatilities.md).
+
+## PR evidence
+
+See [`docs/agency/pr-evidence.md`](../../docs/agency/pr-evidence.md).
+
 ## Files matching `**/*.nix`
 
 <!-- Source: local .apm/instructions/nix.instructions.md -->

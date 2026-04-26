@@ -378,26 +378,32 @@ CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) a
 
 **If `forge != github`**: Skip with status `skipped` and reason `"non-<forge> forge: <forge>"`. (Bitbucket comment wiring is tracked in #10.)
 
-**If `.apm/instructions/pr-evidence.instructions.md` does not exist**: Skip with status `skipped` and reason `"no .apm/instructions/pr-evidence.instructions.md"`. This is the default for projects that haven't opted in.
+**Otherwise**: Read the project's `.apm/instructions/workflow.instructions.md` and look for a `## PR evidence` section. If the section is missing or empty, skip with status `skipped` and reason `"no PR evidence section in workflow.instructions.md"` — the default for projects that haven't opted in.
 
-**If the file exists**:
+**If the section is present**:
 
-Read it. The file is project-specific and describes how this project demonstrates a finished feature — what tools to use (e.g. `chrome-devtools` MCP for screenshots, `hyperfine` for benchmarks, `asciinema` for terminal demos), what to capture (which routes, which scenarios), and how to host any binary artifacts (screenshots typically need to be uploaded somewhere referenceable since `gh pr comment` does not attach files — the instruction file specifies the upload path). Agency does **not** prescribe any of this; follow whatever the file says.
+The section is project-specific and free-form: it can be inline prose describing the capture procedure, a pointer to another file (`See ./scripts/capture-evidence.md`), a script reference (`Run ./scripts/capture-pr-evidence.sh and use its stdout`), or any combination. Don't second-guess the form — read it, then **spawn a sub-agent** (`Agent(subagent_type: "general-purpose", ...)`) so the capture work (MCP calls, screenshot uploads, gh API requests) doesn't pollute `/do`'s main context.
 
-After gathering the evidence, post it as a single PR comment under a `## Evidence` heading using `gh pr comment`. Use the **single-quoted heredoc** pattern (see `forge-pr` → "Passing the body to `gh` safely") so backticks and `$` survive unescaped:
+The sub-agent prompt should include:
+
+- The literal section content from `workflow.instructions.md`.
+- Standard PR context: PR URL, branch name, base branch, current commit SHA, and `git diff origin/HEAD...HEAD --name-only` so the sub-agent knows which routes/files to exercise.
+- An explicit instruction that the sub-agent's job is to return a single block of markdown (image links embedded, table data inline, etc.) suitable for posting under a `## Evidence` heading. The sub-agent should not post the comment itself — only return the markdown.
+
+After the sub-agent returns, post its output as one PR comment using `gh pr comment` under a `## Evidence` heading. Use the **single-quoted heredoc** pattern (see `forge-pr` → "Passing the body to `gh` safely") so backticks and `$` survive unescaped:
 
 ```sh
 gh pr comment --body "$(cat <<'EOF'
 ## Evidence
 
-<markdown produced per pr-evidence.instructions.md>
+<markdown returned by the sub-agent>
 EOF
 )"
 ```
 
-Embed image/asset URLs inline in the markdown — `gh pr comment` itself cannot attach files.
+Embed image/asset URLs inline in the markdown — `gh pr comment` itself cannot attach files; the workflow section is responsible for telling the sub-agent how to host any binary artifacts so they end up referenceable.
 
-**Verify**: Either the step was skipped per the rules above, or a `## Evidence` PR comment exists (`gh pr view --comments` or equivalent) with the markdown produced from the instruction file.
+**Verify**: Either the step was skipped per the rules above, or a `## Evidence` PR comment exists (`gh pr view --comments` or equivalent) populated from the sub-agent's output.
 
 ---
 
@@ -409,7 +415,7 @@ Present a summary of all steps with their verification status. If any step has a
 
 1. A step `skipped` with `reason` beginning `"non-<forge> forge:"` (detected forge isn't GitHub).
 2. A step `skipped` with `reason` `"--no-git"` (user opted out of git operations).
-3. A step `skipped` with `reason` `"no .apm/instructions/pr-evidence.instructions.md"` (project hasn't opted into the evidence step — this is the default).
+3. A step `skipped` with `reason` `"no PR evidence section in workflow.instructions.md"` (project hasn't opted into the evidence step — this is the default).
 
 A `failed` step always blocks `"completed"`. No redefining "passed," no footnote caveats. Update via `scripts/do-results set status completed` or `scripts/do-results set status failed` accordingly.
 
@@ -478,7 +484,7 @@ COMMENT
 
 ## Rules
 
-- **Never skip steps** (unless skipped by `--no-git`, forge detection, or — for **evidence** — the project hasn't opted in via `.apm/instructions/pr-evidence.instructions.md`). Run them in order from entry point to **done**.
+- **Never skip steps** (unless skipped by `--no-git`, forge detection, or — for **evidence** — the project hasn't filled in a `## PR evidence` section in `workflow.instructions.md`). Run them in order from entry point to **done**.
 - **Every commit is NEW.** Never amend, rebase, or force-push.
 - **Feature branches only.** Never commit to master/main. (Under `--no-git`, no commits happen at all, so this rule is moot — the agent leaves the user on whatever branch they started on.)
 - **Background for CI.** Run CI with `run_in_background: true`.
