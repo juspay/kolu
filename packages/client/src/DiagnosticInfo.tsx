@@ -104,15 +104,20 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
 
   // One-shot fetch on dialog open. Dialog.Content unmounts on close, so
   // re-opening fires a fresh fetch — adequate for a snapshot dialog. The
-  // toast surfaces transport/server errors; createResource exposes the
-  // failed value as undefined to the UI, which renders "Loading…" then
-  // hides the Server/Watches sections so the dialog stays useful.
+  // toast surfaces transport/server errors; the dialog ALSO renders an
+  // explicit error row so a closed-tab toast doesn't leave the user
+  // staring at a misleading "No active watchers" empty state.
   const [server] = createResource<ServerDiagnostics>(() =>
     client.server.diagnostics().catch((err: Error) => {
       toast.error(`Server diagnostics failed: ${err.message}`);
       throw err;
     }),
   );
+  const serverErrorText = (): string | null => {
+    const e = server.error;
+    if (e === undefined) return null;
+    return e instanceof Error ? e.message : String(e);
+  };
 
   // `Recent events` is collapsed by default — it's a long debug-only list
   // that pushes everything else off-screen. Persistence is intentionally
@@ -241,6 +246,18 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
                 </Row>
               )}
             </Show>
+            <Show when={serverErrorText()}>
+              {(err) => (
+                <Row label="Diag">
+                  <span class="text-danger text-[11px]">failed: {err()}</span>
+                </Row>
+              )}
+            </Show>
+            <Show when={!serverErrorText() && server.loading}>
+              <Row label="Diag">
+                <span class="text-fg-3/60 italic text-[11px]">loading…</span>
+              </Row>
+            </Show>
             <Show when={snapshot().server}>
               {(s) => (
                 <>
@@ -302,45 +319,57 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
         </Section>
 
         <Section title="Watches">
+          {/* Four explicit states — the UI must distinguish "still loading"
+              from "request failed" from "succeeded with empty list" so a
+              transport error doesn't get rendered as "No active watchers". */}
           <Show
-            when={server.loading}
+            when={serverErrorText()}
             fallback={
               <Show
-                when={(snapshot().server?.watches.length ?? 0) > 0}
+                when={!server.loading}
                 fallback={
-                  <div class="text-[11px] text-fg-3/60 italic">
-                    No active watchers
-                  </div>
+                  <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
                 }
               >
-                <div class="space-y-0.5">
-                  <For each={snapshot().server?.watches ?? []}>
-                    {(w) => (
-                      <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
-                        <div class="min-w-0">
-                          <div class="font-mono text-fg-2">{w.kind}</div>
-                          <div class="text-[10px] text-fg-3/70">
-                            {w.description}
-                            <Show when={w.sharedReconcilers !== undefined}>
-                              {" — shared across "}
-                              {w.sharedReconcilers}{" "}
-                              {w.sharedReconcilers === 1
-                                ? "terminal"
-                                : "terminals"}
-                            </Show>
+                <Show
+                  when={(snapshot().server?.watches.length ?? 0) > 0}
+                  fallback={
+                    <div class="text-[11px] text-fg-3/60 italic">
+                      No active watchers
+                    </div>
+                  }
+                >
+                  <div class="space-y-0.5">
+                    <For each={snapshot().server?.watches ?? []}>
+                      {(w) => (
+                        <div class="text-[11px] grid grid-cols-[1fr_auto] items-baseline gap-3">
+                          <div class="min-w-0">
+                            <div class="font-mono text-fg-2">{w.kind}</div>
+                            <div class="text-[10px] text-fg-3/70">
+                              {w.description}
+                              <Show when={w.sharedReconcilers !== undefined}>
+                                {" — shared across "}
+                                {w.sharedReconcilers}{" "}
+                                {w.sharedReconcilers === 1
+                                  ? "terminal"
+                                  : "terminals"}
+                              </Show>
+                            </div>
                           </div>
+                          <span class="font-mono text-fg tabular-nums">
+                            {w.count}
+                          </span>
                         </div>
-                        <span class="font-mono text-fg tabular-nums">
-                          {w.count}
-                        </span>
-                      </div>
-                    )}
-                  </For>
-                </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
               </Show>
             }
           >
-            <div class="text-[11px] text-fg-3/60 italic">Loading…</div>
+            {(err) => (
+              <div class="text-[11px] text-danger">failed: {err()}</div>
+            )}
           </Show>
         </Section>
 
