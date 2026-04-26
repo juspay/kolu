@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-26T13:43:30.808996+00:00'
+generated_at: '2026-04-26T20:40:04.562975+00:00'
 apm_version: 0.9.3
 dependencies:
 - repo_url: anthropics/skills
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 96994aff26b010935f03835caba19d0d0491e243
+  resolved_commit: c122f08eeb4f53b829da4e3261932245db084853
   resolved_ref: master
   package_type: apm_package
   deployed_files:
