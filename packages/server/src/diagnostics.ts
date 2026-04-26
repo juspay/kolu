@@ -40,8 +40,7 @@ import type { ServerDiagnostics } from "kolu-common";
 import { log } from "./log.ts";
 import { activationSnapshot } from "./meta/agent.ts";
 import { publisherSize } from "./publisher.ts";
-import { terminalEntries } from "./terminal-registry.ts";
-import { countActiveClaudeSessions, terminalCount } from "./terminals.ts";
+import { type TerminalProcess, terminalEntries } from "./terminal-registry.ts";
 
 /** 5 min — cadence for subsystem stats logging. Chosen so a ~10 MB/min
  *  leak rate (the observed floor before the 4 GB OOM) produces ~50 MB
@@ -54,6 +53,41 @@ const DIAG_INTERVAL_MS = 5 * 60 * 1000;
  *  startup transients have settled. */
 const BASELINE_DELAY_MS = 5 * 60 * 1000;
 
+/** Single sealed read of every live counter both the periodic-log
+ *  `sample()` and the on-demand `getServerDiagnostics()` consume. Adding
+ *  a new metric (e.g. file descriptor count) is one edit here, propagating
+ *  to both consumers — the previous duplication had no structural fence
+ *  to keep them in sync. */
+interface MetricsCapture {
+  memory: NodeJS.MemoryUsage;
+  /** Snapshot of `terminalEntries()` so per-terminal counts derive from
+   *  one iteration's worth of state. */
+  entries: ReadonlyArray<readonly [string, TerminalProcess]>;
+  /** Per-terminal aggregates derived from `entries`. */
+  terminalsWithGit: number;
+  claudeSessions: number;
+  publisherChannels: number;
+  pendingSummaryFetches: number;
+}
+
+function captureMetrics(): MetricsCapture {
+  const entries = [...terminalEntries()];
+  let terminalsWithGit = 0;
+  let claudeSessions = 0;
+  for (const [, entry] of entries) {
+    if (entry.info.meta.git !== null) terminalsWithGit++;
+    if (entry.info.meta.agent?.kind === "claude-code") claudeSessions++;
+  }
+  return {
+    memory: process.memoryUsage(),
+    entries,
+    terminalsWithGit,
+    claudeSessions,
+    publisherChannels: publisherSize(),
+    pendingSummaryFetches: getPendingSummaryFetches(),
+  };
+}
+
 /** Snapshot for the client-facing Diagnostic info dialog (Debug → Diagnostic
  *  info). Aggregates memory + uptime + subsystem counts + a categorical
  *  view of active server-side watchers.
@@ -61,41 +95,24 @@ const BASELINE_DELAY_MS = 5 * 60 * 1000;
  *  Watch entries are aggregated by category, not enumerated per fs.watch
  *  handle: instrumenting every fs.watch site would be invasive churn for
  *  modest payoff. The shape ("is the server holding watchers I didn't
- *  expect?") is what diagnostics actually answers.
- *
- *  All state reads are sealed at the top — every count below derives from
- *  the same `entries` snapshot and the one-shot `activations` read, so
- *  the returned object is internally consistent (no field reflects a
- *  later instant than another). */
+ *  expect?") is what diagnostics actually answers. */
 export function getServerDiagnostics(): ServerDiagnostics {
-  const memory = process.memoryUsage();
-  const uptimeMs = Math.round(process.uptime() * 1000);
-  const nodeVersion = process.version;
-  const entries = [...terminalEntries()];
+  const m = captureMetrics();
   const activations = activationSnapshot();
-  const publisherChannels = publisherSize();
-  const pendingSummaryFetches = getPendingSummaryFetches();
-
-  let terminalsWithGit = 0;
-  let claudeSessions = 0;
-  for (const [, entry] of entries) {
-    if (entry.info.meta.git !== null) terminalsWithGit++;
-    if (entry.info.meta.agent?.kind === "claude-code") claudeSessions++;
-  }
 
   const watches: ServerDiagnostics["watches"] = [];
-  if (terminalsWithGit > 0) {
+  if (m.terminalsWithGit > 0) {
     watches.push({
       kind: "git-head",
       description: ".git/HEAD watcher (per terminal in a repo)",
-      count: terminalsWithGit,
+      count: m.terminalsWithGit,
     });
   }
-  if (claudeSessions > 0) {
+  if (m.claudeSessions > 0) {
     watches.push({
       kind: "claude-transcript",
       description: "Claude Code transcript JSONL watcher (per active session)",
-      count: claudeSessions,
+      count: m.claudeSessions,
     });
   }
   for (const a of activations) {
@@ -108,19 +125,19 @@ export function getServerDiagnostics(): ServerDiagnostics {
   }
 
   return {
-    uptimeMs,
-    nodeVersion,
+    uptimeMs: Math.round(process.uptime() * 1000),
+    nodeVersion: process.version,
     memory: {
-      rss: memory.rss,
-      heapUsed: memory.heapUsed,
-      heapTotal: memory.heapTotal,
-      external: memory.external,
-      arrayBuffers: memory.arrayBuffers,
+      rss: m.memory.rss,
+      heapUsed: m.memory.heapUsed,
+      heapTotal: m.memory.heapTotal,
+      external: m.memory.external,
+      arrayBuffers: m.memory.arrayBuffers,
     },
     subsystems: {
-      terminals: entries.length,
-      publisherChannels,
-      pendingSummaryFetches,
+      terminals: m.entries.length,
+      publisherChannels: m.publisherChannels,
+      pendingSummaryFetches: m.pendingSummaryFetches,
     },
     watches,
   };
@@ -129,17 +146,17 @@ export function getServerDiagnostics(): ServerDiagnostics {
 /** Collect a single diagnostics sample: memory bands + subsystem counts.
  *  All values are numbers, ready for JSON logging. */
 function sample(): Record<string, number> {
-  const m = process.memoryUsage();
+  const m = captureMetrics();
   return {
-    rss: m.rss,
-    heapUsed: m.heapUsed,
-    heapTotal: m.heapTotal,
-    external: m.external,
-    arrayBuffers: m.arrayBuffers,
-    terminals: terminalCount(),
-    publisherSize: publisherSize(),
-    claudeSessions: countActiveClaudeSessions(),
-    pendingSummaryFetches: getPendingSummaryFetches(),
+    rss: m.memory.rss,
+    heapUsed: m.memory.heapUsed,
+    heapTotal: m.memory.heapTotal,
+    external: m.memory.external,
+    arrayBuffers: m.memory.arrayBuffers,
+    terminals: m.entries.length,
+    publisherSize: m.publisherChannels,
+    claudeSessions: m.claudeSessions,
+    pendingSummaryFetches: m.pendingSummaryFetches,
   };
 }
 
