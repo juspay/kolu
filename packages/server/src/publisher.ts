@@ -15,7 +15,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import { log } from "./log.ts";
 
 /** Payload types per channel. Terminal channels are keyed as "channel:terminalId" at runtime. */
@@ -110,19 +110,22 @@ async function* iterateUntilAborted<T>(
   signal: AbortSignal | undefined,
   diagnostic: { label: string; target?: string | null },
 ): AsyncGenerator<T> {
-  const untrack = trackDiagnosticResource({
-    kind: "subscription",
-    label: diagnostic.label,
-    owner: "server:publisher",
-    target: diagnostic.target ?? null,
-  });
+  const cleanupDiagnostic = trackDiagnosticCleanup(
+    {
+      kind: "subscription",
+      label: diagnostic.label,
+      owner: "server:publisher",
+      target: diagnostic.target ?? null,
+    },
+    () => {},
+  );
   try {
     for await (const item of source) yield item;
   } catch (err) {
     if (signal?.aborted && err === signal.reason) return;
     throw err;
   } finally {
-    untrack();
+    cleanupDiagnostic();
   }
 }
 

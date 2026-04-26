@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { agentInfoEqual, readTailLines, type Logger } from "anyagent";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import {
   type CodexSession,
   getThreadMetadata,
@@ -94,16 +94,19 @@ export function createCodexWatcher(
   // connection holds no locks until a transaction starts, and our
   // single-SELECT queries are autocommit.
   const db: DatabaseSync | null = openDb(log);
-  const untrackDb =
+  const cleanupDb =
     db === null
       ? null
-      : trackDiagnosticResource({
-          kind: "db",
-          label: "Codex thread DB",
-          owner: "kolu-codex",
-          target: session.id,
-          details: { sessionId: session.id },
-        });
+      : trackDiagnosticCleanup(
+          {
+            kind: "db",
+            label: "Codex thread DB",
+            owner: "kolu-codex",
+            target: session.id,
+            details: { sessionId: session.id },
+          },
+          () => db.close(),
+        );
 
   function refresh() {
     if (destroyed || !db) return;
@@ -193,8 +196,7 @@ export function createCodexWatcher(
         debounceTimer = null;
       }
       unsubscribe();
-      db?.close();
-      untrackDb?.();
+      cleanupDb?.();
     },
   };
 }

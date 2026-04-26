@@ -11,15 +11,14 @@
  */
 
 import path from "node:path";
-import {
-  type AgentInfoShape,
-  type AgentProvider,
-  type AgentTerminalState,
-  type AgentWatcher,
-  type Logger,
+import type {
+  AgentInfoShape,
+  AgentProvider,
+  AgentTerminalState,
+  Logger,
 } from "anyagent";
 import type { AgentInfo } from "kolu-common";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
@@ -130,9 +129,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
 
   let current: {
-    watcher: AgentWatcher;
     key: string;
-    untrack: () => void;
+    cleanup: () => void;
   } | null = null;
   let registeredForExternal = false;
 
@@ -175,8 +173,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     if ((current?.key ?? null) === nextKey) return;
 
     const hadCurrent = current !== null;
-    current?.watcher.destroy();
-    current?.untrack();
+    current?.cleanup();
     current = null;
 
     if (!next || !nextKey) {
@@ -192,30 +189,33 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     }
 
     plog.debug({ session: nextKey }, "agent session matched");
+    const watcher = provider.createWatcher(
+      next,
+      (info) => {
+        updateServerMetadata(entry, terminalId, (m) => {
+          // Widen Info to AgentInfo — every concrete Info variant is a
+          // member of the AgentInfo discriminated union by construction
+          // (its schema is one of the union's branches). The cast lives
+          // at the sole metadata-write site for agent info, so widening
+          // is confined to this one line rather than smeared across
+          // every provider.
+          m.agent = info as unknown as AgentInfo;
+        });
+      },
+      plog,
+    );
     current = {
       key: nextKey,
-      watcher: provider.createWatcher(
-        next,
-        (info) => {
-          updateServerMetadata(entry, terminalId, (m) => {
-            // Widen Info to AgentInfo — every concrete Info variant is a
-            // member of the AgentInfo discriminated union by construction
-            // (its schema is one of the union's branches). The cast lives
-            // at the sole metadata-write site for agent info, so widening
-            // is confined to this one line rather than smeared across
-            // every provider.
-            m.agent = info as unknown as AgentInfo;
-          });
+      cleanup: trackDiagnosticCleanup(
+        {
+          kind: "subscription",
+          label: `${provider.kind} session watcher`,
+          owner: "server:agent",
+          target: nextKey,
+          details: { terminalId },
         },
-        plog,
+        () => watcher.destroy(),
       ),
-      untrack: trackDiagnosticResource({
-        kind: "subscription",
-        label: `${provider.kind} session watcher`,
-        owner: "server:agent",
-        target: nextKey,
-        details: { terminalId },
-      }),
     };
   }
 
@@ -232,8 +232,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
-    current?.watcher.destroy();
-    current?.untrack();
+    current?.cleanup();
     plog.debug("stopped");
   };
 }

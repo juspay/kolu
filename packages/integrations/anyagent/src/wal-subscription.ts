@@ -30,7 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import type { Logger } from "./index.ts";
 
 /** Per-listener record tracked in the singleton's Set. */
@@ -136,17 +136,16 @@ function tryWatchWal(
 ): (() => void) | null {
   try {
     const w = fs.watch(config.walPath, () => onChange());
-    const untrack = trackDiagnosticResource({
-      kind: "fs-watch",
-      label: `${config.label} WAL`,
-      owner: "anyagent",
-      target: config.walPath,
-      details,
-    });
-    return () => {
-      w.close();
-      untrack();
-    };
+    return trackDiagnosticCleanup(
+      {
+        kind: "fs-watch",
+        label: `${config.label} WAL`,
+        owner: "anyagent",
+        target: config.walPath,
+        details,
+      },
+      () => w.close(),
+    );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       // Non-ENOENT (EACCES, EMFILE, etc.) means state detection for
@@ -178,7 +177,7 @@ function installWalWatcher(
   // to the WAL file once it appears.
   let promoted: (() => void) | null = null;
   let dirWatcher: fs.FSWatcher | null = null;
-  let untrackDir: (() => void) | null = null;
+  let cleanupDir: (() => void) | null = null;
   const dir = path.dirname(config.dbPath);
   try {
     dirWatcher = fs.watch(dir, () => {
@@ -186,21 +185,23 @@ function installWalWatcher(
       const walCleanup = tryWatchWal(onChange, config, log, details);
       if (!walCleanup) return;
       promoted = walCleanup;
-      dirWatcher?.close();
-      untrackDir?.();
+      cleanupDir?.();
       dirWatcher = null;
-      untrackDir = null;
+      cleanupDir = null;
       // Kick — WAL may already have data written between our first
       // attempt and the directory event.
       onChange();
     });
-    untrackDir = trackDiagnosticResource({
-      kind: "fs-watch",
-      label: `${config.label} DB directory`,
-      owner: "anyagent",
-      target: dir,
-      details,
-    });
+    cleanupDir = trackDiagnosticCleanup(
+      {
+        kind: "fs-watch",
+        label: `${config.label} DB directory`,
+        owner: "anyagent",
+        target: dir,
+        details,
+      },
+      () => dirWatcher?.close(),
+    );
   } catch (err) {
     // Same rationale as tryWatchWal's non-ENOENT branch: a watch
     // failure on the parent directory means we can never promote,
@@ -208,8 +209,7 @@ function installWalWatcher(
     log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
   }
   return () => {
-    dirWatcher?.close();
-    untrackDir?.();
+    cleanupDir?.();
     promoted?.();
   };
 }

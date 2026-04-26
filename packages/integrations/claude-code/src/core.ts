@@ -25,7 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { readTailLines } from "anyagent";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
@@ -394,17 +394,16 @@ export function tryWatchDir(
 ): (() => void) | null {
   try {
     const w = fs.watch(dir, () => onChange());
-    const untrack = trackDiagnosticResource({
-      kind: "fs-watch",
-      label: diagnostic?.label ?? "Claude directory",
-      owner: diagnostic?.owner ?? "kolu-claude-code",
-      target: dir,
-      details: diagnostic?.details,
-    });
-    return () => {
-      w.close();
-      untrack();
-    };
+    return trackDiagnosticCleanup(
+      {
+        kind: "fs-watch",
+        label: diagnostic?.label ?? "Claude directory",
+        owner: diagnostic?.owner ?? "kolu-claude-code",
+        target: dir,
+        details: diagnostic?.details,
+      },
+      () => w.close(),
+    );
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, dir }, "fs.watch failed");
@@ -437,34 +436,35 @@ export function watchOrWaitForDir(
 
   let child: (() => void) | null = null;
   let parentWatcher: fs.FSWatcher | null = null;
-  let untrackParent: (() => void) | null = null;
+  let cleanupParent: (() => void) | null = null;
   try {
     parentWatcher = fs.watch(path.dirname(dir), () => {
       if (child) return;
       const attached = tryWatchDir(dir, onChange, log, diagnostic);
       if (!attached) return;
       child = attached;
-      parentWatcher?.close();
-      untrackParent?.();
+      cleanupParent?.();
       parentWatcher = null;
-      untrackParent = null;
+      cleanupParent = null;
       // Kick — dir may already contain files (race: created between our
       // first attempt and the parent event).
       onChange();
     });
-    untrackParent = trackDiagnosticResource({
-      kind: "fs-watch",
-      label: `${diagnostic?.label ?? "Claude directory"} parent`,
-      owner: diagnostic?.owner ?? "kolu-claude-code",
-      target: path.dirname(dir),
-      details: { waitingFor: dir, ...(diagnostic?.details ?? {}) },
-    });
+    cleanupParent = trackDiagnosticCleanup(
+      {
+        kind: "fs-watch",
+        label: `${diagnostic?.label ?? "Claude directory"} parent`,
+        owner: diagnostic?.owner ?? "kolu-claude-code",
+        target: path.dirname(dir),
+        details: { waitingFor: dir, ...(diagnostic?.details ?? {}) },
+      },
+      () => parentWatcher?.close(),
+    );
   } catch (err) {
     log?.debug({ err, dir }, "fs.watch parent fallback failed");
   }
   return () => {
-    parentWatcher?.close();
-    untrackParent?.();
+    cleanupParent?.();
     child?.();
   };
 }

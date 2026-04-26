@@ -39,7 +39,7 @@ import { getPendingSummaryFetches } from "kolu-claude-code";
 import type { ServerDiagnostics } from "kolu-common";
 import {
   diagnosticResourcesSnapshot,
-  trackDiagnosticResource,
+  trackDiagnosticCleanup,
 } from "kolu-runtime-diagnostics";
 import { log } from "./log.ts";
 import { publisherSize } from "./publisher.ts";
@@ -145,9 +145,9 @@ export function startDiagnostics(): void {
   // server/src/index.ts` from a dev shell). The wrapper normally cds
   // into $KOLU_DIAG_DIR, but we shouldn't rely on that coupling for
   // the one path we control.
-  let untrackBaselineTimer = () => {};
+  let cleanupBaselineTimer = () => {};
   const baselineTimer = setTimeout(() => {
-    untrackBaselineTimer();
+    cleanupBaselineTimer();
     const snapshotPath = path.join(diagDir, "baseline.heapsnapshot");
     try {
       v8.writeHeapSnapshot(snapshotPath);
@@ -157,13 +157,16 @@ export function startDiagnostics(): void {
     }
   }, BASELINE_DELAY_MS);
   baselineTimer.unref();
-  untrackBaselineTimer = trackDiagnosticResource({
-    kind: "timer",
-    label: "diagnostics baseline heap snapshot",
-    owner: "server:diagnostics",
-    target: diagDir,
-    details: { delayMs: BASELINE_DELAY_MS },
-  });
+  cleanupBaselineTimer = trackDiagnosticCleanup(
+    {
+      kind: "timer",
+      label: "diagnostics baseline heap snapshot",
+      owner: "server:diagnostics",
+      target: diagDir,
+      details: { delayMs: BASELINE_DELAY_MS },
+    },
+    () => clearTimeout(baselineTimer),
+  );
 
   // Periodic subsystem stats. `unref` so the interval doesn't keep the
   // process alive on its own — if the server exits, the interval dies
@@ -173,13 +176,16 @@ export function startDiagnostics(): void {
     log.info(sample(), "diag");
   }, DIAG_INTERVAL_MS);
   sampleTimer.unref();
-  trackDiagnosticResource({
-    kind: "timer",
-    label: "diagnostics sampler",
-    owner: "server:diagnostics",
-    target: diagDir,
-    details: { intervalMs: DIAG_INTERVAL_MS },
-  });
+  trackDiagnosticCleanup(
+    {
+      kind: "timer",
+      label: "diagnostics sampler",
+      owner: "server:diagnostics",
+      target: diagDir,
+      details: { intervalMs: DIAG_INTERVAL_MS },
+    },
+    () => clearInterval(sampleTimer),
+  );
 
   // Emit one immediate sample so the log timeline has a T+0 row to
   // anchor the curve. The interval will tick again at T+5min.

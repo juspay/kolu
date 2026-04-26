@@ -75,6 +75,23 @@ export function trackDiagnosticResource(
   };
 }
 
+export function trackDiagnosticCleanup(
+  input: TrackDiagnosticResourceInput,
+  cleanup: () => void,
+): () => void {
+  const untrack = trackDiagnosticResource(input);
+  let cleaned = false;
+  return () => {
+    if (cleaned) return;
+    cleaned = true;
+    try {
+      cleanup();
+    } finally {
+      untrack();
+    }
+  };
+}
+
 export function diagnosticResourcesSnapshot(
   now = Date.now(),
 ): DiagnosticResourceSnapshot[] {

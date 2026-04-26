@@ -11,7 +11,7 @@
 
 import fs from "node:fs";
 import { agentInfoEqual, type Logger } from "anyagent";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import { match } from "ts-pattern";
 import {
   deriveState,
@@ -54,8 +54,7 @@ type TranscriptWatching =
   | {
       kind: "watching";
       path: string;
-      fileWatcher: fs.FSWatcher;
-      untrack: () => void;
+      cleanup: () => void;
     };
 
 // --- Logger interface ---
@@ -120,10 +119,7 @@ export function createSessionWatcher(
     match(transcriptWatching)
       .with({ kind: "none" }, () => {})
       .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ fileWatcher, untrack }) => {
-        fileWatcher.close();
-        untrack();
-      })
+      .with({ kind: "watching" }, ({ cleanup }) => cleanup())
       .exhaustive();
     transcriptWatching = { kind: "none" };
   }
@@ -145,14 +141,17 @@ export function createSessionWatcher(
   function attachTranscriptWatcher(tp: string) {
     try {
       const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
-      const untrack = trackDiagnosticResource({
-        kind: "fs-watch",
-        label: "Claude transcript",
-        owner: "kolu-claude-code",
-        target: tp,
-        details: { sessionId: session.sessionId },
-      });
-      transcriptWatching = { kind: "watching", path: tp, fileWatcher, untrack };
+      const cleanup = trackDiagnosticCleanup(
+        {
+          kind: "fs-watch",
+          label: "Claude transcript",
+          owner: "kolu-claude-code",
+          target: tp,
+          details: { sessionId: session.sessionId },
+        },
+        () => fileWatcher.close(),
+      );
+      transcriptWatching = { kind: "watching", path: tp, cleanup };
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };

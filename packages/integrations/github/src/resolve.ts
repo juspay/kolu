@@ -7,7 +7,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "anyagent";
-import { trackDiagnosticResource } from "kolu-runtime-diagnostics";
+import { trackDiagnosticCleanup } from "kolu-runtime-diagnostics";
 import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
 import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 
@@ -170,24 +170,26 @@ export function subscribeGitHubPr(
       void fetchAndEmit(lastRepoRoot);
     }
   }, POLL_INTERVAL_MS);
-  const untrackPollTimer = trackDiagnosticResource({
-    kind: "timer",
-    label: "GitHub PR poll",
-    owner: "kolu-github",
-    target: null,
-    details: () => ({
-      intervalMs: POLL_INTERVAL_MS,
-      branch: lastBranch,
-      repoRoot: lastRepoRoot,
-    }),
-  });
+  const cleanupPollTimer = trackDiagnosticCleanup(
+    {
+      kind: "timer",
+      label: "GitHub PR poll",
+      owner: "kolu-github",
+      target: null,
+      details: () => ({
+        intervalMs: POLL_INTERVAL_MS,
+        branch: lastBranch,
+        repoRoot: lastRepoRoot,
+      }),
+    },
+    () => clearInterval(pollTimer),
+  );
 
   return {
     setGit,
     stop: () => {
       stopped = true;
-      clearInterval(pollTimer);
-      untrackPollTimer();
+      cleanupPollTimer();
       log?.debug({ branch: lastBranch }, "stopped");
     },
   };
