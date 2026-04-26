@@ -371,10 +371,12 @@ function renderApplyPatch(patch: string): string {
   return wrapDiffCollapsible("", body, lines.length);
 }
 
-/** Threshold above which a diff renders collapsed by default with a
+/** Threshold above which a body renders collapsed by default with a
  *  "Show all N lines" toggle. Picked so a typical Edit (a handful of
  *  lines) renders fully, but a Write of a 200-line file collapses to
- *  a previewable height. */
+ *  a previewable height. The same threshold applies to user/assistant
+ *  prose so a giant slash-command body or essay-length reply doesn't
+ *  dominate the page. */
 const DIFF_COLLAPSE_THRESHOLD = 20;
 
 /** Wrap a diff body in chrome and, if it exceeds the line threshold,
@@ -389,6 +391,18 @@ function wrapDiffCollapsible(
     return `<div class="diff">${fileHeader}<pre class="diff-body">${body}</pre></div>`;
   }
   return `<div class="diff is-collapsed" data-line-count="${lineCount}">${fileHeader}<pre class="diff-body">${body}</pre><button type="button" class="diff-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
+}
+
+/** Wrap a rendered message body (user pre, assistant markdown, etc.) so
+ *  long content collapses to a scannable preview with a "Show all N
+ *  lines" toggle. Counts source-text newlines — for markdown this is a
+ *  reasonable proxy for rendered height since paragraphs/lists already
+ *  carry their separating blank lines in source. Below threshold the
+ *  body is returned unwrapped so short messages don't grow chrome. */
+function wrapMessageCollapsible(body: string, sourceText: string): string {
+  const lineCount = sourceText.split("\n").length;
+  if (lineCount <= DIFF_COLLAPSE_THRESHOLD) return body;
+  return `<div class="msg-collapsible is-collapsed" data-line-count="${lineCount}">${body}<button type="button" class="msg-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
 }
 
 /** Dispatch on toolName for the well-known edit tools; fall through to
@@ -497,7 +511,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       <span class="card-role">User</span>
       ${tsHtml}
     </header>
-    <pre class="card-text card-text--user">${escapeHtml(e.text)}</pre>
+    ${wrapMessageCollapsible(`<pre class="card-text card-text--user">${escapeHtml(e.text)}</pre>`, e.text)}
   </div>
 </section>`;
     })
@@ -515,7 +529,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       ${model}
       ${tsHtml}
     </header>
-    <div class="card-text card-text--assistant md">${renderMarkdown(e.text)}</div>
+    ${wrapMessageCollapsible(`<div class="card-text card-text--assistant md">${renderMarkdown(e.text)}</div>`, e.text)}
   </div>
 </section>`;
     })
@@ -586,6 +600,26 @@ function renderEvent(event: TranscriptEvent, index: number): string {
     </details>
   </div>
 </section>`;
+    })
+    .with({ kind: "subtask_start" }, (e) => {
+      const agentLabel = e.agentName
+        ? `<span class="subtask-agent">@${escapeHtml(e.agentName)}</span>`
+        : "";
+      const idLabel = e.sessionId
+        ? `<span class="subtask-id">${escapeHtml(e.sessionId.slice(0, 12))}</span>`
+        : "";
+      return `<div class="subtask-boundary subtask-boundary--start">
+  <span class="subtask-rule"></span>
+  <span class="subtask-label">Subtask${agentLabel ? " " : ""}${agentLabel}: ${escapeHtml(e.description)}${idLabel ? " " : ""}${idLabel}</span>
+  <span class="subtask-rule"></span>
+</div>`;
+    })
+    .with({ kind: "subtask_end" }, () => {
+      return `<div class="subtask-boundary subtask-boundary--end">
+  <span class="subtask-rule"></span>
+  <span class="subtask-label subtask-label--end">End subtask</span>
+  <span class="subtask-rule"></span>
+</div>`;
     })
     .exhaustive();
 }
@@ -1136,7 +1170,8 @@ const STYLE = `
     -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
     mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
   }
-  .diff-toggle {
+  .diff-toggle,
+  .msg-toggle {
     appearance: none;
     -webkit-appearance: none;
     background: var(--bg-elev);
@@ -1152,7 +1187,56 @@ const STYLE = `
     cursor: pointer;
     transition: color 0.12s ease, background 0.12s ease;
   }
-  .diff-toggle:hover { color: var(--accent); background: var(--bg-sunk); }
+  .diff-toggle:hover,
+  .msg-toggle:hover { color: var(--accent); background: var(--bg-sunk); }
+
+  /* Long prose messages collapse to a scannable preview. The first
+   * child carries the body (a pre for user, an md div for assistant);
+   * clip its height and fade its tail. */
+  .msg-collapsible.is-collapsed > :first-child {
+    max-height: 16rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
+  }
+
+  /* Subtask boundaries: a thin labeled divider that visually scopes the
+   * inlined child-session events between start/end markers. */
+  .subtask-boundary {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 1.25rem 0 0.5rem;
+  }
+  .subtask-boundary--end { margin: 0.5rem 0 1.5rem; }
+  .subtask-rule {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--rule-strong), transparent);
+  }
+  .subtask-label {
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .subtask-label--end { color: var(--ink-3); }
+  .subtask-agent {
+    color: var(--accent);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .subtask-id {
+    color: var(--ink-3);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.625rem;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: 0.375rem;
+  }
 
   /* Tool events: bronze accent, hidden by default. */
   body[data-hide-tools="true"] .event--tool { display: none; }
@@ -1412,10 +1496,10 @@ const SCRIPT = `
     applyEdits(nextHide);
   });
 
-  // --- Long-diff expand toggle ---
-  document.querySelectorAll('.diff-toggle').forEach((btn) => {
+  // --- Long-content expand toggle (diffs + prose messages) ---
+  document.querySelectorAll('.diff-toggle, .msg-toggle').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const wrap = btn.closest('.diff');
+      const wrap = btn.closest('.diff, .msg-collapsible');
       if (!wrap) return;
       const lineCount = wrap.dataset.lineCount;
       const collapsed = wrap.classList.toggle('is-collapsed');

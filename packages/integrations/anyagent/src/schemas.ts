@@ -91,6 +91,24 @@ export const TranscriptEventSchema = z.discriminatedUnion("kind", [
     isError: z.boolean(),
     ts: z.number().nullable(),
   }),
+  /** Begin a nested subagent run inlined into the parent transcript.
+   *  Emitted by loaders that resolve cross-session references (e.g.
+   *  OpenCode's `task` tool, which spawns a child session whose full
+   *  activity would otherwise be invisible in the parent's export).
+   *  Pairs with `subtask_end`. */
+  z.object({
+    kind: z.literal("subtask_start"),
+    description: z.string(),
+    agentName: z.string().nullable(),
+    sessionId: z.string().nullable(),
+    ts: z.number().nullable(),
+  }),
+  /** Close a `subtask_start`. Loaders emit one per start; the renderer
+   *  uses the pair to scope visual indentation/grouping. */
+  z.object({
+    kind: z.literal("subtask_end"),
+    ts: z.number().nullable(),
+  }),
 ]);
 
 /** Pull request context attached to the export header. Lives on the

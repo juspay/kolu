@@ -276,6 +276,75 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("diff-add");
   });
 
+  it("collapses long user prompts behind a Show all N lines toggle", () => {
+    // A 50-line slash-command body shouldn't dominate the page. The
+    // wrapper carries the line count; the toggle button uses the same
+    // CSS class as the diff toggle so both share the JS handler.
+    const longPrompt = Array.from({ length: 50 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [{ kind: "user", text: longPrompt, ts: null }],
+      }),
+    );
+    expect(html).toContain('class="msg-collapsible is-collapsed"');
+    expect(html).toContain('data-line-count="50"');
+    expect(html).toContain("Show all 50 lines");
+    expect(html).toContain('class="msg-toggle"');
+  });
+
+  it("leaves short user prompts unwrapped", () => {
+    // The CSS + JS reference these class names, so we can't assert
+    // they're absent globally — check the wrapping attribute instead.
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [{ kind: "user", text: "just one line", ts: null }],
+      }),
+    );
+    expect(html).not.toContain('class="msg-collapsible');
+    expect(html).not.toContain('class="msg-toggle"');
+  });
+
+  it("collapses long assistant messages too", () => {
+    const longReply = Array.from({ length: 30 }, (_, i) => `para ${i}`).join(
+      "\n\n",
+    );
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [{ kind: "assistant", text: longReply, model: null, ts: null }],
+      }),
+    );
+    expect(html).toContain('class="msg-collapsible is-collapsed"');
+    expect(html).toContain('class="msg-toggle"');
+  });
+
+  it("renders subtask_start and subtask_end as visible boundary dividers", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          { kind: "user", text: "go", ts: null },
+          {
+            kind: "subtask_start",
+            description: "Lowy review",
+            agentName: "lowy",
+            sessionId: "ses_child987654321xx",
+            ts: null,
+          },
+          { kind: "user", text: "child prompt", ts: null },
+          { kind: "subtask_end", ts: null },
+        ],
+      }),
+    );
+    expect(html).toContain("subtask-boundary--start");
+    expect(html).toContain("subtask-boundary--end");
+    expect(html).toContain("Lowy review");
+    expect(html).toContain("@lowy");
+    // Truncated to 12 chars in the renderer.
+    expect(html).toContain("ses_child987");
+    expect(html).toContain("End subtask");
+  });
+
   it("renders apply_patch payloads as a colored unified diff", () => {
     const html = transcriptToHtml(
       makeTranscript({
