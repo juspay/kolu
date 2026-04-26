@@ -63,7 +63,6 @@ export interface CommandDeps {
   // Canvas — desktop only (always active there); hidden on mobile where
   // the canvas isn't mounted at all.
   canvasCenterActive: () => void;
-  toggleMinimap: () => void;
   isMobile: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
@@ -175,10 +174,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Center on active tile",
             keybind: SHORTCUTS.canvasCenterActive.keybind,
             onSelect: () => deps.canvasCenterActive(),
-          },
-          {
-            name: "Toggle minimap",
-            onSelect: () => deps.toggleMinimap(),
           },
         ]
       : []),

@@ -1,11 +1,8 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls.
- *  Two states: expanded (minimap visualization + zoom bar) and minimized
- *  (zoom bar only). Auto-hides the map when ≤2 tiles. */
+ *  Auto-hides the map when ≤2 tiles. */
 
-import { makePersisted } from "@solid-primitives/storage";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { MinimapIcon } from "../ui/Icons";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -23,15 +20,6 @@ const MAP_H = 120;
 const MAP_PAD = 100;
 /** Show full minimap only when tile count exceeds this. */
 const AUTO_SHOW_THRESHOLD = 2;
-
-/** Singleton expanded state — persisted across reloads. */
-const [expanded, setExpanded] = makePersisted(createSignal(true), {
-  name: "kolu-minimap-expanded",
-});
-
-export function toggleMinimap() {
-  setExpanded((v) => !v);
-}
 
 const CanvasMinimap: Component<{
   tileIds: string[];
@@ -114,7 +102,7 @@ const CanvasMinimap: Component<{
 
   // ── Whether to show the full minimap or just the zoom bar ──
   const shouldShowMap = createMemo(
-    () => expanded() && props.tileIds.length > AUTO_SHOW_THRESHOLD,
+    () => props.tileIds.length > AUTO_SHOW_THRESHOLD,
   );
 
   // ── Viewport rect drag ──
@@ -177,7 +165,6 @@ const CanvasMinimap: Component<{
   return (
     <div
       data-testid="canvas-minimap"
-      data-expanded={shouldShowMap() ? "" : undefined}
       class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px"
     >
       {/* Minimap visualization */}
@@ -293,18 +280,6 @@ const CanvasMinimap: Component<{
         }}
         style={shouldShowMap() ? { width: `${mapDims().w}px` } : undefined}
       >
-        {/* Minimap toggle */}
-        <button
-          type="button"
-          data-testid="minimap-toggle"
-          class="flex items-center justify-center w-8 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer"
-          classList={{ "text-accent": expanded() }}
-          title="Toggle minimap"
-          onClick={() => toggleMinimap()}
-        >
-          <MinimapIcon class="w-3.5 h-3.5" />
-        </button>
-        <div class="w-px h-5 bg-edge/30" />
         <button
           type="button"
           class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer text-sm font-medium"
