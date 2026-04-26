@@ -9,7 +9,6 @@ import {
   type Component,
   createMemo,
   createResource,
-  createSignal,
   For,
   Match,
   Show,
@@ -120,12 +119,6 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     if (e === undefined) return null;
     return e instanceof Error ? e.message : String(e);
   };
-
-  // `Recent events` is collapsed by default — it's a long debug-only list
-  // that pushes everything else off-screen. Persistence is intentionally
-  // not a preference: the toggle is per-dialog-open, mirroring the
-  // ephemeral-modal contract everything else here follows.
-  const [recentEventsOpen, setRecentEventsOpen] = createSignal(false);
 
   const snapshot = createMemo(() => {
     const webgl = webglLifecycleSnapshot();
@@ -505,46 +498,40 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </div>
           </Show>
           <Show when={snapshot().webgl.recentEvents.length > 0}>
-            <div class="mt-2 pt-2 border-t border-edge/50">
-              <button
-                type="button"
-                class="w-full flex items-baseline justify-between text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                onClick={() => setRecentEventsOpen((v) => !v)}
-                aria-expanded={recentEventsOpen()}
-              >
+            <details class="mt-2 pt-2 border-t border-edge/50 group">
+              <summary class="text-[10px] text-fg-3/70 hover:text-fg-2 transition-colors cursor-pointer list-none flex items-baseline justify-between focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm">
                 <span>
                   Recent events ({snapshot().webgl.recentEvents.length})
                 </span>
-                <span class="font-mono text-fg-3/60">
-                  {recentEventsOpen() ? "−" : "+"}
+                <span class="font-mono text-fg-3/60 group-open:hidden">+</span>
+                <span class="font-mono text-fg-3/60 hidden group-open:inline">
+                  −
                 </span>
-              </button>
-              <Show when={recentEventsOpen()}>
-                <div class="mt-1 space-y-0.5 text-[10px] font-mono">
-                  <For each={snapshot().webgl.recentEvents}>
-                    {(ev) => (
-                      <div class="flex items-baseline gap-2 whitespace-nowrap">
-                        <span class="text-fg-3/60 tabular-nums shrink-0">
-                          {new Date(ev.ts).toISOString().slice(11, 23)}
-                        </span>
-                        <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
-                          #{ev.canvasId}
-                        </span>
-                        <span class="text-fg-2">
-                          {ev.kind}
-                          {ev.kind === "contextlost" && (
-                            <span class="text-fg-3/70">
-                              {" "}
-                              (defaultPrevented={String(ev.defaultPrevented)})
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            </div>
+              </summary>
+              <div class="mt-1 space-y-0.5 text-[10px] font-mono">
+                <For each={snapshot().webgl.recentEvents}>
+                  {(ev) => (
+                    <div class="flex items-baseline gap-2 whitespace-nowrap">
+                      <span class="text-fg-3/60 tabular-nums shrink-0">
+                        {new Date(ev.ts).toISOString().slice(11, 23)}
+                      </span>
+                      <span class="text-fg-3 tabular-nums w-[5ch] shrink-0">
+                        #{ev.canvasId}
+                      </span>
+                      <span class="text-fg-2">
+                        {ev.kind}
+                        {ev.kind === "contextlost" && (
+                          <span class="text-fg-3/70">
+                            {" "}
+                            (defaultPrevented={String(ev.defaultPrevented)})
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </details>
           </Show>
         </Section>
       </div>
