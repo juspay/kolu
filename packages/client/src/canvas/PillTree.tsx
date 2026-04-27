@@ -79,7 +79,7 @@ const PillTree: Component<{
         // against a solid panel instead of through to the canvas grid.
         // Padding stays applied at rest too — adding it only on hover
         // would shift the pills downward at the moment of hover.
-        class="flex flex-nowrap items-start justify-center gap-x-2 px-3 py-2 rounded-xl transition-[opacity,background-color] duration-150 group-hover/pill-tree:opacity-100 group-hover/pill-tree:bg-surface-1"
+        class="flex flex-nowrap items-start justify-center gap-x-2 px-3 py-2 rounded-xl bg-transparent transition-[opacity,background-color] duration-150 group-hover/pill-tree:opacity-100 group-hover/pill-tree:bg-surface-1"
         classList={{
           // Deeper recess in maximized mode: the user is focused on
           // one tile, the tree is a peripheral nav affordance; but it
