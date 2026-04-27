@@ -60,6 +60,7 @@ declare global {
         ): { translateToString(trim: boolean): string } | undefined;
       };
     };
+    selectAll(): void;
   }
 
   /** xterm's per-container reference. `Terminal.tsx` attaches the xterm

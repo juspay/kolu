@@ -1,8 +1,16 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollUntil } from "../support/poll.ts";
 import type { KoluWorld } from "../support/world.ts";
+
+/** JSON-stringified form of the SIGINT control byte (0x03) — what oRPC's
+ *  `sendInput({ data: "\x03" })` ends up transmitting on the wire. */
+const SIGINT_JSON_ESCAPE = '"data":"\\u0003"';
 
 async function clearClipboard(world: KoluWorld) {
   await world.page
@@ -225,6 +233,47 @@ Given("I intercept oRPC sendInput calls", async function (this: KoluWorld) {
     };
   });
 });
+
+When("I select all terminal output", async function (this: KoluWorld) {
+  await this.page.evaluate((sel) => {
+    const el = document.querySelector(sel) as HTMLDivElement | null;
+    if (!el?.__xterm) throw new Error(`no __xterm on ${sel}`);
+    el.__xterm.selectAll();
+  }, ACTIVE_TERMINAL);
+  await this.waitForFrame();
+});
+
+Then(
+  "a sendInput call should contain the SIGINT byte",
+  async function (this: KoluWorld) {
+    const messages: string[] = await this.page.evaluate(
+      () => window.__wsSent ?? [],
+    );
+    const found = messages.some(
+      (msg) => msg.includes("sendInput") && msg.includes(SIGINT_JSON_ESCAPE),
+    );
+    assert.ok(
+      found,
+      `Expected a sendInput call carrying SIGINT (\\u0003), got ${messages.length} messages: ${messages.join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "no sendInput call should contain the SIGINT byte",
+  async function (this: KoluWorld) {
+    const messages: string[] = await this.page.evaluate(
+      () => window.__wsSent ?? [],
+    );
+    for (const msg of messages) {
+      if (!msg.includes("sendInput")) continue;
+      assert.ok(
+        !msg.includes(SIGINT_JSON_ESCAPE),
+        `SIGINT leaked via sendInput: ${msg}`,
+      );
+    }
+  },
+);
 
 Then(
   "no sendInput call should contain {string} {string} {string}",

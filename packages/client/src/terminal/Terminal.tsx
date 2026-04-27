@@ -27,8 +27,9 @@ import {
   runWithOwner,
   Show,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider } from "./clipboard";
+import { SafeClipboardProvider, writeTextToClipboard } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
@@ -536,9 +537,26 @@ const Terminal: Component<{
               return false;
             }
 
+            // Ctrl+C with selection: copy. Without selection → fall through
+            // so xterm sends SIGINT (0x03) and interrupts the running process.
+            const key = e.key.toLowerCase();
+            if (
+              e.ctrlKey &&
+              !e.shiftKey &&
+              !e.altKey &&
+              key === "c" &&
+              term.hasSelection()
+            ) {
+              void writeTextToClipboard(term.getSelection()).catch(
+                (err: Error) => toast.error(`Copy failed: ${err.message}`),
+              );
+              term.clearSelection();
+              return false;
+            }
+
             // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
             // paste listener uploads images; xterm's own paste handler covers text.
-            if (e.ctrlKey && e.key === "v") return false;
+            if (e.ctrlKey && key === "v") return false;
 
             // Let any registered app shortcut bubble through to the capture-phase dispatcher
             if (matchesAnyShortcut(e)) return false;
