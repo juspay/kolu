@@ -27,6 +27,7 @@ import {
   runWithOwner,
   Show,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { SafeClipboardProvider, writeTextToClipboard } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
@@ -548,7 +549,9 @@ const Terminal: Component<{
               e.key === "c" &&
               term.hasSelection()
             ) {
-              void writeTextToClipboard(term.getSelection()).catch(() => {});
+              void writeTextToClipboard(term.getSelection()).catch(
+                (err: Error) => toast.error(`Copy failed: ${err.message}`),
+              );
               term.clearSelection();
               return false;
             }
