@@ -537,12 +537,8 @@ const Terminal: Component<{
               return false;
             }
 
-            // Linux/Windows Ctrl+C with selection: copy and suppress SIGINT.
-            // No selection → fall through so xterm sends SIGINT (0x03) as before.
-            // The metaKey branch above early-returns on macOS Cmd+C, so this
-            // branch only reaches non-Mac Ctrl+C in practice — the explicit
-            // `!isMac` guard is redundant.
-            // toLowerCase() so CapsLock-on (e.key === "C") still matches.
+            // Ctrl+C with selection: copy. Without selection → fall through
+            // so xterm sends SIGINT (0x03) and interrupts the running process.
             const key = e.key.toLowerCase();
             if (
               e.ctrlKey &&
