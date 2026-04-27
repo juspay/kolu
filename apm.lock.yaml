@@ -37,11 +37,10 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: f71ce4a8fec9a6dc63f61b2c40f4129fa57378b1
+  resolved_commit: d0dacfd7efdf6c8318e41a642e6a2dfa99cdbace
   resolved_ref: master
   package_type: apm_package
   deployed_files:
-  - .agents/skills/agency-setup
   - .agents/skills/code-police
   - .agents/skills/do
   - .agents/skills/elegance
@@ -55,7 +54,6 @@ dependencies:
   - .claude/agents/lowy.md
   - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
-  - .claude/skills/agency-setup
   - .claude/skills/code-police
   - .claude/skills/do
   - .claude/skills/elegance
@@ -70,7 +68,6 @@ dependencies:
   - .codex/hooks/agency/scripts/do-stop-guard.sh
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
-  - .opencode/skills/agency-setup
   - .opencode/skills/code-police
   - .opencode/skills/do
   - .opencode/skills/elegance
@@ -90,7 +87,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:d399274863e9a31c241a705aebc838af8421b4ca525e7fb499f6d32825e5438e
+  content_hash: sha256:1cff1cca24ff3b5427dfe996a32c431fef98756154910d4e8c62704372a00be7
 mcp_servers:
 - chrome-devtools
 mcp_configs:
