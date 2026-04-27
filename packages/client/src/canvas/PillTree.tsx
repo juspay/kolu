@@ -74,7 +74,12 @@ const PillTree: Component<{
         // happens INSIDE each repo (chunkBranches → multi-row grid),
         // and that overflow is hidden at rest by a max-height cap on
         // the rows container below — only revealed on hover.
-        class="flex flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150 group-hover/pill-tree:opacity-100"
+        //
+        // Hover paints a surface-1 backdrop so the expanded rows read
+        // against a solid panel instead of through to the canvas grid.
+        // Padding stays applied at rest too — adding it only on hover
+        // would shift the pills downward at the moment of hover.
+        class="flex flex-nowrap items-start justify-center gap-x-2 px-3 py-2 rounded-xl transition-[opacity,background-color] duration-150 group-hover/pill-tree:opacity-100 group-hover/pill-tree:bg-surface-1"
         classList={{
           // Deeper recess in maximized mode: the user is focused on
           // one tile, the tree is a peripheral nav affordance; but it
