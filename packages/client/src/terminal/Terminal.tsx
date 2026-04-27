@@ -28,12 +28,13 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider } from "./clipboard";
+import { SafeClipboardProvider, writeTextToClipboard } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
 import { matchesAnyShortcut } from "../input/keyboard";
+import { isMac } from "../input/platform";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { client, stream } from "../rpc/rpc";
@@ -533,6 +534,22 @@ const Terminal: Component<{
             if (e.metaKey) {
               const key = e.key.toLowerCase();
               if ((key === "c" || key === "v") && !e.shiftKey) return true;
+              return false;
+            }
+
+            // Linux/Windows Ctrl+C with selection: copy and suppress SIGINT.
+            // No selection → fall through so xterm sends SIGINT (0x03) as before.
+            // Mirrors macOS Cmd+C semantics on platforms where Ctrl+Shift+C is taken.
+            if (
+              !isMac &&
+              e.ctrlKey &&
+              !e.shiftKey &&
+              !e.altKey &&
+              e.key === "c" &&
+              term.hasSelection()
+            ) {
+              void writeTextToClipboard(term.getSelection()).catch(() => {});
+              term.clearSelection();
               return false;
             }
 
