@@ -35,7 +35,6 @@ import type { TerminalId } from "kolu-common";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
 import { matchesAnyShortcut } from "../input/keyboard";
-import { isMac } from "../input/platform";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { client, stream } from "../rpc/rpc";
@@ -540,9 +539,10 @@ const Terminal: Component<{
 
             // Linux/Windows Ctrl+C with selection: copy and suppress SIGINT.
             // No selection → fall through so xterm sends SIGINT (0x03) as before.
-            // Mirrors macOS Cmd+C semantics on platforms where Ctrl+Shift+C is taken.
+            // The metaKey branch above early-returns on macOS Cmd+C, so this
+            // branch only reaches non-Mac Ctrl+C in practice — the explicit
+            // `!isMac` guard is redundant.
             if (
-              !isMac &&
               e.ctrlKey &&
               !e.shiftKey &&
               !e.altKey &&
